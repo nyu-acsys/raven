@@ -130,7 +130,7 @@ Pattern variables may be named after the fields they bind (`case cons(elem, tl) 
 
 We implement this extension (`lib/ext/arrayExt/`) for indexing the arrays of the standard library, the instances of `Library.Array`: `x := a[i]` and `var x := a[i]` read the entry at index `i`, `a[i] := v` writes it, and `a[i]` serves as a field location in `own(a[i], v)` and in the atomic operations of the standard library, as in `faa(a[i], 1)`, standing for `loc(a, i).value`. It adds no syntax of its own and is the reference implementation of claiming core constructs -- see [Claiming core constructs](#claiming-core-constructs-claim_expr-claim_basic_stmt-claim_location) below for how the API it uses works in general.
 
-The parser produces map lookups and updates for these, and turns `a[i] := v` into `a := a[i := v]`. The core type checker rejects them, as `a` is not a map, and the extension claims those whose `a` is an array. Type-checking a claimed construct produces the core field read or field write it stands for, and a claimed location is `loc(a, i).value`, so nothing of the extension remains after type checking, and every access to an entry is one atomic step, like a field access. Like a field, an entry is not an expression: `a[i]` anywhere else, and `a[i := v]` other than as `a[i] := v`, is reported as an error by the extension.
+The parser produces calls to `_[_]` and `_[_:=_]` for these, and turns `a[i] := v` into `a := a[i := v]`. The core type checker rejects them, as `a` is not a map, and the extension claims those whose `a` is an array. Type-checking a claimed construct produces the core field read or field write it stands for, and a claimed location is `loc(a, i).value`, so nothing of the extension remains after type checking, and every access to an entry is one atomic step, like a field access. Like a field, an entry is not an expression: `a[i]` anywhere else, and `a[i := v]` other than as `a[i] := v`, is reported as an error by the extension.
 
 ```
 proc swap(a: A.T, i: Int, j: Int, implicit ghost vi: Int, implicit ghost vj: Int)
@@ -145,15 +145,17 @@ proc swap(a: A.T, i: Int, j: Int, implicit ghost vi: Int, implicit ghost vj: Int
 }
 ```
 
-### Set Extension
+### Set Operators
 
-We implement this extension (`lib/ext/setExt/`) to give the set operators `++`, `**`, `--`, `subseteq` and `choose` their meaning, as the operations of the standard library's `Library.Sets[E]`: union, intersection, difference and subset are `inline` functions over pointwise comprehensions, which the SMT solver handles with its theory of arrays, and `choose` is a function with an axiom. The core keeps the operators' syntax but gives them no meaning; it types their operands and offers them to `claim_expr`, and the extension claims them on sets.
+Set operators are ordinary overloaded functions in `Library.Sets[E]`, imported by the standard prelude. The parser translates `++`, `**`, `--`, `subseteq`, `choose`, and membership `in` applications to ordinary function calls; `e !in s` negates the call `in(e, s)`. Function signatures select finite results: unions of finite sets, intersections with a finite set, and differences from a finite set remain finite. Inline definitions expose pointwise comprehensions to the SMT solver; finite wrappers retain the existing `fin_union`, `fin_inter`, and `fin_diff` contracts. There is no set extension.
 
-The extension types a claimed operation the way the core did, including when its result is a finite set (`FinSet`): a union of finite sets, an intersection with a finite set, and a difference from a finite set are finite. It keeps its construct until extension constructs are lowered, after type checking, since the front end may type a construct again, and a call of a library function is typed by the function's signature. For the same reason, a finite result is lowered to one of `Library.Sets`' `fin_union`, `fin_inter` or `fin_diff`, whose signatures say that it is finite.
+### Collection Notation
 
-### Sequence Extension
+Collection enumeration literals are core syntax. An empty literal calls its empty pattern, a singleton calls its one-hole pattern, and a longer literal combines singleton calls with `++`. The library supplies `[||]` and `[|_|]` for sequences, `<||>` and `<|_|>` for lists, and `{||}` and `{|_|}` for finite sets. Expected types flow into the pattern calls, including nested empty literals. User-defined matching bracket runs use the same mechanism.
 
-We implement this extension (`lib/ext/seqExt/`) for the operators on the sequences of the standard library's `Library.Seq`, after Viper's: `s ++ t` appends, `s[i]` is the entry at index `i`, `s[i := e]` replaces it, and `e in s` says whether `e` is an entry. The parser produces the core's set union, map lookup and update, and membership for these, which the core rejects on a sequence and offers to `claim_expr`. The extension claims them and type-checks them as calls of `append`, `index`, `update` and `contains` of the sequence's instance of `Library.Seq`. As a sequence is a value, `s[i]` is an expression, unlike an array entry, and `s[i] := e` assigns `s[i := e]` to `s`. Its grammar fragment, `seqExt_parser.mly`, adds the literal `[|e1, ..., en|]` to the core's `compr_expr`, and the slices `s[..n]`, `s[n..]` and `s[m..n]` to the core's `lookup_or_update_opt`, both of which are `%public` for this. A slice is typed as a call of `take` or `drop`, with `s[m..n]` as `s[..n][m..]`, as in Viper. The literal is typed as the sequence built from `singleton` and `append` of the instance of the expected type, or, where no sequence type is expected, of the instance inferred from the entries.
+Enumeration composition associates to the right. Finite-set constructors wrap the native `finset()` and `finset(e)` primitives; these retain their direct empty/singleton SMT encoding. The generic literal machinery replaces the sequence extension.
+
+Sequence membership, append, ranges, indexing, and updates are ordinary library functions, resolved through the same lexical overload lookup as other calls. `SeqSpec` exports the enumeration patterns, `in`, `++`, `_[_.._]`, `_[.._]`, `_[_..]`, `_[_]`, and `_[_:=_]`; sealed `Library.Seq` instances inherit their inline definitions. The bounded range preserves `s[lo..hi] == drop(take(s, hi), lo)`, including boundary behavior. Lists declare recursive membership and concatenation in `Library.List`. These operations need no extension constructs.
 
 ### ErrorCredits Extension (`eris`)
 We implement this extension to add support for reasoning about Error-credits, and probablistic programs. This extension can be enabled with the:
@@ -308,6 +310,8 @@ The API contains the following functions in the AstDef section:
   val type_ext_to_name : (Type.type_ext -> string)
 
   val expr_ext_to_string : (Expr.expr_ext -> string)
+  val expr_ext_is_literal : Expr.expr_ext -> bool
+  val expr_ext_literal_accepts_type : Expr.expr_ext -> Type.t -> bool Rewriter.t
 
   val pr_basic_stmt_ext : Stdlib.Format.formatter -> Stmt.stmt_ext -> expr list -> unit
   val contract_ext_to_string : Stmt.contract_ext -> string
@@ -330,6 +334,10 @@ The API contains the following functions in the AstDef section:
 ```
 
 These functions are used in Raven's AST to be able to print the new constructs, or collect certain information about statements, such as local variables and fields accessed.
+
+`expr_ext_is_literal` identifies extension expressions that can adopt an expected type during overload resolution. Return `false` for expressions whose nominal type is fixed by their operands; the default implementation returns `false`. Collection enumeration literals use the core AST and do not need this hook.
+
+`expr_ext_literal_accepts_type` filters candidate parameter types when an extension literal's type is unresolved. It must perform only read-only checks. An extension can reject types incompatible with its literal's syntax. Unconstrained parameter types remain acceptable; the default implementation returns `true`.
 
 In each of these functions, the programmer is expected to case match on the corresponding extension argument (type_ext/expr_ext/stmt_ext/contract_ext), and match for all the cases that are declared in this extension. For any unknown case, the extension is required to defer to the remaining extensions by calling the same functionality from the `Cont` module.
 
@@ -512,7 +520,7 @@ Unlike the other hooks, the base of the chain implements this one for real rathe
 
 #### Claiming core constructs (`claim_expr`, `claim_basic_stmt`, `claim_location`)
 
-An extension can give a meaning to core syntax whose core meaning doesn't apply, such as indexing `a[i]` into something other than a map. The parser can't tell the two apart, so it produces the core construct, and the type checker decides:
+An extension can give a meaning to core syntax whose core meaning doesn't apply, such as indexing `a[i]` into something other than a map. The parser can't tell the two apart, so it produces an unresolved indexing call, and the type checker decides:
 
 ```ocaml
   val claim_expr :
@@ -525,9 +533,9 @@ An extension can give a meaning to core syntax whose core meaning doesn't apply,
   val claim_location : expr -> (expr * qual_ident) option Rewriter.t
 ```
 
-The core offers a construct to these hooks only where its own rule rejects it: a map lookup `e1[e2]` or update `e1[e2 := e3]` whose `e1` is not of map type, a membership `e1 in e2` whose `e2` is not a set, and the set operators `++`, `**`, `--`, `subseteq` and `choose`, which the core gives no meaning at all (`claim_expr`), and an assignment `x := e1[e2]` or `x := e1[e2 := e3]` whose `e1` is not of map type (`claim_basic_stmt`). The parser turns an indexed assignment `x[i] := v` into `x := x[i := v]`, so it reaches `claim_basic_stmt` in that form. An extension that takes responsibility returns a constructor of its own with its operands. From then on the construct is the extension's: it is type-checked by its `type_check_expr` or `type_check_basic_stmt`, so any further error is reported by the extension, and it is lowered by its `rewrite_*_ext` like any other construct of the extension. Returning `None` leaves the construct to the core, which reports its own error.
+The core offers indexing constructs to these hooks when their operand is not of map type: a lookup `e1[e2]` or update `e1[e2 := e3]` whose `e1` is not of map type (`claim_expr`), and an assignment `x := e1[e2]` or `x := e1[e2 := e3]` whose `e1` is not of map type (`claim_basic_stmt`). The parser represents these as calls to `_[_]` and `_[_:=_]`; native `MapLookUp` and `MapUpdate` constructors are also supported. It turns an indexed assignment `x[i] := v` into `x := x[i := v]`, so it reaches `claim_basic_stmt` in that form. An extension that takes responsibility returns a constructor of its own with its operands. From then on the construct is the extension's: it is type-checked by its `type_check_expr` or `type_check_basic_stmt`, so any further error is reported by the extension, and it is lowered by its `rewrite_*_ext` like any other construct of the extension. Returning `None` leaves the construct to ordinary overload resolution or the native core rule.
 
-`claim_location` is different: it is offered an expression the core finds where it expects a field location `x.f` -- the location of an `own`, or the argument of a procedure's location parameter, such as that of `faa` -- currently a map lookup whose map operand is not of map type. An extension that takes responsibility answers with the reference and the field of the location the expression denotes, and the core continues exactly as if that location had been written, including solving the field argument of an implicitly instantiated functor such as the atomic operations'.
+`claim_location` is different: it is offered an expression the core finds where it expects a field location `x.f` -- the location of an `own`, or the argument of a procedure's location parameter, such as that of `faa` -- currently an indexed expression whose container is not of map type. An extension that takes responsibility answers with the reference and the field of the location the expression denotes, and the core continues exactly as if that location had been written, including solving the field argument of an implicitly instantiated functor such as the atomic operations'.
 
 Decide from what the construct is, for instance from the type of `e1`, without trying to type-check it. For `claim_expr` and `claim_location`, the operands the core typed to reject the construct are passed typed, the others as parsed. For `claim_basic_stmt`, the operands are as parsed and not yet disambiguated; type the ones you need with `disambiguate_and_check_expr` against `Type.any`. An extension combines its own answer with that of the continuation extension `Cont` using `ExtApi.combine_claims`, which reports a construct that both claim, so that no extension silently shadows another. `DefaultExt` claims nothing.
 
@@ -782,4 +790,3 @@ Every function you implement in your extension (`type_ext_to_name`, `type_check_
 1. [`bin/raven.ml`](../../bin/raven.ml) resolves the `--extension` flag to a `(module ExtApi.Ext)` via `Ext.module_map`, then converts it to an `ext_hooks` value via `Ext.to_ext_hooks` (in [ext.ml](../../lib/ext/ext.ml)) -- this is the *only* place a `module Ext : ExtApi.Ext` gets unpacked into plain data.
 2. That `ext_hooks` value is passed as an explicit `~ext_hooks` argument into `Typing.check_module` and `Rewrites.process_module_front`, which install it into the `Rewriter.t` monad's state via `Rewriter.eval ?ext_hooks`.
 3. From then on, any code running inside the `Rewriter.t` monad -- which is essentially all of type-checking and rewriting, including the code inside your own extension -- can read it back out with `Rewriter.current_printers` (for the printing/query functions) or by pattern-matching `Ast.Rewriter.ext_hooks`'s other fields directly. Extension code practically never needs to do this itself, since Raven only calls into `type_check_type_expr`/`rewrite_stmt_ext`/etc. *with* the relevant pieces of `ext_hooks` already applied (e.g. via the `type_check_*_functs` bundles, see [Typing](#typing) above) -- but it matters if your own implementation wants to print or log an AST fragment that might still contain another extension's constructs (see [Printing and logging from your extension](#printing-and-logging-from-your-extension)).
-

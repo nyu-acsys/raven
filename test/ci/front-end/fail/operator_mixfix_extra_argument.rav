@@ -1,0 +1,1 @@
+func _[.._](s: Int, hi: Int, extra: Int) returns (r: Int) { s + hi + extra }

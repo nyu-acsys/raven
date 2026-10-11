@@ -1,0 +1,26 @@
+interface PublicOperators[E: Library.Type] {
+  func ++(a: E, b: E) returns (r: E)
+    ensures r == a
+}
+
+module Operators[E: Library.Type] :> PublicOperators[E] {
+  func ++(a: Bool, b: Bool) returns (r: Bool) { a && b }
+  func ++(a: E, b: E) returns (r: E) { a }
+}
+module Client {
+  import Operators.++
+  proc check() {
+    assert Operators.++(1, 2) == 1;
+    assert 1 ++ 2 == 1;
+    assert Operators.++(true, false);
+    assert true ++ false;
+  }
+}
+
+module AllClient {
+  import Operators._
+  proc check() {
+    assert 1 ++ 2 == 1;
+    assert true ++ false;
+  }
+}

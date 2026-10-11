@@ -110,6 +110,20 @@ module ArrayExt (Cont : Ext) = struct
 
   (* Typing *)
 
+  let is_lookup_constr = function
+    | Expr.MapLookUp -> true
+    | Expr.Var name ->
+        QualIdent.is_local name
+        && String.equal (Ident.name (QualIdent.unqualify name)) "_[_]"
+    | _ -> false
+
+  let is_update_constr = function
+    | Expr.MapUpdate -> true
+    | Expr.Var name ->
+        QualIdent.is_local name
+        && String.equal (Ident.name (QualIdent.unqualify name)) "_[_:=_]"
+    | _ -> false
+
   let claim_expr (constr : Expr.constr) (expr_list : expr list)
       (expr_attr : Expr.expr_attr) =
     let open Rewriter.Syntax in
@@ -119,8 +133,9 @@ module ArrayExt (Cont : Ext) = struct
     in
     let* own =
       match (constr, expr_list) with
-      | MapLookUp, [ base; _ ] -> claim_if_array base ArrayEntry
-      | MapUpdate, [ base; _; _ ] -> claim_if_array base ArrayUpdate
+      | constr, [ base; _ ] when is_lookup_constr constr -> claim_if_array base ArrayEntry
+      | constr, [ base; _; _ ] when is_update_constr constr ->
+          claim_if_array base ArrayUpdate
       | _ -> Rewriter.return None
     in
     combine_claims expr_attr.expr_loc own (Cont.claim_expr constr expr_list expr_attr)
@@ -130,7 +145,7 @@ module ArrayExt (Cont : Ext) = struct
     let loc = Expr.to_loc expr in
     let* own =
       match expr with
-      | App (MapLookUp, [ base; index ], _) ->
+      | App (constr, [ base; index ], _) when is_lookup_constr constr ->
           let+ inst = typed_array_instance base in
           Option.map inst ~f:(fun inst ->
               (cell ~loc inst base index, member ~loc inst "value"))
@@ -150,22 +165,23 @@ module ArrayExt (Cont : Ext) = struct
       | Assign
           {
             assign_lhs = lhs;
-            assign_rhs = App (MapLookUp, [ base; index ], _);
+            assign_rhs = App (constr, [ base; index ], _);
             assign_is_init;
-          } ->
+          }
+        when is_lookup_constr constr ->
           claim_if_array base
             (ArrayRead { lhs; is_init = assign_is_init }, [ base; index ])
       | Assign
           {
             assign_lhs = lhs;
-            assign_rhs = App (MapUpdate, [ base; index; value ], _);
+            assign_rhs = App (constr, [ base; index; value ], _);
             assign_is_init;
-          } ->
+          }
+        when is_update_constr constr ->
           claim_if_array base
             (ArrayWrite { lhs; is_init = assign_is_init }, [ base; index; value ])
-      | VarDef
-          ({ var_init = Some (App ((MapLookUp | MapUpdate), base :: _, _)); _ } as var_def)
-        ->
+      | VarDef ({ var_init = Some (App (constr, base :: _, _)); _ } as var_def)
+        when is_lookup_constr constr || is_update_constr constr ->
           claim_if_array base (ArrayVarDef var_def, [])
       | _ -> Rewriter.return None
     in
@@ -237,7 +253,7 @@ module ArrayExt (Cont : Ext) = struct
         | _ -> not_a_value_error loc)
     | ArrayVarDef var_def, [] -> (
         match var_def.var_init with
-        | Some (App (MapLookUp, [ base; _ ], _)) ->
+        | Some (App (constr, [ base; _ ], _)) when is_lookup_constr constr ->
             (* The variable's type, unless declared, is the arrays' element type; the
                read that initializes it is an assignment of its own. *)
             let* inst = array_instance_exn base in

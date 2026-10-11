@@ -1,0 +1,13 @@
+func count(n: Int) returns (r: Int)
+  decreases n
+{ n > 0 ? 1 + count(n - 1) : 0 }
+func count(b: Bool) returns (r: Bool) { b }
+
+module Alias {
+  import count
+  func invoke(b: Bool) returns (r: Bool) { count(b) }
+}
+proc check() {
+  assert count(true);
+  assert Alias.invoke(true);
+}

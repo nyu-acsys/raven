@@ -28,21 +28,14 @@ module MatchExtInstance = MatchExt.MatchExt (AssertWithExtInstance)
    arrays are part of the standard library, whichever extension is active. *)
 module ArrayExtInstance = ArrayExt.ArrayExt (MatchExtInstance)
 
-(* SetExt gives the set operators their meaning, as the operations of `Library.Sets`,
-   so it is folded in unconditionally as well. *)
-module SetExtInstance = SetExt.SetExt (ArrayExtInstance)
-
-(* SeqExt gives the core's operators their meaning on the sequences of `Library.Seq`. *)
-module SeqExtInstance = SeqExt.SeqExt (SetExtInstance)
-
 (* Core Raven *)
-module RavenCore : ExtApi.Ext = SeqExtInstance
+module RavenCore : ExtApi.Ext = ArrayExtInstance
 
 (* ProphecyExt *)
-module ProphecyExtInstance = ProphecyExt.ProphecyExt (SeqExtInstance)
+module ProphecyExtInstance = ProphecyExt.ProphecyExt (ArrayExtInstance)
 
 (* ErrorCredits *)
-module ErrorCreditsExtInstance = ErrorCreditsExt.ErrorCreditsExt (SeqExtInstance)
+module ErrorCreditsExtInstance = ErrorCreditsExt.ErrorCreditsExt (ArrayExtInstance)
 module SampleExtInstance = SampleExt.SampleExt (ErrorCreditsExtInstance)
 
 let module_map ext =
@@ -316,6 +309,8 @@ let to_ext_hooks (ext : (module ExtApi.Ext)) : Ast.Rewriter.ext_hooks =
   {
     type_ext_to_name = Ext.type_ext_to_name;
     expr_ext_to_string = Ext.expr_ext_to_string;
+    expr_ext_is_literal = Ext.expr_ext_is_literal;
+    expr_ext_literal_accepts_type = Ext.expr_ext_literal_accepts_type;
     pr_basic_stmt_ext = Ext.pr_basic_stmt_ext;
     contract_ext_to_string = Ext.contract_ext_to_string;
     basic_stmt_ext_symbols = Ext.basic_stmt_ext_symbols;

@@ -1,0 +1,15 @@
+interface Visible {
+  func select(x: Int) returns (r: Int)
+}
+
+module Implementation : Visible {
+  func select(x: Bool) returns (r: Bool) { x }
+  func select(x: Int) returns (r: Int) { x }
+}
+
+module Public :> Visible = Implementation
+module Client {
+  proc check() {
+    assert Public.select(true);
+  }
+}

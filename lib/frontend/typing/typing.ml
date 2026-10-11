@@ -3,6 +3,7 @@
 open Base
 open Ast
 open TypingMonad
+module OverloadResolution = OverloadResolution
 
 let check_module ?(tbl = SymbolTbl.create ()) ?ext_hooks ?cli_config (m : Module.t) =
   assert (SymbolTbl.curr_is_root tbl);

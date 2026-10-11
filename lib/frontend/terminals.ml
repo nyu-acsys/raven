@@ -57,7 +57,8 @@ let _ =
       ("requires", REQUIRES);
       ("return", RETURN);
       ("returns", RETURNS);
-      (* ("subseteq", SUBSETEQ); *)
+      ("subseteq", SUBSETEQ);
+      ("_", UNDERSCORE);
       ("Set", TYPECONSTR (Type.Map, 1));
       ("FinSet", TYPECONSTR (Type.FinSet, 1));
       ("spawn", SPAWN);
@@ -109,10 +110,10 @@ let _ =
       ("in", IN);
       ("!in", NOTIN);
       ("!", NOT);
-      ("++", ADDOP Expr.Union);
-      ("--", ADDOP Expr.Diff);
+      ("++", UNION);
+      ("--", DIFF);
       ("subseteq", SUBSETEQ);
-      ("**", MULTOP Expr.Inter);
+      ("**", INTER);
       ("+", ADDOP Expr.Plus);
       ("-", MINUS);
       ("/", MULTOP Expr.Div);
@@ -128,6 +129,5 @@ let _ =
       ("?", QMARK);
       (":|", COLONPIPE);
       ("=>", DARROW);
-      (* SeqExt *)
       ("..", DOTDOT);
     ]

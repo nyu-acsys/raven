@@ -10,7 +10,7 @@ main tutorial doesn't use: options, lists, sequences, and arrays.
 
 Each data type is a functor over `Library.Type`, the interface of all types, so you choose the
 element type by instantiating it. You can declare an instance explicitly, as in
-`module IntList = Library.List[Library.IntType]`, where `Library.IntType`, `Library.BoolType` and
+`module IntOption = Library.Option[Library.IntType]`, where `Library.IntType`, `Library.BoolType` and
 `Library.RefType` stand for the built-in types `Int`, `Bool` and `Ref`. You can also write the
 instance as a type, as in `List[Int]`, or let Raven infer it from a call
 ({{ref sec:implicit-functor-instantiation}}). Each instance's type is called `T`, and
@@ -36,25 +36,27 @@ rep type T = data {
 element of a list, if there is one:
 
 ```raven
-func first(l: IntList.T) returns (r: IntOption.T) {
+func first(l: List[Int]) returns (r: IntOption.T) {
   l == nil ? IntOption.none : IntOption.some(l.hd)
 }
 ```
 
 To get at the value, write `first(l).IntOption.value`. A destructor is a member of its module
-like any other, so it needs the module's name unless the module is imported, as `IntList` is for
+like any other, so it needs the module's name unless the module is imported, as `List` is for
 `l.hd` here.
 
 ## Lists {#sec:stdlib-list}
 
 `Library.List[E]` is the familiar inductive list, built from `nil` and the infix constructor `::`
-(with destructors `hd` and `tl`), together with two recursive functions: `len(l)`, the length of
-`l`, and `is_in(l, e)`, whether `e` occurs in `l`. After `import IntList._`, you can write
+(with destructors `hd` and `tl`), together with recursive functions for length, membership,
+and concatenation: `len(l)`, `e in l`, and `l ++ tail`. The prelude also provides literals
+`<||>`, `<|1|>`, and `<|1, 2|>`. An empty literal gets its element type from context, as in
+`val xs: List[Int] := <||>;`. After `import List._`, you can write
 lists as in `1 :: 2 :: nil` and use the functions unqualified. Lists are ordinary data types, so
 you can define your own functions on them by recursion and `match`:
 
 ```raven
-func sum(l: IntList.T) returns (r: Int)
+func sum(l: List[Int]) returns (r: Int)
   decreases l
 {
   match l {
@@ -203,4 +205,3 @@ proc fill(a: Array[Int], x: Int, implicit ghost m: Map[Int, Int])
 Inside the loop, `arr` is unfolded, so the invariants own the cells individually: those already
 written hold `x`, the others still hold their entries from `m`. After the loop, folding `arr`
 again packs them up into a single predicate with the new entries.
-

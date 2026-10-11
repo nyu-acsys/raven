@@ -53,6 +53,12 @@ module type Ext = sig
   (* AstDef *)
   val type_ext_to_name : Type.type_ext -> string
   val expr_ext_to_string : Expr.expr_ext -> string
+
+  (* Contextually typed literals may have nonconstant operands. *)
+  val expr_ext_is_literal : Expr.expr_ext -> bool
+
+  (* Read-only compatibility check for a literal whose type is still unresolved. *)
+  val expr_ext_literal_accepts_type : Expr.expr_ext -> Type.t -> bool Rewriter.t
   val pr_basic_stmt_ext : Stdlib.Format.formatter -> Stmt.stmt_ext -> expr list -> unit
   val contract_ext_to_string : Stmt.contract_ext -> string
   val basic_stmt_ext_symbols : Stmt.stmt_ext -> QualIdentSet.t
@@ -150,15 +156,13 @@ module type Ext = sig
     expr list ->
     Expr.expr_attr ->
     (Expr.expr_ext * expr list) option Rewriter.t
-  (** Offered a core expression node that the core type checker rejects at the node
-      itself: a map lookup or update whose map operand has a type other than a map, a
-      membership whose set operand has a type other than a set, and a set operator, which
-      the core gives no meaning at all. The operands the core needed to reject the node
-      are already type-checked; the others are as parsed. An extension that takes
-      responsibility for the node returns a constructor of its own together with its
-      operands, which are then type-checked by its [type_check_expr], so that any further
-      error comes from the extension. [None] leaves the node to the core, which reports
-      its own error. *)
+  (** Offered an indexing expression whose container has a type other than a map.
+      Constructors include native lookups/updates and calls to [_[_]]/[_[_:=_]]. The
+      operands the core needed to reject the node are already type-checked; the others are
+      as parsed. An extension that takes responsibility for the node returns a constructor
+      of its own together with its operands, which are then type-checked by its
+      [type_check_expr], so that any further error comes from the extension. [None] leaves
+      the node to ordinary overload resolution or the native core rule. *)
 
   val claim_location : expr -> (expr * qual_ident) option Rewriter.t
   (** Offered an expression that the core finds where it expects a field location [x.f] --

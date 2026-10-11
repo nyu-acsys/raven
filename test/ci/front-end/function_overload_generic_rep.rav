@@ -1,0 +1,14 @@
+module Box[E: Library.Type] : Library.Type {
+  rep type T = data { case box(value: E) }
+  type Alias = T
+  func get(b: Alias) returns (r: E) { b.value }
+  func get(b: Alias, fallback: E) returns (r: E) { b.value }
+}
+module IntBox = Box[Library.IntType]
+import IntBox._
+proc check() {
+  var b: IntBox.T := box(7);
+  assert Box.get(b) == 7;
+  var v: Int := Box.get(b, 0);
+  assert v == 7;
+}

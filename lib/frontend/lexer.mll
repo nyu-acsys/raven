@@ -75,6 +75,8 @@ type scope_kind = Group | Loop_header | Module_list | Stmt_list | Trigger
 
 type lex_state = {
   scopes : scope_kind list;
+  (* Expected closers keep adjacent grouping punctuation outside a literal. *)
+  enumeration_closers : string list;
   last_token_can_end_stmt : bool;
   next_brace_kind : scope_kind option;
   next_paren_is_loop_cond : bool;
@@ -96,10 +98,13 @@ type lex_state = {
      brace of a previous trigger -- and consumed by the next token. A trigger's braces are a
      [Trigger] scope, and like those of `opens {}` leave [next_brace_kind] to the body. *)
   next_brace_is_trigger : bool;
+  (* `return` may be followed directly by a compound literal. *)
+  last_token_is_return : bool;
 }
 
 let initial_state =
   { scopes = [];
+    enumeration_closers = [];
     last_token_can_end_stmt = false;
     next_brace_kind = None;
     next_paren_is_loop_cond = false;
@@ -107,14 +112,23 @@ let initial_state =
     in_atomic_token_brackets = false;
     next_brace_is_opens = false;
     next_brace_is_trigger = false;
+    last_token_is_return = false;
   }
 
 (* Computes the state to carry forward after producing [tok], given the state [st] beforehand. *)
 let advance st (tok : Parser.token) =
+  let enumeration_closers =
+    match tok, st.enumeration_closers with
+    | ENUM_OPEN opener, _ -> Expr.enumeration_closer opener :: st.enumeration_closers
+    | LBRACEPIPE, _ -> "}" :: st.enumeration_closers
+    | LBRACKETPIPE, _ -> "]" :: st.enumeration_closers
+    | (ENUM_CLOSE _ | RBRACEPIPE | RBRACKETPIPE), _ :: rest -> rest
+    | _ -> st.enumeration_closers
+  in
   let scopes =
     match tok with
     | LPAREN -> (if st.next_paren_is_loop_cond then Loop_header else Group) :: st.scopes
-    | LBRACKET | LBRACEPIPE | LBRACKETPIPE -> Group :: st.scopes
+    | LBRACKET | LBRACEPIPE | LBRACKETPIPE | ENUM_OPEN _ -> Group :: st.scopes
     | LGHOSTBRACE -> Stmt_list :: st.scopes
     | RPAREN ->
         (match st.scopes with
@@ -123,7 +137,7 @@ let advance st (tok : Parser.token) =
          | Loop_header :: rest -> Loop_header :: rest
          | _ :: rest -> rest
          | [] -> [])
-    | RBRACKET | RBRACEPIPE | RBRACKETPIPE | RGHOSTBRACE ->
+    | RBRACKET | RBRACEPIPE | RBRACKETPIPE | ENUM_CLOSE _ | RGHOSTBRACE ->
         (match st.scopes with _ :: rest -> rest | [] -> [])
     | LBRACE when st.next_brace_is_opens -> Group :: st.scopes
     | LBRACE when st.next_brace_is_trigger -> Trigger :: st.scopes
@@ -187,9 +201,9 @@ let advance st (tok : Parser.token) =
   in
   let last_token_can_end_stmt =
     match tok with
-    | IDENT _ | MODIDENT _ | CONSTVAL _ | CONSTTYPE _ | ATOMICTOKEN
+    | IDENT _ | UNDERSCORE | MODIDENT _ | CONSTVAL _ | CONSTTYPE _ | ATOMICTOKEN
     | STRINGVAL _ | HASH _
-    | RPAREN | RBRACKET | RBRACEPIPE | RBRACKETPIPE
+    | RPAREN | RBRACKET | RBRACEPIPE | RBRACKETPIPE | ENUM_CLOSE _
     (* Unlike every other keyword here, `return` can legally end a statement
        on its own -- a return with no values, from a callable with no `returns`
        clause. A `return` with values is always followed by at least one more
@@ -201,9 +215,11 @@ let advance st (tok : Parser.token) =
     | GT when st.in_atomic_token_brackets -> true
     | _ -> false
   in
-  { scopes; last_token_can_end_stmt; next_brace_kind; next_paren_is_loop_cond;
+  { scopes; enumeration_closers; last_token_can_end_stmt; next_brace_kind; next_paren_is_loop_cond;
     next_lt_opens_atomic_token; in_atomic_token_brackets; next_brace_is_opens;
-    next_brace_is_trigger }
+    next_brace_is_trigger;
+    last_token_is_return = (match tok with RETURN -> true | _ -> false);
+    }
 
 (* Produces [tok], pairing it with the state to carry forward after it, and no buffered
    follow-up token (see [on_newline] for the one case that needs one). *)
@@ -228,6 +244,28 @@ let on_newline st ~peek =
        | _ -> Some (advance st SEMICOLON, SEMICOLON, Some (st', tok)))
   | _ -> None
 
+let retreat lexbuf count =
+  lexbuf.lex_curr_pos <- lexbuf.lex_curr_pos - count;
+  lexbuf.lex_curr_p <-
+    { lexbuf.lex_curr_p with pos_cnum = lexbuf.lex_curr_p.pos_cnum - count }
+
+let emit_operator st lexbuf op =
+  try emit st (Hashtbl.find Terminals.operator_table op)
+  with Not_found ->
+    let loc = Loc.make lexbuf.lex_start_p lexbuf.lex_curr_p in
+    let ident = Ident.make loc op 0 in
+    let last = op.[String.length op - 1] in
+    if Char.equal last ':' then emit st (RABINOPSYM ident)
+    else
+      match op.[0] with
+      | '*' | '%' -> emit st (MULTOPSYM ident)
+      | '+' | '-' -> emit st (ADDOPSYM ident)
+      | '<' | '>' -> emit st (RELOPSYM ident)
+      | '=' | '!' -> emit st (EQOPSYM ident)
+      | '&' -> emit st (ANDOPSYM ident)
+      | '|' -> emit st (OROPSYM ident)
+      | _ -> lexical_error lexbuf ("Unknown operator: " ^ op)
+
 }
 
 (* A carriage return is only ever recognized as part of a line terminator, so a
@@ -241,7 +279,8 @@ let newline = '\r'? '\n'
    followed by a comma with no space. Matched as its own single-character alternative below,
    the same way `;` already is, for exactly this reason. *)
 let operator_char = ['+''-''*''%''.'':''?''>''<''=''&''|''!']
-let operator = '/' | ';' | ',' | operator_char+ | "in" | "!in" | "subseteq"
+let operator_start = ['+''-''*''%'':''?''>''<''=''&''|''!']
+let operator = '/' | ';' | ',' | operator_start operator_char* | "." | ".." | "in" | "!in" | "subseteq"
 let digit_char = ['0'-'9']
 let ident_char = ['A'-'Z''a'-'z''_']
 let lowercase_char = ['a'-'z''_']
@@ -250,6 +289,12 @@ let ident = lowercase_char ('\'' | ident_char | digit_char)*
 let mod_ident = uppercase_char ('\'' | ident_char | digit_char)*
 let digits = digit_char+
 let float = digits '.' digits
+let enum_open = ['(' '[' '{' '<']+ '|'
+let enum_close = '|' [')' ']' '}' '>']+
+(* Consume a punctuation run, then put unused characters back for the next token. *)
+let enum_open_run = enum_open operator_char*
+let enum_close_run = enum_close operator_char*
+let operator_before_enum_open = operator_char+ enum_open_run
 
 rule token_lex st = parse
   [' ' '\t'] { token_lex st lexbuf }
@@ -281,9 +326,70 @@ rule token_lex st = parse
 | "//" [^ '\n' '\r']* { token_lex st lexbuf }
 | "/*" { comments 0 st lexbuf }
 | "{|" { emit st LBRACEPIPE }
-| "|}" { emit st RBRACEPIPE }
 | "[|" { emit st LBRACKETPIPE }
-| "|]" { emit st RBRACKETPIPE }
+| enum_open_run as spelling {
+    let bar = String.index spelling '|' in
+    let opener = String.sub spelling 0 bar in
+    let first = opener.[0] in
+    let split =
+      bar > 1 &&
+      (match first with
+       | '(' -> st.last_token_can_end_stmt && not st.last_token_is_return
+       | '[' | '{' -> st.last_token_can_end_stmt && not st.last_token_is_return
+       | '<' -> st.last_token_can_end_stmt && not st.last_token_is_return
+       | _ -> false)
+    in
+    if split then begin
+      retreat lexbuf (String.length spelling - 1);
+      match first with
+      | '(' -> emit st LPAREN
+      | '[' -> emit st LBRACKET
+      | '{' -> emit st LBRACE
+      | '<' -> emit_operator st lexbuf "<"
+      | _ -> assert false
+    end else begin
+      retreat lexbuf (String.length spelling - bar - 1);
+      emit st (ENUM_OPEN opener)
+    end
+  }
+| enum_close_run as spelling {
+    let suffix = String.sub spelling 1 (String.length spelling - 1) in
+    match st.enumeration_closers with
+    | expected :: _
+      when String.length suffix >= String.length expected
+           && String.sub suffix 0 (String.length expected) = expected ->
+        retreat lexbuf (String.length suffix - String.length expected);
+        let tok =
+          match expected with
+          | "}" -> RBRACEPIPE
+          | "]" -> RBRACKETPIPE
+          | _ -> ENUM_CLOSE expected
+        in
+        emit st tok
+    | _ when String.for_all (function ')' | ']' | '}' -> false | _ -> true) suffix ->
+        let loc = Loc.make lexbuf.lex_start_p lexbuf.lex_curr_p in
+        emit st (OROPSYM (Ident.make loc spelling 0))
+    | _ -> lexical_error lexbuf "Mismatched enumeration delimiter"
+  }
+| operator_before_enum_open as spelling {
+    let is_opener = function '(' | '[' | '{' | '<' -> true | _ -> false in
+    let rec after_opener i =
+      if i < String.length spelling && is_opener spelling.[i] then after_opener (i + 1)
+      else i
+    in
+    let rec opener_start i =
+      if i >= String.length spelling then
+        lexical_error lexbuf "Expected an enumeration opener";
+      let after = after_opener i in
+      if after > i && after < String.length spelling && spelling.[after] = '|'
+      then i
+      else opener_start (i + 1)
+    in
+    let start = opener_start 1 in
+    let op = String.sub spelling 0 start in
+    retreat lexbuf (String.length spelling - start);
+    emit_operator st lexbuf op
+  }
 | '(' { emit st LPAREN }
 | ')' { emit st RPAREN }
 | '{' { emit st LBRACE }
@@ -295,9 +401,7 @@ rule token_lex st = parse
 | '\\' { emit st BACKSLASH }
 | "\"" (( ("\\" _) | [^ '"'] )* as str) "\"" { emit st (STRINGVAL (Scanf.unescaped str)) }
 | operator as op
-    { try
-      emit st (Hashtbl.find Terminals.operator_table op)
-    with Not_found ->
+    {
       (* A user-declarable symbolic operator: not one of the reserved strings in
          [Terminals.operator_table], but still a maximal run of [operator_char]s.
          Classified into a token per Scala's rule (Scala Language Spec SS6.12.3) --
@@ -306,23 +410,11 @@ rule token_lex st = parse
          leading character alone picks the tier, mirroring the tier cascade the
          grammar already has (`*`/`%` -> mult_expr, `+`/`-` -> add_expr, `<`/`>`
          -> the chainable comp_op tier, `=`/`!` -> eq_expr, `&` -> and_expr, `|`
-         -> or_expr). A leading `.`/`?`/`:' has no tier to classify into (`:` alone
+         -> or_expr). A leading `?`/`:' has no tier to classify into (`:` alone
          is only reachable here for a single ':' followed immediately by another
          `operator_char`, since a solitary `:` is itself already reserved) and is
          rejected rather than guessed at. *)
-      let loc = Loc.make lexbuf.lex_start_p lexbuf.lex_curr_p in
-      let ident = Ident.make loc op 0 in
-      let last = op.[String.length op - 1] in
-      if Char.equal last ':' then emit st (RABINOPSYM ident)
-      else
-        match op.[0] with
-        | '*' | '%' -> emit st (MULTOPSYM ident)
-        | '+' | '-' -> emit st (ADDOPSYM ident)
-        | '<' | '>' -> emit st (RELOPSYM ident)
-        | '=' | '!' -> emit st (EQOPSYM ident)
-        | '&' -> emit st (ANDOPSYM ident)
-        | '|' -> emit st (OROPSYM ident)
-        | _ -> lexical_error lexbuf ("Unknown operator: " ^ op)
+      emit_operator st lexbuf op
   }
 | '#' (digit_char+ as num) { emit st (HASH(Int64.of_string num)) }
 | ident as name '^' (digit_char+ as num) { emit st (IDENT(Ident.make (Loc.make lexbuf.lex_start_p lexbuf.lex_curr_p) name (int_of_string num))) }

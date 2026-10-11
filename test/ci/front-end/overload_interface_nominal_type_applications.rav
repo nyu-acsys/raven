@@ -1,0 +1,20 @@
+interface LocalSequenceIdentity {
+  type Local
+  func identity(s: Library.Seq[Local]) returns (r: Library.Seq[Local])
+    ensures r == s
+  func identity(b: Bool) returns (r: Bool)
+    ensures r == b
+}
+
+module LocalSequenceIdentityImpl : LocalSequenceIdentity {
+  type Local = data { case element }
+  func identity(b: Bool) returns (r: Bool) { b }
+  func identity(s: Library.Seq[Local]) returns (r: Library.Seq[Local]) { s }
+}
+
+module Client {
+  proc check(s: Library.Seq[LocalSequenceIdentityImpl.Local]) {
+    assert LocalSequenceIdentityImpl.identity(s) == s;
+    assert LocalSequenceIdentityImpl.identity(true);
+  }
+}

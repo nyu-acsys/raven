@@ -103,7 +103,7 @@ module CollFreeHashMap {
 
       assert hf'.vsval == hmf0.vsval0;
 
-      assert is_in(Hash.IntListOps.proj1((hmf0.hfval).hm), v);
+      assert in(v, Hash.IntListOps.proj1((hmf0.hfval).hm));
 
       hmf' := cf_hashmap_constr(hf', hmf0.vsval0, hmf0.sval0, hmf0.rval0);
 
@@ -137,11 +137,11 @@ module CollFreeHashMap {
       && hmf.sval0 == (hmf.hfval).sval
       && hmf.rval0 == (hmf.hfval).rval
       && (forall v: Int :: 
-            (is_in(Hash.IntListOps.proj1((hmf.hfval).hm), v)  ==>
-                is_in(img, v))
+            (in(v, Hash.IntListOps.proj1((hmf.hfval).hm))  ==>
+                in(v, img))
             &&
-            (is_in(img, v) ==> 
-                is_in(Hash.IntListOps.proj1((hmf.hfval).hm), v))
+            (in(v, img) ==>
+                in(v, Hash.IntListOps.proj1((hmf.hfval).hm)))
 
             // Hash.lookUpHashMap((hmf.hfval).hm, k) == Hash.OptInt.some(v) 
             //  == Hash.proj2((hmf.hfval).hm) 

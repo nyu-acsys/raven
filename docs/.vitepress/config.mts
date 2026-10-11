@@ -102,6 +102,12 @@ const SIDEBAR_LABELS: Record<string, string> = {
   'sec:stdlib-list': 'Lists',
   'sec:stdlib-seq': 'Sequences',
   'sec:stdlib-array': 'Arrays',
+  'sec:overload-resolution': 'Choosing a definition',
+  'sec:overload-imports': 'Imports and shadowing',
+  'sec:overload-symbols': 'Symbolic infix functions',
+  'sec:overload-operators': 'Fixed operator notation',
+  'sec:overload-patterns': 'Index, range, and update patterns',
+  'sec:overload-literals': 'Enumeration literals',
   'sec:trust-boundary': 'Where the trust boundary is',
   'sec:when-extension-api': 'When you need the Extension API',
 
@@ -117,6 +123,7 @@ const APPENDIX_LABELS: Record<string, string> = {
   'app:from-other-tools': 'Coming From Viper, Dafny, or Iris',
   'app:extension-api': 'The Extension API',
   'app:stdlib-types': 'Standard Library Data Types',
+  'app:overloading': 'Function and Operator Overloading',
   'app:where-next': 'Where to Go Next'
 }
 

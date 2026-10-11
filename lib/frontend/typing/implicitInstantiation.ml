@@ -7,6 +7,40 @@ open Util
 open TypingMonad
 open TypingErrors
 
+type field_formal = ident * (qual_ident * Module.field_def * Module.module_inst list)
+
+type functor_signature = {
+  formal_reps : (qual_ident * ident * ident) list;
+  rep_suffixes : ident list list;
+  field_formals : field_formal list;
+}
+
+type instantiation_solution = {
+  bindings : (ident * type_expr) list;
+  field_bindings : (ident * qual_ident) list;
+}
+
+let member_signatures ~only_calls member_ident (m : Module.t) =
+  List.filter_map m.mod_def ~f:(function
+    | Module.SymbolDef (CallDef call)
+      when Ident.equal (Callable.source_ident call) member_ident
+           || Ident.equal call.call_decl.call_decl_name member_ident ->
+        let decl = call.call_decl in
+        let formals, return_type =
+          match (decl.call_decl_kind, decl.call_decl_returns) with
+          | (Pred | Invariant), returns -> (decl.call_decl_formals @ returns, None)
+          | _, [ r ] -> (decl.call_decl_formals, Some r.Type.var_type)
+          | _, _ -> (decl.call_decl_formals, None)
+        in
+        Some (decl.call_decl_name, formals, return_type, decl.call_decl_loc_params)
+    | SymbolDef (ConstrDef constr)
+      when (not only_calls) && Ident.equal constr.constr_name member_ident ->
+        Some (constr.constr_name, constr.constr_args, Some constr.constr_return_type, [])
+    | SymbolDef (VarDef var)
+      when (not only_calls) && Ident.equal var.var_decl.var_name member_ident ->
+        Some (var.var_decl.var_name, [], Some var.var_decl.var_type, [])
+    | _ -> None)
+
 (** Resolves [qual_ident], or else the name [on_miss] rewrites it to; [None] if neither
     resolves. *)
 let rec resolve_or_implicit_opt (qual_ident : qual_ident)
@@ -304,11 +338,135 @@ and field_arg_module ~(loc : location) ~(insert_scope : qual_ident)
     (ProgUtils.get_or_intros_field_module ~loc ~insert_scope ~reference_scope
        ~interface_qual_ident:interface_qi ~field ~field_qi ~field_type mod_bindings)
 
-(** Resolves [qual_ident], a `<functor>.<member>` that failed plain resolution, by
-    instantiating the functor implicitly. [None] if the functor or member does not exist;
-    otherwise it succeeds or reports an error. Type-typed formals are solved by unifying
-    the arguments' types with the formals' declared types, and the member's return type
-    with [expected_typ]; field-typed formals by [solve_field_formals]. *)
+(** Discovers generic parameters without checking arguments or creating instances. *)
+and discover_functor_signature ~functor_qual_ident (m : Module.t) =
+  let open Rewriter.Syntax in
+  let* solvers =
+    Rewriter.List.map m.mod_decl.mod_decl_formals ~f:(fun formal ->
+        lift (ProgUtils.classify_formal formal))
+  in
+  let field_formals =
+    List.filter_map (List.zip_exn m.mod_decl.mod_decl_formals solvers)
+      ~f:(fun (formal, solver) ->
+        match solver with
+        | Some (ProgUtils.ByField (interface_qi, field, mod_members)) ->
+            Some (formal.mod_inst_name, (interface_qi, field, mod_members))
+        | _ -> None)
+  in
+  let* formal_reps =
+    rep_vars_of_insts ~scope_qi:functor_qual_ident m.mod_decl.mod_decl_formals
+  in
+  (* Include nested aliases of the functor's rep in inference. *)
+  let m_rep_suffixes =
+    match m.mod_decl.mod_decl_rep with
+    | None -> []
+    | Some rep_ident ->
+        let functor_path = QualIdent.to_list functor_qual_ident in
+        let aliased =
+          List.find_map m.mod_def ~f:(function
+            | Module.SymbolDef
+                (TypeDef { type_def_name; type_def_expr = Some (App (Var qi, [], _)); _ })
+              when Ident.equal type_def_name rep_ident ->
+                let qi = QualIdent.to_list qi in
+                if List.is_prefix qi ~prefix:functor_path ~equal:Ident.equal then
+                  Some (List.drop qi (List.length functor_path))
+                else if List.length qi > 1 then Some qi
+                else None
+            | _ -> None)
+        in
+        [ rep_ident ] :: Option.to_list aliased
+  in
+  Rewriter.return { formal_reps; rep_suffixes = m_rep_suffixes; field_formals }
+
+(** Prepares a single target's arguments. Overload trials use the pure resolver. *)
+and infer_single_instantiation ~check_expr ~claimed_location ~loc ~qual_ident
+    ~functor_qual_ident (m : Module.t) ~signature ~member_formals ~return_type_opt
+    ~loc_params ~arg_exprs ~expected_typ =
+  let open Rewriter.Syntax in
+  let omitted_are_implicit =
+    List.drop member_formals (List.length arg_exprs)
+    |> List.for_all ~f:(fun var_decl -> var_decl.Type.var_implicit)
+  in
+  if List.length member_formals < List.length arg_exprs || not omitted_are_implicit then
+    arg_mismatch_error "Callable" loc (Type.Var qual_ident) (List.length member_formals)
+  else
+    let member_formals = List.take member_formals (List.length arg_exprs) in
+    let field_formals = signature.field_formals in
+    let* field_bindings, consumed =
+      if List.is_empty field_formals then Rewriter.return ([], [])
+      else
+        solve_field_formals ~claimed_location ~loc ~functor_qual_ident ~loc_params
+          ~arg_exprs
+    in
+    (* Field-dependent types are checked against the selected instance. *)
+    let field_formal_paths =
+      List.map field_formals ~f:(fun (formal_ident, _) ->
+          QualIdent.to_list (QualIdent.append functor_qual_ident formal_ident))
+    in
+    let mentions_field_formal tp =
+      Set.exists (Type.symbols tp) ~f:(fun qi ->
+          let qi = QualIdent.to_list qi in
+          List.exists field_formal_paths ~f:(fun prefix ->
+              List.is_prefix qi ~prefix ~equal:Ident.equal))
+    in
+    (* This legacy peek elaborates arguments; never use it for candidate trials. *)
+    let peek_arg formal_var_decl arg_expr =
+      let* arg_expr =
+        speculatively (check_expr arg_expr (Type.any |> Type.set_ghost_to expected_typ))
+      in
+      let arg_typ = Expr.to_type arg_expr in
+      (* Empty literals and unresolved instances do not constrain generic parameters. *)
+      if Type.contains_bot arg_typ then Rewriter.return None
+      else Rewriter.return (Some (formal_var_decl.Type.var_type, arg_typ))
+    in
+    let* arg_pairs =
+      Rewriter.List.map
+        (List.mapi (List.zip_exn member_formals arg_exprs) ~f:(fun i p -> (i, p)))
+        ~f:(fun (i, (formal_var_decl, arg_expr)) ->
+          if
+            List.mem consumed i ~equal:Int.equal
+            || mentions_field_formal formal_var_decl.Type.var_type
+          then Rewriter.return None
+          else peek_arg formal_var_decl arg_expr)
+    in
+    let arg_pairs = List.filter_opt arg_pairs in
+    let pairs =
+      match return_type_opt with
+      | Some return_type when not (mentions_field_formal return_type) ->
+          (return_type, expected_typ) :: arg_pairs
+      | _ -> arg_pairs
+    in
+    let* bindings =
+      unify_type_list ~loc ~functor_qual_ident ~formal_reps:signature.formal_reps
+        ~m_rep_suffixes:signature.rep_suffixes [] pairs
+    in
+    let missing =
+      List.find m.mod_decl.mod_decl_formals ~f:(fun formal ->
+          not
+            (List.Assoc.mem bindings formal.mod_inst_name ~equal:Ident.equal
+            || List.Assoc.mem field_bindings formal.mod_inst_name ~equal:Ident.equal))
+    in
+    Rewriter.return
+      (match missing with
+      | Some formal -> Error formal.mod_inst_name
+      | None -> Ok { bindings; field_bindings })
+
+(** Materializes an inferred solution, after selecting its member. *)
+and instantiate_solution ~loc ~functor_qual_ident (m : Module.t) ~signature solution =
+  if List.is_empty signature.field_formals then
+    let arg_types =
+      List.map m.mod_decl.mod_decl_formals ~f:(fun formal ->
+          List.Assoc.find_exn solution.bindings formal.mod_inst_name ~equal:Ident.equal)
+    in
+    lift
+      (ProgUtils.instantiate_type_functor ~loc ~f:!Rewriter.check_symbol_ref
+         ~functor_qual_ident ~functor_mod_decl:m.mod_decl arg_types)
+  else
+    instantiate_mixed_functor ~loc ~functor_qual_ident ~functor_mod_decl:m.mod_decl
+      ~bindings:solution.bindings ~field_bindings:solution.field_bindings
+      ~field_formals:signature.field_formals
+
+(** Resolves a generic member through discovery, inference, then instantiation. *)
 and try_resolve_implicit_instantiation ~(check_expr : expr -> type_expr -> expr t)
     ~(claimed_location : expr -> expr t) ~(loc : location) ~(qual_ident : qual_ident)
     ~(arg_exprs : expr list) ?(only_calls = false) ~(expected_typ : type_expr) () :
@@ -318,192 +476,45 @@ and try_resolve_implicit_instantiation ~(check_expr : expr -> type_expr -> expr 
   match prefix with
   | None -> Rewriter.return None
   | Some (functor_qual_ident, m, member_ident) -> (
-      (* The member may be a callable, a constructor or a value. With [only_calls], used
-         when an assignment speculatively checks for a call, anything else gives [None],
-         so that the caller falls back to typing an expression. *)
-      let member_info =
-        List.find_map m.mod_def ~f:(function
-          | SymbolDef (CallDef call_def)
-            when Ident.equal (Callable.to_decl call_def).call_decl_name member_ident ->
-              let call_decl = Callable.to_decl call_def in
-              (* The parameters of a predicate or invariant after the `;` are kept
-                   with the returns, but are arguments of an application. *)
-              let formals, return_type =
-                match (call_decl.call_decl_kind, call_decl.call_decl_returns) with
-                | (Pred | Invariant), returns ->
-                    (call_decl.call_decl_formals @ returns, None)
-                | _, [ r ] -> (call_decl.call_decl_formals, Some r.Type.var_type)
-                | _, _ -> (call_decl.call_decl_formals, None)
-              in
-              Some (formals, return_type, call_decl.call_decl_loc_params)
-          | SymbolDef (ConstrDef constr_def)
-            when (not only_calls) && Ident.equal constr_def.constr_name member_ident ->
-              Some (constr_def.constr_args, Some constr_def.constr_return_type, [])
-          | SymbolDef (VarDef var_def)
-            when (not only_calls) && Ident.equal var_def.var_decl.var_name member_ident ->
-              (* A value, such as `Seq.empty`, is solved from the expected type alone. *)
-              Some ([], Some var_def.var_decl.var_type, [])
-          | _ -> None)
-      in
-      match member_info with
-      | None -> Rewriter.return None
-      | Some (member_formals, return_type_opt, loc_params) -> (
-          (* Trailing implicit ghost formals may be omitted, as in
-             [ExprTyping.check_args]. *)
-          let omitted_are_implicit =
-            List.drop member_formals (List.length arg_exprs)
-            |> List.for_all ~f:(fun var_decl -> var_decl.Type.var_implicit)
+      match member_signatures ~only_calls member_ident m with
+      | [] -> Rewriter.return None
+      | _ :: _ :: _ as members ->
+          Error.type_error loc
+            (Printf.sprintf
+               !"Ambiguous function name %{Ident} (%d candidates)"
+               member_ident (List.length members))
+      | [ (declaration_ident, member_formals, return_type_opt, loc_params) ] -> (
+          let* signature = discover_functor_signature ~functor_qual_ident m in
+          let* inferred =
+            infer_single_instantiation ~check_expr ~claimed_location ~loc ~qual_ident
+              ~functor_qual_ident m ~signature ~member_formals ~return_type_opt
+              ~loc_params ~arg_exprs ~expected_typ
           in
-          if
-            List.length member_formals < List.length arg_exprs || not omitted_are_implicit
-          then
-            arg_mismatch_error "Callable" loc (Type.Var qual_ident)
-              (List.length member_formals)
-          else
-            let member_formals = List.take member_formals (List.length arg_exprs) in
-            let* solvers =
-              Rewriter.List.map m.mod_decl.mod_decl_formals ~f:(fun formal ->
-                  lift (ProgUtils.classify_formal formal))
-            in
-            let field_formals =
-              List.filter_map (List.zip_exn m.mod_decl.mod_decl_formals solvers)
-                ~f:(fun (formal, solver) ->
-                  match solver with
-                  | Some (ProgUtils.ByField (interface_qi, field, mod_members)) ->
-                      Some (formal.mod_inst_name, (interface_qi, field, mod_members))
-                  | _ -> None)
-            in
-            let* field_bindings, consumed =
-              if List.is_empty field_formals then Rewriter.return ([], [])
-              else
-                solve_field_formals ~claimed_location ~loc ~functor_qual_ident ~loc_params
-                  ~arg_exprs
-            in
-            (* A type in terms of a field-solved formal (e.g. `A.E`) adds nothing; it is
-               checked when the call is processed against the instance. *)
-            let field_formal_paths =
-              List.map field_formals ~f:(fun (formal_ident, _) ->
-                  QualIdent.to_list (QualIdent.append functor_qual_ident formal_ident))
-            in
-            let mentions_field_formal tp =
-              Set.exists (Type.symbols tp) ~f:(fun qi ->
-                  let qi = QualIdent.to_list qi in
-                  List.exists field_formal_paths ~f:(fun prefix ->
-                      List.is_prefix qi ~prefix ~equal:Ident.equal))
-            in
-            (* Peek each argument's type; the processed expr itself is discarded and
-                 reprocessed once the instantiation is resolved. *)
-            let peek_arg formal_var_decl arg_expr =
-              let* arg_expr =
-                speculatively
-                  (check_expr arg_expr (Type.any |> Type.set_ghost_to expected_typ))
+          match inferred with
+          | Ok solution ->
+              let+ instance =
+                instantiate_solution ~loc ~functor_qual_ident m ~signature solution
               in
-              let arg_typ = Expr.to_type arg_expr in
-              (* `Bot`, from a literal without expected type (e.g. `{||}`) or an
-                 unresolved implicit instantiation (e.g. `nil`), says nothing about the
-                 formals. If the other pairs do not determine them, the check after
-                 unification reports it. *)
-              if Type.contains_bot arg_typ then Rewriter.return None
-              else Rewriter.return (Some (formal_var_decl.Type.var_type, arg_typ))
-            in
-            let* arg_pairs =
-              Rewriter.List.map
-                (List.mapi (List.zip_exn member_formals arg_exprs) ~f:(fun i p -> (i, p)))
-                ~f:(fun (i, (formal_var_decl, arg_expr)) ->
-                  if
-                    List.mem consumed i ~equal:Int.equal
-                    || mentions_field_formal formal_var_decl.Type.var_type
-                  then Rewriter.return None
-                  else peek_arg formal_var_decl arg_expr)
-            in
-            let arg_pairs = List.filter_opt arg_pairs in
-            let pairs =
-              match return_type_opt with
-              | Some return_type when not (mentions_field_formal return_type) ->
-                  (return_type, expected_typ) :: arg_pairs
-              | _ -> arg_pairs
-            in
-            let* formal_reps =
-              rep_vars_of_insts ~scope_qi:functor_qual_ident m.mod_decl.mod_decl_formals
-            in
-            (* [m]'s rep, relative to [m], and the type of a nested module it aliases
-               (e.g. `rep type T = L.T`), which member signatures may refer to. *)
-            let m_rep_suffixes =
-              match m.mod_decl.mod_decl_rep with
-              | None -> []
-              | Some rep_ident ->
-                  let functor_path = QualIdent.to_list functor_qual_ident in
-                  let aliased =
-                    List.find_map m.mod_def ~f:(function
-                      | Module.SymbolDef
-                          (TypeDef
-                             {
-                               type_def_name;
-                               type_def_expr = Some (App (Var qi, [], _));
-                               _;
-                             })
-                        when Ident.equal type_def_name rep_ident ->
-                          let qi = QualIdent.to_list qi in
-                          if List.is_prefix qi ~prefix:functor_path ~equal:Ident.equal
-                          then Some (List.drop qi (List.length functor_path))
-                          else if List.length qi > 1 then Some qi
-                          else None
-                      | _ -> None)
-                  in
-                  [ rep_ident ] :: Option.to_list aliased
-            in
-            let* bindings =
-              unify_type_list ~loc ~functor_qual_ident ~formal_reps ~m_rep_suffixes []
-                pairs
-            in
-            match
-              List.find m.mod_decl.mod_decl_formals ~f:(fun formal ->
-                  not
-                    (List.Assoc.mem bindings formal.mod_inst_name ~equal:Ident.equal
-                    || List.Assoc.mem field_bindings formal.mod_inst_name
-                         ~equal:Ident.equal))
-            with
-            | Some formal
-              when List.Assoc.mem field_formals formal.mod_inst_name ~equal:Ident.equal ->
-                (* While speculating, an undetermined formal is not an error: the
-                   enclosing call processes this expression again once it is resolved. *)
-                let* speculative = is_speculative in
-                if speculative then Rewriter.return None
-                else
-                  Error.type_error loc
-                    (Printf.sprintf
-                       !"Cannot infer a field argument for parameter %{Ident} of \
-                         %{QualIdent}, since this call takes no location; write an \
-                         explicit instantiation, e.g. `module M_X = %{QualIdent}[...]`"
-                       formal.mod_inst_name functor_qual_ident functor_qual_ident)
-            | Some formal ->
-                let* speculative = is_speculative in
-                if speculative then Rewriter.return None
-                else
-                  Error.type_error loc
-                    (Printf.sprintf
-                       !"Cannot infer a type argument for parameter %{Ident} of \
-                         %{QualIdent}; write an explicit instantiation, e.g. `module M_X \
-                         = %{QualIdent}[...]`"
-                       formal.mod_inst_name functor_qual_ident functor_qual_ident)
-            | None ->
-                let+ inst_qual_ident =
-                  if List.is_empty field_formals then
-                    let arg_types =
-                      List.map m.mod_decl.mod_decl_formals ~f:(fun formal ->
-                          List.Assoc.find_exn bindings formal.mod_inst_name
-                            ~equal:Ident.equal)
-                    in
-                    lift
-                      (ProgUtils.instantiate_type_functor ~loc
-                         ~f:!Rewriter.check_symbol_ref ~functor_qual_ident
-                         ~functor_mod_decl:m.mod_decl arg_types)
-                  else
-                    instantiate_mixed_functor ~loc ~functor_qual_ident
-                      ~functor_mod_decl:m.mod_decl ~bindings ~field_bindings
-                      ~field_formals
-                in
-                Some (QualIdent.append inst_qual_ident member_ident)))
+              Some (QualIdent.append instance declaration_ident)
+          | Error formal_ident ->
+              let* speculative = is_speculative in
+              if speculative then Rewriter.return None
+              else if
+                List.Assoc.mem signature.field_formals formal_ident ~equal:Ident.equal
+              then
+                Error.type_error loc
+                  (Printf.sprintf
+                     !"Cannot infer a field argument for parameter %{Ident} of \
+                       %{QualIdent}, since this call takes no location; write an \
+                       explicit instantiation, e.g. `module M_X = %{QualIdent}[...]`"
+                     formal_ident functor_qual_ident functor_qual_ident)
+              else
+                Error.type_error loc
+                  (Printf.sprintf
+                     !"Cannot infer a type argument for parameter %{Ident} of \
+                       %{QualIdent}; write an explicit instantiation, e.g. `module M_X = \
+                       %{QualIdent}[...]`"
+                     formal_ident functor_qual_ident functor_qual_ident)))
 
 (** [ProgUtils.instantiate_type_functor] for a functor with at least one field-typed
     formal: each formal's argument module comes either from wrapping its solved type (as

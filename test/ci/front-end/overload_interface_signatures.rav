@@ -1,0 +1,26 @@
+interface Choices {
+  func pick(x: Int) returns (r: Int)
+    ensures r == x
+  func pick(x: Bool) returns (r: Bool)
+    ensures r == x
+  func roundtrip(x: Int) returns (r: Int) { pick(x) }
+}
+
+// Reverse declaration order so identities cannot decide interface matching.
+module Implementation : Choices {
+  func pick(x: Bool) returns (r: Bool) { x }
+  func pick(x: Int) returns (r: Int) { x }
+  func pick(x: Real) returns (r: Real) { x }
+}
+
+module Public :> Choices = Implementation
+
+module Client {
+  proc check() {
+    assert Implementation.pick(4) == 4;
+    assert Implementation.pick(true);
+    assert Public.pick(5) == 5;
+    assert Public.pick(false) == false;
+    assert Implementation.roundtrip(6) == 6;
+  }
+}

@@ -1,0 +1,5 @@
+func f(x: Int) returns (r: Int) { x }
+func f(x: Real) returns (r: Real) { x }
+proc check() {
+  var x: Bool := f(true);
+}

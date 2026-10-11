@@ -1,0 +1,54 @@
+module Delimiters {
+  inline func <||>() returns (r: Int) { 0 }
+  inline func <|_|>(e: Int) returns (r: Int) { e }
+  inline func [||]() returns (r: Int) { 0 }
+  inline func [|_|](e: Int) returns (r: Int) { e }
+  inline func ([||])() returns (r: Int) { 0 }
+  inline func ([|_|])(e: Int) returns (r: Int) { e }
+  inline func {{||}}() returns (r: Int) { 0 }
+  inline func {{|_|}}(e: Int) returns (r: Int) { e }
+  inline func {[||]}() returns (r: Int) { 0 }
+  inline func {[|_|]}(e: Int) returns (r: Int) { e }
+  inline func ++(a: Int, b: Int) returns (r: Int) { 10 * a + b }
+  inline func _[_](a: Int, i: Int) returns (r: Int) { a + i }
+}
+
+module Client {
+  import Delimiters._
+
+  inline func adjacent() returns (r: Int){[|1|]}
+
+  proc return_literal() returns (r: Int) {
+    return {{|1|}};
+  }
+
+  proc check() {
+    assert <||> == 0;
+    assert <|1|> == 1;
+    assert <|1, 2, 3|> == 33;
+    assert <|1|>++<|2|> == 12;
+    assert <|<||>|> == 0;
+    assert ([||]) == 0;
+    assert ([|1, 2, 3|]) == 33;
+    assert {{||}} == 0;
+    assert {{|1, 2, 3|}} == 33;
+    assert {[||]} == 0;
+    assert {[|1, 2, 3|]} == 33;
+    assert ( <|1, 2, 3|> ) == 33;
+    assert 4[[|1|]] == 5;
+    assert adjacent() == 1;
+    assert Delimiters.<|_|>(4) == 4;
+    assert Delimiters.([|_|])(4) == 4;
+    assert Delimiters.{{|_|}}(4) == 4;
+  }
+}
+
+module ExplicitImports {
+  import Delimiters.<||>
+  import Delimiters.<|_|>
+
+  proc check() {
+    assert <||> == 0;
+    assert <|_|>(4) == 4;
+  }
+}

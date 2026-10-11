@@ -335,6 +335,8 @@ material:
   standard library doesn't provide, without touching the verifier.
 - {{ref app:stdlib-types}} describes the data types of the standard library that the main
   tutorial doesn't use: options, lists, sequences, and arrays.
+- {{ref app:overloading}} explains how ordinary functions and operators share name
+  lookup and selection, including range and update patterns.
 - {{ref app:from-other-tools}} is a quick dictionary for readers coming from Viper, Dafny, or
   Iris.
 - {{ref app:extension-api}} points to the Extension API, for readers who want to add new

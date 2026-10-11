@@ -1,0 +1,23 @@
+interface Element { rep type T }
+interface Operations[E: Element] {
+  func identity(x: E) returns (r: E)
+    ensures r == x
+  func identity(x: Bool) returns (r: Bool)
+    ensures r == x
+}
+
+module IntElement : Element { rep type T = Int }
+
+module OperationsImpl[E: Element] : Operations[E] {
+  type Alias = E
+  func identity(x: Bool) returns (r: Bool) { x }
+  func identity(x: Alias) returns (r: Alias) { x }
+}
+
+module Concrete = OperationsImpl[IntElement]
+module Client {
+  proc check() {
+    assert Concrete.identity(3) == 3;
+    assert Concrete.identity(true);
+  }
+}

@@ -1,0 +1,50 @@
+module Sequences = Library.Seq[Library.IntType]
+
+lemma sequence_update(s: Sequences.T, i: Int, e: Int)
+  ensures s[i := e] == Sequences.update(s, i, e)
+  ensures s[i := e] == Sequences._[_:=_](s, i, e)
+{}
+
+lemma updates() {
+  var s: Seq[Int] := [|1, 2|];
+  s[0] := 3;
+  assert s[0] == 3 && s[1] == 2;
+  assert s[0 := 4][1 := 5][0] == 4;
+  var sequences: Seq[Seq[Int]] := [|s, s|];
+  sequences[0][1] := 6;
+  assert sequences[0][1] == 6 && sequences[1][1] == 2;
+
+  var m: Map[Int, Int] := {| i: Int :: 0 |};
+  m[1] := 2;
+  assert m[1] == 2;
+  assert m[1 := 3][1] == 3;
+  assert _[_:=_](m, 1, 3) == m[1 := 3];
+
+  var nested: Map[Int, Map[Int, Int]] := {| i: Int :: {| j: Int :: 0 |} |};
+  nested[1][2] := 3;
+  assert nested[1][2] == 3;
+
+  var members: Map[Int, Set[Int]] := {| i: Int :: {||} |};
+  members[0] := {|1|};
+  assert 1 in members[0];
+
+}
+
+module Custom {
+  rep type T = data { case box(value: Int) }
+
+  inline func _[_:=_](s: T, i: Int, e: Int) returns (r: T) {
+    box(s.value + i + e)
+  }
+}
+
+module Client {
+  import Custom._
+
+  lemma updates() {
+    var s := box(1);
+    assert s[2 := 3] == Custom._[_:=_](s, 2, 3);
+    s[2] := 3;
+    assert s == box(6);
+  }
+}

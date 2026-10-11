@@ -1,0 +1,45 @@
+module Lists = Library.List[Library.IntType]
+module Sequences = Library.Seq[Library.IntType]
+module Sets = Library.Sets[Library.IntType]
+
+inline func container_kind(s: Library.Seq[Int]) returns (r: Int) { 1 }
+inline func container_kind(s: Library.List[Int]) returns (r: Int) { 2 }
+inline func container_kind(s: Set[Int]) returns (r: Int) { 3 }
+
+lemma empty_literal_selection()
+  ensures container_kind([||]) == 1
+  ensures container_kind({||}) == 3
+{}
+
+inline func member(e: Int, s: Set[Int]) returns (r: Bool) { e in s }
+inline func wrapped_union(s: Set[Int], t: Set[Int]) returns (r: Set[Int]) {
+  {| x: Int :: member(x, s) || member(x, t) |}
+}
+
+lemma pointwise_wrappers(a: Set[Int], b: Set[Int], c: Set[Int])
+  ensures wrapped_union(wrapped_union(a, b), c) == wrapped_union(a, wrapped_union(b, c))
+  ensures wrapped_union(a, b) == a ++ b
+{}
+
+lemma sets(f: FinSet[Int], s: Set[Int], e: Int)
+  ensures (e in f) == f[e]
+  ensures (e in s) == Sets.in(e, s)
+  ensures (e !in s) == !Sets.in(e, s)
+  ensures 1 in {|1, 2|} && 3 !in {|1, 2|}
+  ensures 0 !in {||}
+{}
+
+lemma sequences(s: Sequences.T, e: Int)
+  ensures (e in s) == Sequences.contains(s, e)
+  ensures (e in s) == Sequences.in(e, s)
+  ensures (e !in s) == !Sequences.in(e, s)
+  ensures 1 in [|1, 2|] && 3 !in [|1, 2|]
+  ensures 0 !in [||]
+{}
+
+lemma lists(ls: Lists.T, e: Int)
+  ensures (e in ls) == Lists.in(e, ls)
+  ensures (e !in ls) == !Lists.in(e, ls)
+  ensures 0 !in Lists.nil
+  ensures 1 in Lists.::(1, Lists.nil)
+{}

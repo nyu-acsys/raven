@@ -45,6 +45,8 @@ module DefaultExt = struct
   (* Base of the chain: this extension declares no constructors of its own. *)
   let type_ext_is_recognized (_ : Type.type_ext) = false
   let expr_ext_is_recognized (_ : Expr.expr_ext) = false
+  let expr_ext_is_literal (_ : Expr.expr_ext) = false
+  let expr_ext_literal_accepts_type _ _ = Rewriter.return true
   let stmt_ext_is_recognized (_ : Stmt.stmt_ext) = false
   let contract_ext_is_recognized (_ : Stmt.contract_ext) = false
 

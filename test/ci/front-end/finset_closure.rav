@@ -19,6 +19,12 @@ module M {
     s1 ** s2
   }
 
+  func inter_mixed_reverse(s1: Set[Int], s2: FinSet[Int]) returns (res: FinSet[Int])
+    ensures res == s1 ** s2
+  {
+    s1 ** s2
+  }
+
   func union_both_finite(s1: FinSet[Int], s2: FinSet[Int]) returns (res: FinSet[Int])
     ensures res == s1 ++ s2
   {

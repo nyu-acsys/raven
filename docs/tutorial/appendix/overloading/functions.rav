@@ -1,0 +1,43 @@
+module Measures {
+  inline func measure(x: Int) returns (r: Int) { x }
+  inline func measure(x: Bool) returns (r: Int) { x ? 1 : 0 }
+}
+
+module Client {
+  import Measures._
+
+  lemma examples() {
+    assert measure(3) == 3;
+    assert measure(true) == 1;
+    assert Measures.measure(false) == 0;
+  }
+}
+
+module IntegerMeasure {
+  inline func measure(x: Int) returns (r: Int) { x + 1 }
+}
+
+module BooleanMeasure {
+  inline func measure(x: Bool) returns (r: Int) { x ? 2 : 0 }
+}
+
+module ImportedClient {
+  import IntegerMeasure.measure
+  import BooleanMeasure.measure
+
+  lemma examples() {
+    assert measure(3) == 4;
+    assert measure(true) == 2;
+  }
+}
+
+module LocalClient {
+  import Measures._
+
+  inline func measure(x: Int) returns (r: Int) { x + 10 }
+
+  lemma examples() {
+    assert measure(3) == 13;
+    assert Measures.measure(true) == 1;
+  }
+}

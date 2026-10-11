@@ -13,9 +13,9 @@ open Rewriter
 module DisambiguationTbl = DisambiguationTbl
 
 (** Whether [body], the body of a comprehension over [x], combines Boolean entries of maps
-    at index [x] -- lookups `m[x]` and memberships `x in s` -- and Boolean terms not
-    mentioning [x], by Boolean connectives alone. Such a comprehension is a pointwise
-    combination of maps, which the SMT encoding expresses with array map combinators. *)
+    at index [x] and Boolean terms not mentioning [x], by Boolean connectives alone. Such
+    a comprehension is a pointwise combination of maps, which the SMT encoding expresses
+    with array map combinators. *)
 let rec is_pointwise_body (x : ident) (body : expr) : bool =
   let mentions_x e = Map.mem (AstDef.Expr.signature e) (QualIdent.from_ident x) in
   let is_x = function
@@ -29,7 +29,6 @@ let rec is_pointwise_body (x : ident) (body : expr) : bool =
   | App ((And | Or | Not | Impl), args, _) ->
       Base.List.for_all args ~f:(is_pointwise_body x)
   | App (MapLookUp, [ m; index ], _) when is_x index -> is_bool body && not (mentions_x m)
-  | App (Elem, [ elem; s ], _) when is_x elem -> not (mentions_x s)
   | e -> is_bool e && not (mentions_x e)
 
 (** The suffix of the module holding the definitions of a sealed module without

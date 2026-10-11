@@ -432,7 +432,8 @@ let ext_stmt_functs ~is_ghost_scope disam_tbl =
 let peek_core_indexable disam_tbl (expr : expr) : bool t =
   let open Rewriter.Syntax in
   let* expr =
-    disambiguate_and_check_expr expr (Type.any |> Type.set_ghost true) disam_tbl
+    speculatively
+      (disambiguate_and_check_expr expr (Type.any |> Type.set_ghost true) disam_tbl)
   in
   let+ typ = TypeExpr.expand_type_expr (Expr.to_type expr) in
   ExprTyping.is_core_indexable typ
@@ -695,35 +696,26 @@ and check_assign (assign_desc : Stmt.assign_desc) (call_decl : Callable.call_dec
                        without an error if it does not resolve: `M.foo` may resolve
                        through implicit instantiation. Otherwise, it is typed as an
                        expression. *)
+                  let original_args = args in
+                  let* args =
+                    Rewriter.List.map args ~f:(fun e -> disambiguate_expr e disam_tbl)
+                  in
+                  let expected =
+                    Type.mk_prod stmt_loc
+                      (List.map var_decls_lhs ~f:(fun var -> var.var_type))
+                    |> Type.set_ghost (is_ghost_scope || is_ghost_assign)
+                  in
                   let* resolved =
-                    ImplicitInstantiation.resolve_or_implicit_opt qual_ident
-                      ~on_miss:(fun () ->
-                        (* `args` needs disambiguating here since try_resolve_implicit_instantiation's
-                       argument peek doesn't disambiguate local identifiers itself. *)
-                        let* args =
-                          Rewriter.List.map args ~f:(fun e ->
-                              disambiguate_expr e disam_tbl)
-                        in
-                        (* As in the expression path: an unqualified name imported from an
-                       uninstantiated functor carries no functor path of its own. *)
-                        let* imported = Rewriter.find_import_target qual_ident in
-                        let candidate = Base.Option.value imported ~default:qual_ident in
-                        (* Only a callable becomes a [Stmt.Call]; anything else, such as
-                             a constructor `nil`, is typed as an expression, against the
-                             type of the left-hand side. *)
-                        ImplicitInstantiation.try_resolve_implicit_instantiation
-                          ~check_expr:ExprTyping.check
-                          ~claimed_location:ExprTyping.claimed_location ~loc:stmt_loc
-                          ~qual_ident:candidate ~arg_exprs:args ~only_calls:true
-                          ~expected_typ:(Type.any |> Type.set_ghost is_ghost_scope)
-                          ())
+                    CallResolution.resolve_opt ~check_expr:ExprTyping.check
+                      ~claimed_location:ExprTyping.claimed_location ~loc:stmt_loc
+                      ~name:qual_ident ~args ~expected ~only_calls:true ()
                   in
                   match resolved with
-                  | None -> Rewriter.return None
-                  | Some (qual_ident, symbol) -> (
+                  | None | Some (Primitive _) -> Rewriter.return None
+                  | Some (Symbol (qual_ident, symbol, _)) -> (
                       let+ symbol = Rewriter.Symbol.reify symbol in
                       match symbol with
-                      | CallDef call_def -> Some (symbol, qual_ident, args)
+                      | CallDef call_def -> Some (symbol, qual_ident, original_args)
                       | _ -> None))
               | _ -> Rewriter.return None
             in
@@ -1117,7 +1109,8 @@ and claim_if_not_core_indexed ~is_ghost_scope call_decl stmt_loc disam_tbl basic
     (expr : expr) =
   let open Rewriter.Syntax in
   match expr with
-  | App ((MapLookUp | MapUpdate), base :: _, _) ->
+  | App (constr, base :: _, _)
+    when ExprTyping.is_lookup_constr constr || ExprTyping.is_update_constr constr ->
       let* core_indexable = peek_core_indexable disam_tbl base in
       if core_indexable then Rewriter.return None
       else claim_stmt ~is_ghost_scope call_decl stmt_loc disam_tbl basic_stmt

@@ -1,0 +1,11 @@
+module M {
+  inline func <||>() returns (r: Int) { 0 }
+  inline func <|_|>(e: Int) returns (r: Int) { e }
+}
+
+module Client {
+  import M._
+  proc check() {
+    assert <|1|] == 1;
+  }
+}

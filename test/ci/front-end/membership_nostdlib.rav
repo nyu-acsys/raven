@@ -1,0 +1,19 @@
+module Membership {
+  inline func in(e: Int, s: Int) returns (r: Bool) { e <= s }
+  inline func in(e: Bool, s: Bool) returns (r: Bool) { e == s }
+}
+
+module Client {
+  import Membership.in
+
+  proc check() {
+    assert 1 in 2;
+    assert 3 !in 2;
+    assert (1 in 2) == Membership.in(1, 2);
+    assert in(1, 2);
+    assert !(in(3, 2));
+    assert true in true;
+    assert true !in false;
+    assert (true !in false) == !Membership.in(true, false);
+  }
+}

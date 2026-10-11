@@ -42,8 +42,8 @@ module IntOps {
     var xx := 0 :: 5 :: nil;
 
     assert len(xx) == 2;
-    assert is_in(xx, 0) && is_in(xx, 5);
-    assert !is_in(xx, 2);
+    assert 0 in xx && 5 in xx;
+    assert 2 !in xx;
 
     assert xx.hd == 0;
     assert xx.hd != 5;

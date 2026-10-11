@@ -1,0 +1,14 @@
+module A {
+  func f(x: Int) returns (r: Int) { x }
+}
+
+module B {
+  func f(x: Int) returns (r: Int) { x + 1 }
+}
+
+import A._
+import B._
+
+proc check() {
+  var x: Int := f(0);
+}

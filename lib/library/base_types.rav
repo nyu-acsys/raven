@@ -18,12 +18,16 @@ module RefType: Type {
   rep type T = Ref
 }
 
-// The operations on sets of elements of E. The core's set operators stand for them:
-// `++`, `**`, `--` and `subseteq` for union, inter, diff and subset, and `choose` for
-// choose. Each is an `inline` function whose body combines its arguments element by
-// element, so that the SMT solver reasons about sets in its theory of arrays.
+// Set operations are library functions. The inline definitions expose pointwise
+// comprehensions to the SMT solver's theory of arrays.
 module Sets[E: Type] {
   type T = Set[E]
+
+  inline func {||}() returns (r: FinSet[E]) { finset() }
+
+  inline func {|_|}(e: E) returns (r: FinSet[E]) { finset(e) }
+
+  inline func in(e: E, s: T) returns (r: Bool) { s[e] }
 
   inline func union(s: T, t: T) returns (r: T) {
     {| x: E :: x in s || x in t |}
@@ -53,14 +57,43 @@ module Sets[E: Type] {
   free func fin_diff(s: FinSet[E], t: T) returns (r: FinSet[E])
     ensures r == diff(s, t)
 
+  inline func ++(s: T, t: T) returns (r: T) { union(s, t) }
+
+  inline func ++(s: FinSet[E], t: FinSet[E]) returns (r: FinSet[E]) {
+    fin_union(s, t)
+  }
+
+  inline func **(s: T, t: T) returns (r: T) { inter(s, t) }
+
+  inline func **(s: FinSet[E], t: T) returns (r: FinSet[E]) { fin_inter(s, t) }
+
+  inline func **(s: T, t: FinSet[E]) returns (r: FinSet[E]) { fin_inter(t, s) }
+
+  inline func **(s: FinSet[E], t: FinSet[E]) returns (r: FinSet[E]) {
+    fin_inter(s, t)
+  }
+
+  inline func --(s: T, t: T) returns (r: T) { diff(s, t) }
+
+  inline func --(s: FinSet[E], t: T) returns (r: FinSet[E]) { fin_diff(s, t) }
+
+  inline func subseteq(s: T, t: T) returns (r: Bool) { subset(s, t) }
+
   // Some element of a nonempty set, the same one wherever it is chosen from the same set.
   free func choose(s: T) returns (e: E)
 
-  // `Sets.choose`, as a bare `choose(s)` is the set operator, which stands for the
-  // function of another instance.
   free auto axiom choose_in()
-    ensures forall s: T :: {Sets.choose(s)} s != {||} ==> Sets.choose(s) in s
+    ensures forall s: T :: {choose(s)} s != {| x: E :: false |} ==> choose(s) in s
 }
+
+import Sets.{||}
+import Sets.{|_|}
+import Sets.++
+import Sets.**
+import Sets.--
+import Sets.subseteq
+import Sets.choose
+import Sets.in
 
 module Option[E: Type] : Type {
   rep type T = data {
@@ -79,6 +112,19 @@ module List[E: Type] : Type {
     case ::(hd: E, tl: T)
   }
 
+  inline func <||>() returns (ret: T) { nil }
+
+  inline func <|_|>(e: E) returns (ret: T) { e :: nil }
+
+  func ++(ls: T, tail: T) returns (ret: T)
+    decreases ls
+  {
+    match ls {
+      case nil => tail
+      case hd :: tl => hd :: (tl ++ tail)
+    }
+  }
+
   func len(ls:T) returns (ret: Int)
     ensures ret >= 0
     decreases ls
@@ -89,15 +135,20 @@ module List[E: Type] : Type {
     }
   }
 
-  func is_in(ls: T, e: E) returns (ret: Bool)
+  func in(e: E, ls: T) returns (ret: Bool)
     decreases ls
   {
     match ls {
       case nil => false
-      case hd :: tl => e == hd || is_in(tl, e)
+      case hd :: tl => e == hd || e in tl
     }
   }
 }
+
+import List.in
+import List.++
+import List.<||>
+import List.<|_|>
 
 // Immutable indexed sequences, axiomatized after Viper's $Seq domain
 // (silicon/src/main/resources/dafny_axioms/sequences.vpr), keeping its triggers.
@@ -114,6 +165,8 @@ interface SeqSpec[E: Type] : Type {
   // Written `[||]`.
   val empty: T
 
+  inline func [||]() returns (ret: T) { empty }
+
   auto lemma empty_length()
     ensures length(empty) == 0
 
@@ -123,11 +176,15 @@ interface SeqSpec[E: Type] : Type {
   // Written `[|e|]`.
   func singleton(e: E) returns (ret: T)
 
+  inline func [|_|](e: E) returns (ret: T) { singleton(e) }
+
   auto lemma singleton_length()
     ensures forall e: E :: {singleton(e)} length(singleton(e)) == 1
 
   // Written `s1 ++ s2`.
   func append(s1: T, s2: T) returns (ret: T)
+
+  inline func ++(s1: T, s2: T) returns (ret: T) { append(s1, s2) }
 
   auto lemma append_length()
     ensures forall s0: T, s1: T :: {length(append(s0, s1))}
@@ -141,6 +198,8 @@ interface SeqSpec[E: Type] : Type {
 
   // Written `s[i]`.
   func index(s: T, i: Int) returns (ret: E)
+
+  inline func _[_](s: T, i: Int) returns (ret: E) { index(s, i) }
 
   auto lemma singleton_index()
     ensures forall e: E :: {singleton(e)} index(singleton(e), 0) == e
@@ -180,6 +239,8 @@ interface SeqSpec[E: Type] : Type {
   // Written `s[i := e]`.
   func update(s: T, i: Int, e: E) returns (ret: T)
 
+  inline func _[_:=_](s: T, i: Int, e: E) returns (ret: T) { update(s, i, e) }
+
   auto lemma update_length()
     ensures forall s: T, i: Int, v: E ::
       {length(update(s, i, v))} {length(s), update(s, i, v)}
@@ -210,6 +271,14 @@ interface SeqSpec[E: Type] : Type {
 
   // Written `s[howMany..]`. `s[m..n]` is `drop(take(s, n), m)`.
   func drop(s: T, howMany: Int) returns (ret: T)
+
+  inline func _[.._](s: T, hi: Int) returns (ret: T) { take(s, hi) }
+
+  inline func _[_..](s: T, lo: Int) returns (ret: T) { drop(s, lo) }
+
+  inline func _[_.._](s: T, lo: Int, hi: Int) returns (ret: T) {
+    drop(take(s, hi), lo)
+  }
 
   auto lemma drop_length()
     ensures forall s: T, n: Int :: {length(drop(s, n))} {length(s), drop(s, n)}
@@ -265,6 +334,8 @@ interface SeqSpec[E: Type] : Type {
 
   // Written `e in s`.
   func contains(s: T, e: E) returns (ret: Bool)
+
+  inline func in(e: E, s: T) returns (r: Bool) { contains(s, e) }
 
   // Viper substitutes this for `contains` when it occurs in user-written triggers.
   func contains_trigger(s: T, e: E) returns (ret: Bool)
@@ -824,35 +895,45 @@ module Seq[E: Type] :> SeqSpec[E] {
 
 // An ordered type
 interface OrderedType : Type {
-    
-  func lt(x: T, y: T) returns (res: Bool)
 
-  func le(x: T, y: T) returns (res: Bool) {
-    lt(x, y) || x == y
+  func <(x: T, y: T) returns (res: Bool)
+
+  func <=(x: T, y: T) returns (res: Bool) {
+    x < y || x == y
   }
 
   func compare(x: T, y: T) returns (res: Int)
   {
-    x == y ? 0 : (lt(x, y) ? -1 : 1)
+    x == y ? 0 : (x < y ? -1 : 1)
   }
 
   /*val bot: T
   val top: T
 
   auto axiom bot_smallest()
-    ensures forall a: T :: {lt(a, bot)} !lt(a, bot)
+    ensures forall a: T :: {a < bot} !(a < bot)
   auto axiom top_largest()
-    ensures forall a: T :: {lt(top, a)} !lt(top, a)
+    ensures forall a: T :: {top < a} !(top < a)
   auto axiom nontrivial()
     ensures bot != top*/
 
   auto axiom lt_irreflexive()
-    ensures forall a: T :: {lt(a, a)} !lt(a, a)
+    ensures forall a: T :: {a < a} !(a < a)
   auto axiom lt_antisymmetric()
-    ensures forall a: T, b: T :: {lt(a, b)} {lt(b, a)} !lt(a, b) || !lt(b, a)
+    ensures forall a: T, b: T :: {a < b} {b < a} !(a < b) || !(b < a)
   auto axiom lt_total()
-    ensures forall a: T, b: T :: {lt(a, b)} {lt(b, a)} lt(a, b) || lt(b, a) || a == b
+    ensures forall a: T, b: T :: {a < b} {b < a} a < b || b < a || a == b
   auto axiom lt_transitive()
-    ensures forall a: T, b: T, c: T :: {lt(a, b), lt(b, c)} lt(a, b) && lt(b, c) ==> lt(a, c)
+    ensures forall a: T, b: T, c: T :: {a < b, b < c} a < b && b < c ==> a < c
 
 }
+
+import Seq.++
+import Seq.[||]
+import Seq.[|_|]
+import Seq._[_.._]
+import Seq._[.._]
+import Seq._[_..]
+import Seq.in
+import Seq._[_:=_]
+import Seq._[_]

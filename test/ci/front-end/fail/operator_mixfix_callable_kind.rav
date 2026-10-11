@@ -1,0 +1,1 @@
+proc _[_..](s: Int, lo: Int) returns (r: Int) { r := s + lo; }

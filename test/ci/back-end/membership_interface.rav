@@ -1,0 +1,14 @@
+interface MembershipContract[E: Library.Type] {
+  type T = Set[E]
+
+  proc member(e: E, s: T) returns (r: Bool)
+    ensures r == (e in s)
+}
+
+module MembershipImplementation: MembershipContract[Library.IntType] {
+  proc member(e: Int, s: T) returns (r: Bool)
+    ensures r == (e in s)
+  {
+    return e in s;
+  }
+}

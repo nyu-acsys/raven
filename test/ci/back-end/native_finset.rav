@@ -1,0 +1,10 @@
+inline func finset(x: Int, y: Int) returns (r: Int) { x + y }
+
+lemma native_constructors() {
+  val empty: FinSet[Int] := finset();
+  val singleton: FinSet[Int] := finset(7);
+  assert !empty[7];
+  assert (singleton[7] : Bool) == true;
+  assert !singleton[8];
+  assert finset(2, 3) == 5;
+}

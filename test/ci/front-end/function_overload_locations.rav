@@ -1,0 +1,18 @@
+interface AtomicField { module E: Library.Type field f: E }
+module Ops[A: AtomicField] {
+  func key(x.A.f) returns (r: Ref) { x }
+  func key(x.A.f, tag: Int) returns (r: Int) { tag }
+  func tag(x.A.f, y: A.E) returns (r: A.E) { y }
+  func tag(x.A.f, y: A.E, ignored: Bool) returns (r: A.E) { y }
+}
+module Client {
+  field bit: Int
+  proc check(x: Ref) {
+    var a: Ref := Ops.key(x.bit);
+    assert a == x;
+    var v: Int := Ops.key(x.bit, 7);
+    assert v == 7;
+    var typed: Int := Ops.tag(x.bit, 9);
+    assert typed == 9;
+  }
+}

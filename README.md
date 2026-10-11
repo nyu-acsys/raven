@@ -173,6 +173,9 @@ Other flags useful during development: `--typeonly` (type-check only), `--verbos
 
 
 ## Raven Verifier Manual
+
+### Command-line options
+
 Run `raven --help` for the full, authoritative option list. A few of the most commonly used flags:
 - `--extension=VAL` (`default`, `eris`, or `auto`) — select a front-end extension; `auto` picks it from the extension-specific syntax the program uses.
 - `--typeonly` — type-check the input without running verification.

@@ -88,6 +88,36 @@ let check_opens (call_decl : Callable.call_decl) (formals : Type.var_decl list)
 
 let check (callable : Callable.t) : Module.symbol t =
   let open Rewriter.Syntax in
+  let source = Callable.source_ident callable in
+  let holes =
+    match Ident.name source with
+    | "_[_.._]" | "_[_:=_]" -> Some 3
+    | "_[.._]" | "_[_..]" | "_[_]" -> Some 2
+    | name
+      when String.mem name '|'
+           && String.length name > 0
+           && List.mem [ '('; '['; '{'; '<' ] name.[0] ~equal:Char.equal ->
+        Some (if String.mem name '_' then 1 else 0)
+    | _ -> None
+  in
+  let () =
+    Option.iter holes ~f:(fun holes ->
+        let decl = callable.call_decl in
+        if Poly.(decl.call_decl_kind <> Func) then
+          Error.type_error (Ident.to_loc source)
+            "A mixfix operator must be declared as a function";
+        let explicit, implicit = List.split_n decl.call_decl_formals holes in
+        if
+          List.length explicit <> holes
+          || List.exists explicit ~f:(fun p -> p.Type.var_implicit)
+          || List.exists implicit ~f:(fun p -> not (p.Type.var_implicit && p.var_ghost))
+        then
+          Error.type_error (Ident.to_loc source)
+            (Printf.sprintf
+               "Mixfix operator %s requires %d explicit parameters, followed only by \
+                implicit ghost parameters"
+               (Ident.name source) holes))
+  in
   let* () =
     Rewriter.Logs.debug (fun printers m ->
         m "CallableTyping.check: Start Processing callable: %a" printers.pr_callable
@@ -119,6 +149,19 @@ let check (callable : Callable.t) : Module.symbol t =
   let* disam_tbl, call_decl_formals = check_decls call_decl.call_decl_formals disam_tbl in
   let* disam_tbl, call_decl_returns = check_decls call_decl.call_decl_returns disam_tbl in
   let* disam_tbl, call_decl_locals = check_decls call_decl.call_decl_locals disam_tbl in
+
+  let () =
+    if String.equal (Ident.name source) "_[_:=_]" then
+      match (call_decl_formals, call_decl_returns) with
+      | container :: _, [ result ]
+        when Type.equal
+               (Type.set_ghost false container.var_type)
+               (Type.set_ghost false result.var_type) ->
+          ()
+      | _ ->
+          Error.type_error (Ident.to_loc source)
+            "An update operator must return the same type as its container parameter"
+  in
 
   let* ext_hooks = Rewriter.current_ext_hooks in
 

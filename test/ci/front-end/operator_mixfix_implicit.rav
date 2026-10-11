@@ -1,0 +1,12 @@
+module Ops {
+  inline func _[_.._](s: Int, lo: Int, hi: Int, implicit ghost w: Int)
+    returns (r: Int) { s + lo + hi }
+}
+
+module Client {
+  import Ops._[_.._]
+
+  proc check_explicit_suffix() {
+    assert Ops._[_.._](1, 2, 3, 0) == 6;
+  }
+}

@@ -5,10 +5,10 @@ module OrderedArray[E: Library.OrderedType] {
   import AU._
   import AU.A._
   import AU.Inv._
-  import E.lt
+  import E.<
 
   func sorted_map_seg(m: Map[Int, E], i: Int, j: Int) returns (res: Bool) {
-    forall i1: Int, i2: Int :: {m[i1], m[i2]} i <= i1 && i1 < i2 && i2 < j ==> lt(m[i1], m[i2])
+    forall i1: Int, i2: Int :: {m[i1], m[i2]} i <= i1 && i1 < i2 && i2 < j ==> m[i1] < m[i2]
   }
 
   pred sorted_array_with_content(a: T, len: Int; m: Map[Int, E]) {
@@ -22,14 +22,14 @@ module OrderedArray[E: Library.OrderedType] {
 
   func map_find(m: Map[Int, E], i: Int, j: Int, k: E) returns (idx: Int)
   {
-    i < j && lt(m[i], k) ? map_find(m, i + 1, j, k) : i  
+    i < j && m[i] < k ? map_find(m, i + 1, j, k) : i
   }
 
   lemma map_find_spec(m: Map[Int, E], i: Int, j: Int, k: E)
     ensures i <= j && sorted_map_seg(m, i, j) ==>
         i <= map_find(m, i, j, k) && map_find(m, i, j, k) <= j &&
-        (m[map_find(m, i, j, k)] == k || map_find(m, i, j, k) == j || lt(k, m[map_find(m, i, j, k)])) &&
-        (i < map_find(m, i, j, k) ==> lt(m[map_find(m, i, j, k) - 1], k))
+        (m[map_find(m, i, j, k)] == k || map_find(m, i, j, k) == j || k < m[map_find(m, i, j, k)]) &&
+        (i < map_find(m, i, j, k) ==> m[map_find(m, i, j, k) - 1] < k)
   {
     if (i < j && sorted_map_seg(m, i, j)) {
       map_find_spec(m, i+1, j, k);
@@ -39,13 +39,13 @@ module OrderedArray[E: Library.OrderedType] {
   auto lemma map_find_spec_auto()
     ensures forall m: Map[Int, E], i: Int, j: Int, k: E :: {map_find(m, i, j, k)} i <= j && sorted_map_seg(m, i, j) ==>
         i <= map_find(m, i, j, k) && map_find(m, i, j, k) <= j &&
-        (m[map_find(m, i, j, k)] == k || map_find(m, i, j, k) == j || lt(k, m[map_find(m, i, j, k)])) &&
-        (i < map_find(m, i, j, k) ==> lt(m[map_find(m, i, j, k) - 1], k))
+        (m[map_find(m, i, j, k)] == k || map_find(m, i, j, k) == j || k < m[map_find(m, i, j, k)]) &&
+        (i < map_find(m, i, j, k) ==> m[map_find(m, i, j, k) - 1] < k)
   {
     assert forall m: Map[Int, E], i: Int, j: Int, k: E :: {map_find(m, i, j, k)} i <= j && sorted_map_seg(m, i, j) ==>
         i <= map_find(m, i, j, k) && map_find(m, i, j, k) <= j &&
-        (m[map_find(m, i, j, k)] == k || map_find(m, i, j, k) == j || lt(k, m[map_find(m, i, j, k)])) &&
-        (i < map_find(m, i, j, k) ==> lt(m[map_find(m, i, j, k) - 1], k)) with {
+        (m[map_find(m, i, j, k)] == k || map_find(m, i, j, k) == j || k < m[map_find(m, i, j, k)]) &&
+        (i < map_find(m, i, j, k) ==> m[map_find(m, i, j, k) - 1] < k) with {
       map_find_spec(m, i, j, k);
     }
   }
@@ -117,9 +117,9 @@ module OrderedArray[E: Library.OrderedType] {
       invariant sorted_array_with_content(a, len, m)
       // what we actually care about
       invariant 0 <= lo <= hi <= len <= length(a)
-      invariant hi == len || m[lo] == k || lt(k, m[hi])
-      invariant 0 < lo ==> lt(m[lo - 1], k)
-      invariant hi < len - 1 ==> lt(k, m[hi + 1])
+      invariant hi == len || m[lo] == k || k < m[hi]
+      invariant 0 < lo ==> m[lo - 1] < k
+      invariant hi < len - 1 ==> k < m[hi + 1]
     {
       unfold sorted_array_with_content(a, len, m);
       unfold arr(a, m);
@@ -147,7 +147,7 @@ module OrderedArray[E: Library.OrderedType] {
       unfold sorted_array_with_content(a, len, m);
       unfold arr(a, m);
       var alo: E := a[lo];
-      found := !lt(k, alo);
+      found := !(k < alo);
       fold arr(a, m);
       fold sorted_array_with_content(a, len, m);
     }

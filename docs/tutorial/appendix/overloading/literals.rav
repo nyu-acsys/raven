@@ -1,0 +1,26 @@
+import List._
+
+module SumLiteral {
+  inline func {{||}}() returns (r: Int) { 0 }
+  inline func {{|_|}}(e: Int) returns (r: Int) { e }
+  inline func ++(x: Int, y: Int) returns (r: Int) { x + y }
+}
+
+module Client {
+  import SumLiteral._
+
+  lemma examples() {
+    assert {{||}} == 0;
+    assert {{|1, 2, 3|}} == 6;
+  }
+}
+
+lemma collections() {
+  val xs: List[Int] := <|1, 2|>;
+  assert xs == 1 :: 2 :: (nil : List[Int]);
+  val nested: Seq[Seq[Int]] := [|[||]|];
+  assert Seq.length(nested) == 1;
+  assert Seq.length(nested[0]) == 0;
+  val finite: FinSet[Int] := {|1, 2|};
+  assert 1 in finite && 2 in finite;
+}

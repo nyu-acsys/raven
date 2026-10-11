@@ -16,7 +16,7 @@ module Hash {
   // Int-keyed projections of a HashMap live in their own scope, importing
   // Library.List's Int instantiation unqualified for `nil`/`::` -- kept apart
   // from IntPairList's own `nil`/`::` above (importing both unqualified in one
-  // scope would collide on those names; see IntListT.len/IntListT.is_in below
+  // scope would collide on those names; see IntListT.len/IntListT.in below
   // for how outside callers reach in without importing this module too).
   module IntListOps {
     module IntListT = Library.List[Int]
@@ -51,8 +51,8 @@ module Hash {
   }
 
   auto lemma lookUpHashMapWorks(mp: HashMap, idx: Int)
-    ensures {IntListOps.IntListT.is_in(IntListOps.proj1(mp), idx)} {lookUpHashMap(mp, idx)} (
-      IntListOps.IntListT.is_in(IntListOps.proj1(mp), idx) ==> OptInt.is_some(lookUpHashMap(mp, idx))
+    ensures {IntListOps.IntListT.in(idx, IntListOps.proj1(mp))} {lookUpHashMap(mp, idx)} (
+      IntListOps.IntListT.in(idx, IntListOps.proj1(mp)) ==> OptInt.is_some(lookUpHashMap(mp, idx))
     )
     decreases mp
   {
@@ -79,7 +79,7 @@ module Hash {
   }
 
   auto lemma look_up_img_in_proj2(mp: HashMap, idx: Int)
-    ensures {lookUpHashMap(mp, idx)} OptInt.is_some(lookUpHashMap(mp, idx)) ==> IntListOps.IntListT.is_in(IntListOps.proj2(mp), lookUpHashMap(mp, idx).OptInt.value)
+    ensures {lookUpHashMap(mp, idx)} OptInt.is_some(lookUpHashMap(mp, idx)) ==> IntListOps.IntListT.in(lookUpHashMap(mp, idx).OptInt.value, IntListOps.proj2(mp))
     decreases mp
   {
     if (!(mp is nil)) {
@@ -90,7 +90,7 @@ module Hash {
   }
 
   lemma coll_free_mp_ins(mp: HashMap, b: Int)
-    requires coll_free(mp) && !IntListOps.IntListT.is_in(IntListOps.proj2(mp), b)
+    requires coll_free(mp) && !IntListOps.IntListT.in(b, IntListOps.proj2(mp))
     ensures forall v: Int :: coll_free( (v,b) :: mp)
   { }
 

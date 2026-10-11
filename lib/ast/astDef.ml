@@ -564,17 +564,14 @@ module Type = struct
     | App (Fld, [ val_typ ], _) -> val_typ
     | _ -> failwith "Expected field type"
 
-  let set_elem = function
-    | App (Map, [ elem; App (Bool, _, _) ], _) -> elem
-    | App (FinSet, [ elem ], _) -> elem
-    | _ -> failwith "Expected Set type"
-
   let map_dom = function
     | App (Map, dom :: _, _) -> dom
+    | App (FinSet, [ elem ], _) -> elem
     | _t -> failwith ("Expected Map type; found: " ^ to_string _t)
 
   let map_codom = function
     | App (Map, _ :: codom :: _, _) -> codom
+    | App (FinSet, [ _ ], _) -> bool
     | _t -> failwith ("Expected Map type; found: " ^ to_string _t)
 
   let tuple_lookup tp i =
@@ -632,7 +629,6 @@ module Expr = struct
     (* Unary operators *)
     | Not
     | Uminus
-    | Choose
     (* Binary operators *)
     | TupleLookUp
     | MapLookUp
@@ -642,11 +638,6 @@ module Expr = struct
     | Lt
     | Geq
     | Leq
-    | Diff
-    | Union
-    | Inter
-    | Elem
-    | Subseteq
     | And
     | Or
     | Impl
@@ -665,7 +656,7 @@ module Expr = struct
     | AUPred of QualIdent.t
     | AUPredCommit of QualIdent.t
     (* Variable arity operators *)
-    | Setenum
+    | Enumeration of string
     | Tuple
     | Var of QualIdent.t
     | ExprExt of expr_ext
@@ -734,6 +725,19 @@ module Expr = struct
 
   let default_expr_ext_to_string : expr_ext -> string = fun _ -> "[ExprExt]"
 
+  let enumeration_closer opener =
+    String.to_list opener
+    |> List.rev_map ~f:(function
+      | '(' -> ')'
+      | '[' -> ']'
+      | '{' -> '}'
+      | '<' -> '>'
+      | _ -> invalid_arg "Expected an enumeration opener")
+    |> String.of_char_list
+
+  let enumeration_name opener ~singleton =
+    opener ^ (if singleton then "|_|" else "||") ^ enumeration_closer opener
+
   let make_constr_to_string ~expr_ext_to_string = function
     (* function symbols *)
     | Bool b -> Printf.sprintf "%b" b
@@ -754,10 +758,7 @@ module Expr = struct
     | Div -> "/"
     | Mod -> "%"
     | Empty -> "{||}"
-    | Setenum -> "{||}"
-    | Union -> "++"
-    | Inter -> "**"
-    | Diff -> "--"
+    | Enumeration opener -> opener ^ "|...|" ^ enumeration_closer opener
     | Ite -> "ite"
     (* predicate symbols *)
     | Eq -> "=="
@@ -765,9 +766,6 @@ module Expr = struct
     | Geq -> ">="
     | Lt -> "<"
     | Gt -> ">"
-    | Elem -> "in"
-    | Subseteq -> "subsetof"
-    | Choose -> "choose"
     | And -> "&&"
     | Not -> "!"
     | Or -> "||"
@@ -785,15 +783,14 @@ module Expr = struct
 
   let constr_to_prio = function
     | Null | Empty | Int _ | Real _ | Bool _ -> 0
-    | Setenum | Tuple | Read | Own | Choose | AUPred _ | AUPredCommit _ | Var _
-    | TupleLookUp | MapLookUp | MapUpdate ->
+    | Enumeration _ | Tuple | Read | Own | AUPred _ | AUPredCommit _ | Var _ | TupleLookUp
+    | MapLookUp | MapUpdate ->
         1
     | Uminus | Not -> 2
     | DataConstr _ | DataDestr _ -> 3
     | Mult | Div | Mod -> 4
     | Minus | Plus -> 5
-    | Diff | Union | Inter -> 6
-    | Gt | Lt | Geq | Leq | Elem | Subseteq -> 7
+    | Gt | Lt | Geq | Leq -> 7
     | Eq -> 8
     | And -> 12
     | Or | Impl -> 16
@@ -832,8 +829,6 @@ module Expr = struct
       match e with
       | App (And, [], a) -> pr ppf (App (Bool false, [], a))
       | App (Or, [], a) -> pr ppf (App (Bool true, [], a))
-      | App ((Union | Setenum), [], a) -> pr ppf (App (Empty, [], a))
-      | App (Inter, [], _) -> fprintf ppf "Univ"
       | App (c, [], _) ->
           fprintf ppf "(%a \027[35m :%a \027[0m)" pr_constr c Type.pr (to_type e)
       | App (DataConstr id, es, _) | App (Var id, (_ :: _ as es), _) ->
@@ -847,16 +842,17 @@ module Expr = struct
           fprintf ppf "(%a[%a@ :=@ %a] \027[35m :%a \027[0m)" pr e1 pr e2 pr e3 Type.pr
             (to_type e)
       | App
-          ( (( Minus | Plus | Mult | Div | Mod | Diff | Inter | Union | Eq | Subseteq
-             | Leq | Geq | Lt | Gt | Elem | And | Or | Impl ) as c),
+          ( ((Minus | Plus | Mult | Div | Mod | Eq | Leq | Geq | Lt | Gt | And | Or | Impl)
+             as c),
             [ e1; e2 ],
             _ ) ->
           let pr_e1 = if constr_to_prio c < to_prio e1 then pr_paran else pr in
           let pr_e2 = if constr_to_prio c <= to_prio e2 then pr_paran else pr in
           fprintf ppf "@[<2>(%a %a@ %a \027[35m :%a \027[0m)@]" pr_e1 e1 pr_constr c pr_e2
             e2 Type.pr (to_type e)
-      | App (Setenum, es, _) ->
-          fprintf ppf "({|@[%a@]|} \027[35m :%a \027[0m)" pr_list es Type.pr (to_type e)
+      | App (Enumeration opener, es, _) ->
+          fprintf ppf "(%s|@[%a@]|%s \027[35m :%a \027[0m)" opener pr_list es
+            (enumeration_closer opener) Type.pr (to_type e)
       | App (Tuple, es, _) -> fprintf ppf "(@[<1>%a@])" pr_list es
       | App (c, es, _) ->
           fprintf ppf "(%a(@[%a@]) \027[35m :%a \027[0m)" pr_constr c pr_list es Type.pr
@@ -870,20 +866,19 @@ module Expr = struct
       match e with
       | App (And, [], a) -> pr ppf (App (Bool false, [], a))
       | App (Or, [], a) -> pr ppf (App (Bool true, [], a))
-      | App ((Union | Setenum), [], a) -> pr ppf (App (Empty, [], a))
-      | App (Inter, [], _) -> fprintf ppf "Univ"
       | App (c, [], _) -> fprintf ppf "%a" pr_constr c
       | App (DataConstr id, es, _) | App (Var id, (_ :: _ as es), _) ->
           fprintf ppf "%a(%a)" QualIdent.pr id pr_list_compact es
       | App
-          ( (( Minus | Plus | Mult | Div | Mod | Diff | Inter | Union | Eq | Subseteq
-             | Leq | Geq | Lt | Gt | Elem | And | Or | Impl ) as c),
+          ( ((Minus | Plus | Mult | Div | Mod | Eq | Leq | Geq | Lt | Gt | And | Or | Impl)
+             as c),
             [ e1; e2 ],
             _ ) ->
           let pr_e1 = if constr_to_prio c < to_prio e1 then pr_paran else pr in
           let pr_e2 = if constr_to_prio c <= to_prio e2 then pr_paran else pr in
           fprintf ppf "%a %a %a" pr_e1 e1 pr_constr c pr_e2 e2
-      | App (Setenum, es, _) -> fprintf ppf "{|%a|}" pr_list_compact es
+      | App (Enumeration opener, es, _) ->
+          fprintf ppf "%s|%a|%s" opener pr_list_compact es (enumeration_closer opener)
       | App (Tuple, es, _) -> fprintf ppf "(@[<1>%a@])" pr_list_compact es
       | App (c, es, _) -> fprintf ppf "%a(%a)" pr_constr c pr_list_compact es
       | Binder (b, vs, trgs, e1, _) ->
@@ -2444,7 +2439,8 @@ module Callable = struct
 
   type call_decl = {
     call_decl_kind : call_kind;  (** kind of declaration *)
-    call_decl_name : ident;  (** name of associated declaration *)
+    call_decl_name : ident;  (** internal declaration identity *)
+    call_decl_source_name : ident option;  (** source name when different from identity *)
     call_decl_formals : var_decl list;  (** formal parameter list *)
     call_decl_returns : var_decl list;  (** return parameter list *)
     call_decl_locals : var_decl list;
@@ -2640,6 +2636,11 @@ module Callable = struct
 
   let to_decl (call : t) = call.call_decl
   let to_ident (call : t) = call |> to_decl |> fun call_decl -> call_decl.call_decl_name
+
+  let source_name (decl : call_decl) =
+    Option.value decl.call_decl_source_name ~default:decl.call_decl_name
+
+  let source_ident (call : t) = source_name call.call_decl
   let to_loc (call : t) = call |> to_decl |> fun call_decl -> call_decl.call_decl_loc
   let kind (call : t) = call |> to_decl |> fun call_decl -> call_decl.call_decl_kind
 
@@ -2652,6 +2653,7 @@ module Callable = struct
     {
       call_decl_kind = kind;
       call_decl_name = name;
+      call_decl_source_name = None;
       call_decl_formals = formals;
       call_decl_returns = returns;
       call_decl_locals = locals;
@@ -3118,6 +3120,10 @@ module Symbol = struct
     | FieldDef field_def -> field_def.field_name
     | CallDef call_def -> Callable.to_ident call_def
 
+  let source_name = function
+    | CallDef call -> Callable.source_ident call
+    | symbol -> to_name symbol
+
   let kind = function
     | TypeDef _ -> "type"
     | ModInst mod_inst when mod_inst.mod_inst_is_interface -> "interface"
@@ -3206,7 +3212,7 @@ module Predefs = struct
   let lib_list_mod_ident = Ident.make Loc.dummy "List" 0
   let lib_list_mod_qual_ident = QualIdent.from_list [ lib_ident; lib_list_mod_ident ]
   let lib_list_len_ident = Ident.make Loc.dummy "len" 0
-  let lib_list_is_in_ident = Ident.make Loc.dummy "is_in" 0
+  let lib_list_in_ident = Ident.make Loc.dummy "in" 0
   let lib_list_head_destr_ident = Ident.make Loc.dummy "hd" 0
   let lib_list_tail_destr_ident = Ident.make Loc.dummy "tl" 0
 

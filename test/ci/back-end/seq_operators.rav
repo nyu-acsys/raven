@@ -57,6 +57,6 @@ module N {
   module IS = Library.Seq[Library.IntType]
   lemma l(s: IS.T)
     ensures IS.length(s ++ [|1|]) == IS.length(s) + 1
-    ensures IS.length(([||] : IS.T)) == 0
+    ensures IS.length(( [||] : IS.T)) == 0
   {}
 }

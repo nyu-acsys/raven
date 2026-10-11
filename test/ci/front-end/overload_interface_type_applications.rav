@@ -1,0 +1,39 @@
+interface SequenceIdentity {
+  func identity(s: Library.Seq[Int]) returns (r: Library.Seq[Int])
+    ensures r == s
+  func identity(b: Bool) returns (r: Bool)
+    ensures r == b
+}
+
+module SequenceIdentityImpl : SequenceIdentity {
+  type Integer = Int
+  type Sequence = Library.Seq[Integer]
+  func identity(b: Bool) returns (r: Bool) { b }
+  func identity(s: Sequence) returns (r: Sequence) { s }
+}
+
+interface GenericSequenceIdentity[E: Library.Type] {
+  func identity(s: Library.Seq[E]) returns (r: Library.Seq[E])
+    ensures r == s
+  func identity(b: Bool) returns (r: Bool)
+    ensures r == b
+}
+
+module GenericSequenceIdentityImpl[E: Library.Type] : GenericSequenceIdentity[E] {
+  type Sequence = Library.Seq[E]
+  func identity(b: Bool) returns (r: Bool) { b }
+  func identity(s: Sequence) returns (r: Sequence) { s }
+}
+
+module GenericInt = GenericSequenceIdentityImpl[Library.IntType]
+
+module Client {
+  proc check(s: Library.Seq[Int]) {
+    assert SequenceIdentityImpl.identity(s) == s;
+    assert SequenceIdentityImpl.identity(true);
+    assert GenericInt.identity(true);
+  }
+  proc check_generic(s: GenericInt.Sequence) {
+    assert GenericInt.identity(s) == s;
+  }
+}

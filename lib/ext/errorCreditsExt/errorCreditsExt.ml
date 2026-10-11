@@ -852,13 +852,13 @@ module ErrorCreditsExt (Cont : Ext) = struct
                ])
         in
 
-        (* ```inhale !List.is_in(ls_expr, lhs_expr);``` *)
+        (* ```inhale lhs_expr !in ls_expr;``` *)
         let inhale_stmt2 =
           Stmt.mk_inhale_expr ~cmnt:"EC_RandList postcond" ~loc
             (Expr.mk_not
                (Expr.mk_app ~typ:Type.bool
-                  (Var (QualIdent.append ls_mod_qi Predefs.lib_list_is_in_ident))
-                  [ ls_expr; lhs_expr ]))
+                  (Var (QualIdent.append ls_mod_qi Predefs.lib_list_in_ident))
+                  [ lhs_expr; ls_expr ]))
         in
 
         Rewriter.return

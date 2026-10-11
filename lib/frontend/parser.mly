@@ -4,6 +4,41 @@ open Util
 open Ast
 (*open Base*)
 
+(* A mixfix expression becomes a call; a pattern can spell that call explicitly. *)
+let mixfix_application loc name base bounds arguments =
+  let loc = Loc.merge (Expr.to_loc base) loc in
+  let name = Ident.make loc name 0 in
+  let is_hole = function
+    | Expr.App (Var qi, [], _) -> QualIdent.is_local qi && Ident.name (QualIdent.unqualify qi) = "_"
+    | _ -> false
+  in
+  let target, args = match arguments with
+    | None -> QualIdent.from_ident name, base :: bounds
+    | Some args ->
+        begin match base with
+        | Expr.App (Var qi, [], _) when Ident.name (QualIdent.unqualify qi) = "_"
+                                      && List.for_all is_hole bounds ->
+            (if QualIdent.is_local qi then QualIdent.from_ident name
+             else QualIdent.append (QualIdent.pop qi) name), args
+        | _ -> Error.syntax_error loc "Expected an operator pattern before this argument list"
+        end
+  in
+  Expr.mk_app ~typ:Type.any ~loc (Expr.Var target) args
+
+let checked_enumeration_name loc opener closer ~singleton =
+  if not (String.equal (Expr.enumeration_closer opener) closer) then
+    Error.syntax_error loc "Mismatched enumeration delimiter";
+  Ident.make loc (Expr.enumeration_name opener ~singleton) 0
+
+let is_enumeration_hole = function
+  | Expr.App (Var qi, [], _) ->
+      QualIdent.is_local qi && Ident.name (QualIdent.unqualify qi) = "_"
+  | _ -> false
+
+let check_set_comprehension loc opener closer =
+  if not (String.equal opener "{" && String.equal closer "}") then
+    Error.syntax_error loc "This delimiter cannot form a set comprehension"
+
 (* A callable has at most one `opens` clause. *)
 let single_opens_clause = function
   | [] -> None
@@ -22,11 +57,15 @@ let inline_modifier ~loc (kind : Callable.call_kind) (is_inline : bool) : bool =
    map, or whatever an extension claims it to be. *)
 let rec index_assign base index value =
   let loc = Loc.merge (Expr.to_loc base) (Expr.to_loc value) in
-  let update = Expr.mk_app ~typ:Type.any ~loc MapUpdate [ base; index; value ] in
+  let update = Expr.mk_app ~typ:Type.any ~loc
+      (Var (QualIdent.from_ident (Ident.make loc "_[_:=_]" 0))) [ base; index; value ] in
   match base with
   | Expr.App (Var qual_ident, [], _) when QualIdent.is_local qual_ident ->
       Stmt.Assign { assign_lhs = [ qual_ident ]; assign_rhs = update; assign_is_init = false }
   | Expr.App (MapLookUp, [ base'; index' ], _) -> index_assign base' index' update
+  | Expr.App (Var name, [ base'; index' ], _)
+    when QualIdent.is_local name && Ident.name (QualIdent.unqualify name) = "_[_]" ->
+      index_assign base' index' update
   | _ ->
       Error.syntax_error (Expr.to_loc base)
         "Expected a variable, possibly indexed, on the left-hand side of an indexed assignment"
@@ -90,8 +129,10 @@ let mk_local_var_def ~ghost ~const decl rhs_opt ~rhs_loc =
 %token <Ast.Expr.constr> CONSTVAL
 %token <Ast.Type.constr> CONSTTYPE
 %token <Ast.Type.constr * int> TYPECONSTR
+%token UNDERSCORE UNION INTER DIFF DOTDOT
 %token LPAREN RPAREN LBRACE RBRACE LBRACKET RBRACKET
 %token LBRACEPIPE RBRACEPIPE LBRACKETPIPE RBRACKETPIPE LGHOSTBRACE RGHOSTBRACE
+%token <string> ENUM_OPEN ENUM_CLOSE
 %token COLON COLONGT COLONEQ COLONCOLON SEMICOLON DOT QMARK COLONPIPE
 %token <Ast.Expr.constr> ADDOP MULTOP
 %token MINUS
@@ -280,7 +321,7 @@ member_def:
 | { false }
 
 field_def:
-| g = ghost_modifier; FIELD x = IDENT; COLON; t = type_expr {
+| g = ghost_modifier; FIELD x = plain_ident; COLON; t = type_expr {
     let decl =
       Module.{ field_name = x;
                field_type = Type.mk_fld (Loc.make $startpos(t) $endpos(t)) t |> Type.set_ghost g;
@@ -294,7 +335,7 @@ field_def:
 (* Manifest field: `field f = M.g` denotes an existing field rather than
    declaring a new one, the counterpart of `rep type T = Int` for types. The
    type and ghost-ness are taken from the target and checked in Typing. *)
-| g = ghost_modifier; FIELD x = IDENT; EQ; target = qual_ident {
+| g = ghost_modifier; FIELD x = plain_ident; EQ; target = qual_ident {
     let decl =
       Module.{ field_name = x;
                field_type = Type.mk_fld (Loc.make $startpos(target) $endpos(target)) Type.any |> Type.set_ghost g;
@@ -407,6 +448,10 @@ module_param:
 }
 
 import_dir:
+| IMPORT; m = mod_ident; DOT; name = mixfix_name {
+  { import_name = QualIdent.append m name; import_all = false;
+    import_loc = Loc.make $symbolstartpos $endpos }
+}
 | IMPORT; id = qual_ident {
   let ident = Expr.to_qual_ident id in
   let import_all =
@@ -509,7 +554,7 @@ formal_with_loc:
               var_implicit = implicit;
             }
 }
-| m = var_modifier; x = IDENT; DOT; f = qual_ident {
+| m = var_modifier; x = plain_ident; DOT; f = qual_ident {
   let implicit, ghost = m in
   if implicit || ghost then
     Error.syntax_error (Loc.make $symbolstartpos $endpos)
@@ -762,7 +807,7 @@ stmt_wo_trailing_substmt:
 
   
 existential_witness_or_bind:
-| x = IDENT COLONEQ e = expr {
+| x = plain_ident COLONEQ e = expr {
   (x, e)
 }
 
@@ -797,6 +842,9 @@ with_clause:
     | [Expr.(App (Read, [field_write_ref; App (Var field_write_field, [], _)], _))], _ ->
         Basic (FieldWrite { field_write_ref; field_write_field; field_write_val = e }), None
     | [Expr.(App (MapLookUp, [base; index], _))], _ ->
+        Basic (index_assign base index e), None
+    | [Expr.(App (Var name, [base; index], _))], _
+      when QualIdent.is_local name && Ident.name (QualIdent.unqualify name) = "_[_]" ->
         Basic (index_assign base index e), None
     | es, assign_is_init ->
         let vs = List.map (function
@@ -1015,16 +1063,38 @@ primary:
 | e = dot_expr { e }
 | e = own_expr { e }
 | e = au_expr { e }
-| e = choose_expr { e }
 ;
 
-(* %public so that an extension can add literals of its own, see seqExt_parser.mly. *)
+enumeration_open:
+| ENUM_OPEN { $1 }
+| LBRACEPIPE { "{" }
+| LBRACKETPIPE { "[" }
+
+enumeration_close:
+| ENUM_CLOSE { $1 }
+| RBRACEPIPE { "}" }
+| RBRACKETPIPE { "]" }
+
+(* Retained as an extension point for nonstandard comprehensions. *)
 %public compr_expr:
-| LBRACEPIPE; es = separated_list(COMMA, expr); RBRACEPIPE {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Setenum es)
+| opener = enumeration_open; es = separated_list(COMMA, expr);
+  closer = enumeration_close; args = option(call) {
+    let loc = Loc.make $symbolstartpos $endpos in
+    ignore (checked_enumeration_name loc opener closer ~singleton:false);
+    match args with
+    | None -> Expr.(mk_app ~typ:Type.any ~loc (Enumeration opener) es)
+    | Some args ->
+        let singleton = match es with [e] when is_enumeration_hole e -> true | _ -> false in
+        if not (List.is_empty es || singleton) then
+          Error.syntax_error loc "Only empty and singleton constructor patterns can be called";
+        let name = checked_enumeration_name loc opener closer ~singleton in
+        Expr.(mk_app ~typ:Type.any ~loc (Var (QualIdent.from_ident name)) args)
   }
-| LBRACEPIPE; v = bound_var; COLONCOLON; e = expr; RBRACEPIPE {
-    Expr.(mk_binder ~loc:(Loc.make $symbolstartpos $endpos) ~typ:Type.(mk_set (Loc.make $symbolstartpos $endpos) bot) Compr [v] e)
+| opener = enumeration_open; v = bound_var; COLONCOLON; e = expr;
+  closer = enumeration_close {
+    let loc = Loc.make $symbolstartpos $endpos in
+    check_set_comprehension loc opener closer;
+    Expr.(mk_binder ~loc ~typ:Type.(mk_set loc bot) Compr [v] e)
   }
 ;
   
@@ -1036,11 +1106,6 @@ dot_expr:
 own_expr:
 | OWN; LPAREN; es = expr_list; RPAREN {
   Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Own es)
-}
-
-choose_expr:
-| CHOOSE; LPAREN; e = expr; RPAREN {
-  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Choose [e])
 }
 
 (*cas_expr:
@@ -1089,29 +1154,24 @@ qual_ident_expr:
 
 %public qual_ident:
 | x = ident { x }
-| m = mod_ident; DOT; x = IDENT {
+| m = mod_ident; DOT; x = enumeration_name {
   Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) (Var (QualIdent.append m x)) [])
 }
-| m = mod_ident; DOT; CHOOSE {
-  let x = Ident.make (Loc.make $startpos($3) $endpos($3)) "choose" 0 in
+| m = mod_ident; DOT; x = expression_name {
   Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) (Var (QualIdent.append m x)) [])
 }
- 
+
 mod_ident:
 | x = MODIDENT { QualIdent.from_ident x}
 | x = mod_ident; DOT; y = MODIDENT { QualIdent.append x y}
 
-(* Any name a `func`/`pred`/`proc`/... or a `data` constructor can be declared
-   with: an ordinary identifier, or one of the operator-shaped tokens Phase 1
-   makes declarable, reached via `right_assoc_binary_op_ident` for `::` (a
-   *reserved* string in Terminals.operator_table, unlike the rest -- carved out
-   specifically because, unlike `+`/`==`/etc., it was never a closed Expr.constr
-   case with hardcoded builtin semantics; see Library.List's own `::` constructor,
-   lib/library/base_types.rav). No other reserved operator is made declarable at
-   all, that being the separate, larger "reserved-operator overloading" feature
-   this stops short of. *)
-%public decl_name:
+(* Ordinary names and user-defined symbolic operators. *)
+%public plain_ident:
 | x = IDENT { x }
+| UNDERSCORE { Ident.make (Loc.make $symbolstartpos $endpos) "_" 0 }
+
+%public decl_name:
+| x = plain_ident { x }
 | x = MULTOPSYM { x }
 | x = ADDOPSYM { x }
 | x = right_assoc_binary_op_ident { x }
@@ -1121,17 +1181,55 @@ mod_ident:
 | x = OROPSYM { x }
 ;
 
-(* The name of a function, predicate or procedure. `choose` is reserved for the `choose(e)`
-   expression, but may still name a callable, such as `Library.Sets.choose`, which is
-   then called qualified, as in `S.choose(s)`. *)
+fixed_operator_name:
+| LT { Ident.make (Loc.make $symbolstartpos $endpos) "<" 0 }
+| LEQ { Ident.make (Loc.make $symbolstartpos $endpos) "<=" 0 }
+| UNION { Ident.make (Loc.make $symbolstartpos $endpos) "++" 0 }
+| INTER { Ident.make (Loc.make $symbolstartpos $endpos) "**" 0 }
+| DIFF { Ident.make (Loc.make $symbolstartpos $endpos) "--" 0 }
+| SUBSETEQ { Ident.make (Loc.make $symbolstartpos $endpos) "subseteq" 0 }
+| CHOOSE { Ident.make (Loc.make $symbolstartpos $endpos) "choose" 0 }
+| IN { Ident.make (Loc.make $symbolstartpos $endpos) "in" 0 }
+
+mixfix_name:
+| UNDERSCORE; LBRACKET; UNDERSCORE; RBRACKET {
+  Ident.make (Loc.make $symbolstartpos $endpos) "_[_]" 0
+}
+| UNDERSCORE; LBRACKET; UNDERSCORE; COLONEQ; UNDERSCORE; RBRACKET {
+  Ident.make (Loc.make $symbolstartpos $endpos) "_[_:=_]" 0
+}
+| UNDERSCORE; LBRACKET; UNDERSCORE; DOTDOT; UNDERSCORE; RBRACKET {
+  Ident.make (Loc.make $symbolstartpos $endpos) "_[_.._]" 0
+}
+| UNDERSCORE; LBRACKET; DOTDOT; UNDERSCORE; RBRACKET {
+  Ident.make (Loc.make $symbolstartpos $endpos) "_[.._]" 0
+}
+| UNDERSCORE; LBRACKET; UNDERSCORE; DOTDOT; RBRACKET {
+  Ident.make (Loc.make $symbolstartpos $endpos) "_[_..]" 0
+}
+
+enumeration_name:
+| opener = enumeration_open; closer = enumeration_close {
+  checked_enumeration_name (Loc.make $symbolstartpos $endpos) opener closer ~singleton:false
+}
+| opener = enumeration_open; UNDERSCORE; closer = enumeration_close {
+  checked_enumeration_name (Loc.make $symbolstartpos $endpos) opener closer ~singleton:true
+}
+
 callable_name:
 | x = decl_name { x }
-| CHOOSE { Ident.make (Loc.make $startpos $endpos) "choose" 0 }
+| x = fixed_operator_name { x }
+| x = mixfix_name { x }
+| x = enumeration_name { x }
 
 %public ident:
-| x = decl_name {
+| x = expression_name {
   Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) (Var (QualIdent.from_ident x)) []) }
 ;
+
+expression_name:
+| x = decl_name { x }
+| x = fixed_operator_name { x }
 
 lookup_or_update_expr:
 | e = primary; cont = lookup_or_update_opt { cont e }
@@ -1141,19 +1239,28 @@ lookup_expr:
 | e1 = qual_ident_expr; e_fn = lookup; { e_fn e1 }
 | LPAREN; e1 = expr; RPAREN; e_fn = lookup; { e_fn e1 }*)
 
-(* %public so that an extension can add forms of its own, see seqExt_parser.mly. *)
+(* %public so that extensions can add indexed forms of their own. *)
 %public lookup_or_update_opt:
+| LBRACKET; DOTDOT; hi = expr; RBRACKET; args = option(call); cont = lookup_or_update_opt {
+  fun e -> cont (mixfix_application (Loc.make $symbolstartpos $endpos) "_[.._]" e [hi] args)
+}
+| LBRACKET; lo = expr; DOTDOT; RBRACKET; args = option(call); cont = lookup_or_update_opt {
+  fun e -> cont (mixfix_application (Loc.make $symbolstartpos $endpos) "_[_..]" e [lo] args)
+}
+| LBRACKET; lo = expr; DOTDOT; hi = expr; RBRACKET; args = option(call); cont = lookup_or_update_opt {
+  fun e -> cont (mixfix_application (Loc.make $symbolstartpos $endpos) "_[_.._]" e [lo; hi] args)
+}
 | (* empty *) { fun p -> p }
-| LBRACKET; e2 = expr; COLONEQ; e3 = expr; RBRACKET cont = lookup_or_update_opt {
+| LBRACKET; e2 = expr; COLONEQ; e3 = expr; RBRACKET; args = option(call); cont = lookup_or_update_opt {
   fun e ->
     let e_upd =
-      Expr.(mk_app ~typ:Type.any ~loc:(Loc.merge (to_loc e) (Loc.make $symbolstartpos $endpos)) MapUpdate [e; e2; e3])
+      mixfix_application (Loc.make $symbolstartpos $endpos) "_[_:=_]" e [e2; e3] args
     in
     cont e_upd
 }
-| LBRACKET; e2 = expr; RBRACKET cont = lookup_or_update_opt {
+| LBRACKET; e2 = expr; RBRACKET; args = option(call); cont = lookup_or_update_opt {
   fun e1 ->
-    let e1_lookup = Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) MapLookUp [e1; e2]) in
+    let e1_lookup = mixfix_application (Loc.make $symbolstartpos $endpos) "_[_]" e1 [e2] args in
     cont e1_lookup
 }
 | n = HASH {
@@ -1176,6 +1283,7 @@ unary_expr_not_plus_minus:
 
 mult_op:
 | op = MULTOP { op }
+| INTER { Expr.Var (QualIdent.from_ident (Ident.make (Loc.make $symbolstartpos $endpos) "**" 0)) }
 | op = MULTOPSYM { Expr.Var (QualIdent.from_ident op) }
 
 mult_expr:
@@ -1187,6 +1295,8 @@ mult_expr:
 
 add_op:
 | op = ADDOP { op }
+| UNION { Expr.Var (QualIdent.from_ident (Ident.make (Loc.make $symbolstartpos $endpos) "++" 0)) }
+| DIFF { Expr.Var (QualIdent.from_ident (Ident.make (Loc.make $symbolstartpos $endpos) "--" 0)) }
 | MINUS { Expr.Minus }
 | op = ADDOPSYM { Expr.Var (QualIdent.from_ident op) }
 
@@ -1223,19 +1333,21 @@ right_assoc_binary_op_expr:
   | _, comps -> Base.List.reduce_exn comps ~f:(fun e1 e2 -> Expr.mk_and ~loc:(Loc.merge (Expr.to_loc e1) (Expr.to_loc e2)) [e1; e2])
 }
 | e1 = rel_expr; IN; e2 = right_assoc_binary_op_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Elem [e1; e2])
+    let loc = Loc.make $symbolstartpos $endpos in
+    Expr.(mk_app ~typ:Type.any ~loc (Var (QualIdent.from_ident (Ident.make loc "in" 0))) [e1; e2])
   } 
 | e1 = rel_expr; NOTIN; e2 = right_assoc_binary_op_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Not [mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Elem [e1; e2]]) 
+    let loc = Loc.make $symbolstartpos $endpos in
+    Expr.(mk_app ~typ:Type.any ~loc Not [mk_app ~typ:Type.any ~loc (Var (QualIdent.from_ident (Ident.make loc "in" 0))) [e1; e2]])
   }
 ;
 
 comp_op:
-| LT { Lt }
+| LT { Expr.Var (QualIdent.from_ident (Ident.make (Loc.make $symbolstartpos $endpos) "<" 0)) }
 | GT { Gt }
-| LEQ { Leq }
+| LEQ { Expr.Var (QualIdent.from_ident (Ident.make (Loc.make $symbolstartpos $endpos) "<=" 0)) }
 | GEQ { Geq }
-| SUBSETEQ { Subseteq }
+| SUBSETEQ { Expr.Var (QualIdent.from_ident (Ident.make (Loc.make $symbolstartpos $endpos) "subseteq" 0)) }
 | op = RELOPSYM { Expr.Var (QualIdent.from_ident op) }
 ;
 
@@ -1316,7 +1428,7 @@ quant_var:
 ;
 
 bound_var:
-| x = IDENT; COLON; t = type_expr {
+| x = plain_ident; COLON; t = type_expr {
     let decl =
       Type.{ var_name = x;
              var_type = t;
@@ -1331,7 +1443,7 @@ bound_var:
 ;
 
 bound_var_opt_type:
-| x = IDENT { 
+| x = plain_ident {
   let decl =
     Type.{ var_name = x;
            var_type = Type.mk_any Loc.dummy;
@@ -1343,7 +1455,7 @@ bound_var_opt_type:
   in
   decl
 }
-| x = IDENT; COLON; t = type_expr {
+| x = plain_ident; COLON; t = type_expr {
   let decl =
     Type.{ var_name = x;
            var_type = t;

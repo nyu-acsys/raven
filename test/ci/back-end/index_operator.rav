@@ -1,0 +1,52 @@
+module Sequences = Library.Seq[Library.IntType]
+
+lemma sequence_index(s: Sequences.T, i: Int)
+  ensures s[i] == Sequences.index(s, i)
+  ensures s[i] == Sequences._[_](s, i)
+{}
+
+module Generic[E: Library.Type] {
+  lemma sequence_index(s: Seq[E], i: Int)
+    ensures s[i] == Seq.index(s, i)
+  {}
+}
+
+lemma map_index(m: Map[Int, Set[Int]], f: FinSet[Int], i: Int)
+  ensures m[i] == _[_](m, i)
+  ensures f[i] == (i in f)
+{}
+
+lemma literals() {
+  assert [|1, 2|][0] == 1;
+  assert [|[|1|]|][0][0] == 1;
+  assert {|1, 2|}[1];
+  assert !{||}[1];
+  val empty: Set[Int] := ( {| i: Int :: {||} |})[0];
+  assert 1 !in empty;
+}
+
+module Custom {
+  rep type T = data { case box(value: Int) }
+
+  inline func _[_](s: T, i: Int) returns (r: Int) { s.value + i }
+  inline func _[_](s: T, b: Bool) returns (r: Bool) { s.value == 1 && b }
+  inline func _[_:=_](s: T, i: Int, e: Int) returns (r: T) { box(e - i) }
+}
+
+module Client {
+  import Custom._
+
+  lemma indexing() {
+    var s := box(1);
+    assert s[2] == Custom._[_](s, 2);
+    assert s[2] == 3;
+    assert s[true];
+    assert !s[false];
+    s[2] := 5;
+    assert s[2] == 5;
+
+    var nested: Map[Int, Custom.T] := {| i: Int :: box(1) |};
+    nested[0][2] := 5;
+    assert nested[0][2] == 5 && nested[1][2] == 3;
+  }
+}

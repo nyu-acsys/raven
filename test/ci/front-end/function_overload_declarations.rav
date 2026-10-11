@@ -1,0 +1,30 @@
+func f(x: Int) returns (r: Int) { x }
+func f(x: Bool) returns (r: Bool) { x }
+
+module Generic[E: Library.Type] {
+  func g(x: E) returns (r: E) { x }
+  func g(x: Int, y: E) returns (r: E) { y }
+}
+
+module A {
+  func h(x: Int) returns (r: Int) { x }
+}
+
+module B {
+  func h(x: Bool) returns (r: Bool) { x }
+}
+
+import A._
+import B._
+import A.h
+
+module Use {
+  import A._
+  import B._
+  func h(x: Ref) returns (r: Ref) { x }
+
+  proc check() {
+    var x: Ref := h(null);
+    assert x == null;
+  }
+}

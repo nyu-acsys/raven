@@ -114,16 +114,20 @@ let pr_smt_ident ppf id =
     then printed
     else "$Program." ^ printed
   in
+  let encoded_prefix = "$RavenEncoded$" in
+  let printed =
+    if
+      String.exists printed ~f:(fun c -> Char.(c = '|' || c = '\\'))
+      || String.is_prefix printed ~prefix:encoded_prefix
+    then
+      (* Quoted SMT symbols cannot escape pipes or backslashes. Escape the prefix too. *)
+      encoded_prefix
+      ^ String.concat
+          (List.map (String.to_list printed) ~f:(fun c ->
+               Printf.sprintf "%02x" (Char.to_int c)))
+    else printed
+  in
   if String.for_all printed ~f:is_smt_simple_symbol_char then fprintf ppf "%s" printed
-  else if String.exists printed ~f:(fun c -> Char.(c = '|' || c = '\\')) then
-    (* SMT-LIB's quoted-symbol syntax permits any character except these two, with
-       no escape mechanism for them -- an identifier containing either has no legal
-       SMT-LIB representation at all, quoted or not. *)
-    Error.internal_error (QualIdent.to_loc id)
-      (Printf.sprintf
-         "identifier `%s` cannot be represented in SMT-LIB output: contains '|' or '\\', \
-          which SMT-LIB's quoted-symbol syntax cannot escape"
-         printed)
   else fprintf ppf "|%s|" printed
 
 let rec pr_smt_idents ppf = function
@@ -179,7 +183,6 @@ let term_constr_to_string loc (constr : Expr.constr) : string =
   | MapLookUp -> "select"
   | MapUpdate -> "store"
   | Eq -> "="
-  | Elem -> "select"
   | And -> "and"
   | Or -> "or"
   | Impl -> "=>"
@@ -206,17 +209,9 @@ let rec pr_term ppf (term : term) =
       | Impl, [ t1; t2 ] ->
           if Expr.alpha_equal t1 (Expr.mk_bool true) then fprintf ppf "%a" pr_term t2
           else fprintf ppf "@[<2>(=>@ %a@ %a)@]" pr_term t1 pr_term t2
-      | Elem, [ t; s ] -> fprintf ppf "@[<2>(select@ %a@ %a)@]" pr_term s pr_term t
       | Null, [] -> fprintf ppf "null"
       | Empty, [] -> fprintf ppf "((as const %a) false)" pr_sort (Expr.to_type term)
       | Uminus, [ t ] -> fprintf ppf "@[<2>(* -1 @ %a)@]" pr_term t
-      | Setenum, es ->
-          let empty_set = asprintf "((as const %a) false)" pr_sort (Expr.to_type term) in
-          let str =
-            List.fold es ~init:empty_set ~f:(fun acc e ->
-                asprintf "(store %s %a true)" acc pr_term e)
-          in
-          fprintf ppf "%s" str
       | TupleLookUp, [ tuple_expr; index ] ->
           let arity =
             match Expr.to_type tuple_expr with
@@ -237,7 +232,7 @@ let rec pr_term ppf (term : term) =
                  enough for Z3 to resolve which instantiation of the constructor is meant. *)
               fprintf ppf "@[<2>((as $tuple_%i %a)@ %a)@]" n pr_sort (Expr.to_type term)
                 pr_terms es)
-      | Diff, _ | Read, _ | Own, _ | _ ->
+      | _ ->
           Error.internal_error (Expr.to_loc term)
             ("pr_term: unexpected term: " ^ Expr.to_string term))
   | Binder (Compr, [ v ], _, body, _) when ProgUtils.is_pointwise_body v.var_name body ->
@@ -269,7 +264,6 @@ and pr_pointwise (x : Ident.t) (srt : sort) ppf (body : term) =
         (Util.Print.pr_list_sep " " (pr_pointwise x srt))
         ts
   | App (MapLookUp, [ m; index ], _) when is_x index -> pr_term ppf m
-  | App (Elem, [ elem; s ], _) when is_x elem -> pr_term ppf s
   | t -> pr_const ppf t
 
 and pr_terms ppf = function

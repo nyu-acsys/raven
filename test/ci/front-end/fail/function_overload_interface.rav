@@ -1,0 +1,8 @@
+interface I {
+  func f(x: Int) returns (r: Int)
+  func f(x: Bool) returns (r: Bool)
+}
+
+module M: I {
+  func f(x: Int) returns (r: Int) { x }
+}

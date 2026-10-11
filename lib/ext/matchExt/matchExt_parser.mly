@@ -43,11 +43,9 @@ open Ext.MatchExtInstance
     Expr.mk_app ~loc:(Loc.make $symbolstartpos $endpos) ~typ:Type.any (ExprExt (MatchExpr arm_list)) (e :: bodies)
   }
 
-(* `_` is not a dedicated token -- like `import M._`'s own wildcard (see
-   `import_dir` in core parser.mly), it's an ordinary `IDENT` whose name is checked
-   post-hoc. *)
+(* [plain_ident] includes `_`; wildcard names are checked after parsing. *)
 match_arm_expr:
-| CASE; ctor = decl_name; vars = option(delimited(LPAREN, separated_list(COMMA, IDENT), RPAREN));
+| CASE; ctor = decl_name; vars = option(delimited(LPAREN, separated_list(COMMA, plain_ident), RPAREN));
   DARROW; body = expr {
     let arm_vars = match vars with Some vs -> vs | None -> [] in
     let arm_ctor = if String.equal (Ident.name ctor) "_" then None else Some ctor in
@@ -63,6 +61,6 @@ match_arm_expr:
    enable chained/nested patterns (`case hd :: hd2 :: tl => ...`) -- arms bind one
    constructor's fields flatly, with no recursive sub-pattern structure, regardless
    of operator syntax. *)
-| CASE; v1 = IDENT; ctor = right_assoc_binary_op_ident; v2 = IDENT; DARROW; body = expr {
+| CASE; v1 = plain_ident; ctor = right_assoc_binary_op_ident; v2 = plain_ident; DARROW; body = expr {
     ({ arm_ctor = Some ctor; arm_vars = [v1; v2] }, body)
   }

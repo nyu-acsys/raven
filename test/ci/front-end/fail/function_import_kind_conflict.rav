@@ -1,0 +1,12 @@
+module A {
+  val f: Int = 0
+}
+
+module B {
+  proc f() { }
+}
+
+module Forward {
+  import A._
+  import B._
+}

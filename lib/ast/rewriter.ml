@@ -251,6 +251,8 @@ and type_check_stmt_functs = {
 and ext_hooks = {
   type_ext_to_name : Type.type_ext -> string;
   expr_ext_to_string : Expr.expr_ext -> string;
+  expr_ext_is_literal : Expr.expr_ext -> bool;
+  expr_ext_literal_accepts_type : Expr.expr_ext -> Type.t -> bool t;
   pr_basic_stmt_ext : Stdlib.Format.formatter -> Stmt.stmt_ext -> expr list -> unit;
   contract_ext_to_string : Stmt.contract_ext -> string;
   basic_stmt_ext_symbols : Stmt.stmt_ext -> QualIdentSet.t;
@@ -322,15 +324,14 @@ and ext_hooks = {
     DisambiguationTbl.t ->
     disambiguate_expr_functs ->
     (Expr.expr_ext * expr list) t;
-      (** Offered a core expression node that the core type checker rejects at the node
-          itself: a map lookup or update whose map operand has a type other than a map, a
-          membership whose set operand has a type other than a set, and a set operator,
-          which the core gives no meaning at all. The operands the core needed to reject
-          the node are already type-checked; the others are as parsed. An extension that
-          takes responsibility for the node returns a constructor of its own together with
-          its operands, which are then type-checked by its [type_check_expr], so that any
-          further error comes from the extension. [None] leaves the node to the core,
-          which reports its own error. *)
+      (** Offered an indexing expression whose container has a type other than a map.
+          Constructors include native lookups/updates and calls to [_[_]]/[_[_:=_]]. The
+          operands the core needed to reject the node are already type-checked; the others
+          are as parsed. An extension that takes responsibility for the node returns a
+          constructor of its own together with its operands, which are then type-checked
+          by its [type_check_expr], so that any further error comes from the extension.
+          [None] leaves the node to ordinary overload resolution or the native core rule.
+      *)
   claim_expr :
     Expr.constr -> expr list -> Expr.expr_attr -> (Expr.expr_ext * expr list) option t;
       (** Offered an expression that the core finds where it expects a field location
@@ -459,6 +460,8 @@ let default_ext_hooks : ext_hooks =
   {
     type_ext_to_name = Type.default_type_ext_to_name;
     expr_ext_to_string = Expr.default_expr_ext_to_string;
+    expr_ext_is_literal = (fun _ -> false);
+    expr_ext_literal_accepts_type = (fun _ _ state -> (state, true));
     pr_basic_stmt_ext = Stmt.default_pr_basic_stmt_ext;
     contract_ext_to_string = Stmt.default_contract_ext_to_string;
     basic_stmt_ext_symbols = Stmt.default_basic_stmt_ext_symbols;
@@ -1291,12 +1294,13 @@ module Expr = struct
           List.map var_decls ~f:(VarDecl.rewrite_types ~f:(Type.rewrite_qual_idents ~f))
         in
         let+ _ = add_locals var_decls
+        and+ expr_type = Type.rewrite_qual_idents ~f expr_attr.expr_type
         and+ inner_expr = rewrite_qual_idents ~f inner_expr
         and+ trgs =
           List.map trgs ~f:(fun exprs -> List.map exprs ~f:(rewrite_qual_idents ~f))
         in
 
-        Expr.Binder (b, var_decls, trgs, inner_expr, expr_attr)
+        Expr.Binder (b, var_decls, trgs, inner_expr, { expr_attr with expr_type })
 end
 
 module Stmt = struct
@@ -2104,6 +2108,13 @@ module Symbol = struct
       subst
 end
 
+let resolve_and_find_candidates name : ((QualIdent.t * Symbol.t) list, 'a) t_ext =
+  let open Syntax in
+  let+ tbl = get_table in
+  SymbolTbl.resolve_and_find_candidates name tbl
+  |> Base.List.map ~f:(fun (alias, target, symbol, subst) ->
+      (target, (alias, symbol, subst)))
+
 let resolve_and_find_opt name : ((QualIdent.t * Symbol.t) option, 'a) t_ext =
   let open Syntax in
   let* tbl = get_table in
@@ -2153,6 +2164,11 @@ let find_import_target name : (QualIdent.t option, 'a) t_ext =
   let+ tbl = get_table in
   SymbolTbl.find_import_target name tbl
 
+let find_import_targets name : (QualIdent.t list, 'a) t_ext =
+  let open Syntax in
+  let+ tbl = get_table in
+  SymbolTbl.find_import_targets name tbl
+
 let find name : (Symbol.t, 'a) t_ext =
   let open Syntax in
   let+ _, symbol = resolve_and_find name in
@@ -2182,6 +2198,38 @@ let find_and_reify_callable name : (AstDef.Callable.t, 'a) t_ext =
   | _ ->
       Error.type_error (QualIdent.to_loc name)
         (Printf.sprintf "Expected callable but found %s" (AstDef.Symbol.kind symbol))
+
+(* Callers guard recursive expansion; contracts and extension checks stay visible. *)
+let inline_func_body name args : (AstDef.expr option, 'a) t_ext =
+  let open Syntax in
+  let+ call = find_and_reify_callable name in
+  match call with
+  | {
+   call_decl =
+     {
+       call_decl_kind = Func;
+       call_decl_is_inline = true;
+       call_decl_returns = [ _ ];
+       call_decl_precond = [];
+       call_decl_contract_ext = [];
+       _;
+     } as decl;
+   call_def = FuncDef { func_body = Some body };
+  } ->
+      begin match Base.List.zip decl.call_decl_formals args with
+      | Unequal_lengths -> None
+      | Ok parameters ->
+          let substitutions =
+            Base.List.fold parameters
+              ~init:(Map.empty (module QualIdent))
+              ~f:(fun map (parameter, arg) ->
+                Map.set map
+                  ~key:(QualIdent.from_ident parameter.AstDef.Type.var_name)
+                  ~data:arg)
+          in
+          Some (AstDef.Expr.alpha_renaming body substitutions)
+      end
+  | _ -> None
 
 let find_and_reify_field name : (AstDef.Module.field_def, 'a) t_ext =
   let open Syntax in

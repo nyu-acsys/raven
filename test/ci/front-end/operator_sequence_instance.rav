@@ -1,0 +1,11 @@
+module SequenceOperators {
+  module S = Library.Seq[Library.IntType]
+
+  lemma sealed(s: S.T, t: S.T, lo: Int, hi: Int)
+    ensures s ++ t == S.++(s, t)
+    ensures s[lo..hi] == S._[_.._](s, lo, hi)
+    ensures s[..hi] == S._[.._](s, hi)
+    ensures s[lo..] == S._[_..](s, lo)
+    ensures s[lo..hi] == S.drop(S.take(s, hi), lo)
+  {}
+}

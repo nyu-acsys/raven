@@ -322,7 +322,9 @@ let parse_and_check_all ~extension_mode config file_names =
         Ast.Module.Import
           {
             import_name =
-              QualIdent.from_list [ Predefs.lib_ident; Ident.make Loc.dummy name 0 ];
+              QualIdent.from_list
+                (Predefs.lib_ident
+                :: List.map name ~f:(fun name -> Ident.make Loc.dummy name 0));
             import_all = false;
             import_loc = Loc.dummy;
           }

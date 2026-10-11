@@ -1,0 +1,43 @@
+module Numbers {
+  inline func ++(a: Int, b: Int) returns (r: Int) { a + b }
+  inline func ++(a: Bool, b: Bool) returns (r: Bool) { a || b }
+  inline func **(a: Int, b: Int) returns (r: Int) { a * b }
+  inline func --(a: Int, b: Int) returns (r: Int) { a - b }
+  inline func subseteq(a: Int, b: Int) returns (r: Bool) { a <= b }
+  inline func choose(a: Int) returns (r: Int) { a }
+
+  inline func _ [ _ .. _ ](s: Int, lo: Int, hi: Int) returns (r: Int) {
+    s + lo + hi
+  }
+  inline func _ [ .. _ ](s: Int, hi: Int) returns (r: Int) { s + hi }
+  inline func _ [ _ .. ](s: Int, lo: Int) returns (r: Int) { s + lo }
+  inline func _[_.._](s: Bool, lo: Int, hi: Int) returns (r: Bool) { s }
+}
+
+module Client {
+  import Numbers.++
+  import Numbers.**
+  import Numbers.--
+  import Numbers.subseteq
+  import Numbers.choose
+  import Numbers._[_.._]
+  import Numbers._[.._]
+  import Numbers._[_..]
+
+  proc check() {
+    assert 2 ++ 3 == Numbers.++(2, 3);
+    assert false ++ true;
+    assert 2 ++ 3 ** 4 == 14;
+    assert 8 -- 3 == 5;
+    assert 2 subseteq 3;
+    assert choose(4) == 4;
+    assert 1[2..3] == Numbers._[_.._](1, 2, 3);
+    assert _[_.._](1, 2, 3) == 6;
+    assert 1[..2] == Numbers._[.._](1, 2);
+    assert 1[2..] == Numbers._[_..](1, 2);
+    assert true[0..1];
+    assert 1[..2][3..] == 6;
+    var assigned: Int := Numbers._[_.._](1, 2, 3);
+    assert assigned == 6;
+  }
+}

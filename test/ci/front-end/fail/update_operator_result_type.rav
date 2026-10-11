@@ -1,0 +1,1 @@
+func _[_:=_](s: Int, i: Int, e: Int) returns (r: Bool) { true }

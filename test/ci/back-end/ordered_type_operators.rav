@@ -1,0 +1,51 @@
+module Keys: Library.OrderedType {
+  rep type T = data { case key(value: Int) }
+
+  func <(x: T, y: T) returns (r: Bool) { x.value < y.value }
+}
+
+module GenericClient[E: Library.OrderedType] {
+  import E.<
+  import E.<=
+
+  lemma comparisons(a: E, b: E)
+    requires a < b
+    ensures a <= b
+    ensures !(b < a)
+    ensures 0 < 1 <= 2
+  {}
+}
+
+module Client {
+  import Keys._
+
+  lemma comparisons() {
+    val a := key(1);
+    val b := key(2);
+    assert a < b;
+    assert a <= b && a <= a;
+    assert !(b < a);
+    assert (a < b) == Keys.<(a, b);
+    assert (a <= b) == Keys.<=(a, b);
+    assert 0 < 1 <= 2;
+    assert 0.0 < 1.0 <= 2.0;
+    assert <(0, 1) && <=(1, 1);
+    assert Keys.compare(a, b) == -1;
+  }
+}
+
+module Reverse {
+  inline func <(x: Int, y: Int) returns (r: Bool) { x > y }
+  inline func <=(x: Int, y: Int) returns (r: Bool) { x >= y }
+}
+
+module ReverseClient {
+  import Reverse._
+
+  lemma comparisons() {
+    assert 2 < 1;
+    assert 2 <= 1;
+    assert <(2, 1) && <=(2, 1);
+    assert 1.0 < 2.0;
+  }
+}

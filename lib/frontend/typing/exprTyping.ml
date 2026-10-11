@@ -15,18 +15,31 @@ let is_core_indexable (typ : type_expr) : bool =
     such operands are typed before a construct is offered to the extensions. *)
 let may_have_non_map_type (expr : expr) : bool =
   match expr with
-  | App
-      ( ( Var _ | Read | DataDestr _ | TupleLookUp | MapLookUp | Ite | ExprExt _ | Union
-        | Inter | Diff ),
-        _,
-        _ ) ->
+  | App ((Var _ | Read | DataDestr _ | TupleLookUp | MapLookUp | Ite | ExprExt _), _, _)
+    ->
       true
   | _ -> false
 
 (** The operand that the updates [expr] are applied to, as in `m` of `m[i := a][j := b]`.
 *)
+let is_update_constr = function
+  | Expr.MapUpdate -> true
+  | Expr.Var name ->
+      QualIdent.is_local name
+      && String.equal (Ident.name (QualIdent.unqualify name)) "_[_:=_]"
+  | _ -> false
+
+let is_lookup_constr = function
+  | Expr.MapLookUp -> true
+  | Expr.Var name ->
+      QualIdent.is_local name
+      && String.equal (Ident.name (QualIdent.unqualify name)) "_[_]"
+  | _ -> false
+
 let rec update_root (expr : expr) : expr =
-  match expr with App (MapUpdate, base :: _, _) -> update_root base | _ -> expr
+  match expr with
+  | App (constr, base :: _, _) when is_update_constr constr -> update_root base
+  | _ -> expr
 
 let set_checked_type (expr : expr) (given_typ_lb : type_expr) (given_typ_ub : type_expr)
     (expected_typ : type_expr) : expr t =
@@ -83,8 +96,8 @@ let check_triggers_mention ~(kind : string) (var_decls : var_decl list)
 (** Infers and checks the type of [expr] against [expected_typ]. [allow_proc_call] permits
     a call of a procedure or lemma, which may occur only as the right-hand side of an
     assignment. *)
-let rec check ?(allow_proc_call = false) (expr : expr) (expected_typ : type_expr) : expr t
-    =
+let rec check ?(allow_proc_call = false) ?(contextual = false) (expr : expr)
+    (expected_typ : type_expr) : expr t =
   let open Rewriter.Syntax in
   let* () =
     Rewriter.Logs.debug (fun printers m ->
@@ -97,7 +110,9 @@ let rec check ?(allow_proc_call = false) (expr : expr) (expected_typ : type_expr
          [expected_typ]. *)
       let* annot_typ = TypeExpr.check annot_typ in
       let annot_typ = annot_typ |> Type.set_ghost_to expected_typ in
-      let* e = check ~allow_proc_call (Expr.set_type_annot expr None) annot_typ in
+      let* e =
+        check ~allow_proc_call ~contextual (Expr.set_type_annot expr None) annot_typ
+      in
       let actual_typ = Expr.to_type e in
       set_checked_type e actual_typ actual_typ expected_typ
   | None -> (
@@ -128,7 +143,32 @@ let rec check ?(allow_proc_call = false) (expr : expr) (expected_typ : type_expr
               (* Variables, fields, and call expressions *)
               | Var qual_ident, args_list ->
                   check_var qual_ident args_list expr_attr expr expected_typ
-                    ~allow_proc_call
+                    ~allow_proc_call ~contextual
+              | Enumeration opener, entries ->
+                  let loc = Expr.to_loc expr in
+                  let call name args =
+                    Expr.mk_app ~loc ~typ:Type.any
+                      (Var (QualIdent.from_ident (Ident.make loc name 0)))
+                      args
+                  in
+                  let singleton e =
+                    call (Expr.enumeration_name opener ~singleton:true) [ e ]
+                  in
+                  let expanded =
+                    match entries with
+                    | [] -> call (Expr.enumeration_name opener ~singleton:false) []
+                    | [ e ] -> singleton e
+                    | e :: rest ->
+                        let literal entries =
+                          Expr.mk_app ~loc ~typ:Type.any (Enumeration opener) entries
+                        in
+                        call "++" [ literal [ e ]; literal rest ]
+                  in
+                  let* typed = check ~contextual:true expanded expected_typ in
+                  let* speculative = is_speculative in
+                  if speculative then
+                    Rewriter.return (Expr.set_type expr (Expr.to_type typed))
+                  else Rewriter.return typed
               (* Unary expressions *)
               | (Not | Uminus), [ expr_arg ] ->
                   let given_type_ub =
@@ -148,17 +188,13 @@ let rec check ?(allow_proc_call = false) (expr : expr) (expected_typ : type_expr
               | (Not | Uminus), _expr_list ->
                   Error.type_error (Expr.to_loc expr)
                     (Expr.constr_to_string constr ^ " takes exactly one argument")
-              (* Set operators, given their meaning by an extension, see [claim_core_app] *)
-              | (Choose | Diff | Union | Inter | Subseteq), _ ->
-                  Error.type_error (Expr.to_loc expr)
-                    (Expr.constr_to_string constr ^ " is missing its arguments")
               (* Binary expressions *)
               | ( ( TupleLookUp | MapLookUp | Plus | Minus | Mult | Div | Mod | Gt | Lt
-                  | Geq | Leq | And | Or | Impl | Elem | Eq ),
+                  | Geq | Leq | And | Or | Impl | Eq ),
                   [ expr1; expr2 ] ) ->
                   check_binary expr1 expr2 constr expr_attr expected_typ
               | ( ( TupleLookUp | MapLookUp | Plus | Minus | Mult | Div | Mod | And | Or
-                  | Impl | Elem | Eq | Gt | Lt | Geq | Leq ),
+                  | Impl | Eq | Gt | Lt | Geq | Leq ),
                   _expr_list ) ->
                   Error.type_error (Expr.to_loc expr)
                     (Expr.constr_to_string constr ^ " takes exactly two arguments")
@@ -219,34 +255,6 @@ let rec check ?(allow_proc_call = false) (expr : expr) (expected_typ : type_expr
               | Read, _expr_list ->
                   Error.type_error (Expr.to_loc expr)
                     (Expr.constr_to_string constr ^ " takes exactly two arguments")
-              (* Set enumeration expressions *)
-              | Setenum, [] -> check (App (Empty, [], expr_attr)) expected_typ
-              | Setenum, member_expr_list ->
-                  (* If the expected type is a set, the elements are checked against its
-                     element type, which is then the literal's. *)
-                  let expected_elem_typ =
-                    match expected_typ with
-                    | App (FinSet, [ elem_typ ], _)
-                    | App (Map, [ elem_typ; App (Bool, [], _) ], _) ->
-                        elem_typ
-                    | _ -> Type.any
-                  in
-                  let* member_expr_list, elem_typ =
-                    Rewriter.List.fold_right member_expr_list
-                      ~f:(fun mexpr (member_expr_list, elem_typ) ->
-                        let+ mexpr =
-                          check mexpr (elem_typ |> Type.set_ghost_to expected_typ)
-                        in
-                        (mexpr :: member_expr_list, Expr.to_type mexpr))
-                      ~init:([], expected_elem_typ)
-                  in
-                  let elem_typ =
-                    if Type.equal expected_elem_typ Type.any then elem_typ
-                    else expected_elem_typ
-                  in
-                  let given_typ = Type.finset_typed elem_typ in
-                  let expr = Expr.App (Setenum, member_expr_list, expr_attr) in
-                  set_checked_type expr given_typ given_typ expected_typ
               (* Tuple expressions *)
               | Tuple, elem_expr_list ->
                   let typed_elem_expr_list =
@@ -292,19 +300,11 @@ let rec check ?(allow_proc_call = false) (expr : expr) (expected_typ : type_expr
 (** A variable, field, or a call of the callable [qual_ident] with [args_list]. *)
 and check_var (qual_ident : qual_ident) (args_list : expr list)
     (expr_attr : Expr.expr_attr) (expr : expr) (expected_typ : type_expr)
-    ~(allow_proc_call : bool) : expr t =
+    ~(allow_proc_call : bool) ~(contextual : bool) : expr t =
   let open Rewriter.Syntax in
   let* resolved =
-    (* `M.foo` where `M` is an uninstantiated generic functor: try to solve
-                 its type argument(s) from the call and rewrite to the instantiation. *)
-    ImplicitInstantiation.resolve_or_implicit_opt qual_ident ~on_miss:(fun () ->
-        (* An unqualified name imported from an uninstantiated functor is
-                           recovered from the import first. *)
-        let* imported = Rewriter.find_import_target qual_ident in
-        let candidate = Base.Option.value imported ~default:qual_ident in
-        ImplicitInstantiation.try_resolve_implicit_instantiation ~check_expr:check
-          ~claimed_location ~loc:(Expr.to_loc expr) ~qual_ident:candidate
-          ~arg_exprs:args_list ~expected_typ ())
+    CallResolution.resolve_opt ~check_expr:check ~claimed_location ~loc:(Expr.to_loc expr)
+      ~name:qual_ident ~args:args_list ~expected:expected_typ ~contextual ()
   in
   match resolved with
   | None ->
@@ -318,7 +318,25 @@ and check_var (qual_ident : qual_ident) (args_list : expr list)
         Error.internal_error (Expr.to_loc expr)
           "Rewriter.resolve_and_find unexpectedly succeeded after \
            ImplicitInstantiation.resolve_or_implicit_opt failed"
-  | Some (qual_ident, symbol) -> (
+  | Some (Primitive (primitive, signature)) ->
+      let args_list, context =
+        match signature with
+        | None -> (args_list, expected_typ)
+        | Some (parameters, result) ->
+            let args_list =
+              List.map2_exn args_list parameters ~f:(fun arg typ ->
+                  Expr.set_type_annot arg (Some (Type.set_ghost_to expected_typ typ)))
+            in
+            (args_list, Type.set_ghost_to expected_typ result)
+      in
+      let* expr =
+        match primitive with
+        | Core constr -> check (Expr.App (constr, args_list, expr_attr)) context
+        | Finset -> check_finset args_list expr_attr context
+      in
+      let typ = Expr.to_type expr in
+      set_checked_type expr typ typ expected_typ
+  | Some (Symbol (qual_ident, symbol, selected_return)) -> (
       let* symbol = Rewriter.Symbol.reify symbol in
       match symbol with
       | ConstrDef _constr ->
@@ -348,8 +366,13 @@ and check_var (qual_ident : qual_ident) (args_list : expr list)
             | Func -> expected_typ |> Type.is_ghost
             | _ -> false
           in
+          let* speculative = is_speculative in
+          (* A selected overload already checked argument evidence. Elaborating it again
+             while gathering evidence duplicates every nested call's traversal. *)
           let* args_list =
-            check_args (Expr.to_loc expr) is_ghost_scope callable_decl args_list
+            if speculative && Option.is_some selected_return then
+              Rewriter.return args_list
+            else check_args (Expr.to_loc expr) is_ghost_scope callable_decl args_list
           in
           let* _ =
             (* If this is an auto lemma, check that it is well-formed *)
@@ -372,6 +395,7 @@ and check_var (qual_ident : qual_ident) (args_list : expr list)
             end
             else Rewriter.return ()
           in
+          (* The reified signature has concrete reps; candidate returns may be virtual. *)
           let given_typ = Callable.return_type callable_decl in
           let expr = Expr.App (Var qual_ident, args_list, expr_attr) in
           set_checked_type expr given_typ given_typ expected_typ
@@ -391,6 +415,33 @@ and check_var (qual_ident : qual_ident) (args_list : expr list)
             ("Expected a variable, field, or callable identifier, but found "
             ^ QualIdent.to_string qual_ident))
 
+(** Native empty and singleton finite-set construction. *)
+and check_finset args (expr_attr : Expr.expr_attr) expected_typ =
+  let open Rewriter.Syntax in
+  match args with
+  | [] -> check (Expr.App (Empty, [], expr_attr)) expected_typ
+  | [ element ] ->
+      let expected_element =
+        match expected_typ with
+        | Type.App (FinSet, [ element ], _)
+        | Type.App (Map, [ element; Type.App (Bool, [], _) ], _) ->
+            element
+        | _ -> Type.any
+      in
+      let* element = check element (Type.set_ghost_to expected_typ expected_element) in
+      let element_type =
+        if Type.equal expected_element Type.any then Expr.to_type element
+        else expected_element
+      in
+      let typ = Type.finset_typed element_type in
+      let loc = expr_attr.expr_loc in
+      let empty = Expr.mk_app ~loc ~typ Empty [] in
+      let expr =
+        Expr.App (MapUpdate, [ empty; element; Expr.mk_bool ~loc true ], expr_attr)
+      in
+      set_checked_type expr typ typ expected_typ
+  | _ -> Error.type_error expr_attr.expr_loc "finset takes zero or one argument"
+
 (** A binary operation. *)
 and check_binary (expr1 : expr) (expr2 : expr) (constr : Expr.constr)
     (expr_attr : Expr.expr_attr) (expected_typ : type_expr) : expr t =
@@ -404,7 +455,7 @@ and check_binary (expr1 : expr) (expr2 : expr) (constr : Expr.constr)
       | Plus | Minus | Mult | Div | Mod | Gt | Lt | Geq | Leq -> Type.num
       | And | Or -> Type.perm
       | Impl -> Type.bool (* antecedent must be pure *)
-      | Elem | Eq -> Type.any
+      | Eq -> Type.any
       | _ -> assert false
     in
     ty |> Type.set_ghost_to expected_typ
@@ -425,7 +476,6 @@ and check_binary (expr1 : expr) (expr2 : expr) (constr : Expr.constr)
           | App (FinSet, [ elem ], _) -> Type.set_typed elem
           | _ -> typ1)
       | And | Or | Impl -> Type.perm
-      | Elem -> Type.(set_typed typ1)
       | _ -> assert false
     in
     ty |> Type.set_ghost_to expected_typ
@@ -453,7 +503,6 @@ and check_binary (expr1 : expr) (expr2 : expr) (constr : Expr.constr)
       | MapLookUp -> Type.(map typ2 (Type.map_codom typ1))
       | Plus | Minus | Mult | Div | Mod | Eq | Gt | Lt | Geq | Leq -> Type.join typ1 typ2
       | And | Or | Impl -> Type.perm
-      | Elem -> Type.set_elem typ2
       | _ -> assert false
     in
     ty |> Type.set_ghost_to expected_typ
@@ -472,7 +521,7 @@ and check_binary (expr1 : expr) (expr2 : expr) (constr : Expr.constr)
         | MapLookUp -> Type.map_codom typ1
         | Plus | Minus | Mult | Div | Mod -> Type.join typ1 typ2
         | And | Or | Impl -> expected_typ
-        | Eq | Gt | Lt | Geq | Leq | Elem -> Type.bool
+        | Eq | Gt | Lt | Geq | Leq -> Type.bool
         | _ -> assert false
     in
     ty |> Type.set_ghost_to expected_typ
@@ -493,7 +542,7 @@ and check_binary (expr1 : expr) (expr2 : expr) (constr : Expr.constr)
     | And | Or | Impl ->
         let typ = expr1 |> Expr.to_type in
         (Type.join typ typ2, Type.join typ typ2)
-    | Elem | Eq | Gt | Lt | Geq | Leq -> (Type.bool, Type.bool)
+    | Eq | Gt | Lt | Geq | Leq -> (Type.bool, Type.bool)
     | _ -> assert false
   in
   set_checked_type
@@ -836,7 +885,7 @@ and non_core_indexable (expr1 : expr) (expected_typ : type_expr) : expr option t
       if is_core_indexable typ then None else Some expr
   in
   match expr1 with
-  | App (MapUpdate, _, _) -> (
+  | App (constr, _, _) when is_update_constr constr -> (
       (* The chain is typed only if the operand it updates is not a map, which keeps
            chains such as `m[i := a][j := b]` from being typed at every link. *)
       let* root = typed_if_not_core (update_root expr1) in
@@ -857,7 +906,7 @@ and typed_if_not_core_update (expr1 : expr) (expected_typ : type_expr) : expr op
 and claimed_location (expr : expr) : expr t =
   let open Rewriter.Syntax in
   match expr with
-  | App (MapLookUp, [ base; index ], expr_attr) -> (
+  | App (constr, [ base; index ], expr_attr) when is_lookup_constr constr -> (
       let* base = non_core_indexable base (Type.any |> Type.set_ghost true) in
       match base with
       | None -> Rewriter.return expr
@@ -875,8 +924,7 @@ and claimed_location (expr : expr) : expr t =
               Expr.App (Read, [ ref_expr; field_expr ], expr_attr)))
   | _ -> Rewriter.return expr
 
-(* Offers to the extensions a map lookup or update, or a membership `e in c`, whose map
-     or set operand has a type the core's rule does not apply to, and the set operators. *)
+(* Offers to extensions indexing whose operand is not a core map/set. *)
 and claim_core_app (constr : Expr.constr) (expr_list : expr list)
     (expr_attr : Expr.expr_attr) (expected_typ : type_expr) : expr option t =
   let open Rewriter.Syntax in
@@ -893,31 +941,9 @@ and claim_core_app (constr : Expr.constr) (expr_list : expr list)
         Some expr
   in
   match (constr, expr_list) with
-  | (MapLookUp | MapUpdate), expr1 :: rest -> (
+  | constr, expr1 :: rest when is_lookup_constr constr || is_update_constr constr -> (
       let* expr1 = non_core_indexable expr1 in
       match expr1 with None -> Rewriter.return None | Some expr1 -> offer (expr1 :: rest))
-  | Elem, [ elem; container ] -> (
-      let* container = non_core_indexable container in
-      match container with
-      | None -> Rewriter.return None
-      | Some container -> offer [ elem; container ])
-  | (Union | Inter | Diff | Subseteq | Choose), _ :: _ -> (
-      (* The core gives the set operators no meaning of their own. *)
-      let* args =
-        Rewriter.List.map expr_list ~f:(fun e ->
-            speculatively (check e (Type.any |> Type.set_ghost_to expected_typ)))
-      in
-      let* claimed = offer args in
-      match claimed with
-      | Some expr -> Rewriter.return (Some expr)
-      | None ->
-          let culprit =
-            List.find args ~f:(fun e -> not (Type.is_set (Expr.to_type e)))
-            |> Option.value ~default:(List.hd_exn args)
-          in
-          type_mismatch_error (Expr.to_loc culprit)
-            Type.(set_typed bot)
-            (Expr.to_type culprit))
   | _ -> Rewriter.return None
 
 and check_args ?(is_called = true) loc is_ghost_scope callable_decl args_list =

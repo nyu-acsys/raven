@@ -1,0 +1,40 @@
+func roundtrip(x: Int) returns (r: Int) { f(x) }
+func f(x: Int) returns (r: Int) { x + 1 }
+func f(x: Real) returns (r: Real) { x + 2.0 }
+func f(x: Bool) returns (r: Bool) { !x }
+
+func select(x: Set[Int]) returns (r: Int) { 1 }
+func select(x: FinSet[Int]) returns (r: Int) { 2 }
+
+module Generic[E: Library.Type] {
+  func g(x: E) returns (r: E) { x }
+  func g(x: Int, y: E) returns (r: E) { y }
+  func make(x: FinSet[E]) returns (r: FinSet[E]) { x }
+  func make(x: Int) returns (r: Int) { x }
+}
+import Generic._
+
+module Ints { func value(x: Int) returns (r: Int) { x + 3 } }
+module Bools { func value(x: Bool) returns (r: Bool) { x } }
+import Ints._
+import Bools._
+import Ints.value
+
+proc check() {
+  var i: Int := f(2);
+  var widened: Real := f(2);
+  var r: Real := f(2.0);
+  var b: Bool := f(true);
+  assert i == 3 && widened == 3 && r == 4.0 && !b;
+  assert roundtrip(2) == 3;
+  assert f(f(0)) == 2;
+  assert value(2) == 5 && value(true);
+  assert Ints.value(2) == 5;
+  assert select({| 1 |}) == 2;
+  assert select({||}) == 2;
+  var finite: FinSet[Int] := make({||});
+  assert finite == {||};
+  var gi: Int := g(4);
+  var gb: Bool := Generic.g(4, true);
+  assert gi == 4 && gb;
+}

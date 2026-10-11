@@ -6,6 +6,10 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Functions and operators can be overloaded by argument types, including library-defined infix operators and the fixed indexing, slicing and update patterns such as `func _[_](...)`.
+
+- Enumeration literals can be defined with empty and singleton functions, such as `func <||>()` and `func <|_|>(e: E)`, and compose elements with right-associated `++`. The standard library provides sequence `[|...|]`, list `<|...|>` and finite-set `{|...|}` literals, including contextual typing for nested empty literals.
+
 - With `--lsp-annotations`, `--lsp-mode` prints an object with the errors and with annotations for an editor, such as the contracts that members inherit from interfaces. The protocol version reported by `--manifest` is now 3.
 
 - A member of a module that omits its contract, with no `requires`, `ensures` or `opens`, inherits the contract that the interface the module implements declares for it.

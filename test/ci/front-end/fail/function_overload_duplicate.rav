@@ -1,0 +1,3 @@
+type Number = Int
+func f(x: Number) returns (r: Int) { x }
+func f(y: Int) returns (r: Bool) { true }

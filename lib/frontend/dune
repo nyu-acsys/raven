@@ -48,12 +48,6 @@
  (action
   (copy %{deps} %{target})))
 
-(rule
- (target seqExt_parser.mly)
- (deps ../ext/seqExt/seqExt_parser.mly)
- (action
-  (copy %{deps} %{target})))
-
 (menhir
  (modules
   parser
@@ -62,7 +56,6 @@
   sampleExt_parser
   decreasesExt_parser
   assertWithExt_parser
-  matchExt_parser
-  seqExt_parser)
+  matchExt_parser)
  (merge_into parser)
  (flags --explain))

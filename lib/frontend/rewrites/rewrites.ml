@@ -134,8 +134,35 @@ let rec rewrite_inline_preds_expr seen (expr : expr) : expr Rewriter.t =
     end
   | _ -> Rewriter.Expr.descend expr ~f:(rewrite_inline_preds_expr seen)
 
+(* Exposes inline wrappers only when their bodies retain the pointwise encoding. *)
+let rec pointwise_inline_body seen variable expr =
+  let open Rewriter.Syntax in
+  if ProgUtils.is_pointwise_body variable expr then Rewriter.return (Some expr)
+  else
+    match expr with
+    | Expr.App (((And | Or | Not | Impl) as constr), args, attr) ->
+        let+ args = Rewriter.List.map args ~f:(pointwise_inline_body seen variable) in
+        Option.map (Option.all args) ~f:(fun args -> Expr.App (constr, args, attr))
+    | Expr.App (Var name, (_ :: _ as args), _) when not (Set.mem seen name) ->
+        let* body = Rewriter.inline_func_body name args in
+        begin match body with
+        | Some body -> pointwise_inline_body (Set.add seen name) variable body
+        | None -> Rewriter.return None
+        end
+    | _ -> Rewriter.return None
+
 let rec rewrite_compr_expr (expr : expr) : expr Rewriter.t =
   let open Rewriter.Syntax in
+  let* expr =
+    match expr with
+    | Expr.Binder (Compr, [ variable ], triggers, body, attr) ->
+        let+ expanded =
+          pointwise_inline_body (Set.empty (module QualIdent)) variable.var_name body
+        in
+        Option.value_map expanded ~default:expr ~f:(fun body ->
+            Expr.Binder (Compr, [ variable ], triggers, body, attr))
+    | _ -> Rewriter.return expr
+  in
   match expr with
   | Binder (Compr, [ v ], trgs, inner_expr, expr_attr)
     when ProgUtils.is_pointwise_body v.var_name inner_expr ->
@@ -187,32 +214,6 @@ let rec rewrite_compr_expr (expr : expr) : expr Rewriter.t =
 
       let postcond =
         let spec_form =
-          (*if Type.is_set ret_typ then
-            let var_decl = List.hd_exn v_l in
-
-            Expr.mk_binder ~typ:Type.bool Forall [ var_decl ]
-              (Expr.mk_and
-                 [
-                   Expr.mk_app ~typ:Type.bool Impl
-                     [
-                       inner_expr;
-                       Expr.mk_app ~typ:Type.bool Elem
-                         [
-                           Expr.from_var_decl var_decl;
-                           Expr.from_var_decl ret_var_decl;
-                         ];
-                     ];
-                   Expr.mk_app ~typ:Type.bool Impl
-                     [
-                       Expr.mk_app ~typ:Type.bool Elem
-                         [
-                           Expr.from_var_decl var_decl;
-                           Expr.from_var_decl ret_var_decl;
-                         ];
-                       inner_expr;
-                     ];
-                 ])
-          else*)
           (* Type.is_map ret_typ *)
           let var_decl = List.hd_exn v_l in
           let lookup_expr =

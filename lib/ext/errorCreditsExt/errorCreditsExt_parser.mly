@@ -27,7 +27,7 @@ open Ext.ErrorCreditsExtInstance
     | e :: _, _ -> Error.syntax_error (Expr.to_loc e) "Expected a single local variable on the left-hand side of 'EC.rand(...)'"
     | [], _ -> assert false
 }
-| EC DOT RAND LPAREN n_expr = expr SEMICOLON ECFN COLON EC DOT ECERROR LPAREN ec_expr = expr RPAREN COMMA BACKSLASH x = IDENT COLONCOLON fn_body = expr RPAREN {
+| EC DOT RAND LPAREN n_expr = expr SEMICOLON ECFN COLON EC DOT ECERROR LPAREN ec_expr = expr RPAREN COMMA BACKSLASH x = plain_ident COLONCOLON fn_body = expr RPAREN {
     function
     | [Expr.(App (Var qual_ident, [], _)) as e], is_init
       when QualIdent.is_local qual_ident ->

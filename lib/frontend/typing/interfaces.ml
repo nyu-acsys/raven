@@ -43,6 +43,44 @@ let check_implements_var (var_def : Stmt.var_def) (orig_var_def : Stmt.var_def)
                ident interface_ident)
       | _ -> Rewriter.return ()
 
+(* Transparent wrappers do not change a contract's meaning across type instantiation. *)
+let rec normalize_contract_expr seen expr =
+  let open Rewriter.Syntax in
+  let* expr = Rewriter.Expr.descend expr ~f:(normalize_contract_expr seen) in
+  match expr with
+  | Expr.App (Var name, args, _) when not (Set.mem seen name) ->
+      let* symbol = Rewriter.resolve_and_find_opt name in
+      let* body =
+        match symbol with
+        | Some (_, symbol) ->
+            begin match Rewriter.Symbol.orig_symbol symbol with
+            | Module.CallDef _ -> Rewriter.inline_func_body name args
+            | _ -> Rewriter.return None
+            end
+        | None -> Rewriter.return None
+      in
+      begin match body with
+      | Some body -> normalize_contract_expr (Set.add seen name) body
+      | None -> Rewriter.return expr
+      end
+  | _ -> Rewriter.return expr
+
+let contracts_equal ~sm (specs : Stmt.spec list) (originals : Stmt.spec list) =
+  let open Rewriter.Syntax in
+  match List.zip specs originals with
+  | Unequal_lengths -> Rewriter.return false
+  | Ok pairs ->
+      Rewriter.List.fold_left pairs ~init:true ~f:(fun equal (spec, original) ->
+          if (not equal) || Bool.(spec.spec_atomic <> original.spec_atomic) then
+            Rewriter.return false
+          else if Expr.alpha_equal ~sm spec.spec_form original.spec_form then
+            Rewriter.return true
+          else
+            let seen = Set.empty (module QualIdent) in
+            let+ form = normalize_contract_expr seen spec.spec_form
+            and+ original = normalize_contract_expr seen original.spec_form in
+            Expr.alpha_equal ~sm form original)
+
 (** A callable [call_def] implementing [orig_call_def]: the same signature and, unless
     inherited, the same contract. *)
 let check_implements_callable (call_def : Callable.t) (orig_call_def : Callable.t)
@@ -53,12 +91,13 @@ let check_implements_callable (call_def : Callable.t) (orig_call_def : Callable.
   let make_subst decls odecls sm =
     Rewriter.List.fold2 decls odecls ~init:sm
       ~f:(fun sm (var_decl : var_decl) (ovar_decl : var_decl) ->
-        let+ ovar_decl_var_type = TypeExpr.expand_type_expr ovar_decl.var_type in
+        let+ ovar_decl_var_type = TypeExpr.expand_type_expr ovar_decl.var_type
+        and+ var_decl_var_type = TypeExpr.expand_type_expr var_decl.var_type in
         if
           Bool.(var_decl.var_const <> ovar_decl.var_const)
           || Bool.(var_decl.var_implicit <> ovar_decl.var_implicit)
           || Bool.(var_decl.var_ghost <> ovar_decl.var_ghost)
-          || Type.(var_decl.var_type <> ovar_decl_var_type)
+          || Type.(var_decl_var_type <> ovar_decl_var_type)
         then
           Error.type_error loc
             (Printf.sprintf
@@ -92,14 +131,9 @@ let check_implements_callable (call_def : Callable.t) (orig_call_def : Callable.
       make_subst call_def.call_decl.call_decl_formals
         orig_call_def.call_decl.call_decl_formals manifest_subst
     in
-    let pre_ok =
-      List.for_all2 call_def.call_decl.call_decl_precond
-        orig_call_def.call_decl.call_decl_precond ~f:(fun spec orig_spec ->
-          Bool.(spec.spec_atomic = orig_spec.spec_atomic)
-          && Expr.alpha_equal ~sm spec.spec_form orig_spec.spec_form)
-      |> function
-      | Ok res -> res
-      | Unequal_lengths -> false
+    let* pre_ok =
+      contracts_equal ~sm call_def.call_decl.call_decl_precond
+        orig_call_def.call_decl.call_decl_precond
     in
     let _ =
       if not pre_ok then
@@ -113,17 +147,9 @@ let check_implements_callable (call_def : Callable.t) (orig_call_def : Callable.
       make_subst call_def.call_decl.call_decl_returns
         orig_call_def.call_decl.call_decl_returns sm
     in
-    let post_ok =
-      List.for_all2 call_def.call_decl.call_decl_postcond
-        orig_call_def.call_decl.call_decl_postcond ~f:(fun spec orig_spec ->
-          let post_ok =
-            Bool.(spec.spec_atomic = orig_spec.spec_atomic)
-            && Expr.alpha_equal ~sm spec.spec_form orig_spec.spec_form
-          in
-          post_ok)
-      |> function
-      | Ok res -> res
-      | Unequal_lengths -> false
+    let* post_ok =
+      contracts_equal ~sm call_def.call_decl.call_decl_postcond
+        orig_call_def.call_decl.call_decl_postcond
     in
     let _ =
       if not post_ok then
@@ -583,6 +609,313 @@ let merge_defs ~(m : Module.t) ~(mod_qual_ident : qual_ident)
     ~(mod_def_formals : Module.module_instr list) ~(defined_symbols : Set.M(Ident).t)
     ~inherited_members ~parent_status ~parent_is_interface parent_ident parent_mod_def
     mod_def =
+  let open Rewriter.Syntax in
+  let* tbl = Rewriter.get_table in
+  let own_symbols =
+    List.filter_map (mod_def_formals @ mod_def) ~f:(function
+      | Module.SymbolDef symbol -> Some (Symbol.to_name symbol, symbol)
+      | Import _ -> None)
+    |> Map.of_alist_reduce (module Ident) ~f:(fun first _ -> first)
+  in
+  let qualify_members prefix instrs =
+    List.filter_map instrs ~f:(function
+      | Module.SymbolDef symbol ->
+          let name = Symbol.to_name symbol in
+          Some
+            (QualIdent.from_ident name, QualIdent.to_list (QualIdent.append prefix name))
+      | Import _ -> None)
+  in
+  let rec local_lookup prefix instrs path =
+    match path with
+    | [] -> None
+    | name :: rest ->
+        let symbol =
+          List.find_map instrs ~f:(function
+            | Module.SymbolDef symbol when Ident.equal (Symbol.to_name symbol) name ->
+                Some symbol
+            | _ -> None)
+        in
+        Option.bind symbol ~f:(fun symbol ->
+            let resolved = QualIdent.append prefix name in
+            let symbol =
+              match symbol with
+              | Module.ModDef md when Option.is_none md.mod_decl.mod_decl_rep ->
+                  let rep =
+                    List.find_map md.mod_def ~f:(function
+                      | Module.SymbolDef (TypeDef td) when td.type_def_rep ->
+                          Some td.type_def_name
+                      | _ -> None)
+                  in
+                  Module.ModDef
+                    { md with mod_decl = { md.mod_decl with mod_decl_rep = rep } }
+              | symbol -> symbol
+            in
+            match (symbol, rest) with
+            | Module.ModInst mi, [] ->
+                let target =
+                  match mi.mod_inst_def with
+                  | Some (target, []) -> target
+                  | _ -> mi.mod_inst_type
+                in
+                Option.bind (CandidateTypes.lookup tbl target)
+                  ~f:(fun (target_qi, target_symbol) ->
+                    Rewriter.Symbol.extract target_symbol ~f:(fun _ _ -> function
+                      | Module.ModDef md ->
+                          Some
+                            ( resolved,
+                              ( resolved,
+                                Module.ModDef md,
+                                (false, true, [ (target_qi, QualIdent.to_list resolved) ])
+                              ) )
+                      | _ -> None))
+            | _, [] ->
+                Some
+                  ( resolved,
+                    (resolved, symbol, (false, false, qualify_members prefix instrs)) )
+            | Module.ModDef md, _ -> local_lookup resolved md.mod_def rest
+            | Module.ModInst mi, _ ->
+                let target =
+                  match mi.mod_inst_def with
+                  | Some (target, []) -> target
+                  | _ -> mi.mod_inst_type
+                in
+                Option.bind (CandidateTypes.lookup tbl target)
+                  ~f:(fun (target_qi, target_symbol) ->
+                    Rewriter.Symbol.extract target_symbol ~f:(fun _ subst -> function
+                      | Module.ModDef md ->
+                          Option.map (local_lookup resolved md.mod_def rest)
+                            ~f:(fun (qi, (name, symbol, (_, _, substitutions))) ->
+                              ( qi,
+                                ( name,
+                                  symbol,
+                                  ( false,
+                                    true,
+                                    (target_qi, QualIdent.to_list resolved)
+                                    :: List.map substitutions ~f:(fun (from, dest) ->
+                                        (subst from, dest)) ) ) ))
+                      | _ -> None))
+            | _ -> None)
+  in
+  let lookup qi =
+    let path = QualIdent.to_list qi in
+    let prefix = QualIdent.to_list mod_qual_ident in
+    let is_qualified = List.is_prefix path ~prefix ~equal:Ident.equal in
+    let path = if is_qualified then List.drop path (List.length prefix) else path in
+    match path with
+    | name :: _ when Map.mem own_symbols name ->
+        local_lookup mod_qual_ident (mod_def_formals @ mod_def) path
+    | _ ->
+        Option.first_some
+          (CandidateTypes.lookup tbl qi)
+          (local_lookup mod_qual_ident
+             (List.filter parent_mod_def ~f:(function
+               | Module.SymbolDef (ModInst _) -> false
+               | _ -> true))
+             path)
+  in
+  let normalize typ =
+    match CandidateTypes.normalize ~lookup typ with
+    | Ok typ -> typ
+    | Error _ ->
+        Error.type_error (Type.to_loc typ)
+          (Printf.sprintf
+             !"Cannot determine type %{Type} while matching overloaded interface function"
+             typ)
+  in
+  let nominal_remapping = ref (Map.empty (module QualIdent)) in
+  let inherited_application qi =
+    let instance_name = QualIdent.unqualify (QualIdent.pop qi) in
+    let inherited_instance =
+      List.find_map parent_mod_def ~f:(function
+        | Module.SymbolDef (ModInst mi) when Ident.equal mi.mod_inst_name instance_name ->
+            mi.mod_inst_def
+        | _ -> None)
+    in
+    let inherited_instance =
+      if
+        QualIdent.equal (QualIdent.pop (QualIdent.pop qi)) mod_qual_ident
+        && String.is_prefix (Ident.name instance_name)
+             ~prefix:ProgUtils.inst_mod_ident_prefix
+      then inherited_instance
+      else None
+    in
+    Option.bind inherited_instance ~f:(fun (functor_qi, args) ->
+        let argument_types =
+          List.map args ~f:(function
+            | Module.TypeArg typ -> Ok typ
+            | Module.ModArg module_qi ->
+                CandidateTypes.normalize ~lookup (Type.var module_qi))
+          |> Result.all
+        in
+        match argument_types with
+        | Error _ -> None
+        | Ok args ->
+            Some
+              (Type.App (Type.Var functor_qi, args, Type.mk_attr (QualIdent.to_loc qi))))
+  in
+  let rec prepare_type visiting (Type.App (head, args, attr) as typ) =
+    match CandidateTypes.normalize ~lookup typ with
+    | Ok typ -> Rewriter.return typ
+    | Error (CandidateTypes.Needs_instantiation _) ->
+        begin match (head, args) with
+        | Type.Var _, _ :: _ ->
+            let* args = Rewriter.List.map args ~f:(prepare_type visiting) in
+            TypeExpr.check (Type.App (head, args, attr))
+        | Type.Var qi, [] when not (Set.mem visiting qi) ->
+            begin match lookup qi with
+            | Some (_, symbol) ->
+                Rewriter.Symbol.extract symbol ~f:(fun _ requalify -> function
+                  | Module.TypeDef { type_def_expr = Some definition; _ } ->
+                      prepare_type (Set.add visiting qi)
+                        (CandidateTypes.rewrite_type ~f:requalify definition)
+                  | _ -> Rewriter.return (normalize typ))
+            | None -> Rewriter.return (normalize typ)
+            end
+        | _ ->
+            let+ args = Rewriter.List.map args ~f:(prepare_type visiting) in
+            Type.App (head, args, attr)
+        end
+    | Error (CandidateTypes.Unknown_type qi) ->
+        begin match inherited_application qi with
+        | Some application ->
+            let+ prepared = prepare_type visiting application in
+            begin match prepared with
+            | Type.App (Var target, [], _) ->
+                nominal_remapping :=
+                  Map.set !nominal_remapping ~key:(QualIdent.pop qi)
+                    ~data:(QualIdent.pop target)
+            | _ -> ()
+            end;
+            prepared
+        | None -> Rewriter.return (normalize typ)
+        end
+    | Error _ -> Rewriter.return (normalize typ)
+  in
+  let signature call =
+    Rewriter.List.map call.Callable.call_decl.call_decl_formals ~f:(fun formal ->
+        let* typ = prepare_type (Set.empty (module QualIdent)) formal.var_type in
+        let+ current_tbl = Rewriter.get_table in
+        let lookup_current qi =
+          Option.first_some (CandidateTypes.lookup current_tbl qi) (lookup qi)
+        in
+        match CandidateTypes.normalize ~lookup:lookup_current typ with
+        | Ok typ -> typ
+        | Error _ -> normalize typ)
+  in
+  let own_functions source =
+    List.filter_map mod_def ~f:(function
+      | Module.SymbolDef (CallDef call)
+        when Poly.(Callable.kind call = Func)
+             && Ident.equal (Callable.source_ident call) source ->
+          Some call
+      | _ -> None)
+  in
+  let parent_functions source =
+    List.count parent_mod_def ~f:(function
+      | Module.SymbolDef (CallDef call) ->
+          Poly.(Callable.kind call = Func)
+          && Ident.equal (Callable.source_ident call) source
+      | _ -> false)
+  in
+  let* own_signatures =
+    Rewriter.List.fold_left mod_def
+      ~init:(Map.empty (module Ident))
+      ~f:(fun signatures -> function
+        | Module.SymbolDef (CallDef call) when Poly.(Callable.kind call = Func) ->
+            let source = Callable.source_ident call in
+            if
+              parent_functions source > 1
+              || (parent_functions source = 1 && List.length (own_functions source) > 1)
+            then
+              let+ types = signature call in
+              Map.set signatures ~key:(Callable.to_ident call) ~data:types
+            else Rewriter.return signatures
+        | _ -> Rewriter.return signatures)
+  in
+  let* matches, remapping =
+    Rewriter.List.fold_left parent_mod_def
+      ~init:(Map.empty (module Ident), Map.empty (module QualIdent))
+      ~f:(fun (matches, remapping) -> function
+        | Module.SymbolDef (CallDef parent) when Poly.(Callable.kind parent = Func) ->
+            let source = Callable.source_ident parent in
+            let candidates = own_functions source in
+            if
+              List.is_empty candidates
+              || (List.length candidates = 1 && parent_functions source = 1)
+            then Rewriter.return (matches, remapping)
+            else begin
+              let* parent_signature = signature parent in
+              let compatible =
+                List.filter candidates ~f:(fun own ->
+                    List.equal Type.equal
+                      (Map.find_exn own_signatures (Callable.to_ident own))
+                      parent_signature)
+              in
+              let own =
+                match compatible with
+                | [ own ] -> own
+                | [] ->
+                    Error.type_error m.mod_decl.mod_decl_loc
+                      (Printf.sprintf
+                         "No implementation matches overload %s in interface %s"
+                         (Ident.to_string source)
+                         (QualIdent.to_string parent_ident))
+                | _ ->
+                    Error.type_error m.mod_decl.mod_decl_loc
+                      (Printf.sprintf
+                         "Multiple implementations match overload %s in interface %s"
+                         (Ident.to_string source)
+                         (QualIdent.to_string parent_ident))
+              in
+              let parent_name = Callable.to_ident parent in
+              let own_name = Callable.to_ident own in
+              Rewriter.return
+                ( Map.set matches ~key:parent_name ~data:own_name,
+                  Map.set remapping
+                    ~key:(QualIdent.append mod_qual_ident parent_name)
+                    ~data:(QualIdent.append mod_qual_ident own_name) )
+            end
+        | _ -> Rewriter.return (matches, remapping))
+  in
+  let* () =
+    Rewriter.List.iter parent_mod_def ~f:(function
+      | Module.SymbolDef (CallDef call) when Map.mem matches (Callable.to_ident call) ->
+          Rewriter.List.iter call.call_decl.call_decl_returns ~f:(fun formal ->
+              let+ _ = prepare_type (Set.empty (module QualIdent)) formal.var_type in
+              ())
+      | _ -> Rewriter.return ())
+  in
+  let rewrite_qi qi =
+    match Map.find remapping qi with
+    | Some target -> target
+    | None ->
+        let replacement =
+          Map.to_alist !nominal_remapping
+          |> List.find ~f:(fun (source, _) ->
+              List.is_prefix (QualIdent.to_list qi) ~prefix:(QualIdent.to_list source)
+                ~equal:Ident.equal)
+        in
+        begin match replacement with
+        | None -> qi
+        | Some (source, target) ->
+            QualIdent.requalify [ (source, QualIdent.to_list target) ] qi
+        end
+  in
+  let rec rewrite_member = function
+    | Module.SymbolDef (CallDef call) ->
+        let+ call = lift (Rewriter.Callable.rewrite_qual_idents ~f:rewrite_qi call) in
+        Module.SymbolDef (CallDef call)
+    | Module.SymbolDef (ModDef md) ->
+        let+ mod_def = Rewriter.List.map md.mod_def ~f:rewrite_member in
+        Module.SymbolDef (ModDef { md with mod_def })
+    | Module.SymbolDef symbol ->
+        let+ symbol =
+          lift (Rewriter.Module.rewrite_qual_idents_in_symbol ~f:rewrite_qi symbol)
+        in
+        Module.SymbolDef symbol
+    | instr -> Rewriter.return instr
+  in
+  let* parent_mod_def = Rewriter.List.map parent_mod_def ~f:rewrite_member in
   (* A non-callable member without a definition, like those the check below rejects in a
      non-interface module. Callables are left out: a free callable without a body had
      its body dropped when it was freed. *)
@@ -686,6 +1019,7 @@ let merge_defs ~(m : Module.t) ~(mod_qual_ident : qual_ident)
       ~f:(fun (to_check, inherited) -> function
         | Module.SymbolDef parent_symbol as instr when is_member instr ->
             let name = Symbol.to_name parent_symbol in
+            let name = Map.find matches name |> Option.value ~default:name in
             if Set.mem formals name || Set.mem defined_symbols name then
               (Map.add_exn to_check ~key:name ~data:parent_symbol, inherited)
             else (
@@ -698,7 +1032,8 @@ let merge_defs ~(m : Module.t) ~(mod_qual_ident : qual_ident)
       | Module.SymbolDef (ConstrDef _ | DestrDef _) -> false
       | _ -> true)
   in
-  (order_members ~mod_qual_ident ~fixed ~others:(List.rev inherited), to_check)
+  Rewriter.return
+    (order_members ~mod_qual_ident ~fixed ~others:(List.rev inherited), to_check)
 
 (** The parents of [m]: its return types, the interfaces it implements, its first parent
     and that parent's formals, and its members merged with theirs, with those to check
@@ -819,15 +1154,15 @@ let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_iden
   | first_parent :: _ ->
       (* Merge each parent in turn, threading the accumulated definition, so
              a later parent sees earlier parents' members as already defined. *)
-      let returns, interfaces, formals, merged, to_check =
-        List.fold parent_defs
+      let* returns, interfaces, formals, merged, to_check =
+        Rewriter.List.fold_left parent_defs
           ~init:
             ([], Set.empty (module QualIdent), None, m.mod_def, Map.empty (module Ident))
           ~f:(fun
               (returns, interfaces, formals, mod_def, to_check)
               (qual_interface_ident, _mid, args, parent_is_interface, interface)
             ->
-            let merged, to_check' =
+            let* merged, to_check' =
               merge_defs ~m ~mod_qual_ident ~mod_def_formals ~defined_symbols
                 ~inherited_members ~parent_status:interface.mod_decl.mod_decl_status
                 ~parent_is_interface qual_interface_ident interface.mod_def mod_def
@@ -855,13 +1190,14 @@ let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_iden
                   if List.is_empty interface.mod_decl.mod_decl_formals then None
                   else Some interface.mod_decl.mod_decl_formals
             in
-            ( (qual_interface_ident, List.map args ~f:(fun qi -> Module.ModArg qi))
-              :: returns,
-              Set.union interfaces
-                (Set.add interface.mod_decl.mod_decl_interfaces qual_interface_ident),
-              formals,
-              merged,
-              to_check ))
+            Rewriter.return
+              ( (qual_interface_ident, List.map args ~f:(fun qi -> Module.ModArg qi))
+                :: returns,
+                Set.union interfaces
+                  (Set.add interface.mod_decl.mod_decl_interfaces qual_interface_ident),
+                formals,
+                merged,
+                to_check ))
       in
       let qual_first, _, _, _, _ = first_parent in
       Rewriter.return

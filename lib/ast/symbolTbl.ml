@@ -37,6 +37,7 @@ type entry =
      outside. *)
   | Transparent of QualIdent.t
   | Import of QualIdent.t
+  | Functions of { imported : bool; targets : QualIdent.t list }
 
 type scope = {
   (* Fully qualified identifier of this scope *)
@@ -50,7 +51,8 @@ type scope = {
   (* Symbols defined in this scope *)
   scope_entries : entry IdentHashtbl.t; [@hash.ignore]
   (* Cache that maps names (partially) qualified names to fully qualified names, relative to this scope. *)
-  scope_cache : (QualIdent.t * QualIdent.t * subst) QualIdentHashtbl.t; [@hash.ignore]
+  scope_cache : (int * (QualIdent.t * QualIdent.t * subst) list) QualIdentHashtbl.t;
+      [@hash.ignore]
 }
 [@@deriving hash]
 
@@ -82,6 +84,9 @@ type t = {
   tbl_symbols : Module.symbol QualIdentMap.t;
   (* Instances of sealed functors, by their fully qualified names *)
   tbl_sealed : sealed_view QualIdentMap.t;
+  tbl_generation : int ref;
+  (* Names probed in callable scopes, tagged with their cache generation. *)
+  tbl_local_reads : int IdentHashtbl.t;
 }
 
 let entry_to_string = function
@@ -158,7 +163,11 @@ let create () =
     tbl_path = [];
     tbl_symbols = Map.empty (module QualIdent);
     tbl_sealed = Map.empty (module QualIdent);
+    tbl_generation = ref 0;
+    tbl_local_reads = Hashtbl.create (module Ident);
   }
+
+let invalidate_caches tbl = Int.incr tbl.tbl_generation
 
 (** Reset table to the root scope *)
 let reset tbl = { tbl with tbl_curr = tbl.tbl_root; tbl_path = [] }
@@ -190,7 +199,8 @@ let is_ancestor scope tbl =
 
 (** Resolve [name] to its fully qualified identifier relative to the current scope in
     [tbl]. *)
-let resolve name (tbl : t) : (QualIdent.t * QualIdent.t * subst) option =
+let resolve_candidates ?(canonical_aliases = false) ?(read_only = false) name (tbl : t) :
+    (QualIdent.t * QualIdent.t * subst) list option =
   let open Option.Syntax in
   let rec go_forward inst_scopes scope subst ids =
     (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: scope: %a;\n tbl.tbl_path: %a;\n  ids1: [%a];\n entries: [%a]" 
@@ -201,7 +211,7 @@ let resolve name (tbl : t) : (QualIdent.t * QualIdent.t * subst) option =
 
     (* Logs.debug (fun m -> m "Symbol.resolve.go_forward: tbl.curr_scope=%a; instantiated_scopes=%a" QualIdent.pr tbl.tbl_curr.scope_id (Util.Print.pr_list_comma QualIdent.pr) (Set.to_list inst_scopes)); *)
     match ids with
-    | [] -> Some (get_scope_id scope, subst, false)
+    | [] -> Some [ (get_scope_id scope, subst, false) ]
     | first_id :: ids1 -> (
         if
           scope.scope_is_abstract
@@ -213,6 +223,10 @@ let resolve name (tbl : t) : (QualIdent.t * QualIdent.t * subst) option =
           (* ... or through one of its concrete instantiations. *)
         then None
         else
+          let () =
+            if scope.scope_is_local && (not canonical_aliases) && not read_only then
+              Hashtbl.set tbl.tbl_local_reads ~key:first_id ~data:!(tbl.tbl_generation)
+          in
           let scope_symbols = get_scope_entries scope in
           (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: scope_entries: %a" (Print.pr_list_comma Ident.pr) (Hashtbl.keys scope_symbols)); *)
           (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: ids2: %a" (Util.Print.pr_list_comma (Ident.pr))  ids); *)
@@ -243,7 +257,11 @@ let resolve name (tbl : t) : (QualIdent.t * QualIdent.t * subst) option =
               in
               let target_subst =
                 match subst1 with
-                (*| [] -> subst*)
+                | []
+                  when canonical_aliases && (not is_abstract)
+                       && not (Map.mem tbl.tbl_sealed (fully_qualify first_id scope tbl))
+                  ->
+                    subst_subst
                 | _ ->
                     ( target_qual_ident,
                       fully_qualify first_id scope tbl |> QualIdent.to_list )
@@ -270,9 +288,18 @@ let resolve name (tbl : t) : (QualIdent.t * QualIdent.t * subst) option =
               if is_ancestor scope tbl then
                 go_forward inst_scopes tbl.tbl_root subst new_path
               else None
+          | Functions { imported = false; targets }, [] ->
+              Some
+                (List.map targets ~f:(fun target -> (target, subst, scope.scope_is_local)))
+          | Functions { imported = true; targets }, [] when is_ancestor scope tbl ->
+              let resolved =
+                List.filter_map targets ~f:(fun target ->
+                    go_forward inst_scopes tbl.tbl_root subst (QualIdent.to_list target))
+              in
+              if List.is_empty resolved then None else Some (List.concat resolved)
           | Symbol qual_ident, [] ->
               (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: 3"); *)
-              Some (qual_ident, subst, scope.scope_is_local)
+              Some [ (qual_ident, subst, scope.scope_is_local) ]
           | _ ->
               (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: 4"); *)
               let scope_children = get_scope_children scope in
@@ -282,50 +309,69 @@ let resolve name (tbl : t) : (QualIdent.t * QualIdent.t * subst) option =
   let first_id = QualIdent.first_ident name in
   let rec go_backward is_first curr_scope path =
     let scope_cache = get_scope_cache curr_scope in
-    (if is_first then Hashtbl.find scope_cache name else None)
+    (if is_first && not canonical_aliases then
+       Hashtbl.find scope_cache name
+       |> Option.bind ~f:(fun (generation, cached) ->
+           if Int.equal generation !(tbl.tbl_generation) then Some cached else None)
+     else None)
     |> Option.or_else () ~f:(fun _ ->
-        let+ alias_qual_ident, orig_qual_ident, subst =
+        if curr_scope.scope_is_local && (not canonical_aliases) && not read_only then
+          Hashtbl.set tbl.tbl_local_reads ~key:first_id ~data:!(tbl.tbl_generation);
+        let+ resolved =
           (* let exists = Hashtbl.mem (get_scope_entries curr_scope) first_id in *)
           (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_backward: curr_scope: %a" QualIdent.pr (curr_scope.scope_id)); *)
           (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_backward: first_id: %a" QualIdent.pr name); *)
           (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_backward: scope_entries: %a" (Print.pr_list_comma Ident.pr) (Hashtbl.keys (get_scope_entries curr_scope))); *)
           (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_backward: exists: %b" exists); *)
           if Hashtbl.mem (get_scope_entries curr_scope) first_id then
-            let+ alias_qual_ident, subst, is_local =
+            let+ resolved =
               go_forward
                 (Set.empty (module QualIdent))
                 curr_scope
                 (false, curr_scope.scope_is_abstract, [])
                 (QualIdent.to_list name)
             in
-            let _, _, subst_subst = subst in
-            (* Compute resolved identifier *)
-            let orig_qual_ident = alias_qual_ident |> QualIdent.requalify subst_subst in
-            (* Don't qualify orig_qual_ident if it identifies a symbol in a local scope *)
-            let orig_qual_ident =
-              if is_local then
-                orig_qual_ident |> QualIdent.unqualify |> QualIdent.from_ident
-              else orig_qual_ident
-            in
-            (alias_qual_ident, orig_qual_ident, subst)
+            List.map resolved ~f:(fun (alias_qual_ident, subst, is_local) ->
+                let _, _, subst_subst = subst in
+                (* Compute resolved identifier *)
+                let orig_qual_ident =
+                  alias_qual_ident |> QualIdent.requalify subst_subst
+                in
+                (* Don't qualify orig_qual_ident if it identifies a symbol in a local scope *)
+                let orig_qual_ident =
+                  if is_local then
+                    orig_qual_ident |> QualIdent.unqualify |> QualIdent.from_ident
+                  else orig_qual_ident
+                in
+                (alias_qual_ident, orig_qual_ident, subst))
           else
             let* curr_scope1, path1 =
               match path with s :: ss -> Some (s, ss) | [] -> None
             in
             go_backward false curr_scope1 path1
         in
-        if is_first then
-          Hashtbl.add_exn scope_cache ~key:name
-            ~data:(alias_qual_ident, orig_qual_ident, subst);
-        ( alias_qual_ident,
-          QualIdent.set_loc (QualIdent.to_loc name) orig_qual_ident,
-          subst ))
+        let resolved =
+          if is_first then
+            match resolved with
+            | [] | [ _ ] -> resolved
+            | _ ->
+                List.dedup_and_sort resolved ~compare:(fun (_, left, _) (_, right, _) ->
+                    QualIdent.compare left right)
+          else resolved
+        in
+        if is_first && (not canonical_aliases) && not read_only then
+          Hashtbl.set scope_cache ~key:name ~data:(!(tbl.tbl_generation), resolved);
+        resolved)
   in
   go_backward true tbl.tbl_curr tbl.tbl_path
-  |> Option.map ~f:(fun (alias_qual_ident, orig_qual_ident, subst) ->
-      ( alias_qual_ident,
-        orig_qual_ident |> QualIdent.set_loc (QualIdent.to_loc name),
-        subst ))
+  |> Option.map ~f:(fun resolved ->
+      List.map resolved ~f:(fun (alias_qual_ident, orig_qual_ident, subst) ->
+          ( alias_qual_ident,
+            orig_qual_ident |> QualIdent.set_loc (QualIdent.to_loc name),
+            subst )))
+
+let resolve name tbl =
+  match resolve_candidates name tbl with Some [ resolved ] -> Some resolved | _ -> None
 
 (** The sealed view that the module [name] resolves to, if any. *)
 let find_sealed_view name tbl : sealed_view option =
@@ -337,6 +383,14 @@ let find_sealed_view name tbl : sealed_view option =
 *)
 let unknown_member_error loc (name : QualIdent.t) (tbl : t) =
   let open Option.Syntax in
+  let () =
+    match resolve_candidates name tbl with
+    | Some (_ :: _ :: _ as candidates) ->
+        Error.type_error loc
+          (Printf.sprintf "Ambiguous function name %s (%d candidates)"
+             (QualIdent.to_string name) (List.length candidates))
+    | _ -> ()
+  in
   let hidden =
     let* prefix =
       if QualIdent.is_qualified name then Some (QualIdent.pop name) else None
@@ -413,6 +467,12 @@ let resolve_and_find name tbl : (QualIdent.t * QualIdent.t * Module.symbol * sub
   (* Logs.debug (fun m -> m "SymbolTbl.resolve_and_find: alias_qual_ident: %a" QualIdent.pr alias_qual_ident); *)
   (* Logs.debug (fun m -> m "SymbolTbl.resolve_and_find: subst: %a\n" pr_subst subst); *)
   (alias_qual_ident, orig_qual_ident, symbol, subst)
+
+let resolve_and_find_candidates name tbl =
+  Option.value (resolve_candidates name tbl) ~default:[]
+  |> List.filter_map ~f:(fun (alias, target, subst) ->
+      Option.map (Map.find tbl.tbl_symbols alias) ~f:(fun symbol ->
+          (alias, target, symbol, subst)))
 
 (** Like [resolve_and_find] but throws an exception if [name] is not found in [tbl]. *)
 let resolve_and_find_exn name (tbl : t) =
@@ -500,13 +560,14 @@ let get_scope_exn scope_name tbl : scope =
     own path (see [import]) and cannot be resolved until the functor's parameters are
     known, so this is how the type checker recovers the candidate after ordinary
     resolution has failed. *)
-let find_import_target name (tbl : t) : QualIdent.t option =
+let find_import_targets name (tbl : t) : QualIdent.t list =
   match QualIdent.to_list name with
-  | [] -> None
+  | [] -> []
   | first :: rest ->
       let rec go scope path =
         match Hashtbl.find (get_scope_entries scope) first with
-        | Some (Import target) -> Some target
+        | Some (Import target) -> Some [ target ]
+        | Some (Functions { imported = true; targets }) -> Some targets
         | Some _ -> None
         | None -> ( match path with s :: ss -> go s ss | [] -> None)
       in
@@ -514,47 +575,138 @@ let find_import_target name (tbl : t) : QualIdent.t option =
          path: `Option.none` under `import Library.Option` is `Library.Option.none`,
          and a bare `some` under `import Library.Option._` is
          `Library.Option.some`. *)
-      go tbl.tbl_curr tbl.tbl_path
-      |> Option.map ~f:(fun target ->
-          QualIdent.from_list (QualIdent.to_list target @ rest))
+      go tbl.tbl_curr tbl.tbl_path |> Option.value ~default:[]
+      |> List.map ~f:(fun target -> QualIdent.from_list (QualIdent.to_list target @ rest))
+
+let find_import_target name tbl =
+  match find_import_targets name tbl with [ target ] -> Some target | _ -> None
+
+let is_function = function
+  | Module.CallDef call -> Poly.(Callable.kind call = Func)
+  | _ -> false
+
+let same_import_kind left right =
+  match (left, right) with
+  | Module.(ModDef _ | ModInst _), Module.(ModDef _ | ModInst _)
+  | Module.VarDef _, Module.VarDef _ ->
+      true
+  | Module.CallDef left, Module.CallDef right ->
+      Poly.(Callable.kind left = Callable.kind right)
+  | _ -> String.equal (Symbol.kind left) (Symbol.kind right)
+
+let import_binding ~loc ~name ~target ~symbol tbl =
+  let function_ = is_function symbol in
+  let entries = get_scope_entries tbl.tbl_curr in
+  let set_entry entry =
+    invalidate_caches tbl;
+    Hashtbl.set entries ~key:name ~data:entry
+  in
+  match Hashtbl.find entries name with
+  | None ->
+      let entry =
+        if function_ then Functions { imported = true; targets = [ target ] }
+        else Import target
+      in
+      set_entry entry
+  | Some (Functions { imported = true; targets }) when function_ ->
+      let identity target =
+        match resolve_candidates ~canonical_aliases:true target tbl with
+        | Some [ (_, identity, _) ] -> identity
+        | _ -> target
+      in
+      let already_imported =
+        List.exists targets ~f:(fun existing -> QualIdent.equal existing target)
+        || begin
+          let target_identity = identity target in
+          List.exists targets ~f:(fun existing ->
+              QualIdent.equal (identity existing) target_identity)
+        end
+      in
+      if not already_imported then
+        let targets = List.sort (target :: targets) ~compare:QualIdent.compare in
+        set_entry (Functions { imported = true; targets })
+  | Some (Functions { imported = false; _ } | Symbol _ | Alias _ | Transparent _) -> ()
+  | Some (Import existing) when QualIdent.equal existing target -> ()
+  | Some (Import existing) when not function_ ->
+      let existing_symbol =
+        match resolve_and_find existing tbl with
+        | Some (_, _, symbol, _) -> Some symbol
+        | None -> Map.find tbl.tbl_symbols existing
+      in
+      begin match existing_symbol with
+      | Some existing when not (same_import_kind existing symbol) ->
+          Error.redeclaration_error loc (Ident.to_string name)
+      | _ -> ()
+      end
+  | Some _ -> Error.redeclaration_error loc (Ident.to_string name)
+
+let visible_members mdef tbl =
+  match mdef.Module.mod_decl with
+  | { mod_decl_is_sealed = true; mod_decl_returns = [ (interface, _) ]; _ } ->
+      begin match resolve_and_find interface tbl with
+      | Some (_, _, Module.ModDef interface, _) -> interface.mod_def
+      | _ -> mdef.mod_def
+      end
+  | _ -> mdef.mod_def
 
 (** Add an alias based on the import instruction [import_instr] *)
-let rec import import_instr (tbl : t) : t =
+let import import_instr (tbl : t) : t =
   let open Module in
   let import_loc = import_instr.import_loc in
-  let unresolved_imported_ident = import_instr.import_name in
-  let _, imported_ident, symbol, _ = resolve_and_find_exn unresolved_imported_ident tbl in
-  let curr_scope = tbl.tbl_curr in
-  let _ =
-    match (symbol, import_instr.import_all) with
-    | ModDef mdef, true ->
-        (* A generic functor's members cannot be resolved from outside it -- the
-           abstract-scope guard in [resolve] rejects them until an instantiation
-           is in play. Import them under the functor's own path anyway: a use of
-           the imported name then fails to resolve in the ordinary way, and the
-           type checker's implicit-instantiation path solves the functor's
-           parameters from the use site (see [Typing]'s [resolve_or_implicit]). *)
-        let is_generic = not (List.is_empty mdef.mod_decl.mod_decl_formals) in
-        List.iter mdef.mod_def ~f:(function
-          | SymbolDef symbol ->
-              let symbol_name = Symbol.to_name symbol in
-              let symbol_ident = QualIdent.append unresolved_imported_ident symbol_name in
-              let target =
-                match resolve_and_find symbol_ident tbl with
-                | Some (_, symbol_fully_qual_ident, _, _) -> Some symbol_fully_qual_ident
-                | None ->
-                    if is_generic then Some (QualIdent.append imported_ident symbol_name)
-                    else None
-              in
-              Option.iter target ~f:(fun target ->
-                  add_to_map (get_scope_entries curr_scope)
-                    import_loc symbol_name (Import target) ~duplicate:(fun _ _ _ -> ()))
-          | _ -> ())
-    | _ ->
-        let alias_ident = QualIdent.unqualify unresolved_imported_ident in
-        add_to_map (get_scope_entries curr_scope)
-          import_loc alias_ident (Import imported_ident) ~duplicate:(fun _ _ _ -> ())
+  let unresolved = import_instr.import_name in
+  let imported = resolve_and_find_candidates unresolved tbl in
+  let imported =
+    if not (List.is_empty imported) then imported
+    else
+      let generic_members =
+        if import_instr.import_all || QualIdent.is_local unresolved then []
+        else
+          match resolve_and_find (QualIdent.pop unresolved) tbl with
+          | Some (alias, prefix, ModDef mdef, subst)
+            when not (List.is_empty mdef.mod_decl.mod_decl_formals) ->
+              let source = QualIdent.unqualify unresolved in
+              List.filter_map (visible_members mdef tbl) ~f:(function
+                | SymbolDef (CallDef call as symbol)
+                  when is_function symbol
+                       && (Ident.equal (Callable.source_ident call) source
+                          || Ident.equal (Callable.to_ident call) source) ->
+                    Some
+                      ( alias,
+                        QualIdent.append prefix (Callable.to_ident call),
+                        symbol,
+                        subst )
+                | _ -> None)
+          | _ -> []
+      in
+      if List.is_empty generic_members then [ resolve_and_find_exn unresolved tbl ]
+      else generic_members
   in
+  List.iter imported ~f:(fun (_, imported_ident, symbol, _) ->
+      match (symbol, import_instr.import_all) with
+      | ModDef mdef, true ->
+          (* Generic members are retained for later implicit instantiation. *)
+          let is_generic = not (List.is_empty mdef.mod_decl.mod_decl_formals) in
+          List.iter (visible_members mdef tbl) ~f:(function
+            | SymbolDef symbol ->
+                let internal_name = Symbol.to_name symbol in
+                let member = QualIdent.append unresolved internal_name in
+                let target =
+                  match resolve_and_find member tbl with
+                  | Some (_, target, _, _) -> Some target
+                  | None ->
+                      if is_generic then
+                        Some (QualIdent.append imported_ident internal_name)
+                      else None
+                in
+                Option.iter target ~f:(fun target ->
+                    import_binding ~loc:import_loc ~name:(Symbol.source_name symbol)
+                      ~target ~symbol tbl)
+            | _ -> ())
+      | _, false ->
+          import_binding ~loc:import_loc
+            ~name:(QualIdent.unqualify unresolved)
+            ~target:imported_ident ~symbol tbl
+      | _, true -> Error.type_error import_loc "Expected module identifier");
   tbl
 
 (** Register [ident] in the current scope as another name for [target], resolving straight
@@ -563,9 +715,14 @@ let rec import import_instr (tbl : t) : t =
     own pointing at the target's, or a name derived from the alias would denote a module
     that was never generated. *)
 let add_transparent ident target tbl =
-  add_to_map (get_scope_entries tbl.tbl_curr)
-    (Ident.to_loc ident) ident (Transparent target) ~duplicate:(fun map key data ->
-      Hashtbl.set map ~key ~data);
+  let entries = get_scope_entries tbl.tbl_curr in
+  begin match Hashtbl.find entries ident with
+  | Some (Transparent existing) when QualIdent.equal existing target -> ()
+  | _ ->
+      invalidate_caches tbl;
+      add_to_map entries (Ident.to_loc ident) ident (Transparent target)
+        ~duplicate:(fun map key data -> Hashtbl.set map ~key ~data)
+  end;
   tbl
 
 (** Add [symbol] to the appropriate scope of [tbl]. Fails if [symbol] already exists in
@@ -589,17 +746,53 @@ let add_symbol ?(scope : scope option = None) symbol tbl =
       else scope
     in
 
+    (* A new local can affect cached resolutions only if its name was probed. *)
+    let preserves_cache =
+      match symbol with
+      | VarDef _ when appropriate_scope.scope_is_local ->
+          not
+            (Option.value_map
+               (Hashtbl.find tbl.tbl_local_reads symbol_ident)
+               ~default:false
+               ~f:(Int.equal !(tbl.tbl_generation)))
+      | _ -> false
+    in
+    if not preserves_cache then invalidate_caches tbl;
+
     let symbol_qual_ident = fully_qualify symbol_ident appropriate_scope tbl in
     (*Logs.debug (fun m ->
         m "SymbolTbl.add_symbol: symbol_qual_ident: %a" QualIdent.pr
           symbol_qual_ident);*)
     let duplicate (map : entry IdentHashtbl.t) (key : Ident.t) data =
       match Hashtbl.find_exn map key with
-      | Import _ -> Hashtbl.set map ~key ~data
+      | Import _ | Functions { imported = true; _ } -> Hashtbl.set map ~key ~data
       | _ -> Error.redeclaration_error symbol_loc (Ident.to_string key)
     in
 
     match symbol with
+    | CallDef call when is_function symbol ->
+        let source = Callable.source_ident call in
+        let entries = get_scope_entries appropriate_scope in
+        let targets =
+          match Hashtbl.find entries source with
+          | None | Some (Import _) | Some (Functions { imported = true; _ }) -> []
+          | Some (Functions { imported = false; targets }) -> targets
+          | Some _ -> Error.redeclaration_error symbol_loc (Ident.to_string source)
+        in
+        if Map.mem tbl.tbl_symbols symbol_qual_ident then
+          Error.redeclaration_error symbol_loc (Ident.to_string source);
+        if not (Ident.equal source symbol_ident) then
+          add_to_map entries symbol_loc symbol_ident (Symbol symbol_qual_ident) ~duplicate;
+        Hashtbl.set entries ~key:source
+          ~data:(Functions { imported = false; targets = symbol_qual_ident :: targets });
+        let symbol_scope = create_scope symbol_qual_ident false true in
+        add_to_map
+          (get_scope_children appropriate_scope)
+          symbol_loc symbol_ident symbol_scope;
+        {
+          tbl with
+          tbl_symbols = Map.add_exn tbl.tbl_symbols ~key:symbol_qual_ident ~data:symbol;
+        }
     (* A manifest field denotes an existing field, so it is registered as an
        alias rather than as a symbol of its own. [resolve]'s [Alias] case is
        generic over what it points at, so every lookup of this name redirects to
@@ -772,7 +965,7 @@ let add_symbol ?(scope : scope option = None) symbol tbl =
   add symbol tbl
 
 (** Update [symbol] in the current scope of [tbl]. Assumes that [symbol] is already
-    present in this scope. *)
+    present in this scope. Cached resolutions retain identities, not definitions. *)
 let set_symbol symbol tbl : t =
   let symbol_ident = Symbol.to_name symbol in
   let symbol_qual_ident = fully_qualify symbol_ident tbl.tbl_curr tbl in

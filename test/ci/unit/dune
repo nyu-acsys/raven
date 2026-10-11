@@ -1,0 +1,9 @@
+(test
+ (name symbol_table_overloads)
+ (modules symbol_table_overloads)
+ (libraries ast base util))
+
+(test
+ (name overload_resolution)
+ (modules overload_resolution)
+ (libraries typing ast base util))

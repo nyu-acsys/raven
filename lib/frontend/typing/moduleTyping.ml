@@ -271,8 +271,77 @@ let check_word_sized (mod_decl : Module.module_decl) (mod_def : Module.module_in
              Predefs.lib_word_sized_mod_qual_ident)
   | _ -> Rewriter.return ()
 
+let assign_function_identities (instrs : Module.module_instr list) =
+  let open Module in
+  let counts, taken =
+    List.fold instrs
+      ~init:(Map.empty (module Ident), Set.empty (module Ident))
+      ~f:(fun (counts, taken) instr ->
+        match instr with
+        | SymbolDef symbol ->
+            let taken = Set.add taken (Symbol.to_name symbol) in
+            let counts =
+              match symbol with
+              | CallDef call when Poly.(Callable.kind call = Func) ->
+                  Map.update counts (Callable.source_ident call) ~f:(fun count ->
+                      Option.value count ~default:0 + 1)
+              | _ -> counts
+            in
+            (counts, taken)
+        | Import _ -> (counts, taken))
+  in
+  let _, instrs =
+    List.fold_map instrs ~init:taken ~f:(fun taken instr ->
+        match instr with
+        | SymbolDef (CallDef call)
+          when Poly.(Callable.kind call = Func)
+               && Option.is_none call.call_decl.call_decl_source_name
+               && Map.find_exn counts (Callable.source_ident call) > 1 ->
+            let source = Callable.source_ident call in
+            let rec fresh index =
+              let id = Ident.make (Ident.to_loc source) (Ident.name source) index in
+              if Set.mem taken id then fresh (index + 1) else id
+            in
+            let id = fresh 1 in
+            let call_decl =
+              {
+                call.call_decl with
+                call_decl_name = id;
+                call_decl_source_name = Some source;
+              }
+            in
+            (Set.add taken id, SymbolDef (CallDef { call with call_decl }))
+        | _ -> (taken, instr))
+  in
+  instrs
+
+let check_function_signatures (instrs : Module.module_instr list) =
+  let open Rewriter.Syntax in
+  let+ _ =
+    Rewriter.List.fold_left instrs
+      ~init:(Map.empty (module Ident))
+      ~f:(fun signatures instr ->
+        match instr with
+        | SymbolDef (CallDef call)
+          when Poly.(Callable.kind call = Func)
+               && Option.is_some call.call_decl.call_decl_source_name ->
+            let* types =
+              Rewriter.List.map call.call_decl.call_decl_formals ~f:(fun formal ->
+                  let+ typ = TypeExpr.expand_type_expr formal.Type.var_type in
+                  Type.set_ghost false typ)
+            in
+            let source = Callable.source_ident call in
+            let previous = Map.find signatures source |> Option.value ~default:[] in
+            if List.exists previous ~f:(List.equal Type.equal types) then
+              Error.redeclaration_error (Callable.to_loc call) (Ident.to_string source);
+            Rewriter.return (Map.set signatures ~key:source ~data:(types :: previous))
+        | _ -> Rewriter.return signatures)
+  in
+  ()
+
 let rec check (m : Module.t) : Module.t t =
   let open Rewriter.Syntax in
+  let m = { m with mod_def = assign_function_identities m.mod_def } in
   let _ =
     Logs.info (fun mm -> mm !"Processing module %{Ident}" (Symbol.to_name (ModDef m)))
   in
@@ -322,6 +391,17 @@ let rec check (m : Module.t) : Module.t t =
       in
 
       Rewriter.resolve (QualIdent.from_ident (Symbol.to_name (ModDef m)))
+  in
+  let type_headers =
+    List.filter m.mod_def ~f:(function
+      | Module.SymbolDef (TypeDef _) -> true
+      | _ -> false)
+  in
+  let header_names = get_defined_symbols (mod_def_formals @ type_headers) in
+  let* () =
+    Rewriter.List.iter (mod_def_formals @ type_headers) ~f:(function
+      | Module.SymbolDef symbol -> lift (Rewriter.declare_symbol symbol)
+      | Module.Import _ -> Rewriter.return ())
   in
   (* The members inherited from interfaces, for [EditorAnnotations.record_inherited_members]. *)
   let inherited_members = ref [] in
@@ -428,10 +508,40 @@ let rec check (m : Module.t) : Module.t t =
   in
 
   let* _ =
-    Rewriter.List.iter mod_def ~f:(function
+    Rewriter.List.iter merged_symbols ~f:(function
       | Module.SymbolDef (ModInst { mod_inst_def = Some _; _ }) | Module.Import _ ->
           Rewriter.return ()
-      | Module.SymbolDef symbol -> lift (Rewriter.declare_symbol symbol))
+      | Module.SymbolDef symbol ->
+          if Set.mem header_names (Symbol.to_name symbol) then Rewriter.return ()
+          else lift (Rewriter.declare_symbol symbol))
+  in
+
+  let* merged_symbols =
+    Rewriter.List.map merged_symbols ~f:(function
+      | Module.SymbolDef (CallDef call)
+        when Option.is_some call.call_decl.call_decl_source_name ->
+          let* _ = Rewriter.enter_callable call in
+          let* formals =
+            Rewriter.List.map call.call_decl.call_decl_formals ~f:TypeExpr.check_var_decl
+          in
+          let* returns =
+            Rewriter.List.map call.call_decl.call_decl_returns ~f:TypeExpr.check_var_decl
+          in
+          let call =
+            {
+              call with
+              call_decl =
+                {
+                  call.call_decl with
+                  call_decl_formals = formals;
+                  call_decl_returns = returns;
+                };
+            }
+          in
+          let* call = Rewriter.exit_callable call in
+          let+ _ = Rewriter.set_symbol (Module.CallDef call) in
+          Module.SymbolDef (CallDef call)
+      | instr -> Rewriter.return instr)
   in
 
   (* Members are checked in order. A module's own members, and a module instance, become
@@ -439,6 +549,7 @@ let rec check (m : Module.t) : Module.t t =
      rules out mutually recursive modules, which would complicate the semantics of the
      module system. *)
   let* mod_def = Rewriter.List.map merged_symbols ~f:(check_instr m) in
+  let* () = check_function_signatures mod_def in
 
   (* Check symbols against what is specified in the interface *)
   let manifest_subst =

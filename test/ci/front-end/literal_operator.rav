@@ -1,0 +1,61 @@
+import List._
+
+module Custom {
+  inline func {{||}}() returns (r: Int) { 0 }
+  inline func {{|_|}}(e: Int) returns (r: Int) { e }
+  inline func ++(x: Int, y: Int) returns (r: Int) { x + y }
+}
+
+module CustomClient {
+  import Custom._
+
+  lemma examples() {
+    assert {{||}} == 0;
+    assert {{|1|}} == 1;
+    assert {{|1, 2, 3|}} == 6;
+    assert {{|1, 2|}} == Custom.++(Custom.{{|_|}}(1), Custom.{{|_|}}(2));
+  }
+}
+
+lemma collections() {
+  val xs: List[Int] := <|1, 2, 3|>;
+  assert xs == 1 :: 2 :: 3 :: ((nil : List[Int]));
+  val empty_list: List[Int] := <||>;
+  assert empty_list == (nil : List[Int]);
+
+  val s: Seq[Int] := [|1, 2|];
+  assert Seq.length(s) == 2;
+  assert s[0] == 1 && s[1] == 2;
+  val empty_seq: Seq[Int] := [||];
+  assert Seq.length(empty_seq) == 0;
+  val longer: Seq[Int] := [|0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15|];
+  assert Seq.length(longer) == 16 && longer[15] == 15;
+
+  val finite: FinSet[Int] := {|1, 2, 1|};
+  assert 1 in finite && 2 in finite && 3 !in finite;
+  val empty_set: FinSet[Int] := {||};
+  assert 1 !in empty_set;
+
+  val nested_seq: Seq[Seq[Int]] := [|[||]|];
+  assert Seq.length(nested_seq) == 1;
+  assert Seq.length(nested_seq[0]) == 0;
+  val nested_list: List[List[Int]] := <|<||>|>;
+  assert nested_list == ((nil : List[Int])) :: ((nil : List[List[Int]]));
+
+  val empty_sequences: Seq[Seq[Int]] := [|[||], [||]|];
+  assert Seq.length(empty_sequences) == 2;
+  assert Seq.length(empty_sequences[0]) == 0;
+  assert Seq.length(empty_sequences[1]) == 0;
+  val mixed_sequences: Seq[Seq[Int]] := [|[||], [|7|]|];
+  assert Seq.length(mixed_sequences) == 2;
+  assert Seq.length(mixed_sequences[0]) == 0;
+  assert Seq.length(mixed_sequences[1]) == 1 && mixed_sequences[1][0] == 7;
+
+  val empty_lists: List[List[Int]] := <|<||>, <||>|>;
+  assert len(empty_lists) == 2;
+  assert len(empty_lists.hd) == 0 && len(empty_lists.tl.hd) == 0;
+  val mixed_lists: List[List[Int]] := <|<||>, <|7|>|>;
+  assert len(mixed_lists) == 2;
+  assert len(mixed_lists.hd) == 0;
+  assert len(mixed_lists.tl.hd) == 1 && mixed_lists.tl.hd.hd == 7;
+}
