@@ -121,6 +121,7 @@ interface BPlusTree[Key: Library.OrderedType] : NodeImpl {
     && own(n.ptrs, chlds, 1.0)
     && AN.A.arr(chlds, cmap)
     ensures cmap[0] == null  // x is a leaf
+    decreases l - i
   {
     assert (flow_int.inf[n])[k] == 1;
     assert (forall y: Ref :: {outset(flow_int, y)} k !in outset(flow_int, y));

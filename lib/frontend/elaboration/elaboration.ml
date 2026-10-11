@@ -752,6 +752,76 @@ let check_contract_ext_group_compatibility (tbl : SymbolTbl.t) (sm : scc_map) :
             let* ext_hooks = Rewriter.current_ext_hooks in
             ext_hooks.check_contract_ext_group_compatible call_decls)
 
+(* Bind omitted arguments before extensions check recursive calls. The completed call
+   then uses the same witnesses when lowering exhales its precondition. *)
+let rec rewrite_contract_ext_call_args (sm : scc_map) (stmt : Stmt.t) : Stmt.t Rewriter.t
+    =
+  let open Rewriter.Syntax in
+  match stmt.stmt_desc with
+  | Basic (Call call_desc) ->
+      let* caller = Rewriter.current_scope_id in
+      let* callee = Rewriter.resolve call_desc.call_name in
+      if not (same_scc sm caller callee) then Rewriter.return stmt
+      else
+        let* callable = Rewriter.find_and_reify_callable callee in
+        let decl = callable.call_decl in
+        let _, omitted =
+          List.split_n decl.call_decl_formals (List.length call_desc.call_args)
+        in
+        if List.is_empty decl.call_decl_contract_ext || List.is_empty omitted then
+          Rewriter.return stmt
+        else
+          let loc = Stmt.to_loc stmt in
+          let* witnesses =
+            Rewriter.List.map omitted ~f:(fun var ->
+                let var =
+                  {
+                    var with
+                    Type.var_name = Ident.fresh loc var.var_name.ident_name;
+                    var_loc = loc;
+                    var_implicit = false;
+                  }
+                in
+                let+ () =
+                  Rewriter.introduce_symbol
+                    (Module.VarDef
+                       { var_decl = var; var_init = None; var_is_free = NotFree })
+                in
+                var)
+          in
+          let args = call_desc.call_args @ List.map witnesses ~f:Expr.from_var_decl in
+          let subst =
+            List.zip_exn decl.call_decl_formals args
+            |> List.map ~f:(fun (var, arg) ->
+                (QualIdent.from_ident var.Type.var_name, arg))
+            |> Map.of_alist_exn (module QualIdent)
+          in
+          let spec_error =
+            List.find_map decl.call_decl_precond ~f:(fun spec ->
+                if List.is_empty spec.Stmt.spec_error then None else Some spec.spec_error)
+            |> Option.value ~default:[]
+          in
+          let precondition =
+            List.map decl.call_decl_precond ~f:(fun spec ->
+                Expr.alpha_renaming spec.Stmt.spec_form subst)
+            |> Expr.mk_and ~loc |> Stmt.mk_spec ~spec_error
+          in
+          let bind =
+            Stmt.mk_bind ~loc
+              (List.map witnesses ~f:(fun var -> QualIdent.from_ident var.Type.var_name))
+              precondition
+          in
+          Rewriter.return
+            (Stmt.mk_block_stmt ~loc
+               [
+                 bind;
+                 {
+                   stmt with
+                   stmt_desc = Basic (Call { call_desc with call_args = args });
+                 };
+               ])
+  | _ -> Rewriter.Stmt.descend stmt ~f:(rewrite_contract_ext_call_args sm)
+
 (** For every call in a [Proc]/[Lemma] body whose *callee* has a non-empty
     [call_decl_contract_ext], delegates to [ext_hooks.rewrite_contract_ext_call] to
     (possibly) insert statements (e.g. a decreases progress-check assert) immediately
@@ -1080,6 +1150,7 @@ let rec elaborate_phase_1 (m : Module.t) : (Module.t * scc_map) Rewriter.t =
   let scc_map = build_scc_map tbl_after_loops m in
   let* () = check_contract_ext_group_compatibility tbl_after_loops scc_map in
 
+  let* m = Rewriter.Module.rewrite_stmts ~f:(rewrite_contract_ext_call_args scc_map) m in
   let* ext_hooks = Rewriter.current_ext_hooks in
   let* m = ext_hooks.rewrite_module ~same_scc:(same_scc scc_map) m in
 

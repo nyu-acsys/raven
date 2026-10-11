@@ -1,0 +1,9 @@
+field value: Int
+
+lemma unchanged(p: Ref, x: Int, implicit ghost n: Int)
+  requires own(p.value, n, 1.0) && x >= 0 && n >= 0
+  ensures own(p.value, n, 1.0)
+  decreases n
+{
+  if (x > 0) { unchanged(p, x - 1); }
+}

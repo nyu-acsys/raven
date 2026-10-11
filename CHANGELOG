@@ -43,6 +43,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Fix decreases checks on recursive calls with omitted implicit arguments.
 - Clean up solver sessions on errors and bound waits for missing or incomplete responses.
 - Keep SMT assertion names identical in solver input and logs; make command printing side-effect free.
 - Prevent SMT identifier collisions between apostrophes and underscores.

@@ -1,0 +1,53 @@
+ghost field value: Int
+
+lemma descend(p: Ref, x: Int, implicit ghost n: Int)
+  requires own(p.value, n, 1.0) && n == x && n >= 0
+  ensures own(p.value, n, 1.0)
+  decreases n
+{
+  if (x > 0) {
+    p.value := x - 1;
+    descend(p, x - 1);
+    p.value := x;
+  }
+}
+
+proc countdown(p: Ref, x: Int, implicit ghost n: Int)
+  requires own(p.value, n, 1.0) && n == x && n >= 0
+  ensures own(p.value, n, 1.0)
+  decreases x
+{
+  if (x > 0) {
+    p.value := x - 1;
+    countdown(p, x - 1);
+    p.value := x;
+  }
+}
+
+lemma partial(p: Ref, x: Int, implicit ghost supplied: Int, implicit ghost n: Int)
+  requires own(p.value, n, 1.0) && supplied == x && n == x && n >= 0
+  ensures own(p.value, n, 1.0)
+  decreases n
+{
+  if (x > 0) {
+    p.value := x - 1;
+    partial(p, x - 1, x - 1);
+    p.value := x;
+  }
+}
+
+pred down(n: Int) { n == 0 ? true : n > 0 && down(n - 1) }
+
+lemma descend_predicate(p: Ref, x: Int, implicit ghost n: Int)
+  requires own(p.value, n, 1.0) && down(n) && n == x
+  ensures own(p.value, n, 1.0) && down(n)
+  decreases down(n)
+{
+  unfold down(n);
+  if (x != 0) {
+    p.value := x - 1;
+    descend_predicate(p, x - 1);
+    p.value := x;
+  }
+  fold down(n);
+}

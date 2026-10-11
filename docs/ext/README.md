@@ -560,6 +560,8 @@ These functions are more straight-forward to follow. Essentially for each new co
 
 `rewrite_module : same_scc:(qual_ident -> qual_ident -> bool) -> Module.t -> Module.t Rewriter.t` runs once on the typed module after loop desugaring and call-graph SCC checks, before callable entry setup and decreases call instrumentation. The callback reports whether two callables belong to the same recursive group. It can coordinate changes to declarations and their uses, but must preserve the call graph and recursive groups; the default is the identity. Extensions should compose their transformation with `Cont.rewrite_module`.
 
+Before `rewrite_module` and call instrumentation, omitted implicit arguments on recursive calls with extension contracts are bound against the callee's preconditions. The completed argument list is shared by the extension checks and subsequent call lowering.
+
 In [sampleExt.ml](../../lib/ext/sampleExt/sampleExt.ml), we introduce one `havoc` statement, to havoc the value of the lhs expression, and then inhale a statement expressing constraints about the newly-assigned value.
 
 There is no `rewrite_contract_ext` counterpart to the three functions above: a contract clause isn't one node to rewrite into an equivalent "native" encoding, it's a property that has to be enforced by instrumenting the *body* of whichever callable it's attached to (e.g. inserting a check before every recursive call). That's what [Contracts](#contracts), below, is for. One more function belongs here, though, since it isn't specific to contracts at all:

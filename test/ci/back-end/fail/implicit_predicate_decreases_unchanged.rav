@@ -1,0 +1,16 @@
+field value: Int
+pred down(n: Int) { n == 0 ? true : n > 0 && down(n - 1) }
+
+lemma unchanged(p: Ref, x: Int, implicit ghost n: Int)
+  requires own(p.value, n, 1.0) && down(n) && n == x
+  ensures own(p.value, n, 1.0) && down(n)
+  decreases down(n)
+{
+  unfold down(n);
+  if (x != 0) {
+    fold down(n);
+    unchanged(p, x);
+    unfold down(n);
+  }
+  fold down(n);
+}
