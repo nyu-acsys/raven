@@ -1,5 +1,6 @@
 (cram
  (deps
+  (glob_files *.py)
   %{project_root}/bin/raven.exe
   %{project_root}/lib/library/resource_algebra.rav
   (:rav

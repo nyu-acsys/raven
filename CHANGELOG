@@ -9,7 +9,7 @@ All notable changes to this project will be documented in this file.
 - Structured strict-mode warnings in `--lsp-mode`.
 - Function and operator overloading by argument type, including infix, indexing, slicing and update notation.
 - User-defined enumeration literals with empty/singleton constructors and right-associated `++`. Library literals for sequences `[|...|]`, lists `<|...|>` and finite sets `{|...|}`, with contextual typing for nested empty literals.
-- Add `--lsp-annotations` for editor annotations alongside errors in `--lsp-mode`. Bumps `lsp_protocol_version` to 3.
+- Add `--lsp-annotations` for editor annotations and included-file dependencies alongside errors in `--lsp-mode`. Bumps `lsp_protocol_version` to 3.
 - Module members without a contract inherit it from their interface.
 - Triggers on parameterized `auto lemma` postconditions, e.g. `ensures {f(n)} f(n) >= 0`.
 - Viper-style sequence operators: append, indexing, update, membership and slicing, plus `[|...|]` literals and indexed assignment.

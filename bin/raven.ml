@@ -425,8 +425,9 @@ let lsp_mode =
 
 let lsp_annotations =
   let doc =
-    "With --lsp-mode, print an object with the errors and with annotations for the \
-     editor, such as the contracts that members inherit from interfaces."
+    "With --lsp-mode, print an object with the errors, included-file dependencies and \
+     annotations for the editor, such as the contracts that members inherit from \
+     interfaces."
   in
   Arg.(value & flag & info [ "lsp-annotations" ] ~doc)
 
@@ -532,8 +533,7 @@ let anchor_lsp_diagnostic err =
   in
   anchor err
 
-(** The output of `--lsp-mode`: the errors, or with `--lsp-annotations` an object with the
-    errors and the annotations. *)
+(** With `--lsp-annotations`, include editor annotations and dependency filenames. *)
 let print_lsp_output config errs =
   let errs = List.map (Error.warnings () @ errs) ~f:anchor_lsp_diagnostic in
   if config.lsp_annotations then
@@ -543,6 +543,11 @@ let print_lsp_output config errs =
             [
               ("errors", `List (List.map errs ~f:Error.to_lsp_json));
               ("annotations", Annotations.all_to_json ());
+              ( "dependencies",
+                `List
+                  (Hashtbl.keys include_map
+                  |> List.sort ~compare:String.compare
+                  |> List.map ~f:(fun file -> `String file)) );
             ]))
   else Stdlib.print_endline (Error.errors_to_lsp_string errs)
 
