@@ -46,6 +46,7 @@ func is_odd(n: Int) returns (res: Bool)
 /* Multiple ensures clauses; the domain restriction that used to be a `requires` is now
    folded into the antecedent of a guarded ensures, since func contracts must be total. */
 func bounded_sum(n: Int, lo: Int) returns (res: Int)
+  decreases n - lo
   ensures lo >= 0 && n >= lo ==> res >= n
   ensures lo >= 0 && n >= lo ==> res >= lo
 {

@@ -41,6 +41,7 @@ module Loop {
   {
     ghost var todo: FinSet[Ref] := regs
     while (todo != {||})
+      decreases todo
       invariant todo subseteq regs
       invariant forall r0: Ref :: r0 in todo ==> own(r0.snap, n, 1.0) && hps(r0)
       invariant forall r0: Ref :: r0 in regs && r0 !in todo ==> own(r0.snap, n + 1, 1.0) && hps(r0)

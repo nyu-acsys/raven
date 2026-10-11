@@ -15,7 +15,9 @@ lemma laws(a: Set[Int], b: Set[Int], c: Set[Int])
 {}
 
 // `inline` is ignored for a recursive function.
-inline func fac(n: Int) returns (r: Int) {
+inline func fac(n: Int) returns (r: Int)
+  decreases n
+{
   n <= 0 ? 1 : n * fac(n - 1)
 }
 

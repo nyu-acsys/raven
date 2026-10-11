@@ -21,11 +21,13 @@ module OrderedArray[E: Library.OrderedType] {
   { }
 
   func map_find(m: Map[Int, E], i: Int, j: Int, k: E) returns (idx: Int)
+    decreases j - i
   {
     i < j && m[i] < k ? map_find(m, i + 1, j, k) : i
   }
 
   lemma map_find_spec(m: Map[Int, E], i: Int, j: Int, k: E)
+    decreases j - i
     ensures i <= j && sorted_map_seg(m, i, j) ==>
         i <= map_find(m, i, j, k) && map_find(m, i, j, k) <= j &&
         (m[map_find(m, i, j, k)] == k || map_find(m, i, j, k) == j || k < m[map_find(m, i, j, k)]) &&

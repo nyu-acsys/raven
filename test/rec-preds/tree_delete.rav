@@ -18,7 +18,8 @@ pred tree_hole(x: Ref, y: Ref) {
           && own(x.r, vr) && tree(vr))
 }
 
-lemma compose_tree(x: Ref, y: Ref) 
+lemma compose_tree(x: Ref, y: Ref)
+  decreases tree_hole(x, y)
   requires tree_hole(x, y) && tree(y)
   ensures tree(x)
 {
@@ -30,7 +31,8 @@ lemma compose_tree(x: Ref, y: Ref)
   }
 }
 
-lemma compose_hole(x: Ref, y: Ref, z: Ref) 
+lemma compose_hole(x: Ref, y: Ref, z: Ref)
+  decreases tree_hole(x, y)
   requires tree_hole(x, y) && tree_hole(y, z)
   ensures tree_hole(x, z)
 {

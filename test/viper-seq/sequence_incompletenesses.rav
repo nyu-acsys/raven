@@ -8,6 +8,7 @@
 
 // Sequences of "how many reds", "how many blacks", "how many reds", etc.
 func valid(s: Seq[Int], lenTiles: Int, isStart: Bool) returns (r: Bool)
+  decreases Seq.length(s)
 {
   Seq.length(s) == 0 ? lenTiles == 0 :
   Seq.length(s) == 1 ?

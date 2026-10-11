@@ -3,6 +3,7 @@
    not just verify vacuously. sum(0) returns -1, violating "ensures res >= n". */
 func sum(n: Int) returns (res: Int)
   ensures res >= n
+  decreases n
 {
   n <= 0 ? -1 : n + sum(n-1)
 }

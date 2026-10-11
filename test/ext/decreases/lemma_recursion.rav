@@ -1,4 +1,5 @@
 func sum(n: Int) returns (res: Int)
+  decreases n
 {
   n <= 0 ? 0 : n + sum(n-1)
 }

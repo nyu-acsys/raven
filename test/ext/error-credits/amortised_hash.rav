@@ -192,12 +192,15 @@ module Hash {
     (forall k: Int :: {lookUpHashMap(mp, k)} (lookUpHashMap(mp, k) == OptInt.none || (lookUpHashMap(mp, k)).OptInt.value <= val_size))
   }
 
-  func sum_n_m(n: Int, m: Int) returns (ret: Int) {
+  func sum_n_m(n: Int, m: Int) returns (ret: Int)
+    decreases m - n + 1
+  {
     n > m ? 0 :
       (n + sum_n_m(n+1, m))
   }
 
   auto lemma sum_n_m_val(n: Int, m: Int)
+    decreases m - n + 1
     ensures {sum_n_m(n, m)} 0 <= n <= m ==> sum_n_m(n, m) == (m*(m+1) - n*(n-1)) / 2
   {
     if (0 < n && n == m ) {

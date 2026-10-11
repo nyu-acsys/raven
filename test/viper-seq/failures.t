@@ -29,8 +29,8 @@
   Verification Error: This assertion may be violated.
   [1]
   $ dune exec -- raven --shh ./failures/sequence_incompletenesses_colourings1.rav
-  [Error] File "./failures/sequence_incompletenesses_colourings1.rav", line 58, columns 15-35:
-  58 |         assert valid(soln, n, true);
+  [Error] File "./failures/sequence_incompletenesses_colourings1.rav", line 59, columns 15-35:
+  59 |         assert valid(soln, n, true);
                       ^^^^^^^^^^^^^^^^^^^^
   Verification Error: This assertion may be violated.
   [1]
