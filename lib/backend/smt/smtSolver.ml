@@ -7,6 +7,14 @@ open SmtLibAST
 open Ast
 (* open Rewriter *)
 
+type validity_result = Valid | Invalid | Inconclusive
+
+let parse_sat_result = function
+  | "sat" -> Ok Sat
+  | "unsat" -> Ok Unsat
+  | "unknown" -> Ok Unknown
+  | str -> Error str
+
 module SmtSession = struct
   let num_of_sat_queries = ref 0
 
@@ -22,7 +30,6 @@ module SmtSession = struct
     log_out_chan : Stdio.Out_channel.t option;
     mutable assert_count : int;
     mutable response_count : int;
-    (* mutable sat_checked: (solver_state option * response) option; *)
     stack_height : int;
     (* signature: (arity list SymbolMap.t) option; *)
     (* user_sorts: sort IdMap.t; *)
@@ -136,28 +143,12 @@ module SmtSession = struct
      loop ()
   *)
 
-  let is_sat session =
+  let check_sat session : sat_result =
     Int.incr num_of_sat_queries;
     write session (mk_check_sat ());
-    match read session with
-    | "sat" -> true
-    | "unsat" -> false
-    | "unknown" -> false
-    | str ->
-        Error.fail ~lbl:Internal Loc.dummy
-          (Printf.sprintf
-             "Z3 returned unexpected output while checking this proof obligation: %s \
-              (re-run with --verbosity=debug to inspect log.smt2)"
-             str)
-
-  let is_unsat session =
-    Int.incr num_of_sat_queries;
-    write session (mk_check_sat ());
-    match read session with
-    | "unsat" -> true
-    | "sat" -> false
-    | "unknown" -> false
-    | str ->
+    match parse_sat_result (read session) with
+    | Ok result -> result
+    | Error str ->
         Error.fail ~lbl:Internal Loc.dummy
           (Printf.sprintf
              "Z3 returned unexpected output while checking this proof obligation: %s \
@@ -181,13 +172,14 @@ module SmtSession = struct
     let session = push session in
     assert_expr ?name session (Ast.Expr.mk_not expr);
 
-    let res = is_unsat session in
+    let result =
+      match check_sat session with
+      | Unsat -> Valid
+      | Sat -> Invalid
+      | Unknown -> Inconclusive
+    in
     let session = pop session in
-    (res, session)
-  (* if is_unsat session then
-       let session = pop session in
-       true, session
-     else smt_error (Ast.Expr.to_loc expr) @@ (Printf.sprintf "Exhaling following expression failed:\n'%s'" (Util.Print.string_of_format Ast.Expr.pr expr)) *)
+    (result, session)
 end
 
 type smt_env = {
@@ -243,15 +235,10 @@ let pop_path_condn =
       let path_conditions = Base.List.tl_exn smt_env.path_conditions in
       { smt_env with path_conditions })
 
-let is_sat : bool t =
+let check_sat : sat_result t =
   let open State.Syntax in
   let+ smt_env = get_state in
-  SmtSession.is_sat smt_env.session
-
-let is_unsat : bool t =
-  let open State.Syntax in
-  let+ smt_env = get_state in
-  SmtSession.is_unsat smt_env.session
+  SmtSession.check_sat smt_env.session
 
 let assume_expr ?name (expr : term) : unit t =
   (* Externally facing command to assume expressions. Takes path_condns into account *)
@@ -267,7 +254,7 @@ let assume_expr ?name (expr : term) : unit t =
   let cmd = mk_assert ?name (Ast.Expr.drop_trivially_true expr) in
   SmtSession.write smt_env.session cmd
 
-let check_valid ?name (expr : term) : bool t =
+let check_valid ?name (expr : term) : validity_result t =
   let open State.Syntax in
   let* smt_env = get_state in
   Logs.debug (fun m -> m "Checking validity of %a" Ast.Expr.pr_verbose expr);

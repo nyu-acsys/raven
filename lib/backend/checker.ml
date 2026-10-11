@@ -101,22 +101,16 @@ let rec check_stmt curr_callable (stmt : Stmt.t) : unit t =
           match spec_kind with
           | Assume -> assume_expr ?name:spec.spec_name spec.spec_form
           | Assert -> (
-              let* b =
+              let* result =
                 check_valid
                   ?name:(Option.map spec.spec_name ~f:(fun name -> name ^ "$goal"))
                   spec.spec_form
               in
-              match b with
-              | true -> assume_expr ?name:spec.spec_name spec.spec_form
-              (* Rewriter.return () *)
-              | false ->
+              match result with
+              | Valid -> assume_expr ?name:spec.spec_name spec.spec_form
+              | Invalid | Inconclusive ->
                   Error.fail_with
-                    (Stmt.spec_error_msg spec curr_callable (Stmt.to_loc stmt))
-              (* match (Stmt.spec_error_msg spec curr_callable) with
-                 | None -> Error.verification_error stmt.stmt_loc "Assertion is not valid"
-                 | Some e ->
-                   Error.verification_error stmt.stmt_loc (Stmt.spec_error_msg e curr_callable) *)
-              )
+                    (Stmt.spec_error_msg spec curr_callable (Stmt.to_loc stmt)))
           | _ ->
               Error.internal_error stmt.stmt_loc
                 (Printf.sprintf

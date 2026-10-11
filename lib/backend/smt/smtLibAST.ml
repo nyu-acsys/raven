@@ -42,13 +42,7 @@ type command =
   | GetUnsatCore of location option
   | Exit of location option
 
-type response =
-  | Sat
-  | Unsat
-  | Unknown
-  | Model of command list
-  | UnsatCore of string list
-  | Error of string
+type sat_result = Sat | Unsat | Unknown
 
 let mk_set_logic ?loc l = SetLogic (l, loc)
 let mk_set_option ?loc o v = SetOption (o, v, loc)

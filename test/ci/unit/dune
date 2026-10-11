@@ -17,3 +17,8 @@
  (name smt_printing)
  (modules smt_printing)
  (libraries smt ast base util))
+
+(test
+ (name smt_results)
+ (modules smt_results)
+ (libraries smt ast base util))
