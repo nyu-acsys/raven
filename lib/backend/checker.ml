@@ -255,7 +255,7 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) : 
           in
 
           (* The func's contract is checked and assumed by its companion auto lemma
-           (see [Rewrites.rewrite_add_func_contract_lemmas]), not here. *)
+           (see [Elaboration.rewrite_add_func_contract_lemmas]), not here. *)
           assume_expr spec_expr)
   | ProcDef proc_def -> (
       match proc_def.proc_body with

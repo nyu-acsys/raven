@@ -114,9 +114,9 @@ let type_cu ~ext_hooks config tbl md =
   Logs.info (fun m -> m "Type-checking successful.");
   (tbl, processed_md)
 
-(** Runs the front end's rewrites over a single, already type-checked compilation unit
-    (see [Rewrites.process_module_front]). Every unit goes through [elaborate_cu] before
-    any goes through [lower_cu]. Returns [None] when there is nothing to backend-check
+(** Elaborates a single, already type-checked compilation unit (see
+    [Elaboration.elaborate_module]). Every unit goes through [elaborate_cu] before any
+    goes through [lower_cu]. Returns [None] when there is nothing to backend-check
     (`--typeonly`); the `--stats` short-circuit below exits the process directly. *)
 let elaborate_cu ~ext_hooks config tbl (md : Ast.Module.t) front_end_out_chan =
   let cli_config : Rewriter.cli_config = { cli_strict = config.strict } in
@@ -131,12 +131,12 @@ let elaborate_cu ~ext_hooks config tbl (md : Ast.Module.t) front_end_out_chan =
       Logs.debug (fun m ->
           m "Computing stats of module: %a" Ident.pr md.mod_decl.mod_decl_name)
     in
-    let prog_stats = Rewrites.compute_stats ~ext_hooks tbl md in
+    let prog_stats = Elaboration.compute_stats ~ext_hooks tbl md in
 
-    Logs.app (fun m -> m "\nPROGRAM STATISTICS: \n%a" Rewrites.ProgStats.pr prog_stats);
+    Logs.app (fun m -> m "\nPROGRAM STATISTICS: \n%a" Elaboration.ProgStats.pr prog_stats);
     Stdlib.exit 0)
   else
-    let tbl, md = Rewrites.process_module_front ~tbl ~ext_hooks ~cli_config md in
+    let tbl, md = Elaboration.elaborate_module ~tbl ~ext_hooks ~cli_config md in
     Stdlib.Format.fprintf
       (Stdlib.Format.formatter_of_out_channel front_end_out_chan)
       "%a\n" printers.pr_module md;

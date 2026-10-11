@@ -1563,7 +1563,7 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
       ~f:(fun assumes (heap_var_decl, heap_var_decl2, assume_stmt1, assume_stmt2) ->
         Logs.debug (fun m ->
             m
-              "Rewrites.HeapsExplicitTrnsl.introduce_heaps_in_stmts: heap_var_decl: %a; \
+              "HeapsExplicitTrnsl.introduce_heaps_in_stmts: heap_var_decl: %a; \
                heap_var_decl2: %a"
               Ident.pr heap_var_decl.var_decl.var_name Ident.pr
               heap_var_decl2.var_decl.var_name);
@@ -1728,13 +1728,13 @@ let match_up_expr ~(printers : Rewriter.printers) (expr1 : expr) (expr2 : expr)
           vars: [b]
   *)
   Logs.debug (fun m ->
-      m "Rewrites.HeapsExplicitTrnsl.match_up_expr: expr1: %a; expr2: %a" printers.pr_expr
-        expr1 printers.pr_expr expr2);
+      m "HeapsExplicitTrnsl.match_up_expr: expr1: %a; expr2: %a" printers.pr_expr expr1
+        printers.pr_expr expr2);
 
   let rec match_up_expr (expr1 : expr) (expr2 : expr) (var_map : expr_match ident_map) :
       expr_match ident_map option =
     (* if Type.((Expr.to_type expr1) <> (Expr.to_type expr2)) then
-         (Logs.debug (fun m -> m "Rewrites.HeapsExplicitTrnsl.match_up_expr: Type mismatch: %a; %a" Type.pr (Expr.to_type expr1) Type.pr (Expr.to_type expr2));
+         (Logs.debug (fun m -> m "HeapsExplicitTrnsl.match_up_expr: Type mismatch: %a; %a" Type.pr (Expr.to_type expr1) Type.pr (Expr.to_type expr2));
          None)
        else *)
     match (expr1, expr2) with
@@ -1794,7 +1794,7 @@ let match_up_expr ~(printers : Rewriter.printers) (expr1 : expr) (expr2 : expr)
         | _ ->
             if Expr.equal_constr constr1 constr2 then
               if
-                (* Logs.debug (fun m -> m "Rewrites.HeapsExplicitTrnsl.match_up_expr: expr1: %a; expr2: %a" Expr.pr expr1 Expr.pr expr2); *)
+                (* Logs.debug (fun m -> m "HeapsExplicitTrnsl.match_up_expr: expr1: %a; expr2: %a" Expr.pr expr1 Expr.pr expr2); *)
                 List.length exprs1 <> List.length exprs2
               then None
               else
@@ -1807,7 +1807,7 @@ let match_up_expr ~(printers : Rewriter.printers) (expr1 : expr) (expr2 : expr)
 
                 var_map_optn
             else
-              (* Logs.debug (fun m -> m "Rewrites.HeapsExplicitTrnsl.match_up_expr: Constructor mismatch: %a; %a" Expr.pr expr1 Expr.pr expr2); *)
+              (* Logs.debug (fun m -> m "HeapsExplicitTrnsl.match_up_expr: Constructor mismatch: %a; %a" Expr.pr expr1 Expr.pr expr2); *)
               None)
     | _ -> None
   in
@@ -2564,7 +2564,7 @@ module TrnslInhale = struct
         let* () =
           Rewriter.Logs.debug (fun printers m ->
               m
-                "Rewrites.HeapsExplicitTrnsl.TrnslInhale.skolemize_inhale_expr: found \
+                "HeapsExplicitTrnsl.TrnslInhale.skolemize_inhale_expr: found \
                  existentials:  e: %a"
                 printers.pr_expr e)
         in
@@ -2579,7 +2579,7 @@ module TrnslInhale = struct
         (* This will cause the renaming to be done at each step of descend, but renaming should be idempotent, so that should be okay *)
         let* () =
           Rewriter.Logs.debug (fun printers m ->
-              m "Rewrites.HeapsExplicitTrnsl.TrnslInhale.skolemize_inhale_expr: e: %a"
+              m "HeapsExplicitTrnsl.TrnslInhale.skolemize_inhale_expr: e: %a"
                 printers.pr_expr expr)
         in
         Rewriter.return expr
@@ -2642,7 +2642,7 @@ module TrnslInhale = struct
             let* printers = Rewriter.current_printers in
             Logs.debug (fun m ->
                 m
-                  "Rewrites.HeapsExplicitTrnsl.TrnslInhale.rewriter_eliminate_binds_for_inhale: \
+                  "HeapsExplicitTrnsl.TrnslInhale.rewriter_eliminate_binds_for_inhale: \
                    bind_desc: %a; prev_expr: %a"
                   printers.pr_stmt stmt printers.pr_expr prev_expr);
 
@@ -2659,13 +2659,13 @@ module TrnslInhale = struct
             | None ->
                 Logs.debug (fun m ->
                     m
-                      "Rewrites.HeapsExplicitTrnsl.TrnslInhale.rewriter_eliminate_binds_for_inhale: \
+                      "HeapsExplicitTrnsl.TrnslInhale.rewriter_eliminate_binds_for_inhale: \
                        Could not match up expressions");
                 Rewriter.return stmt
             | Some var_map ->
                 Logs.debug (fun m ->
                     m
-                      "Rewrites.HeapsExplicitTrnsl.TrnslInhale.rewriter_eliminate_binds_for_inhale: \
+                      "HeapsExplicitTrnsl.TrnslInhale.rewriter_eliminate_binds_for_inhale: \
                        var_map: %a"
                       (Util.Print.pr_map ~key:Ident.pr ~value:printers.pr_type_var_decl)
                       (Map.map ~f:Stdlib.fst var_map));
@@ -3542,7 +3542,7 @@ module TrnslInhale = struct
         in
         let* () =
           Rewriter.Logs.debug (fun printers m ->
-              m "Rewrites.HeapsExplicitTrnsl.Trnslassume.trnsl_assume_a0: expr: %a"
+              m "HeapsExplicitTrnsl.Trnslassume.trnsl_assume_a0: expr: %a"
                 printers.pr_expr expr)
         in
         let loc = Expr.to_loc expr in
@@ -3728,7 +3728,7 @@ module TrnslExhale = struct
 
         Logs.debug (fun m ->
             m
-              "Rewrites.HeapsExplicitTrnsl.TrnslExhale.rewriter_user_annot_elim_exists_from_exhales: \
+              "HeapsExplicitTrnsl.TrnslExhale.rewriter_user_annot_elim_exists_from_exhales: \
                prev_expr: %a; exhale_expr: %a"
               (Util.Print.pr_option printers.pr_expr)
               prev_expr printers.pr_expr spec.spec_form);
@@ -3739,7 +3739,7 @@ module TrnslExhale = struct
         | Some prev_expr -> (
             Logs.debug (fun m ->
                 m
-                  "Rewrites.HeapsExplicitTrnsl.TrnslExhale.rewriter_user_annot_elim_exists_from_exhales: \
+                  "HeapsExplicitTrnsl.TrnslExhale.rewriter_user_annot_elim_exists_from_exhales: \
                    prev_expr: %a; exhale_expr: %a"
                   printers.pr_expr prev_expr printers.pr_expr exhale_expr);
             let existential_vars = find_existentials exhale_expr in
@@ -3769,7 +3769,7 @@ module TrnslExhale = struct
         | Some prev_expr -> (
             Logs.debug (fun m ->
                 m
-                  "Rewrites.HeapsExplicitTrnsl.TrnslExhale.rewriter_user_annot_elim_exists_from_exhales \
+                  "HeapsExplicitTrnsl.TrnslExhale.rewriter_user_annot_elim_exists_from_exhales \
                    (assert): prev_expr: %a; assert_expr: %a"
                   printers.pr_expr prev_expr printers.pr_expr assert_expr);
             let existential_vars = find_existentials assert_expr in
@@ -3778,7 +3778,7 @@ module TrnslExhale = struct
             | None ->
                 Logs.debug (fun m ->
                     m
-                      "Rewrites.HeapsExplicitTrnsl.TrnslExhale.rewriter_user_annot_elim_exists_from_exhales \
+                      "HeapsExplicitTrnsl.TrnslExhale.rewriter_user_annot_elim_exists_from_exhales \
                        (assert): No match up");
                 Rewriter.return stmt
             | Some var_map ->
@@ -3791,7 +3791,7 @@ module TrnslExhale = struct
 
                 Logs.debug (fun m ->
                     m
-                      "Rewrites.HeapsExplicitTrnsl.TrnslExhale.rewriter_user_annot_elim_exists_from_exhales \
+                      "HeapsExplicitTrnsl.TrnslExhale.rewriter_user_annot_elim_exists_from_exhales \
                        (assert): spec_form: %a"
                       printers.pr_expr spec_form);
 
@@ -4095,9 +4095,7 @@ module TrnslExhale = struct
 
           let* () =
             Rewriter.Logs.debug (fun printers m ->
-                m
-                  "Rewrites.HeapsExplicitTrnsl.WitnessComputation.elim_a1: witness_map: \
-                   %a"
+                m "HeapsExplicitTrnsl.WitnessComputation.elim_a1: witness_map: %a"
                   (Fmt.Dump.list (fun ppf (i, e) ->
                        Stdlib.Format.fprintf ppf "%a -> %a" Ident.pr i
                          (Fmt.Dump.list (fun ppf (c, e) ->
@@ -4305,9 +4303,7 @@ module TrnslExhale = struct
 
           let* () =
             Rewriter.Logs.debug (fun printers m ->
-                m
-                  "Rewrites.HeapsExplicitTrnsl.WitnessComputation.elim_a1: renaming_map: \
-                   %a"
+                m "HeapsExplicitTrnsl.WitnessComputation.elim_a1: renaming_map: %a"
                   (Fmt.Dump.list (fun ppf (qi, e) ->
                        Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr qi
                          printers.pr_expr e))
@@ -4416,7 +4412,7 @@ module TrnslExhale = struct
 
           let* () =
             Rewriter.Logs.debug (fun printers m ->
-                m "Rewrites.HeapsExplicitTrnsl.WitnessComputation.elim_a0: witnesses: %a"
+                m "HeapsExplicitTrnsl.WitnessComputation.elim_a0: witnesses: %a"
                   (Fmt.Dump.list (fun ppf (i, e) ->
                        Stdlib.Format.fprintf ppf "%a -> %a" Ident.pr i printers.pr_expr e))
                   (Map.to_alist witnesses))
@@ -4476,7 +4472,7 @@ module TrnslExhale = struct
               let* () =
                 Rewriter.Logs.debug (fun printers m ->
                     m
-                      "Rewrites.HeapsExplicitTrnsl.WitnessComputation.elim_a0: \
+                      "HeapsExplicitTrnsl.WitnessComputation.elim_a0: \
                        pred_heap_expanded_type: %a"
                       printers.pr_type pred_heap_expanded_type)
               in
@@ -4526,9 +4522,7 @@ module TrnslExhale = struct
 
               let* () =
                 Rewriter.Logs.debug (fun printers m ->
-                    m
-                      "Rewrites.HeapsExplicitTrnsl.WitnessComputation.elim_a0: \
-                       witness_map: %a"
+                    m "HeapsExplicitTrnsl.WitnessComputation.elim_a0: witness_map: %a"
                       (Fmt.Dump.list (fun ppf (i, e) ->
                            Stdlib.Format.fprintf ppf "%a -> %a" Ident.pr i
                              (Fmt.Dump.list (fun ppf (c, e) ->
@@ -4552,8 +4546,8 @@ module TrnslExhale = struct
       let* () =
         Rewriter.Logs.debug (fun printers m ->
             m
-              "Rewrites.HeapsExplicitTrnsl.WitnessComputation.core_witness_comp: exists: \
-               %a, concrete_expr: %a, given_expr: %a, exact: %b"
+              "HeapsExplicitTrnsl.WitnessComputation.core_witness_comp: exists: %a, \
+               concrete_expr: %a, given_expr: %a, exact: %b"
               (Fmt.Dump.list Ident.pr)
               (List.map exists ~f:(fun v -> v.var_name))
               printers.pr_expr concrete_expr printers.pr_expr given_expr exact)

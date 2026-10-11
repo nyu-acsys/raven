@@ -1542,8 +1542,8 @@ module Stmt = struct
   type stmt_ext = ..
 
   (** What one extension statement costs the atomicity analysis
-      ([lib/frontend/rewrites/atomicityAnalysis.ml]), which allows at most one atomic step
-      while an invariant is unfolded or an atomic update is in flight. An extension
+      ([lib/frontend/elaboration/atomicityAnalysis.ml]), which allows at most one atomic
+      step while an invariant is unfolded or an atomic update is in flight. An extension
       statement is opaque there -- it is still an unlowered [BasicStmtExt]/[StmtExt] tag,
       since the analysis has to run before the lowering (a `cas` lowers to a read plus a
       conditional write, which would count as several steps rather than the single machine

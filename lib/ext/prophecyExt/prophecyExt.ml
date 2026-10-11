@@ -261,7 +261,7 @@ module ProphecyExt (Cont : Ext) = struct
      instantiation via `initialize_prophecy_module`, which must stay the same
      instantiation an ordinary reference to this type (e.g. a var declared at this
      type) already resolved to at type-checking time. `f` here is the generic
-     type-lowering walk (`Rewrites.rewrites_type_ext`, run over the whole module
+     type-lowering walk (`Elaboration.rewrites_type_ext`, run over the whole module
      *before* `rewrite_basic_stmt_ext`/`rewrite_expr_ext` below), which turns any
      `Proph[T']` nested inside the stored type into `Ref` -- so applying it here
      would derive a *different* name than the type-checking-time instantiation

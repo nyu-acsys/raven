@@ -155,7 +155,7 @@ end
 (* Cached compiled ISC: the already-minted inverse function, plus the template
    -- the first occurrence's own [(universal_quants, conds, inv_expr)], flattened into
    plain fields since [lib/ast] can't depend on [heapsExplicitTrnsl.ml]'s (in
-   [lib/frontend/rewrites]) named [universal_quants]/[conditions] types -- that later
+   [lib/frontend/elaboration]) named [universal_quants]/[conditions] types -- that later
    occurrences of the same [IscCacheKey.t] get matched against (via [match_up_expr]) to
    recover their own substitution, plus the env formals ([isc_env_var_decls]) the
    function was actually parameterized over. *)
@@ -413,7 +413,7 @@ and ext_hooks = {
           contract; [in_same_scc] says whether caller and callee lie in the same
           strongly-connected component of the module's call graph (self-recursion
           included, as the size-1-with-self-loop case), computed once per module by
-          [lib/frontend/rewrites/rewrites.ml]. *)
+          [lib/frontend/elaboration/elaboration.ml]. *)
   rewrite_contract_ext_call :
     Callable.call_decl ->
     Callable.call_decl ->
@@ -632,7 +632,7 @@ type printers = {
 (** The extension-aware sibling of AstDef's default printers ([Type.pr], [Stmt.pr], etc.):
     built from the given extension hooks. Use this (rather than the bare
     [Type.pr]/[Stmt.pr]/...) in debug logging or error messages that might run over an AST
-    that can still contain [*_ext] nodes, i.e. before [Rewrites.process_module_front] has
+    that can still contain [*_ext] nodes, i.e. before [Elaboration.elaborate_module] has
     rewritten them away. Most callers want [current_printers] below, which reads the hooks
     out of the active [Rewriter.t] state; this pure version exists for the handful of call
     sites (e.g. [bin/raven.ml]) that only have an [ext_hooks] value, not a running
@@ -734,7 +734,7 @@ let current_module_name s : 'a state * qual_ident =
 
   if curr_scope.scope_is_local then (s, QualIdent.pop curr_scope.scope_id)
   else
-    (* Logs.warn (fun m -> m "Rewrites.generate_inv_function: Expected a local scope, but got a non-local scope: %a" QualIdent.pr curr_scope.scope_id); *)
+    (* Logs.warn (fun m -> m "Rewriter.generate_inv_function: Expected a local scope, but got a non-local scope: %a" QualIdent.pr curr_scope.scope_id); *)
     (s, curr_scope.scope_id)
 
 let update_table f s = ({ s with state_table = f s.state_table }, ())

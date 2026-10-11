@@ -599,7 +599,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
 
     let* () =
       Rewriter.Logs.debug (fun printers m ->
-          m "Rewrites.rewrite_au_cmnds: curr_callable_name: %a; stmt=%a" QualIdent.pr
+          m "Elaboration.rewrite_au_cmnds: curr_callable_name: %a; stmt=%a" QualIdent.pr
             curr_callable_name printers.pr_stmt stmt)
     in
 
@@ -1088,8 +1088,8 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
             let* () =
               Rewriter.Logs.debug (fun printers m ->
                   m
-                    "Rewrites.rewrite_au_cmnds: OpenAU: call_ident = %a; proc_args = %a; \
-                     implicit_args = %a"
+                    "Elaboration.rewrite_au_cmnds: OpenAU: call_ident = %a; proc_args = \
+                     %a; implicit_args = %a"
                     QualIdent.pr open_au_desc.proc_qi printers.pr_expr_list
                     open_au_desc.proc_args printers.pr_expr_list open_au_desc.lhs)
             in
@@ -1164,7 +1164,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
             let* () =
               Rewriter.Logs.debug (fun printers m ->
                   m
-                    "Rewrites.rewrite_au_cmnds: Abort/Commit AU: call_ident = %a; \
+                    "Elaboration.rewrite_au_cmnds: Abort/Commit AU: call_ident = %a; \
                      callable_args = %a"
                     QualIdent.pr opened_au_token.callable printers.pr_expr_list
                     (opened_au_token.callable_args @ opened_au_token.implicit_bound_vars))
@@ -1425,8 +1425,8 @@ let rewrite_atomicity_analysis (c : Callable.t) : Callable.t Rewriter.t =
   let* scope_id = Rewriter.current_scope_id in
   Logs.debug (fun m ->
       m
-        "Rewrites.rewrite_atomicity_analysis: Rewriting atomicity analysis for callable: \
-         %a"
+        "Elaboration.rewrite_atomicity_analysis: Rewriting atomicity analysis for \
+         callable: %a"
         QualIdent.pr scope_id);
   let+ c =
     Rewriter.eval_with_user_state

@@ -15,7 +15,7 @@
   util
   ast
   frontend
-  rewrites
+  elaboration
   lowering
   backend
   library)

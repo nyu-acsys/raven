@@ -1858,7 +1858,7 @@ let lower (m : Module.t) : (Module.t * CallGraph.Graph.t) Rewriter.t =
     calls, folds and returns become inhales and exhales, fields resource algebras, heaps
     explicit, and assignments SSA. Returns the module together with its lemma call graph
     (see [CallGraph.lemma_calls]). Every compilation unit goes through the front end
-    before any is lowered (see [Rewrites.process_module_front]). *)
+    before any is lowered (see [Elaboration.elaborate_module]). *)
 let lower_module ?(tbl = SymbolTbl.create ()) ?ext_hooks (m : Module.t) =
   assert (SymbolTbl.curr_is_root tbl);
   let tbl, (m, lemma_calls) = Rewriter.eval ?ext_hooks (lower m) tbl in

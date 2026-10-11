@@ -1,5 +1,5 @@
 /* Regression test for auto-generated induction lemmas for recursive function contracts
-   (Rewrites.rewrite_add_func_contract_lemmas). Each function below exercises a different
+   (Elaboration.rewrite_add_func_contract_lemmas). Each function below exercises a different
    aspect of the encoding; none of them require a hand-written companion lemma to verify. */
 
 /* Basic self-recursion, no precondition. */

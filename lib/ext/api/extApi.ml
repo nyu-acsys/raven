@@ -276,19 +276,19 @@ module type Ext = sig
       callee lie in the same strongly-connected component of the module's call graph
       (always [true] for a literal self-call; also [true] for any two callables that are
       mutually recursive with each other, even through intermediate calls -- computed once
-      per module from the whole call graph, see [lib/frontend/rewrites/rewrites.ml]), and
-      [call_args] are the actual arguments of that call. Returns statements (typically an
-      assert) to insert immediately before the call. This is *not* restricted to recursive
-      calls -- caller and callee may be entirely unrelated callables, and the [bool] is
-      [false] for such a call; it's up to the extension to decide, from
-      [caller_call_decl]/[callee_call_decl]/the [bool], whether and how they're related
-      (e.g. [DecreasesExt] only acts when the [bool] is [true], i.e. for calls within a
-      recursive group, self- or mutually-recursive alike -- but a different contract
-      extension might care about every call to a given callable regardless of recursion).
-      Core code invokes this uniformly for every candidate call site -- it does not know
-      what [call_decl_contract_ext] means, only that some extension may want to instrument
-      the call; the default (no active contract extension) is to return no extra
-      statements. *)
+      per module from the whole call graph, see
+      [lib/frontend/elaboration/elaboration.ml]), and [call_args] are the actual arguments
+      of that call. Returns statements (typically an assert) to insert immediately before
+      the call. This is *not* restricted to recursive calls -- caller and callee may be
+      entirely unrelated callables, and the [bool] is [false] for such a call; it's up to
+      the extension to decide, from [caller_call_decl]/[callee_call_decl]/the [bool],
+      whether and how they're related (e.g. [DecreasesExt] only acts when the [bool] is
+      [true], i.e. for calls within a recursive group, self- or mutually-recursive alike
+      -- but a different contract extension might care about every call to a given
+      callable regardless of recursion). Core code invokes this uniformly for every
+      candidate call site -- it does not know what [call_decl_contract_ext] means, only
+      that some extension may want to instrument the call; the default (no active contract
+      extension) is to return no extra statements. *)
 
   val rewrite_callable_entry : Callable.call_decl -> Stmt.t list Rewriter.t
   (** Called once for every [Proc]/[Lemma] callable, before any of its statements are

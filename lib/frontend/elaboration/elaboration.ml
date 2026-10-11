@@ -241,7 +241,8 @@ let rec rewrite_compr_expr (expr : expr) : expr Rewriter.t =
 
       let* () =
         Rewriter.Logs.debug (fun printers m ->
-            m "Rewrites.rewrite_compr_expr: compr_fn: %a" printers.pr_symbol compr_fn_def)
+            m "Elaboration.rewrite_compr_expr: compr_fn: %a" printers.pr_symbol
+              compr_fn_def)
       in
 
       let new_expr =
@@ -316,7 +317,7 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
       let loc = Stmt.to_loc stmt in
       let* () =
         Rewriter.Logs.debug (fun printers m ->
-            m "Rewrites.rewrite_loops: loop: %a" printers.pr_stmt stmt)
+            m "Elaboration.rewrite_loops: loop: %a" printers.pr_stmt stmt)
       in
 
       let* ( loop_arg_var_decls,
@@ -596,7 +597,7 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
       let* () =
         Rewriter.Logs.debug (fun printers m ->
-            m "Rewrites.rewrite_loops: Pre-typecheck loop_proc_symbol:\n %a"
+            m "Elaboration.rewrite_loops: Pre-typecheck loop_proc_symbol:\n %a"
               printers.pr_symbol loop_proc_symbol)
       in
 
@@ -609,7 +610,7 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
       (* Logs.debug (fun m ->
           let open Rewriter in
-          m "Rewrites.rewrite_loops: Loop curr_scope:\n %a" QualIdent.pr
+          m "Elaboration.rewrite_loops: Loop curr_scope:\n %a" QualIdent.pr
             curr_state.state_table.tbl_curr.scope_id); *)
       let new_stmt =
         let lhs_list =
@@ -771,7 +772,7 @@ let check_contract_ext_group_compatibility (tbl : SymbolTbl.t) (sm : scc_map) :
     different pass.
 
     Since [rewrite_loops] (which runs immediately before this pass -- see
-    [rewrites_phase_1]) has already turned every loop into a self-recursive tail proc and
+    [elaborate_phase_1]) has already turned every loop into a self-recursive tail proc and
     transferred its [loop_contract_ext] onto that proc's [call_decl_contract_ext], loop
     termination checking falls out of this same pass with no separate code path. *)
 let rec rewrite_contract_ext_calls (sm : scc_map) (stmt : Stmt.t) : Stmt.t Rewriter.t =
@@ -1048,50 +1049,50 @@ let print_intermediate_state m log_file_name : unit =
 
   Stdlib.Format.fprintf formatter_out_chan "%a\n %!" Ast.Module.pr m
 
-let rec rewrites_phase_1 (m : Module.t) : (Module.t * scc_map) Rewriter.t =
+let rec elaborate_phase_1 (m : Module.t) : (Module.t * scc_map) Rewriter.t =
   let open Rewriter.Syntax in
-  Logs.debug (fun m -> m "Rewrites.all_rewrites: Starting rewrites");
+  Logs.debug (fun m -> m "Elaboration.elaborate_phase_1: Starting elaboration");
 
   Logs.debug (fun m1 ->
-      m1 "Rewrites.all_rewrites: Starting rewrite_callable_error_msg on module %a"
+      m1 "Elaboration.elaborate_phase_1: Starting rewrite_callable_error_msg on module %a"
         Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_callables ~f:rewrite_callable_error_msg m in
 
   Logs.debug (fun m1 ->
-      m1 "Rewrites.all_rewrites: Starting rewrite_compr_expr on module %a" Ident.pr
-        m.mod_decl.mod_decl_name);
+      m1 "Elaboration.elaborate_phase_1: Starting rewrite_compr_expr on module %a"
+        Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_expressions ~f:rewrite_compr_expr m in
 
   Logs.debug (fun m1 ->
-      m1 "Rewrites.all_rewrites: Starting rewrite_loops on module %a" Ident.pr
+      m1 "Elaboration.elaborate_phase_1: Starting rewrite_loops on module %a" Ident.pr
         m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_loops m in
 
   Logs.debug (fun m1 ->
-      m1 "Rewrites.all_rewrites: Computing call-graph SCCs on module %a" Ident.pr
+      m1 "Elaboration.elaborate_phase_1: Computing call-graph SCCs on module %a" Ident.pr
         m.mod_decl.mod_decl_name);
   (* Computed here, right after [rewrite_loops], so synthesized tail-recursive
      loop-procs are already graph vertices; threaded explicitly (not via
      [Rewriter]'s monadic state) all the way to [rewrite_add_func_contract_lemmas], since
-     that runs as a separate [Rewriter.eval] call in [process_module_front] and monadic
+     that runs as a separate [Rewriter.eval] call in [elaborate_module] and monadic
      state does not survive across those. *)
   let* tbl_after_loops = Rewriter.get_table in
   let scc_map = build_scc_map tbl_after_loops m in
   let* () = check_contract_ext_group_compatibility tbl_after_loops scc_map in
 
   Logs.debug (fun m1 ->
-      m1 "Rewrites.all_rewrites: Starting rewrite_callable_entries on module %a" Ident.pr
-        m.mod_decl.mod_decl_name);
+      m1 "Elaboration.elaborate_phase_1: Starting rewrite_callable_entries on module %a"
+        Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_callables ~f:rewrite_callable_entries m in
 
   Logs.debug (fun m1 ->
-      m1 "Rewrites.all_rewrites: Starting rewrite_contract_ext_calls on module %a"
+      m1 "Elaboration.elaborate_phase_1: Starting rewrite_contract_ext_calls on module %a"
         Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_stmts ~f:(rewrite_contract_ext_calls scc_map) m in
 
   Logs.debug (fun m1 ->
-      m1 "Rewrites.all_rewrites: Starting rewrite_inline_preds_expr on module %a" Ident.pr
-        m.mod_decl.mod_decl_name);
+      m1 "Elaboration.elaborate_phase_1: Starting rewrite_inline_preds_expr on module %a"
+        Ident.pr m.mod_decl.mod_decl_name);
   let* m =
     Rewriter.Module.rewrite_expressions
       ~f:(rewrite_inline_preds_expr (Set.empty (module QualIdent)))
@@ -1100,15 +1101,17 @@ let rec rewrites_phase_1 (m : Module.t) : (Module.t * scc_map) Rewriter.t =
 
   Rewriter.return (m, scc_map)
 
-let rec rewrites_phase_2 (m : Module.t) : Module.t Rewriter.t =
+let rec elaborate_phase_2 (m : Module.t) : Module.t Rewriter.t =
   let open Rewriter.Syntax in
   Logs.debug (fun m1 ->
-      m1 "Rewrites.all_rewrites: Starting rewrite_atomic_callable_token on module %a"
+      m1
+        "Elaboration.elaborate_phase_2: Starting rewrite_atomic_callable_token on module \
+         %a"
         Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_callables ~f:rewrite_atomic_callable_token m in
 
   Logs.debug (fun m1 ->
-      m1 "Rewrites.all_rewrites: Starting rewrite_atomicity_analysis on module %a"
+      m1 "Elaboration.elaborate_phase_2: Starting rewrite_atomicity_analysis on module %a"
         Ident.pr m.mod_decl.mod_decl_name);
   let* m =
     Rewriter.Module.rewrite_callables ~f:AtomicityAnalysis.rewrite_atomicity_analysis m
@@ -1118,7 +1121,7 @@ let rec rewrites_phase_2 (m : Module.t) : Module.t Rewriter.t =
 
 let rewrites_type_ext (m : Module.t) : Module.t Rewriter.t =
   Logs.debug (fun m1 ->
-      m1 "Rewrites.rewrites_expr_ext: Starting rewrites_type_ext on module %a" Ident.pr
+      m1 "Elaboration.rewrites_expr_ext: Starting rewrites_type_ext on module %a" Ident.pr
         m.mod_decl.mod_decl_name);
 
   let open Rewriter.Syntax in
@@ -1146,7 +1149,7 @@ let rewrites_expr_ext (m : Module.t) : Module.t Rewriter.t =
   in
 
   Logs.debug (fun m1 ->
-      m1 "Rewrites.rewrites_expr_ext: Starting rewrites_expr_ext on module %a" Ident.pr
+      m1 "Elaboration.rewrites_expr_ext: Starting rewrites_expr_ext on module %a" Ident.pr
         m.mod_decl.mod_decl_name);
 
   let* m = Rewriter.Module.rewrite_expressions ~f:rewrite_expr_ext m in
@@ -1155,7 +1158,7 @@ let rewrites_expr_ext (m : Module.t) : Module.t Rewriter.t =
 
 let rewrites_stmt_ext (m : Module.t) : Module.t Rewriter.t =
   Logs.debug (fun m1 ->
-      m1 "Rewrites.rewrites_stmt_ext: Starting rewrites_stmt_ext on module %a" Ident.pr
+      m1 "Elaboration.rewrites_stmt_ext: Starting rewrites_stmt_ext on module %a" Ident.pr
         m.mod_decl.mod_decl_name);
 
   let open Rewriter.Syntax in
@@ -1173,17 +1176,18 @@ let rewrites_stmt_ext (m : Module.t) : Module.t Rewriter.t =
 
   Rewriter.return m
 
-(** The front end's rewrites, which elaborate [m] into the core language and add the proof
-    obligations of its funcs' contracts. Every compilation unit goes through these before
-    any is lowered (see [Lowering.lower_module]): lowering rewrites the types of fields,
-    while the front end of a later unit still type-checks code that uses an earlier unit's
-    fields, e.g. when it turns loops into procedures. *)
-let process_module_front ?(tbl = SymbolTbl.create ()) ?ext_hooks ?cli_config
-    (m : Module.t) =
+(** Elaborates [m] into the core language and adds the proof obligations of its funcs'
+    contracts. Every compilation unit goes through these before any is lowered (see
+    [Lowering.lower_module]): lowering rewrites the types of fields, while the front end
+    of a later unit still type-checks code that uses an earlier unit's fields, e.g. when
+    it turns loops into procedures. *)
+let elaborate_module ?(tbl = SymbolTbl.create ()) ?ext_hooks ?cli_config (m : Module.t) =
   assert (SymbolTbl.curr_is_root tbl);
 
   (* assert Ident.(m.mod_decl.mod_decl_name = QualIdent.to_ident (SymbolTbl.root_ident tbl)); *)
-  let tbl, (m, scc_map) = Rewriter.eval ?ext_hooks ?cli_config (rewrites_phase_1 m) tbl in
+  let tbl, (m, scc_map) =
+    Rewriter.eval ?ext_hooks ?cli_config (elaborate_phase_1 m) tbl
+  in
 
   let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (Masks.compute_masks m) tbl in
 
@@ -1191,13 +1195,13 @@ let process_module_front ?(tbl = SymbolTbl.create ()) ?ext_hooks ?cli_config
     Rewriter.eval ?ext_hooks ?cli_config (Masks.check_no_interface_reach_back m) tbl
   in
 
-  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_phase_2 m) tbl in
+  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (elaborate_phase_2 m) tbl in
 
   let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_type_ext m) tbl in
   let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_expr_ext m) tbl in
   let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_stmt_ext m) tbl in
 
-  (* Logs.debug (fun m -> m "Rewrites.process_module: whoop-di-doo, here we go again"); *)
+  (* Logs.debug (fun m -> m "Elaboration.process_module: whoop-di-doo, here we go again"); *)
   let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_type_ext m) tbl in
   let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_expr_ext m) tbl in
   let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_stmt_ext m) tbl in
@@ -1430,7 +1434,7 @@ module ProgStats = struct
           Rewriter.List.fold_left ~init:(false, false) new_desc.new_args
             ~f:(fun (b1, b2) (qi, _) ->
               Logs.debug (fun m ->
-                  m "Rewrites.ProgStats.computeBasicStmtStats: new_desc field = %a"
+                  m "Elaboration.ProgStats.computeBasicStmtStats: new_desc field = %a"
                     QualIdent.pr qi);
               let+ field_decl = Rewriter.find_and_reify_field qi in
               (b1 || field_decl.field_is_ghost, b2 || not field_decl.field_is_ghost))
