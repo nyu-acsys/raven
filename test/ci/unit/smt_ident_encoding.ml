@@ -2,7 +2,7 @@ open Base
 open Ast
 
 let id ?(num = 0) name = Ident.make Util.Loc.dummy name num
-let encode qi = Stdlib.Format.asprintf "%a" Smt.SmtLibAST.pr_smt_ident qi
+let encode qi = Stdlib.Format.asprintf "%a" Smt.SmtLibAst.pr_smt_ident qi
 
 let () =
   let names =

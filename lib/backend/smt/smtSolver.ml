@@ -3,7 +3,7 @@ open Unix
 
 (*open Util__Error*)
 open Util
-open SmtLibAST
+open SmtLibAst
 open Ast
 (* open Rewriter *)
 
@@ -79,7 +79,7 @@ module SmtSession = struct
     Option.iter session.log_out_chan ~f:output;
     output session.solver_state.out_chan
 
-  let write session cmd = write_text session (SmtLibAST.command_to_string cmd)
+  let write session cmd = write_text session (SmtLibAst.command_to_string cmd)
 
   let stop_solver session =
     write session @@ mk_exit ();
@@ -106,7 +106,7 @@ module SmtSession = struct
        in
        ProgError.syntax_error pos (Some msg) *)
 
-  let write_comment session cmnt = write_text session (SmtLibAST.comment_to_string cmnt)
+  let write_comment session cmnt = write_text session (SmtLibAst.comment_to_string cmnt)
 
   let read session =
     let in_descr = descr_of_in_channel session.solver_state.in_chan in

@@ -5,18 +5,18 @@ open Base
 
 (* open Ast *)
 (* open Frontend *)
-open SmtLibAST
+open SmtLibAst
 open Util
 
 let define_type (fully_qual_name : qual_ident) (typ : Ast.Module.type_def) : unit t =
   let open State.Syntax in
   let* cmd =
     match typ.type_def_expr with
-    | None -> State.return @@ Some (SmtLibAST.mk_declare_sort fully_qual_name 0)
+    | None -> State.return @@ Some (SmtLibAst.mk_declare_sort fully_qual_name 0)
     | Some typ_expr -> (
         match typ_expr with
         | App (Data (name, variant_decls), _, _) -> State.return None
-        | _ -> State.return @@ Some (SmtLibAST.mk_define_sort fully_qual_name [] typ_expr)
+        | _ -> State.return @@ Some (SmtLibAst.mk_define_sort fully_qual_name [] typ_expr)
         )
   in
 
@@ -62,8 +62,8 @@ let define_datatypes (fully_qual_names_and_typs : (qual_ident * Ast.Module.type_
   let cmd =
     match adt_defs with
     | [] -> assert false
-    | [ adt_def ] -> SmtLibAST.mk_declare_datatype adt_def
-    | _ -> SmtLibAST.mk_declare_datatypes adt_defs
+    | [ adt_def ] -> SmtLibAst.mk_declare_datatype adt_def
+    | _ -> SmtLibAst.mk_declare_datatypes adt_defs
   in
 
   let* _ = write cmd in
@@ -356,7 +356,7 @@ let declare_and_check_dep (tbl : SymbolTbl.t) (g : Dependencies.Graph.t)
         | FuncDef _ ->
             let call_decl = c.call_decl in
             let cmd =
-              SmtLibAST.mk_declare_fun ~loc:call_decl.call_decl_loc fully_qual_name
+              SmtLibAst.mk_declare_fun ~loc:call_decl.call_decl_loc fully_qual_name
                 (List.map call_decl.call_decl_formals ~f:(fun arg -> arg.var_type))
                 (Ast.Type.mk_prod call_decl.call_decl_loc
                    (List.map call_decl.call_decl_returns ~f:(fun arg -> arg.var_type)))
@@ -452,7 +452,7 @@ let declare_and_check_dep (tbl : SymbolTbl.t) (g : Dependencies.Graph.t)
               match (callable.call_def, callable.call_decl.call_decl_returns) with
               | FuncDef { func_body = Some body }, [ ret ] ->
                   write
-                    (SmtLibAST.mk_define_fun ~loc:callable.call_decl.call_decl_loc
+                    (SmtLibAst.mk_define_fun ~loc:callable.call_decl.call_decl_loc
                        qual_name
                        (List.map callable.call_decl.call_decl_formals ~f:(fun arg ->
                             (QualIdent.from_ident arg.var_name, arg.var_type)))

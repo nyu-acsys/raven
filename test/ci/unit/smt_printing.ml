@@ -2,7 +2,7 @@ open Base
 open Ast
 
 let () =
-  let open Smt.SmtLibAST in
+  let open Smt.SmtLibAst in
   let name = "smt_printing_test" in
   let term = Expr.mk_bool true in
   let first = mk_assert ~name term in
@@ -44,7 +44,7 @@ let () =
             { out_chan = solver_out; in_chan = solver_in; response_count = 0 };
         }
       in
-      let command = Smt.SmtLibAST.mk_assert ~name:"bounds'" (Expr.mk_bool true) in
+      let command = Smt.SmtLibAst.mk_assert ~name:"bounds'" (Expr.mk_bool true) in
       write_comment session "first line\nsecond line";
       write session command;
       let logged = Stdio.In_channel.read_all log_file in

@@ -1,6 +1,6 @@
 open Base
 open Ast
-open Smt.SmtLibAST
+open Smt.SmtLibAst
 open Smt.SmtSolver
 
 let with_response response f =
