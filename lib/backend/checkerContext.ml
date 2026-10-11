@@ -30,13 +30,8 @@ let write_comment comment : unit t =
   let+ context = get_state in
   Session.write_comment context.session comment
 
-let push =
-  let open State.Syntax in
-  map_state ~f:(fun context -> { context with session = Session.push context.session })
-
-let pop =
-  let open State.Syntax in
-  map_state ~f:(fun context -> { context with session = Session.pop context.session })
+let with_scope (computation : 'a t) : 'a t =
+ fun context -> Session.with_scope context.session ~f:(fun () -> computation context)
 
 let push_path_condn term =
   let open State.Syntax in
@@ -61,9 +56,7 @@ let assume_expr ?name expr : unit t =
 
 let check_valid ?name expr : SmtSolver.validity_result t =
   let open State.Syntax in
-  let* context = get_state in
+  let+ context = get_state in
   Logs.debug (fun m -> m "Checking validity of %a" Expr.pr_verbose expr);
   let expr = under_path_conditions context expr in
-  let result, session = Session.check_valid ?name context.session expr in
-  let+ () = set_state { context with session } in
-  result
+  Session.check_valid ?name context.session expr

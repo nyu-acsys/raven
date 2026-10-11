@@ -260,7 +260,8 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) : 
   | ProcDef proc_def -> (
       match proc_def.proc_body with
       | Some stmt when not (is_free callable.call_decl.call_decl_status) ->
-          let* _ = push in
+          with_scope
+          @@
           let* _ =
             write_comment
               (Stdlib.Format.asprintf "Checking %a" QualIdent.pr fully_qual_name)
@@ -275,9 +276,7 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) : 
                   (mk_declare_const (QualIdent.from_ident local.var_name) local.var_type))
           in
 
-          let* _ = check_stmt fully_qual_name stmt in
-
-          pop
+          check_stmt fully_qual_name stmt
       | _ ->
           Logs.debug (fun m ->
               m "Skipping %b" (is_free callable.call_decl.call_decl_status));
@@ -578,12 +577,12 @@ let check_members (placed : (Ident.t list * QualIdent.t list) list)
     let* _ = State.List.iter (List.rev node.own_rev) ~f:(declare_and_check_dep tbl g) in
     State.List.iter (List.rev node.child_order_rev) ~f:(fun id ->
         let child = Hashtbl.find_exn node.children id in
-        let* _ = push in
+        with_scope
+        @@
         let* _ =
           write_comment (Stdlib.Format.asprintf "Checking members in %a" Ident.pr id)
         in
-        let* _ = walk child in
-        pop)
+        walk child)
   in
   walk (PathTree.of_placed placed)
 

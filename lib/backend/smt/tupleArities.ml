@@ -1,7 +1,6 @@
 (** Computes the set of tuple (SMT-LIB `$tuple_n`) arities actually needed to represent a
     checked program, so the backend can declare exactly those sorts instead of an
-    arbitrary fixed range. See lib/backend/smt/smtSolver.ml for where the declarations
-    happen. *)
+    arbitrary fixed range. See [Backend.SmtPreamble] for the declarations. *)
 
 open Base
 open Ast

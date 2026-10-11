@@ -4,8 +4,6 @@ open Base
 open Util
 open Ast
 
-(* type pos = Loc.t *)
-
 type term = Ast.expr
 type sort = Ast.Type.t
 
@@ -18,7 +16,6 @@ module PreambleConsts = struct
 
   let atomic_token_ident =
     QualIdent.from_ident (Ident.make Util.Loc.dummy "$AtomicToken" 0)
-  (* let loc_sort = FreeSort (loc_ident, []) *)
 end
 
 type command =
@@ -64,7 +61,7 @@ let mk_push ?loc n = Push (n, loc)
 let mk_pop ?loc n = Pop (n, loc)
 let mk_check_sat ?loc () = CheckSat loc
 let mk_get_model ?loc () = GetModel loc
-let mk_get_unsat_core ?loc () = GetModel loc
+let mk_get_unsat_core ?loc () = GetUnsatCore loc
 let mk_exit ?loc () = Exit loc
 
 (** Pretty printing *)
@@ -283,8 +280,6 @@ and pr_trgs ppf = function
    | As srt ->
        fprintf ppf "@[<4>(as@ %a@ %a)@]" pr_term t pr_sort srt *)
 
-let print_term out_ch t = fprintf (formatter_of_out_channel out_ch) "%a@?" pr_term t
-
 let rec pr_adt_args ppf = function
   | [] -> ()
   | (id, srt) :: args ->
@@ -364,19 +359,6 @@ let pr_command ppf = function
 let pr_comment ppf cmnt =
   fprintf ppf "@[<v>; %s @,@]"
     (String.substr_replace_all cmnt ~pattern:"\n" ~with_:"\n; ")
-
-let rec pr_commands ppf = function
-  | [] -> ()
-  | cmd :: cmds -> fprintf ppf "%a%a" pr_command cmd pr_commands cmds
-
-let print_comment out_ch cmnt =
-  fprintf (formatter_of_out_channel out_ch) "%a@?" pr_comment cmnt
-
-let print_command out_ch cmd =
-  fprintf (formatter_of_out_channel out_ch) "%a@?" pr_command cmd
-
-let print_commands out_ch cmds =
-  fprintf (formatter_of_out_channel out_ch) "%a@?" pr_commands cmds
 
 let command_to_string cmd = asprintf "%a" pr_command cmd
 let comment_to_string cmnt = asprintf "%a" pr_comment cmnt

@@ -1,5 +1,7 @@
 open Base
-open Smt.SmtSolver.SmtSession
+open Smt.SmtSolver
+open SmtSession
+open ForTesting
 
 let best_effort f = ignore (Result.try_with f)
 
@@ -24,30 +26,19 @@ let with_session ?(response_timeout = Some 0.05) ?(spawn_child = false) f =
     else None
   in
   let session =
-    {
-      stack_height = 0;
-      solver_state =
-        {
-          out_descr = query_write;
-          in_descr = response_read;
-          pid;
-          log_out_chan = Some log_out;
-          response_timeout;
-          pending_input = "";
-          closed = false;
-        };
-    }
+    of_owned_descriptors ?pid ~log_out_chan:log_out ~response_timeout ~input:response_read
+      ~output:query_write ()
   in
   Stdlib.Fun.protect
     ~finally:(fun () ->
-      stop_solver session;
+      stop session;
       best_effort (fun () -> Unix.close response_write);
       best_effort (fun () -> Unix.close query_read);
       best_effort (fun () -> Stdlib.Sys.remove log_file))
-    (fun () -> f session response_write)
+    (fun () -> f session response_write log_out pid)
 
 let test_buffered_replies () =
-  with_session (fun session response_write ->
+  with_session (fun session response_write _ _ ->
       write_all response_write "sat\r\nunsat\n" 0;
       assert (
         Result.equal String.equal (fun _ _ -> false) (read_response session) (Ok "sat"));
@@ -55,39 +46,36 @@ let test_buffered_replies () =
         Result.equal String.equal (fun _ _ -> false) (read_response session) (Ok "unsat")))
 
 let test_fragmented_reply () =
-  with_session (fun session response_write ->
+  with_session (fun session response_write _ _ ->
       write_all response_write "sa" 0;
       assert (
         match read_response session with Error Response_timeout -> true | _ -> false);
-      assert (String.equal session.solver_state.pending_input "sa");
       write_all response_write "t\n" 0;
       assert (
         Result.equal String.equal (fun _ _ -> false) (read_response session) (Ok "sat")))
 
 let test_partial_eof () =
-  with_session (fun session response_write ->
+  with_session (fun session response_write _ _ ->
       write_all response_write "sa" 0;
       Unix.close response_write;
       assert (match read_response session with Error End_of_stream -> true | _ -> false))
 
 let test_idempotent_stop () =
-  with_session (fun session _ ->
-      let copy = { session with stack_height = 1 } in
-      let log_out = Option.value_exn session.solver_state.log_out_chan in
-      stop_solver session;
-      stop_solver copy;
-      assert session.solver_state.closed;
-      assert copy.solver_state.closed;
+  with_session (fun session _ log_out _ ->
+      let copy = session in
+      stop session;
+      stop copy;
+      assert (match read_response copy with Error Session_closed -> true | _ -> false);
       assert (
         Result.is_error
           (Result.try_with (fun () -> Stdio.Out_channel.output_string log_out "closed")));
-      assert (Result.is_error (Result.try_with (fun () -> write_text copy "closed"))))
+      assert (Result.is_error (Result.try_with (fun () -> write_comment copy "closed"))))
 
 let test_forced_stop_and_reap () =
-  with_session ~spawn_child:true (fun session _ ->
-      let pid = Option.value_exn session.solver_state.pid in
+  with_session ~spawn_child:true (fun session _ _ pid ->
+      let pid = Option.value_exn pid in
       let started = Unix.gettimeofday () in
-      stop_solver session;
+      stop session;
       assert (Float.(Unix.gettimeofday () -. started < 1.5));
       assert (
         match Result.try_with (fun () -> Unix.waitpid [ Unix.WNOHANG ] pid) with
@@ -107,29 +95,46 @@ let test_original_error_survives_broken_pipe () =
       (fun () ->
         Unix.close pipe_read;
         let session =
-          {
-            stack_height = 0;
-            solver_state =
-              {
-                out_descr = pipe_write;
-                in_descr = response_read;
-                pid = None;
-                log_out_chan = None;
-                response_timeout = None;
-                pending_input = "";
-                closed = false;
-              };
-          }
+          of_owned_descriptors ~response_timeout:None ~input:response_read
+            ~output:pipe_write ()
         in
         Result.try_with (fun () ->
             Stdlib.Fun.protect
-              ~finally:(fun () -> stop_solver session)
+              ~finally:(fun () -> stop session)
               (fun () -> failwith "original verification error")))
   in
   assert (
     match result with
     | Error (Failure message) -> String.equal message "original verification error"
     | _ -> false)
+
+let test_scope_cleanup_failure ~body_fails =
+  best_effort (fun () ->
+      Stdlib.Sys.set_signal Stdlib.Sys.sigpipe Stdlib.Sys.Signal_ignore);
+  let pipe_read, pipe_write = Unix.pipe () in
+  let response_read, response_write = Unix.pipe () in
+  let session =
+    of_owned_descriptors ~response_timeout:None ~input:response_read ~output:pipe_write ()
+  in
+  Stdlib.Fun.protect
+    ~finally:(fun () ->
+      stop session;
+      best_effort (fun () -> Unix.close pipe_read);
+      Unix.close response_write)
+    (fun () ->
+      let result =
+        Result.try_with (fun () ->
+            with_scope session ~f:(fun () ->
+                Unix.close pipe_read;
+                if body_fails then failwith "original scope error"))
+      in
+      assert (
+        match result with
+        | Error (Failure message) when body_fails ->
+            String.equal message "original scope error"
+        | Error _ when not body_fails -> true
+        | _ -> false);
+      assert (match read_response session with Error Session_closed -> true | _ -> false))
 
 let rec ignore_stdin () =
   ignore (Unix.select [] [] [] 60.);
@@ -146,5 +151,7 @@ let () =
     test_partial_eof ();
     test_idempotent_stop ();
     test_forced_stop_and_reap ();
-    test_original_error_survives_broken_pipe ()
+    test_original_error_survives_broken_pipe ();
+    test_scope_cleanup_failure ~body_fails:true;
+    test_scope_cleanup_failure ~body_fails:false
   end

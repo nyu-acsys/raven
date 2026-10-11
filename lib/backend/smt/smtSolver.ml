@@ -11,8 +11,6 @@ let parse_sat_result = function
   | str -> Error str
 
 module SmtSession = struct
-  let num_of_sat_queries = ref 0
-
   type solver_state = {
     out_descr : Unix.file_descr;
     in_descr : Unix.file_descr;
@@ -23,8 +21,23 @@ module SmtSession = struct
     mutable closed : bool;
   }
 
-  type session = { stack_height : int; solver_state : solver_state }
+  type session = { mutable stack_height : int; solver_state : solver_state }
   type read_error = Response_timeout | End_of_stream | Session_closed | Io_error of exn
+
+  let create_session ?pid ?log_out_chan ~response_timeout ~input ~output () =
+    {
+      stack_height = 0;
+      solver_state =
+        {
+          out_descr = output;
+          in_descr = input;
+          pid;
+          log_out_chan;
+          response_timeout;
+          pending_input = "";
+          closed = false;
+        };
+    }
 
   let best_effort f = ignore (Result.try_with f)
 
@@ -89,19 +102,8 @@ module SmtSession = struct
     in
     pid := Some child;
     let session =
-      {
-        stack_height = 0;
-        solver_state =
-          {
-            out_descr = stdin_write;
-            in_descr = stdout_read;
-            pid = Some child;
-            log_out_chan;
-            response_timeout;
-            pending_input = "";
-            closed = false;
-          };
-      }
+      create_session ~pid:child ?log_out_chan ~response_timeout ~input:stdout_read
+        ~output:stdin_write ()
     in
     transferred := true;
     session
@@ -136,7 +138,15 @@ module SmtSession = struct
     in
     output 0
 
-  let write session cmd = write_text session (SmtLibAst.command_to_string cmd)
+  let write_command session cmd = write_text session (SmtLibAst.command_to_string cmd)
+
+  let write session cmd =
+    match cmd with
+    | Push _ | Pop _ | CheckSat _ | GetModel _ | GetUnsatCore _ | Exit _ ->
+        Error.internal_error Loc.dummy
+          "Cannot write a solver control command directly; use session operations"
+    | _ -> write_command session cmd
+
   let write_comment session cmnt = write_text session (SmtLibAst.comment_to_string cmnt)
 
   let read_response session =
@@ -203,8 +213,7 @@ module SmtSession = struct
         Error.internal_error Loc.dummy ("Failed to read Z3 output: " ^ Exn.to_string exn)
 
   let check_sat session : sat_result =
-    Int.incr num_of_sat_queries;
-    write session (mk_check_sat ());
+    write_command session (mk_check_sat ());
     match parse_sat_result (read session) with
     | Ok result -> result
     | Error str ->
@@ -215,30 +224,52 @@ module SmtSession = struct
              str)
 
   let push session =
-    write session (mk_push 1);
-    let new_session = { session with stack_height = session.stack_height + 1 } in
-    new_session
+    write_command session (mk_push 1);
+    session.stack_height <- session.stack_height + 1
 
   let pop session =
-    if session.stack_height <= 0 then Error.internal_error Loc.dummy "pop on empty stack"
-    else write session (mk_pop 1);
-    let new_session = { session with stack_height = session.stack_height - 1 } in
-    new_session
+    if session.stack_height <= 0 then Error.internal_error Loc.dummy "pop on empty stack";
+    write_command session (mk_pop 1);
+    session.stack_height <- session.stack_height - 1
+
+  let with_scope session ~f =
+    push session;
+    let completed = ref false in
+    Stdlib.Fun.protect
+      ~finally:(fun () ->
+        if not session.solver_state.closed then
+          match Result.try_with (fun () -> pop session) with
+          | Ok () -> ()
+          | Error exn ->
+              let backtrace = Stdlib.Printexc.get_raw_backtrace () in
+              stop_solver session;
+              if !completed then Stdlib.Printexc.raise_with_backtrace exn backtrace)
+      (fun () ->
+        let result = f () in
+        completed := true;
+        result)
 
   let assert_expr ?name session expr = write session (mk_assert ?name expr)
 
   let check_valid ?name session expr =
-    let session = push session in
-    assert_expr ?name session (Ast.Expr.mk_not expr);
+    with_scope session ~f:(fun () ->
+        assert_expr ?name session (Ast.Expr.mk_not expr);
+        match check_sat session with
+        | Unsat -> Valid
+        | Sat -> Invalid
+        | Unknown -> Inconclusive)
 
-    let result =
-      match check_sat session with
-      | Unsat -> Valid
-      | Sat -> Invalid
-      | Unknown -> Inconclusive
-    in
-    let session = pop session in
-    (result, session)
+  module ForTesting = struct
+    type nonrec read_error = read_error =
+      | Response_timeout
+      | End_of_stream
+      | Session_closed
+      | Io_error of exn
+
+    let of_owned_descriptors = create_session
+    let read_response = read_response
+    let stack_height session = session.stack_height
+  end
 end
 
 type session = SmtSession.session
