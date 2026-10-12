@@ -47,6 +47,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Harden type checking for assignments, ghost state, `bind` statements, overloaded calls and generic module inheritance.
+- Insert explicit `Int`-to-`Real` coercions, including within tuples and maps.
 - Reject cyclic witness computations in existential resource assertions.
 - Fix false recursion detection through contracts and atomic-update predicates.
 - Check decreases clauses on recursive calls inside `assert ... with` proofs.

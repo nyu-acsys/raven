@@ -108,7 +108,7 @@ let disambiguate_and_check_expr ?(allow_proc_call = false) (expr : expr)
 
   processed_expr
 
-let disambiguate_and_check_field_read ref field disam_tbl =
+let disambiguate_and_check_field_read ~is_ghost ref field disam_tbl =
   let open Rewriter.Syntax in
   let* resolved_opt = Rewriter.resolve_and_find_opt field in
   let* field, symbol =
@@ -120,7 +120,9 @@ let disambiguate_and_check_field_read ref field disam_tbl =
            type of `ref`. *)
         let* imported = Rewriter.find_import_target field in
         let candidate = Base.Option.value imported ~default:field in
-        let* peeked_ref = disambiguate_and_check_expr ref Type.any disam_tbl in
+        let* peeked_ref =
+          disambiguate_and_check_expr ref (Type.set_ghost is_ghost Type.any) disam_tbl
+        in
         let* resolved_qi =
           ImplicitInstantiation.try_resolve_implicit_instantiation_destr
             ~field_ident:candidate ~arg_typ:(Expr.to_type peeked_ref)
@@ -132,10 +134,14 @@ let disambiguate_and_check_field_read ref field disam_tbl =
   let* symbol = Rewriter.Symbol.reify symbol in
   match symbol with
   | FieldDef { field_type = App (Fld, [ field_type ], _); _ } ->
-      let+ ref = disambiguate_and_check_expr ref Type.ref disam_tbl in
+      let+ ref =
+        disambiguate_and_check_expr ref (Type.set_ghost is_ghost Type.ref) disam_tbl
+      in
       (ref, field, field_type, symbol)
   | DestrDef { destr_arg; destr_return_type; _ } ->
-      let+ arg = disambiguate_and_check_expr ref destr_arg disam_tbl in
+      let+ arg =
+        disambiguate_and_check_expr ref (Type.set_ghost is_ghost destr_arg) disam_tbl
+      in
       (arg, field, destr_return_type, symbol)
   | _ ->
       Error.type_error (QualIdent.to_loc field)
@@ -349,10 +355,11 @@ let check_au_action (call_decl : Callable.call_decl) (assign_lhs : qual_ident li
                !"Incorrect number of implicit arguments supplied on LHS for %{QualIdent}"
                proc_qual_ident)
         else
-          let args = Expr.mk_tuple ~loc implicit_vars in
           let+ _ =
-            ExprTyping.check args
-              (Type.mk_prod loc implicit_expected_types |> Type.set_ghost true)
+            Rewriter.List.map2_exn implicit_vars implicit_expected_types
+              ~f:(fun target source_type ->
+                ExprTyping.check_assignment_target target
+                  (Type.set_ghost true source_type))
           in
           ( Stmt.AUAction
               {
@@ -458,21 +465,23 @@ let rec check_basic call_decl (basic_stmt : Stmt.basic_stmt_desc) (stmt_loc : Lo
       check_assign assign_desc call_decl stmt_loc disam_tbl basic_stmt ~is_ghost_scope
   | Bind bind_desc ->
       let* bind_lhs, _ =
-        Rewriter.List.fold_right bind_desc.bind_lhs ~init:([], [])
-          ~f:(fun orig_qual_ident (assign_lhs, var_decls_lhs) ->
-            let+ qual_ident, var_decl =
+        Rewriter.List.fold_left bind_desc.bind_lhs
+          ~init:([], Set.empty (module QualIdent))
+          ~f:(fun (assign_lhs, seen) orig_qual_ident ->
+            let+ qual_ident, _ =
               get_assign_lhs ~is_ghost_scope disam_tbl orig_qual_ident ~is_ghost_cmd:true
                 ~is_init:false
             in
-            (qual_ident :: assign_lhs, var_decl :: var_decls_lhs))
+            if Set.mem seen qual_ident then
+              Error.type_error
+                (QualIdent.to_loc orig_qual_ident)
+                (Printf.sprintf
+                   !"Duplicate bind destination %{QualIdent}"
+                   orig_qual_ident);
+            (qual_ident :: assign_lhs, Set.add seen qual_ident))
       in
-      let+ spec_form =
-        disambiguate_and_check_expr bind_desc.bind_rhs.spec_form
-          (Type.any |> Type.set_ghost true)
-          disam_tbl
-      in
-      let bind_rhs = { bind_desc.bind_rhs with spec_form } in
-      let bind_desc = Stmt.{ bind_lhs; bind_rhs } in
+      let+ bind_rhs = check_spec disam_tbl bind_desc.bind_rhs in
+      let bind_desc = Stmt.{ bind_lhs = List.rev bind_lhs; bind_rhs } in
       (Stmt.Bind bind_desc, disam_tbl)
   | FieldWrite fw_desc -> check_field_write fw_desc stmt_loc disam_tbl ~is_ghost_scope
   | FieldRead fr_desc ->
@@ -569,6 +578,9 @@ and check_var_def (var_def : Stmt.var_def) (call_decl : Callable.call_decl)
                 disam_tbl ~allow_proc_call:true
             in
             Expr.to_type expr
+      in
+      let var_type =
+        if Type.equal var_decl.var_type Type.any then var_type else var_decl.var_type
       in
       let var_decl =
         if not (Type.equal var_type Type.any) then
@@ -817,8 +829,9 @@ and check_field_read (fr_desc : Stmt.field_read_desc) (call_decl : Callable.call
   in
   let* fr_type = TypeExpr.expand_type_expr var_decl.var_type in
   let* field_read_ref, field_read_field, field_type, symbol =
-    disambiguate_and_check_field_read fr_desc.field_read_ref fr_desc.field_read_field
-      disam_tbl
+    disambiguate_and_check_field_read
+      ~is_ghost:(is_ghost_scope || var_decl.var_ghost || Type.is_ghost fr_type)
+      fr_desc.field_read_ref fr_desc.field_read_field disam_tbl
   in
   begin match symbol with
   | DestrDef { destr_return_type; _ } ->
@@ -840,10 +853,9 @@ and check_field_read (fr_desc : Stmt.field_read_desc) (call_decl : Callable.call
       check_basic call_decl (Stmt.Assign assign_desc) stmt_loc disam_tbl
   | _ ->
       let+ _ =
-        ExprTyping.set_checked_type
+        ExprTyping.check_assignment_target
           (Expr.mk_var ~typ:fr_type fr_var_qual_ident)
-          fr_type field_type
-          (field_type |> Type.set_ghost_to fr_type)
+          field_type
       in
       let field_read_desc =
         Stmt.
@@ -939,13 +951,16 @@ and check_use (use_desc : Stmt.use_desc) (call_decl : Callable.call_decl)
             match e with
             | App (Var qual_ident, [], _) when QualIdent.is_local qual_ident ->
                 let* ty = find_type (QualIdent.unqualify qual_ident) in
-                let+ ie =
+                let* ie =
                   disambiguate_and_check_expr
                     (Expr.mk_var
                        ~typ:(Type.mk_any (Ident.to_loc i))
                        (QualIdent.from_ident i))
-                    (ty |> Type.set_ghost true)
+                    (Type.set_ghost true Type.any)
                     disam_tbl
+                in
+                let+ ie =
+                  ExprTyping.check_assignment_target ie (Type.set_ghost true ty)
                 in
                 (Expr.to_ident ie, e)
             | _ -> Error.type_error (Expr.to_loc e) "Expected local identifier"))
@@ -1122,6 +1137,108 @@ and claim_if_not_core_indexed ~is_ghost_scope call_decl stmt_loc disam_tbl basic
       else claim_stmt ~is_ghost_scope call_decl stmt_loc disam_tbl basic_stmt
   | _ -> Rewriter.return None
 
+(* Identifier outputs need a temporary when their destination changes representation. *)
+let coerce_outputs ~loc basic_stmt =
+  let open Rewriter.Syntax in
+  let destination ~is_init name source_type =
+    let* target = Rewriter.find_and_reify_var name in
+    let target_type = target.var_decl.var_type in
+    let* same = ValueCoercions.same_representation source_type target_type in
+    if same then Rewriter.return (name, None)
+    else
+      let source_type =
+        Type.set_ghost
+          (Type.is_ghost source_type || target.var_decl.var_ghost
+         || Type.is_ghost target_type)
+          source_type
+      in
+      let var =
+        Type.mk_var_decl ~loc ~ghost:(Type.is_ghost source_type)
+          (Ident.fresh loc "$coercion") source_type
+      in
+      let* () =
+        Rewriter.introduce_symbol
+          (Module.VarDef { var_decl = var; var_init = None; var_is_free = NotFree })
+      in
+      let* () = Rewriter.add_locals [ var ] in
+      let+ value = ValueCoercions.coerce (Expr.from_var_decl var) target_type in
+      ( QualIdent.from_ident var.var_name,
+        Some (Stmt.mk_assign ~loc ~is_init [ name ] value) )
+  in
+  let destinations ~is_init names formals =
+    Rewriter.List.map2_exn names formals ~f:(fun name formal ->
+        destination ~is_init name formal.Type.var_type)
+  in
+  let* basic_stmt, assignments =
+    match basic_stmt with
+    | Stmt.FieldRead read ->
+        let* field = Rewriter.find_and_reify_field read.field_read_field in
+        let+ field_read_lhs, assignment =
+          destination ~is_init:read.field_read_is_init read.field_read_lhs
+            (Type.field_val field.field_type)
+        in
+        (Stmt.FieldRead { read with field_read_lhs }, Option.to_list assignment)
+    | Call call when not (List.is_empty call.call_lhs) ->
+        let* callable = Rewriter.find_and_reify_callable call.call_name in
+        let+ outputs =
+          destinations ~is_init:call.call_is_init call.call_lhs
+            callable.call_decl.call_decl_returns
+        in
+        ( Stmt.Call { call with call_lhs = List.map outputs ~f:fst },
+          List.filter_map outputs ~f:snd )
+    | Use use
+      when Poly.(use.use_kind = Unfold) && not (List.is_empty use.use_witnesses_or_binds)
+      ->
+        let* callable = Rewriter.find_and_reify_callable use.use_name in
+        let types =
+          match callable.call_def with
+          | FuncDef { func_body = Some body } -> Expr.existential_vars_type body
+          | _ -> Map.empty (module Ident)
+        in
+        let+ outputs =
+          Rewriter.List.map use.use_witnesses_or_binds ~f:(fun (name, value) ->
+              let witness = Expr.to_ident value in
+              let* typ =
+                Map.fold types ~init:None ~f:(fun ~key ~data found ->
+                    if String.equal (Ident.name key) (Ident.name witness) then Some data
+                    else found)
+                |> function
+                | Some typ -> Rewriter.return typ
+                | None -> Error.internal_error loc "Missing predicate witness type"
+              in
+              let+ output, assignment =
+                destination ~is_init:false (QualIdent.from_ident name)
+                  (Type.set_ghost true typ)
+              in
+              ((QualIdent.unqualify output, value), assignment))
+        in
+        ( Stmt.Use { use with use_witnesses_or_binds = List.map outputs ~f:fst },
+          List.filter_map outputs ~f:snd )
+    | AUAction { auaction_kind = OpenAU action } when not (List.is_empty action.lhs) ->
+        let* callable = Rewriter.find_and_reify_callable action.proc_qi in
+        let formals =
+          List.filter callable.call_decl.call_decl_formals ~f:(fun formal ->
+              formal.Type.var_implicit)
+          |> List.map ~f:(fun formal ->
+              { formal with Type.var_type = Type.set_ghost true formal.Type.var_type })
+        in
+        let* outputs =
+          destinations ~is_init:false (List.map action.lhs ~f:Expr.to_qual_ident) formals
+        in
+        let+ lhs =
+          Rewriter.List.map outputs ~f:(fun (name, _) ->
+              let+ var = Rewriter.find_and_reify_var name in
+              Expr.set_loc (Expr.mk_var ~typ:var.var_decl.var_type name) loc)
+        in
+        ( Stmt.AUAction { auaction_kind = OpenAU { action with lhs } },
+          List.filter_map outputs ~f:snd )
+    | _ -> Rewriter.return (basic_stmt, [])
+  in
+  let stmt = Stmt.{ stmt_desc = Basic basic_stmt; stmt_loc = loc } in
+  match assignments with
+  | [] -> Rewriter.return stmt.Stmt.stmt_desc
+  | _ -> Rewriter.return (Stmt.mk_block_stmt ~loc (stmt :: assignments)).Stmt.stmt_desc
+
 let check ?(new_scope = true) call_decl (stmt : Stmt.t) (disam_tbl : DisambiguationTbl.t)
     : (Stmt.t * DisambiguationTbl.t) t =
   let rec check ?(new_scope = true) stmt disam_tbl =
@@ -1134,10 +1251,11 @@ let check ?(new_scope = true) call_decl (stmt : Stmt.t) (disam_tbl : Disambiguat
     let+ stmt_desc, disam_tbl =
       match stmt.Stmt.stmt_desc with
       | Basic basic_stmt ->
-          let+ basic_stmt, disam_tbl' =
+          let* basic_stmt, disam_tbl' =
             check_basic call_decl basic_stmt (Stmt.to_loc stmt) disam_tbl
           in
-          (Stmt.Basic basic_stmt, disam_tbl')
+          let+ stmt_desc = coerce_outputs ~loc:(Stmt.to_loc stmt) basic_stmt in
+          (stmt_desc, disam_tbl')
       | Block block_desc ->
           let* () = Rewriter.enter_block block_desc in
           let disam_tbl =

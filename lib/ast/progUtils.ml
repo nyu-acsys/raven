@@ -12,10 +12,8 @@ open Rewriter
    there for why. This re-export keeps ProgUtils.DisambiguationTbl working as before. *)
 module DisambiguationTbl = DisambiguationTbl
 
-(** Whether [body], the body of a comprehension over [x], combines Boolean entries of maps
-    at index [x] and Boolean terms not mentioning [x], by Boolean connectives alone. Such
-    a comprehension is a pointwise combination of maps, which the SMT encoding expresses
-    with array map combinators. *)
+(** Whether a comprehension body admits array map encoding: Boolean combinations or
+    numeric widening of entries at the bound index. *)
 let rec is_pointwise_body (x : ident) (body : expr) : bool =
   let mentions_x e = Map.mem (AstDef.Expr.signature e) (QualIdent.from_ident x) in
   let is_x = function
@@ -26,6 +24,8 @@ let rec is_pointwise_body (x : ident) (body : expr) : bool =
     match AstDef.Expr.to_type e with AstDef.Type.App (Bool, [], _) -> true | _ -> false
   in
   match body with
+  | App (ToReal, [ App (MapLookUp, [ m; index ], _) ], _) when is_x index ->
+      not (mentions_x m)
   | App ((And | Or | Not | Impl), args, _) ->
       Base.List.for_all args ~f:(is_pointwise_body x)
   | App (MapLookUp, [ m; index ], _) when is_x index -> is_bool body && not (mentions_x m)

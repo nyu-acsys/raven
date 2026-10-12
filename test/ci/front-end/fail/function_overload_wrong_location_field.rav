@@ -1,0 +1,9 @@
+field slot: Int
+field other: Int
+
+func key(x.slot) returns (r: Ref) { x }
+func key(b: Bool) returns (r: Bool) { b }
+
+proc check(x: Ref) {
+  var bad: Ref := key(x.other);
+}

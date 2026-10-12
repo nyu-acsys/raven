@@ -1,0 +1,7 @@
+interface Required { rep type T }
+interface Base[A: Required] {}
+
+interface Empty {}
+module Wrong : Empty {}
+
+module Child : Base[Wrong] {}

@@ -1,0 +1,11 @@
+proc fraction() returns (r: Real)
+  ensures r == 0.5
+{
+  return 0.5;
+}
+
+proc call() {
+  var r: Int;
+  r := fraction();
+  assert false;
+}

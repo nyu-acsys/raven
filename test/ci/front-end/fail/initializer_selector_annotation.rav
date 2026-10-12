@@ -1,0 +1,8 @@
+type Number = data {
+  case number(value: Int)
+}
+
+proc read(n: Number)
+{
+  var value: Bool := n.value;
+}

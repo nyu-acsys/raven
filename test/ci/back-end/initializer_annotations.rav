@@ -1,0 +1,61 @@
+field integer: Int
+ghost field ghost_integer: Int
+
+type Number = data {
+  case number(value: Int)
+}
+
+type Fraction = Real
+
+proc integer_result(value: Int) returns (result: Int)
+  ensures result == value
+{
+  return value;
+}
+
+proc initialized_locals(x: Ref, n: Number)
+  requires own(x.integer, 1) && own(x.ghost_integer, 2)
+  requires n == number(3)
+  ensures own(x.integer, 1) && own(x.ghost_integer, 2)
+{
+  var literal: Real := 1;
+  assert literal == 1.0;
+  literal := 0.5;
+  assert literal == 0.5;
+
+  var values: Map[Int, Real] := {| i: Int :: 0.0 |};
+  values[0] := 1;
+  values[1] := 0.5;
+  assert values[0] == 1.0 && values[1] == 0.5;
+
+  var field_value: Real := x.integer;
+  assert field_value == 1.0;
+  field_value := 0.5;
+  assert field_value == 0.5;
+
+  var selector_value: Real := n.value;
+  assert selector_value == 3.0;
+  selector_value := 0.5;
+  assert selector_value == 0.5;
+
+  var alias_field: Fraction := x.integer;
+  alias_field := 0.5;
+  assert alias_field == 0.5;
+
+  var alias_selector: Fraction := n.value;
+  alias_selector := 0.5;
+  assert alias_selector == 0.5;
+
+  ghost var ghost_value: Real := x.ghost_integer;
+  assert ghost_value == 2.0;
+  ghost_value := 0.5;
+  assert ghost_value == 0.5;
+
+  var inferred_field := x.integer;
+  var inferred_selector := n.value;
+  assert inferred_field == 1 && inferred_selector == 3;
+  inferred_field := inferred_selector;
+  inferred_field := integer_result(inferred_field);
+  inferred_selector := integer_result(inferred_selector);
+  assert inferred_field == 3;
+}

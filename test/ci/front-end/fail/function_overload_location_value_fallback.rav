@@ -1,0 +1,10 @@
+field slot: Int
+
+func choose(x.slot, tag: Bool) returns (r: Int) { 0 }
+func choose(value: Int, tag: Int) returns (r: Int) { value }
+
+proc check(x: Ref)
+  requires own(x.slot, 7)
+{
+  var bad: Int := choose(x.slot, 1);
+}

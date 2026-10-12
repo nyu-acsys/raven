@@ -1,0 +1,22 @@
+func f(ghost x: Int) returns (r: Int) { 0 }
+func h(x: Int) returns (r: Int) { x + 1 }
+func h(x: Bool) returns (r: Int) { x ? 1 : 2 }
+func ordinary(x: Int) returns (r: Int) { x + 1 }
+
+module Generic[E: Library.Type] {
+  func consume(ghost x: E) returns (r: Int) { 0 }
+}
+
+func bound(x: Map[Int, Int]) returns (r: Int) { x[2] }
+func bound(x: Bool) returns (r: Int) { x ? 1 : 2 }
+
+proc check(ghost g: Int) {
+  var direct: Int := h(f(g));
+  var arithmetic: Int := h(f(g) + 1);
+  var nested: Int := h(ordinary(f(g)));
+  var generic: Int := h(Generic.consume(g));
+  var comprehension: Int := bound({| x: Int :: x + 1 |});
+  var quantified: Int := bound(forall x: Int :: x == x);
+  assert direct == 1 && arithmetic == 2 && nested == 2;
+  assert generic == 1 && comprehension == 3 && quantified == 1;
+}

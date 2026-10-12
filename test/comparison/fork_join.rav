@@ -56,7 +56,7 @@ module ForkJoin[R: ForkJoinResource] {
     {
         ghost var b: Bool;
         unfold is_join(l, r)[b := b];
-        var w: R.Result := l.result;
+        var w: Option[R.Result] := l.result;
         {!
             if (w == Option.some(w.Option.value)) {
                 fold is_join(l, r)[b := true];

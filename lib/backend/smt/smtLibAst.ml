@@ -161,6 +161,7 @@ let term_constr_to_string loc (constr : Expr.constr) : string =
   | DataConstr id | DataDestr id -> Stdlib.Format.asprintf "%a" pr_smt_ident id
   | Mod -> "mod"
   | Not -> "not"
+  | ToReal -> "to_real"
   | MapLookUp -> "select"
   | MapUpdate -> "store"
   | Eq -> "="
@@ -179,9 +180,9 @@ let rec pr_term ppf (term : term) =
       match (constr, expr_list) with
       | DataTest constructor, [ arg ] ->
           fprintf ppf "@[<2>((_ is %a)@ %a)@]" pr_smt_ident constructor pr_term arg
-      | ( (( Bool _ | Int _ | Real _ | Not | MapLookUp | MapUpdate | Eq | Gt | Lt | Geq
-           | Leq | And | Or | Plus | Minus | Mult | Div | Mod | DataConstr _ | DataDestr _
-           | Ite | Var _ ) as sym),
+      | ( (( Bool _ | Int _ | Real _ | Not | ToReal | MapLookUp | MapUpdate | Eq | Gt | Lt
+           | Geq | Leq | And | Or | Plus | Minus | Mult | Div | Mod | DataConstr _
+           | DataDestr _ | Ite | Var _ ) as sym),
           ts ) -> (
           match expr_list with
           | [] -> fprintf ppf "@[%s@]" (term_constr_to_string (Expr.to_loc term) sym)
@@ -240,6 +241,8 @@ and pr_pointwise (x : Ident.t) (srt : sort) ppf (body : term) =
   let mentions_x e = Map.mem (Expr.signature e) (QualIdent.from_ident x) in
   let pr_const ppf t = fprintf ppf "@[<2>((as const %a)@ %a)@]" pr_sort srt pr_term t in
   match body with
+  | App (ToReal, [ App (MapLookUp, [ m; index ], _) ], _) when is_x index ->
+      fprintf ppf "@[<2>((_ map (to_real (Int) Real))@ %a)@]" pr_term m
   | App ((And | Or), [ t ], _) -> pr_pointwise x srt ppf t
   | App (((And | Or | Not | Impl) as constr), (_ :: _ as ts), _) when mentions_x body ->
       let op = match constr with And -> "and" | Or -> "or" | Not -> "not" | _ -> "=>" in

@@ -1,0 +1,38 @@
+field integer: Int
+ghost field ghost_integer: Int
+
+proc read(ghost x: Ref)
+  requires own(x.integer, 3) && own(x.ghost_integer, 4)
+  ensures own(x.integer, 3) && own(x.ghost_integer, 4)
+{
+  ghost var assigned: Int;
+  assigned := x.integer;
+  ghost var initialized: Real := x.integer;
+  ghost var inferred := x.integer;
+  ghost var ghost_field := x.ghost_integer;
+  assert assigned == 3 && initialized == 3.0 && inferred == 3;
+  assert ghost_field == 4;
+  {! var scoped := x.integer; assert scoped == 3; !}
+}
+
+module Selectors {
+  import Library.Option._
+
+  proc selector(ghost x: Library.Option[Int])
+    requires x == some(5)
+  {
+    ghost var inferred := x.value;
+    assert inferred == 5;
+  }
+}
+
+module A = Library.Array[Library.IntType]
+import A._
+
+proc indexed(ghost a: A.T, ghost i: Int)
+  requires 0 <= i && i < length(a) && own(a[i], 6)
+  ensures own(a[i], 6)
+{
+  ghost var entry := a[i];
+  assert entry == 6;
+}

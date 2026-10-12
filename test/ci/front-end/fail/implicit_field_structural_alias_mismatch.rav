@@ -1,0 +1,15 @@
+interface MapField { module E: Library.Type field f: Map[Int, E] }
+
+module Ops[A: MapField] {
+  func key(x.A.f) returns (r: Ref) { x }
+}
+
+module Client {
+  type M = Map[Bool, Int]
+  type Chained = M
+  field table: Chained
+
+  proc check(x: Ref) {
+    var bad: Ref := Ops.key(x.table);
+  }
+}

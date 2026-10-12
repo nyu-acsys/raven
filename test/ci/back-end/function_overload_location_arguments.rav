@@ -1,0 +1,30 @@
+field slot: Int
+field other: Int
+
+func key(x.slot) returns (r: Ref) { x }
+func key(b: Bool) returns (r: Bool) { b }
+
+func first(x.slot, y.other) returns (r: Ref) { x }
+func first(a: Bool, b: Bool) returns (r: Bool) { a && b }
+
+module Box[E: Library.Type] : Library.Type {
+  rep type T = data { case box(value: E) }
+}
+module IntBox = Box[Library.IntType]
+module RefBox = Box[Library.RefType]
+import IntBox._
+
+func select(v: Int) returns (r: Int) { v + 1 }
+func select(x.slot) returns (r: Ref) { x }
+
+proc check(x: Ref, y: Ref, d: IntBox.T, p: RefBox.T) {
+  assert key(x) == x;
+  assert key(x.slot) == x;
+  assert key(true);
+  assert first(x, y) == x;
+  assert first(x.slot, y) == x;
+  assert first(x, y.other) == x;
+  assert first(x.slot, y.other) == x;
+  assert select(d.value) == d.value + 1;
+  assert key(p.RefBox.value) == p.RefBox.value;
+}

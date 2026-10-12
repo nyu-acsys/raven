@@ -1,0 +1,9 @@
+field fraction: Real
+
+proc read(x: Ref)
+  requires own(x.fraction, 0.5)
+{
+  var r: Int;
+  r := x.fraction;
+  assert false;
+}

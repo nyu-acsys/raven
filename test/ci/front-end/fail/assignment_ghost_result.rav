@@ -1,0 +1,10 @@
+proc integer() returns (ghost r: Int)
+  ensures r == 1
+{
+  return 1;
+}
+
+proc call() {
+  var r: Real;
+  r := integer();
+}

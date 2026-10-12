@@ -129,13 +129,17 @@ let rec check (tp_expr : type_expr) : type_expr t =
         (Type.to_name constr ^ " types don't take arguments")
 
 let rec expand_type_expr (tp_expr : type_expr) : Type.t t =
-  expand_type_expr_visiting (Set.empty (module QualIdent)) tp_expr
+  expand_type_expr_visiting ~recursive:true (Set.empty (module QualIdent)) tp_expr
+
+(** Expands head aliases, retaining argument types for nominal module inference. *)
+and expand_type_head (tp_expr : type_expr) : Type.t t =
+  expand_type_expr_visiting ~recursive:false (Set.empty (module QualIdent)) tp_expr
 
 (* [visiting] holds the aliases being expanded, to reject cyclic ones. *)
-and expand_type_expr_visiting (visiting : QualIdentSet.t) (tp_expr : type_expr) : Type.t t
-    =
+and expand_type_expr_visiting ~recursive (visiting : QualIdentSet.t) (tp_expr : type_expr)
+    : Type.t t =
   let open Rewriter.Syntax in
-  let expand_type_expr = expand_type_expr_visiting visiting in
+  let expand_type_expr = expand_type_expr_visiting ~recursive visiting in
   match tp_expr with
   | App (constr, tp_expr_list, tp_attr) -> (
       match (constr, tp_expr_list) with
@@ -168,7 +172,8 @@ and expand_type_expr_visiting (visiting : QualIdentSet.t) (tp_expr : type_expr) 
                      (QualIdent.unqualify qual_ident))
               else
                 let+ exp_typ =
-                  expand_type_expr_visiting (Set.add visiting qual_ident) tp_expr1
+                  expand_type_expr_visiting ~recursive (Set.add visiting qual_ident)
+                    tp_expr1
                 in
                 exp_typ |> Type.set_ghost_to tp_expr)
       | Var _, _ :: _ ->
@@ -182,7 +187,8 @@ and expand_type_expr_visiting (visiting : QualIdentSet.t) (tp_expr : type_expr) 
       | AtomicToken _, _ -> unexpected_functor_error tp_attr.type_loc
       | _ ->
           let+ expanded_tp_expr_list =
-            Rewriter.List.map tp_expr_list ~f:expand_type_expr
+            if recursive then Rewriter.List.map tp_expr_list ~f:expand_type_expr
+            else Rewriter.return tp_expr_list
           in
           Type.App (constr, expanded_tp_expr_list, tp_attr) |> Type.set_ghost_to tp_expr)
 

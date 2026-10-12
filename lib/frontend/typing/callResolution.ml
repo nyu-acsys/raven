@@ -217,14 +217,36 @@ let is_literal hooks = function
   | _ -> false
 
 let reads_ghost tbl expr =
-  Set.exists (Expr.symbols expr) ~f:(fun qi ->
-      match CandidateTypes.lookup tbl qi with
-      | Some (_, (_, Module.VarDef var, _)) ->
-          var.var_decl.var_ghost || Type.is_ghost var.var_decl.var_type
-      | Some (_, (_, Module.FieldDef field, _)) -> field.field_is_ghost
-      | Some (_, (_, Module.CallDef call, _)) ->
-          Type.is_ghost (Callable.return_type call.call_decl)
-      | _ -> false)
+  (* Speculative types reflect the ghost context, rather than a value's origin. *)
+  let rec go bound = function
+    | Expr.App (Var qi, args, _) ->
+        let arguments () = List.exists args ~f:(go bound) in
+        begin match CandidateTypes.lookup tbl qi with
+        | Some (_, (_, Module.VarDef var, _)) ->
+            arguments ()
+            || (not (Set.mem bound qi))
+               && (var.var_decl.var_ghost || Type.is_ghost var.var_decl.var_type)
+        | Some (_, (_, Module.FieldDef field, _)) -> arguments () || field.field_is_ghost
+        | Some (_, (_, Module.CallDef call, _)) ->
+            Type.is_ghost (Callable.return_type call.call_decl)
+            || List.existsi args ~f:(fun index arg ->
+                let erased =
+                  Option.value_map (List.nth call.call_decl.call_decl_formals index)
+                    ~default:false ~f:(fun formal ->
+                      formal.var_ghost || Type.is_ghost formal.var_type)
+                in
+                (not erased) && go bound arg)
+        | _ -> arguments ()
+        end
+    | Expr.App (_, args, _) -> List.exists args ~f:(go bound)
+    | Expr.Binder (_, vars, triggers, body, _) ->
+        let bound =
+          List.fold vars ~init:bound ~f:(fun bound var ->
+              Set.add bound (QualIdent.from_ident var.Type.var_name))
+        in
+        go bound body || List.exists triggers ~f:(List.exists ~f:(go bound))
+  in
+  go (Set.empty (module QualIdent)) expr
 
 let evidence ~check_expr ~claimed_location ~location_indices args =
   let open Rewriter.Syntax in
@@ -237,11 +259,15 @@ let evidence ~check_expr ~claimed_location ~location_indices args =
             claimed_location original
           else Rewriter.return original
         in
+        let* tbl = Rewriter.get_table in
         let expr, location =
           match claimed with
           | Expr.App (Read, [ ref_expr; App (Var field, [], _) ], _)
             when List.mem location_indices index ~equal:Int.equal ->
-              (ref_expr, Some (index, field))
+              begin match CandidateTypes.lookup tbl field with
+              | Some (_, (_, Module.FieldDef _, _)) -> (ref_expr, Some (index, field))
+              | _ -> (original, None)
+              end
           | _ -> (original, None)
         in
         let* typed = speculatively (check_expr expr (Type.any |> Type.set_ghost true)) in
@@ -342,9 +368,7 @@ let field_constraints tbl target locations =
         | _ -> Error OverloadResolution.Argument
         end
   in
-  if List.length locations <> List.length parameters then
-    Error OverloadResolution.Argument
-  else solve [] locations
+  solve [] locations
 
 (* Represent generic reps structurally during trials; no instance is created. *)
 let virtual_formals generic tp =

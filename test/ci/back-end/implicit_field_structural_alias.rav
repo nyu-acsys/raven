@@ -1,0 +1,52 @@
+interface MapField { module E: Library.Type field f: Map[Int, E] }
+
+module Ops[A: MapField] {
+  func key(x.A.f) returns (r: Ref) { x }
+
+  proc get(x.A.f, implicit ghost w: Map[Int, A.E]) returns (m: Map[Int, A.E])
+    requires own(x.A.f, w, 1.0)
+    ensures own(x.A.f, w, 1.0) && m == w
+  { m := x.A.f; }
+}
+
+module Overloaded[A: MapField] {
+  func key(x.A.f) returns (r: Ref) { x }
+  func key(x.A.f, tag: Int) returns (r: Int) { tag }
+}
+
+interface SetField { module E: Library.Type field f: Map[E, Bool] }
+
+module SetOps[A: SetField] {
+  func key(x.A.f) returns (r: Ref) { x }
+}
+
+module Client {
+  type M = Map[Int, Int]
+  type Chained = M
+  type Nested = Map[Int, Chained]
+  type Boolean = Bool
+
+  field direct: M
+  field chained: Chained
+  field nested: Nested
+  field bools: Map[Int, Boolean]
+
+  proc check(x: Ref, ghost a: M, ghost b: Chained, ghost c: Nested)
+    requires own(x.direct, a, 1.0) && own(x.chained, b, 1.0) && own(x.nested, c, 1.0)
+    ensures own(x.direct, a, 1.0) && own(x.chained, b, 1.0) && own(x.nested, c, 1.0)
+  {
+    assert Ops.key(x.direct) == x;
+    assert Ops.key(x.chained) == x;
+    assert Ops.key(x.nested) == x;
+    assert Overloaded.key(x.direct) == x;
+    assert Overloaded.key(x.chained) == x;
+    assert Overloaded.key(x.nested) == x;
+    assert Overloaded.key(x.nested, 7) == 7;
+    assert SetOps.key(x.bools) == x;
+
+    val ma: M := Ops.get(x.direct);
+    val mb: Chained := Ops.get(x.chained);
+    val mc: Nested := Ops.get(x.nested);
+    assert ma == a && mb == b && mc == c;
+  }
+}

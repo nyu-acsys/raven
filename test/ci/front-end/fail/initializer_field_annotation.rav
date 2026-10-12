@@ -1,0 +1,7 @@
+field integer: Int
+
+proc read(x: Ref)
+  requires own(x.integer, 1)
+{
+  var value: Bool := x.integer;
+}

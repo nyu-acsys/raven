@@ -1,0 +1,9 @@
+proc narrow(implicit ghost original: Map[Int, Real])
+  atomic requires original[0] == 0.5
+  atomic ensures original[0] == 0.5
+{
+  ghost var token := bindAU();
+  ghost var integer: Map[Int, Int];
+  integer := openAU(token);
+  commitAU(token, ());
+}

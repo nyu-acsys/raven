@@ -1,0 +1,7 @@
+func ordinary(x: Int) returns (r: Int) { x }
+func h(x: Int) returns (r: Int) { x }
+func h(x: Bool) returns (r: Int) { 0 }
+
+proc check(ghost g: Int) {
+  var bad: Int := h(ordinary(g));
+}

@@ -1,0 +1,89 @@
+field integer: Int
+field reals: Map[Int, Real]
+field integers: Map[Int, Int]
+
+type MapBox = data {
+  case map_box(contents: Map[Int, Real])
+}
+
+type Numeric = data {
+  case whole(integer_number: Int);
+  case decimal(real_number: Real)
+}
+
+func tuple_first(p: (Real, Real)) returns (r: Real) { p#0 }
+
+func widen_tuple(p: (Int, Int)) returns (r: (Real, Real)) { p }
+
+proc integer_result() returns (r: Int)
+  ensures r == 1
+{
+  return 1;
+}
+
+proc values(p: (Int, Int), m: Map[Int, Int], b: Bool)
+{
+  var scalar: Real := 1;
+  assert scalar == 1.0;
+  scalar := integer_result();
+  assert scalar == 1.0;
+  scalar := b ? 2 : 0.5;
+  assert scalar == (b ? 2.0 : 0.5);
+  var inferred := b ? 0.5 : 2;
+  assert inferred == (b ? 0.5 : 2.0);
+  assert 1 + 0.5 == 1.5 && 0.5 + 1 == 1.5;
+  assert 1 < 1.5 && 1.5 > 1;
+  scalar := 1 / 2;
+  assert scalar == 0.5;
+
+  var pair: (Real, Real) := p;
+  assert pair#0 == p#0 && pair#1 == p#1;
+  pair := (1, 2);
+  assert pair == (1.0, 2.0);
+  assert tuple_first(p) == p#0;
+  assert widen_tuple(p)#1 == p#1;
+
+  var nested: (Real, Map[Int, Real]) := (3, m);
+  assert nested#0 == 3.0 && (nested#1)[0] == m[0];
+
+  var boxed := map_box(m);
+  assert boxed.contents[0] == m[0];
+}
+
+proc matched_values(value: Numeric)
+{
+  var inferred := match value {
+    case whole(integer_value) => integer_value;
+    case decimal(real_value) => real_value
+  };
+  assert inferred == (value is whole ? value.integer_number : value.real_number);
+}
+
+proc heap_values(x: Ref, m: Map[Int, Int])
+  requires own(x.integer, 1) && own(x.integers, m) && own(x.reals, m)
+  ensures own(x.integer, 1) && own(x.integers, m) && own(x.reals, m)
+{
+  var scalar: Real := x.integer;
+  assert scalar == 1.0;
+  var widened: Map[Int, Real] := x.integers;
+  assert widened[0] == m[0];
+  x.reals := m;
+  var read_back := x.reals;
+  assert read_back[0] == m[0];
+}
+
+proc ghost_reads(ghost x: Ref, n: Int)
+  requires n >= 0 && own(x.integer, 1)
+  ensures own(x.integer, 1)
+{
+  ghost var widened: Real;
+  var i := 0;
+  while (i < n)
+    invariant 0 <= i && own(x.integer, 1)
+    decreases n - i
+  {
+    widened := x.integer;
+    assert widened == 1.0;
+    i := i + 1;
+  }
+}

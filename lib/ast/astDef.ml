@@ -629,6 +629,7 @@ module Expr = struct
     (* Unary operators *)
     | Not
     | Uminus
+    | ToReal
     (* Binary operators *)
     | TupleLookUp
     | MapLookUp
@@ -751,6 +752,7 @@ module Expr = struct
     (*| Call (id, _) -> "call " ^ QualIdent.to_string id*)
     | Read -> "read"
     | Uminus -> "-"
+    | ToReal -> "to_real"
     | TupleLookUp -> "tuple_lookup"
     | MapLookUp -> "map_lookup"
     | MapUpdate -> "map_update"
@@ -788,7 +790,7 @@ module Expr = struct
     | Enumeration _ | Tuple | Read | Own | AUPred _ | AUPredCommit _ | Var _ | TupleLookUp
     | MapLookUp | MapUpdate ->
         1
-    | Uminus | Not -> 2
+    | Uminus | Not | ToReal -> 2
     | DataConstr _ | DataDestr _ -> 3
     | Mult | Div | Mod -> 4
     | Minus | Plus -> 5
@@ -986,6 +988,9 @@ module Expr = struct
   let mk_bool ?(loc = Loc.dummy) b = mk_app ~loc ~typ:Type.bool (Bool b) []
   let mk_int ?(loc = Loc.dummy) i = mk_app ~loc ~typ:Type.int (Int (Int64.of_int i)) []
   let mk_real ?(loc = Loc.dummy) r = mk_app ~loc ~typ:Type.real (Real r) []
+
+  let mk_to_real ?(loc = Loc.dummy) e =
+    mk_app ~loc ~typ:(Type.set_ghost (Type.is_ghost (to_type e)) Type.real) ToReal [ e ]
 
   let mk_tuple ?(loc = Loc.dummy) es =
     match es with

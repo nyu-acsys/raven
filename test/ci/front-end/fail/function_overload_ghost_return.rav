@@ -1,0 +1,7 @@
+func ghost_result() returns (ghost r: Int) { 0 }
+func h(x: Int) returns (r: Int) { x }
+func h(x: Bool) returns (r: Int) { 0 }
+
+proc check() {
+  var bad: Int := h(ghost_result());
+}

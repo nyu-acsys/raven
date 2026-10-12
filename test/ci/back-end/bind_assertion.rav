@@ -1,0 +1,17 @@
+field value: Int
+
+proc bind_boolean() {
+  ghost var x: Int;
+  ghost var y: Bool;
+  x, y :| x == 7 && y;
+  assert x == 7 && y;
+}
+
+proc bind_resource(r: Ref)
+  requires own(r.value, 5)
+  ensures own(r.value, 5)
+{
+  ghost var x: Int;
+  x :| own(r.value, x, 0.5);
+  assert x == 5;
+}

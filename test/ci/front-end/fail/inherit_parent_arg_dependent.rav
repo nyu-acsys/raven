@@ -1,0 +1,13 @@
+interface Wrapper {
+  interface Required { func value() returns (r: Int) }
+}
+
+interface Base[A: Wrapper, B: A.Required] {}
+
+module First : Wrapper {}
+module Second : Wrapper {}
+module Wrong : Second.Required {
+  func value() returns (r: Int) { 3 }
+}
+
+module Child : Base[First, Wrong] {}

@@ -556,7 +556,12 @@ module ErrorCreditsExt (Cont : Ext) = struct
                  Expr.mk_var ~typ:ec_field.field_type ec_field_qi;
                  Expr.mk_app ~loc ~typ:constr_decl.constr_return_type
                    (DataConstr lib_fraction_frac_constr_qi)
-                   [ Expr.mk_app ~typ:Type.real Div [ Expr.mk_int 1; n_expr ] ];
+                   [
+                     Expr.mk_app ~typ:Type.real Div
+                       [
+                         Expr.mk_to_real ~loc (Expr.mk_int 1); Expr.mk_to_real ~loc n_expr;
+                       ];
+                   ];
                ])
         in
 
@@ -721,7 +726,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
                     Expr.mk_app ~typ:Type.real ~loc (Expr.Var sum_func_qi)
                       (Expr.mk_app ~loc ~typ:Type.int Minus [ n_expr; Expr.mk_int 1 ]
                       :: List.map (List.tl_exn err_expr_var_decls) ~f:Expr.from_var_decl);
-                    n_expr;
+                    Expr.mk_to_real ~loc n_expr;
                   ])
                ec_expr)
         in
@@ -833,10 +838,11 @@ module ErrorCreditsExt (Cont : Ext) = struct
                    [
                      Expr.mk_app ~typ:Type.real Div
                        [
-                         Expr.mk_app ~loc ~typ:Type.int
-                           (Var (QualIdent.append ls_mod_qi Predefs.lib_list_len_ident))
-                           [ ls_expr ];
-                         n_expr;
+                         Expr.mk_to_real ~loc
+                           (Expr.mk_app ~loc ~typ:Type.int
+                              (Var (QualIdent.append ls_mod_qi Predefs.lib_list_len_ident))
+                              [ ls_expr ]);
+                         Expr.mk_to_real ~loc n_expr;
                        ];
                    ];
                ])

@@ -1,0 +1,8 @@
+field integer: Int
+
+proc read(ghost x: Ref)
+  requires own(x.integer, 3)
+{
+  var ordinary: Int;
+  ordinary := x.integer;
+}

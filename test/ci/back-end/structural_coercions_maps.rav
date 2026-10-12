@@ -1,0 +1,78 @@
+func real_at_zero(m: Map[Int, Real]) returns (r: Real) { m[0] }
+
+func widen_map(m: Map[Int, Int]) returns (r: Map[Int, Real]) { m }
+
+proc map_result(m: Map[Int, Int]) returns (r: Map[Int, Int])
+  ensures r == m
+{
+  return m;
+}
+
+proc widened_map_result(m: Map[Int, Int]) returns (r: Map[Int, Real])
+  ensures r[0] == m[0]
+{
+  return m;
+}
+
+proc map_values(m: Map[Int, Int], wide_domain: Map[Real, Int],
+    nested: Map[Int, Map[Int, Int]], tuple_domain: Map[(Real, Real), Int], b: Bool)
+{
+  var literal: Map[Int, Real] := {| i: Int :: 0 |};
+  assert literal[0] == 0.0;
+
+  var real_values: Map[Int, Real] := m;
+  assert real_values[0] == m[0];
+  assert real_values == m;
+  real_values := m;
+  assert real_values[1] == m[1];
+  assert real_at_zero(m) == m[0];
+  assert widen_map(m)[0] == m[0];
+
+  real_values := map_result(m);
+  assert real_values[0] == m[0];
+  real_values := widened_map_result(m);
+  assert real_values[0] == m[0];
+
+  var reindexed: Map[Int, Real] := wide_domain;
+  assert reindexed[2] == wide_domain[2.0];
+  assert wide_domain[2] == wide_domain[2.0];
+
+  var tuple_reindexed: Map[(Int, Int), Real] := tuple_domain;
+  assert tuple_reindexed[(1, 2)] == tuple_domain[(1.0, 2.0)];
+
+  var nested_real: Map[Int, Map[Int, Real]] := nested;
+  assert nested_real[1][2] == nested[1][2];
+
+  var selected: Map[Int, Real] := b ? m : literal;
+  assert selected[0] == (b ? m[0] : 0.0);
+  assert (b ? m : literal)[1] == (b ? m[1] : 0.0);
+  selected := b ? literal : m;
+  assert selected[0] == (b ? 0.0 : m[0]);
+
+  real_values[0] := 3;
+  assert real_values[0] == 3.0;
+  nested_real[0] := m;
+  assert nested_real[0][1] == m[1];
+}
+
+lemma finite_set_domains(s: FinSet[Real]) {
+  var integer_set: Set[Int] := s;
+  assert (1 in integer_set) == (1.0 in s);
+  var finite_integer_set: FinSet[Int] := s;
+  assert (2 in finite_integer_set) == (2.0 in s);
+}
+
+proc loop_values(m: Map[Int, Int], n: Int) returns (r: Map[Int, Real])
+  requires n >= 0
+  ensures r[0] == m[0]
+{
+  r := m;
+  var i := 0;
+  while (i < n)
+    invariant 0 <= i && r[0] == m[0]
+    decreases n - i
+  {
+    r := map_result(m);
+    i := i + 1;
+  }
+}

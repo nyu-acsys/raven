@@ -1,0 +1,62 @@
+field integer: Int
+ghost field ghost_integer: Int
+
+proc integer_result() returns (r: Int)
+  ensures r == 1
+{
+  return 1;
+}
+
+func integer_function() returns (r: Int) { 2 }
+
+proc mixed_results() returns (r: Int, ghost g: Int)
+  ensures r == 3 && g == 4
+{
+  return 3, 4;
+}
+
+proc widened_return() returns (r: Real)
+  ensures r == 5.0
+{
+  return 5;
+}
+
+proc field_reads(x: Ref)
+  requires own(x.integer, 1) && own(x.ghost_integer, 2)
+  ensures own(x.integer, 1) && own(x.ghost_integer, 2)
+{
+  var r: Real;
+  r := x.integer;
+  assert r == 1.0;
+  r := 0.5;
+  assert r == 0.5;
+
+  ghost var g: Real;
+  g := x.ghost_integer;
+  assert g == 2.0;
+  g := 0.5;
+  assert g == 0.5;
+}
+
+proc call_results() {
+  var r: Real;
+  r := integer_result();
+  assert r == 1.0;
+  r := 0.5;
+  assert r == 0.5;
+
+  r := integer_function();
+  assert r == 2.0;
+  r := 0.5;
+  assert r == 0.5;
+
+  ghost var g: Real;
+  r, g := mixed_results();
+  assert r == 3.0 && g == 4.0;
+  r := 0.5;
+  g := 0.5;
+  assert r == 0.5 && g == 0.5;
+
+  r := widened_return();
+  assert r == 5.0;
+}

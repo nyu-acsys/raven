@@ -177,9 +177,14 @@ and unify_type_list ~(loc : location) ~(functor_qual_ident : qual_ident)
         let* u = unify_one u t1 t2 in
         go u pairs
   and unify_one u t1 t2 =
-    (* Only [t2] is normalized: [t1] names [m]'s formals, which do not resolve outside
-       [m]. *)
-    let* t2 = TypeExpr.check t2 in
+    (* Expand actual aliases for structural matching, retaining instance rep paths
+       when recovering module arguments. Formals do not resolve outside [m]. *)
+    let* t2 =
+      let* t2 = TypeExpr.check t2 in
+      match t1 with
+      | Type.App (Var qi, [], _) when is_rep_type qi -> Rewriter.return t2
+      | _ -> TypeExpr.expand_type_head t2
+    in
     (* `Any`, `Num` (an operand of `+`) and `Perm` (an assertion, also met by `Bool`) say
        nothing about the formals. *)
     if
@@ -230,12 +235,17 @@ and unify_type_list ~(loc : location) ~(functor_qual_ident : qual_ident)
           (* A formal of type `Set[_]` accepts an argument of type `FinSet[_]`, but not
              the reverse. *)
           | App (Map, [ t1_elem; App (Bool, _, _) ], _) -> (
+              let incompatible () =
+                Error.type_error loc
+                  (Printf.sprintf !"Cannot unify type %{Type} with type %{Type}" t1 t2)
+              in
               match t2 with
               | App (FinSet, [ t2_elem ], _) -> go u [ (t1_elem, t2_elem) ]
-              | App (Map, [ t2_elem; App (Bool, _, _) ], _) -> go u [ (t1_elem, t2_elem) ]
-              | _ ->
-                  Error.type_error loc
-                    (Printf.sprintf !"Cannot unify type %{Type} with type %{Type}" t1 t2))
+              | App (Map, [ t2_elem; codomain ], _) ->
+                  let* codomain = TypeExpr.expand_type_head codomain in
+                  if Type.equal codomain Type.bool then go u [ (t1_elem, t2_elem) ]
+                  else incompatible ()
+              | _ -> incompatible ())
           | App (c1, args1, _) -> (
               match t2 with
               | App (c2, args2, _)

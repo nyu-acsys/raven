@@ -1,0 +1,9 @@
+interface Required { func required() returns (r: Int) }
+interface Base[A: Required] {}
+
+interface Unrelated { func other() returns (r: Int) }
+module Wrong : Unrelated {
+  func other() returns (r: Int) { 0 }
+}
+
+module Child : Base[Wrong] {}

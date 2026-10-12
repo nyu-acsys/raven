@@ -1,0 +1,4 @@
+proc bind_value() {
+  ghost var x: Int;
+  x :| 3;
+}

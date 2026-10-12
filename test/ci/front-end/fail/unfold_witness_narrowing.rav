@@ -1,0 +1,10 @@
+pred real_map() {
+  exists witness: Map[Int, Real] :: witness[0] == 0.5
+}
+
+proc narrow()
+  requires real_map()
+{
+  ghost var integer: Map[Int, Int];
+  unfold real_map()[integer := witness];
+}

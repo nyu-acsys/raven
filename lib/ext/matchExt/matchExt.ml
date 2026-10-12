@@ -276,10 +276,7 @@ module MatchExt (Cont : Ext) = struct
               "a `match` scrutinee must have a `data` type"
         | Some (data_qi, variant_decls) ->
             let* () = check_arms_exhaustive expr_attr.expr_loc variant_decls arms in
-            (* Every arm's body is checked against the same [expected_typ], exactly like
-            a quantifier's inner expression ([ExprTyping]'s [Binder] case) -- match is
-            an ordinary expression whose result type is dictated by its surrounding
-            context, not something this extension needs its own join/meet logic for. *)
+            (* Check against the context, then align arms when the context is inferred. *)
             let* checked_bodies =
               Rewriter.List.map (List.zip_exn arms bodies) ~f:(fun (arm, body) ->
                   match arm.arm_ctor with
@@ -312,7 +309,16 @@ module MatchExt (Cont : Ext) = struct
                           let* _ = Rewriter.add_locals pat_var_decls in
                           functs.check_expr body expected_typ))
             in
-            let result_typ = Expr.to_type (List.hd_exn checked_bodies) in
+            let result_typ =
+              List.fold (List.tl_exn checked_bodies)
+                ~init:(Expr.to_type (List.hd_exn checked_bodies))
+                ~f:(fun typ body -> Type.join typ (Expr.to_type body))
+            in
+            let* checked_bodies =
+              Rewriter.List.map checked_bodies ~f:(fun body ->
+                  if Type.equal (Expr.to_type body) result_typ then Rewriter.return body
+                  else functs.check_expr body result_typ)
+            in
             functs.set_checked_type
               (Expr.App (ExprExt (MatchExpr arms), scrutinee :: checked_bodies, expr_attr))
               result_typ result_typ expected_typ)

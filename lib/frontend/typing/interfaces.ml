@@ -383,11 +383,20 @@ let check_module_type mod_ident int_ident =
   and+ qual_int_ident, int_symbol = Rewriter.resolve_and_find int_ident in
   (* Extract all interfaces implemented by M and check whether it is fully instantiated *)
   let interfaces, mod_is_instance =
-    Rewriter.Symbol.extract mod_symbol ~f:(fun is_instance subst -> function
+    Rewriter.Symbol.extract mod_symbol ~f:(fun is_instance _ -> function
       | Ast.Module.ModDef mod_def ->
-          (*Set.map (module QualIdent) mod_def.mod_decl.mod_decl_interfaces ~f:subst*)
-          ( mod_def.mod_decl.mod_decl_interfaces,
-            List.is_empty mod_def.mod_decl.mod_decl_formals || is_instance )
+          let interfaces =
+            Set.map
+              (module QualIdent)
+              mod_def.mod_decl.mod_decl_interfaces
+              ~f:(fun interface ->
+                List.fold (Rewriter.Symbol.subst mod_symbol) ~init:interface
+                  ~f:(fun interface (source, target) ->
+                    (* Requalify enclosing modules, retaining the interface's own identity. *)
+                    if QualIdent.equal interface source then interface
+                    else QualIdent.requalify [ (source, target) ] interface))
+          in
+          (interfaces, List.is_empty mod_def.mod_decl.mod_decl_formals || is_instance)
       | _ -> (Set.empty (module QualIdent), true))
   in
   (* Check whether I is fully instantiated *)
@@ -1067,6 +1076,17 @@ let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_iden
               !"ModuleTyping.check: module %{Ident}: checking return type %{QualIdent}"
               (Symbol.to_name (ModDef m)) mid);
         let* qual_interface_ident, interface_symbol = Rewriter.resolve_and_find mid in
+        let formals =
+          Rewriter.Symbol.extract interface_symbol ~f:(fun is_instance _ -> function
+            | Module.ModDef parent ->
+                if is_instance then [] else parent.mod_decl.mod_decl_formals
+            | symbol ->
+                Error.type_error (QualIdent.to_loc mid)
+                  (Printf.sprintf
+                     !"Expected a module or interface in the parent clause, but found %s \
+                       %{QualIdent}"
+                     (Symbol.kind symbol) mid))
+        in
         (* A parameterized parent's formals are substituted by its arguments first, then
              its name by this module's; in the other order, a mapping for `Base.A` would
              no longer match. *)
@@ -1090,19 +1110,19 @@ let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_iden
                   "An inherited interface must be applied to modules, not to bare types; \
                    name a module implementing the parameter's interface instead")
         in
-        let interface_symbol =
+        let* interface_symbol =
           match interface_symbol with
-          | _ when List.is_empty arg_subst -> interface_symbol
+          | _ when List.is_empty arg_subst -> Rewriter.return interface_symbol
           | _ -> (
-              let formals =
-                Rewriter.Symbol.extract interface_symbol
-                  ~f:(fun _is_instance _subst -> function
-                  | Ast.Module.ModDef mod_def -> mod_def.mod_decl.mod_decl_formals
-                  | _ -> [])
-              in
               match List.zip formals arg_subst with
               | Ok pairs ->
-                  List.fold pairs ~init:interface_symbol ~f:(fun sym (formal, arg_qi) ->
+                  Rewriter.List.fold_left pairs ~init:interface_symbol
+                    ~f:(fun sym (formal, arg_qi) ->
+                      let formal_iface =
+                        Rewriter.Symbol.extract sym ~f:(fun _ requalify _ ->
+                            requalify formal.mod_inst_type)
+                      in
+                      let+ () = check_module_type arg_qi formal_iface in
                       Rewriter.Symbol.extend_subst
                         ( QualIdent.append qual_interface_ident formal.mod_inst_name,
                           QualIdent.to_list arg_qi )

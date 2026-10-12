@@ -1,0 +1,29 @@
+pred integer_map(m: Map[Int, Int]) {
+  exists witness: Map[Int, Int] :: witness == m
+}
+
+pred real_map(m: Map[Int, Real]) {
+  exists witness: Map[Int, Real] :: witness == m
+}
+
+proc predicate_witnesses(m: Map[Int, Int])
+  requires integer_map(m)
+  ensures integer_map(m) && real_map(m)
+{
+  ghost var widened: Map[Int, Real];
+  unfold integer_map(m)[widened := witness];
+  assert widened[0] == m[0];
+  fold integer_map(m)[witness := m];
+  fold real_map(m)[witness := m];
+}
+
+proc atomic_witness(m: Map[Int, Int], implicit ghost original: Map[Int, Int])
+  atomic requires original == m
+  atomic ensures original == m
+{
+  ghost var token := bindAU();
+  ghost var widened: Map[Int, Real];
+  widened := openAU(token);
+  assert widened[0] == m[0];
+  commitAU(token, ());
+}

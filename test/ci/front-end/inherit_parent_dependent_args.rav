@@ -1,0 +1,25 @@
+// Parent formals may depend on an earlier formal's nested interface.
+interface Wrapper {
+  interface Required { func value() returns (r: Int) }
+}
+
+interface Base[A: Wrapper, B: A.Required] {
+  func value() returns (r: Int)
+}
+
+module Concrete : Wrapper {}
+module IntElement : Concrete.Required {
+  func value() returns (r: Int) { 3 }
+}
+
+module Child[X: Wrapper, Y: X.Required] : Base[X, Y] {
+  func value() returns (r: Int) { 3 }
+}
+
+module Fixed : Base[Concrete, IntElement] {
+  func value() returns (r: Int) { 3 }
+}
+
+proc check() returns (r: Int) {
+  r := Fixed.value();
+}

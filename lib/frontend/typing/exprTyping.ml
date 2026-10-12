@@ -41,11 +41,16 @@ let rec update_root (expr : expr) : expr =
   | App (constr, base :: _, _) when is_update_constr constr -> update_root base
   | _ -> expr
 
-let set_checked_type (expr : expr) (given_typ_lb : type_expr) (given_typ_ub : type_expr)
-    (expected_typ : type_expr) : expr t =
+let coerce_checked expr target =
+  let open Rewriter.Syntax in
+  let* speculative = is_speculative in
+  if speculative then Rewriter.return expr else ValueCoercions.coerce_expanded expr target
+
+let set_checked_type ?(coerce = true) (expr : expr) (given_typ_lb : type_expr)
+    (given_typ_ub : type_expr) (expected_typ : type_expr) : expr t =
   let open Rewriter.Syntax in
   let expected_ghost = Type.is_ghost expected_typ in
-  let+ given_typ_lb =
+  let* given_typ_lb =
     try TypeExpr.expand_type_expr given_typ_lb
     with Msg msgs ->
       Error.fail_with
@@ -63,7 +68,9 @@ let set_checked_type (expr : expr) (given_typ_lb : type_expr) (given_typ_ub : ty
          spec, or ghost-typed field"
   in
   let typ = Type.meet given_typ_ub expected_typ |> Type.set_ghost expected_ghost in
-  if Type.subtype_of given_typ_lb typ then Expr.set_type expr typ
+  if Type.subtype_of given_typ_lb typ then
+    let expr = Expr.set_type expr typ in
+    if coerce then coerce_checked expr expected_typ else Rewriter.return expr
   else begin
     Logs.debug (fun m ->
         m
@@ -92,6 +99,14 @@ let check_triggers_mention ~(kind : string) (var_decls : var_decl list)
               (Expr.to_loc (List.hd_exn trg))
               (Printf.sprintf "This trigger does not mention the %s %s" kind
                  (Ident.name var_decl.var_name))))
+
+(** Checks the value assigned to [target], retaining the destination's declared type. *)
+let check_assignment_target (target : expr) (source_type : type_expr) : expr t =
+  let open Rewriter.Syntax in
+  let+ _ =
+    set_checked_type ~coerce:false target source_type source_type (Expr.to_type target)
+  in
+  target
 
 (** Infers and checks the type of [expr] against [expected_typ]. [allow_proc_call] permits
     a call of a procedure or lemma, which may occur only as the right-hand side of an
@@ -188,6 +203,15 @@ let rec check ?(allow_proc_call = false) ?(contextual = false) (expr : expr)
               | (Not | Uminus), _expr_list ->
                   Error.type_error (Expr.to_loc expr)
                     (Expr.constr_to_string constr ^ " takes exactly one argument")
+              | ToReal, [ expr_arg ] ->
+                  let* expr_arg =
+                    check expr_arg (Type.set_ghost_to expected_typ Type.int)
+                  in
+                  set_checked_type
+                    (App (ToReal, [ expr_arg ], expr_attr))
+                    Type.real Type.real expected_typ
+              | ToReal, _ ->
+                  Error.type_error (Expr.to_loc expr) "to_real takes exactly one argument"
               (* Binary expressions *)
               | ( ( TupleLookUp | MapLookUp | Plus | Minus | Mult | Div | Mod | Gt | Lt
                   | Geq | Leq | And | Or | Impl | Eq ),
@@ -417,7 +441,10 @@ and check_var (qual_ident : qual_ident) (args_list : expr list)
           (* The reified signature has concrete reps; candidate returns may be virtual. *)
           let given_typ = Callable.return_type callable_decl in
           let expr = Expr.App (Var qual_ident, args_list, expr_attr) in
-          set_checked_type expr given_typ given_typ expected_typ
+          let coerce =
+            match callable_decl.call_decl_kind with Proc | Lemma -> false | _ -> true
+          in
+          set_checked_type ~coerce expr given_typ given_typ expected_typ
       | VarDef _ | FieldDef _ ->
           let given_typ =
             match (symbol, args_list) with
@@ -487,12 +514,13 @@ and check_binary (expr1 : expr) (expr2 : expr) (constr : Expr.constr)
       match constr with
       | TupleLookUp -> Type.int
       | MapLookUp -> Type.map_dom typ1
-      | Plus | Minus | Mult | Div | Mod | Gt | Lt | Geq | Leq -> typ1
+      | Plus | Minus | Mult | Div | Mod | Gt | Lt | Geq | Leq -> Type.num
       | Eq -> (
           (* Widened, so that either side may be the finite set: the two sides
                      are then typed at their join below. *)
           match typ1 with
           | App (FinSet, [ elem ], _) -> Type.set_typed elem
+          | App ((Int | Real), [], _) -> Type.num
           | _ -> typ1)
       | And | Or | Impl -> Type.perm
       | _ -> assert false
@@ -530,6 +558,12 @@ and check_binary (expr1 : expr) (expr2 : expr) (constr : Expr.constr)
     if Type.equal expected_typ1 typ1 then Rewriter.return expr1
     else check expr1 expected_typ1
   in
+  let* expr2 =
+    match constr with
+    | Plus | Minus | Mult | Div | Mod | Eq | Gt | Lt | Geq | Leq ->
+        coerce_checked expr2 expected_typ1
+    | _ -> Rewriter.return expr2
+  in
 
   let expected_typ =
     let ty =
@@ -556,7 +590,7 @@ and check_binary (expr1 : expr) (expr2 : expr) (constr : Expr.constr)
         let typ = expr1 |> Expr.to_type |> Type.map_codom in
         (typ, typ)
     | Plus | Minus | Mult | Div | Mod ->
-        let typ = expr1 |> Expr.to_type in
+        let typ = Type.join (Expr.to_type expr1) (Expr.to_type expr2) in
         (typ, typ)
     | And | Or | Impl ->
         let typ = expr1 |> Expr.to_type in
@@ -623,12 +657,23 @@ and check_ternary (expr1 : expr) (expr2 : expr) (expr3 : expr) (constr : Expr.co
     else check expr2 expected_typ2
   in
   let typ2 = Expr.to_type expr2 in
+  let* expr3 =
+    match constr with
+    | Ite -> coerce_checked expr3 expected_typ2
+    | _ -> Rewriter.return expr3
+  in
+  let typ3 = Expr.to_type expr3 in
   (* backpropagate typ3 and typ2 to expr1 if needed *)
   let expected_typ1 =
     let ty =
       match constr with
       | Ite -> Type.bool
-      | MapUpdate -> Type.map typ2 typ3
+      | MapUpdate ->
+          let codomain = Type.map_codom typ1 in
+          let codomain =
+            if Type.contains_bot codomain then typ3 else Type.join codomain typ3
+          in
+          Type.map typ2 codomain
       | _ -> assert false
     in
     ty |> Type.set_ghost_to expected_typ
@@ -641,7 +686,9 @@ and check_ternary (expr1 : expr) (expr2 : expr) (expr3 : expr) (constr : Expr.co
   (* recompute expr and check against its expected type *)
   let given_typ_lb, given_typ_ub =
     match constr with
-    | Ite -> (typ3, typ3)
+    | Ite ->
+        let typ = Type.join typ2 typ3 in
+        (typ, typ)
     | MapUpdate -> (typ1, typ1)
     | _ -> assert false
   in
@@ -1015,15 +1062,20 @@ and check_args ?(is_called = true) loc is_ghost_scope callable_decl args_list =
               let* arg = claimed_location arg in
               match arg with
               | Expr.App (Read, [ ref_expr; App (Var field, [], _) ], _) ->
-                  let* field = Rewriter.resolve field in
-                  let* declared_field = Rewriter.resolve declared_field in
-                  if QualIdent.equal field declared_field then Rewriter.return ref_expr
-                  else
-                    Error.type_error (Expr.to_loc arg)
-                      (Printf.sprintf
-                         !"%{Ident} operates on field %{QualIdent} here, but this \
-                           argument names %{QualIdent}"
-                         callable_decl.call_decl_name declared_field field)
+                  let* resolved = Rewriter.resolve_and_find_opt field in
+                  begin match resolved with
+                  | Some (field, (_, Module.FieldDef _, _)) ->
+                      let* declared_field = Rewriter.resolve declared_field in
+                      if QualIdent.equal field declared_field then
+                        Rewriter.return ref_expr
+                      else
+                        Error.type_error (Expr.to_loc arg)
+                          (Printf.sprintf
+                             !"%{Ident} operates on field %{QualIdent} here, but this \
+                               argument names %{QualIdent}"
+                             callable_decl.call_decl_name declared_field field)
+                  | _ -> Rewriter.return arg
+                  end
               | _ -> Rewriter.return arg))
   in
   let provided_formals = List.take callable_formals (List.length args_list) in
@@ -1077,13 +1129,10 @@ and check_returns loc ~is_ghost_scope ~is_call callable_decl returns_list =
   match%bind
     Rewriter.List.map2 returns_list provided_returns ~f:(fun expr var_decl ->
         let is_ghost =
-          (if is_call then Type.is_ghost (expr |> Expr.to_type)
-           else Type.is_ghost var_decl.Type.var_type)
-          || is_ghost_call || is_ghost_scope
+          Type.is_ghost var_decl.Type.var_type || is_ghost_call || is_ghost_scope
         in
         let tp_expr = var_decl.Type.var_type |> Type.set_ghost is_ghost in
-        let+ expr = check expr tp_expr in
-        expr)
+        if is_call then check_assignment_target expr tp_expr else check expr tp_expr)
   with
   | Ok returns_list -> Rewriter.return returns_list
   | Unequal_lengths ->

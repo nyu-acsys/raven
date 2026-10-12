@@ -1,0 +1,4 @@
+proc bind_twice() {
+  ghost var x: Int;
+  x, x :| true;
+}
