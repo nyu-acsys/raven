@@ -177,6 +177,8 @@ let rec pr_term ppf (term : term) =
   match term with
   | App (constr, expr_list, _) -> (
       match (constr, expr_list) with
+      | DataTest constructor, [ arg ] ->
+          fprintf ppf "@[<2>((_ is %a)@ %a)@]" pr_smt_ident constructor pr_term arg
       | ( (( Bool _ | Int _ | Real _ | Not | MapLookUp | MapUpdate | Eq | Gt | Lt | Geq
            | Leq | And | Or | Plus | Minus | Mult | Div | Mod | DataConstr _ | DataDestr _
            | Ite | Var _ ) as sym),

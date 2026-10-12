@@ -161,11 +161,8 @@ module DecreasesExt (Cont : Ext) = struct
     | App (Var qi, [], _) -> QualIdent.equal qi data_qi
     | _ -> false
 
-  (* Builds `lt`'s body for the auto-generated order below. Raven has no match
-     expression, so -- exactly like every hand-written `data`-type function in
-     this codebase, e.g. [OrdinalBase.lt] -- [y]'s own constructor is
-     exhaustively discriminated via reconstruct-and-compare, `y == C(y.f1, ...,
-     y.fn)`; for the matching variant, `x` "decreases" `y` iff `x` equals one of
+  (* Builds `lt`'s body for the auto-generated order below. Native testers
+     discriminate [y]'s constructor; `x` "decreases" `y` iff `x` equals one of
      that variant's self-recursive fields. Deliberately *not* transitively
      closed (i.e. this only ever looks one field-selection deep, never `x ==
      y.f.g` or "recursing into" the disjunction): a `decreases` progress check
@@ -190,11 +187,7 @@ module DecreasesExt (Cont : Ext) = struct
       | (variant : Type.variant_decl) :: rest ->
           let is_this_variant =
             let constr_qi = QualIdent.append module_qi variant.variant_name in
-            let reconstructed =
-              Expr.mk_app ~loc ~typ:y_vd.var_type (DataConstr constr_qi)
-                (List.map variant.variant_args ~f:field_expr)
-            in
-            Expr.mk_eq ~loc y_expr reconstructed
+            Expr.mk_app ~loc ~typ:Type.bool (DataTest constr_qi) [ y_expr ]
           in
           let this_branch =
             match

@@ -143,21 +143,14 @@ module MatchExt (Cont : Ext) = struct
             (Printf.sprintf "non-exhaustive match: missing case(s) for %s"
                (String.concat ~sep:", " (List.map missing ~f:Ident.to_string)))
 
-  (* Shared by [Is]'s and [MatchExpr]'s [rewrite_expr_ext] below: a single field's
-     destructor projection, and the reconstruct-and-compare recognizer condition for
-     one variant, both relative to a data type's own home module [module_qi]. *)
+  (* Destructor projections use the data type's own home module. *)
   let destr_expr ~(loc : location) (module_qi : qual_ident) (scrutinee : expr)
       (fvd : var_decl) : expr =
     let destr_qi = QualIdent.append module_qi fvd.var_name in
     Expr.mk_app ~loc ~typ:fvd.var_type (DataDestr destr_qi) [ scrutinee ]
 
-  let recognizer_cond ~(loc : location) (module_qi : qual_ident) (scrutinee : expr)
-      (ctor_qi : qual_ident) (variant : Type.variant_decl) : expr =
-    let reconstructed =
-      Expr.mk_app ~loc ~typ:(Expr.to_type scrutinee) (DataConstr ctor_qi)
-        (List.map variant.variant_args ~f:(destr_expr ~loc module_qi scrutinee))
-    in
-    Expr.mk_eq ~loc scrutinee reconstructed
+  let recognizer_cond ~(loc : location) (scrutinee : expr) (ctor_qi : qual_ident) : expr =
+    Expr.mk_app ~loc ~typ:Type.bool (DataTest ctor_qi) [ scrutinee ]
 
   (** AstDef *)
   let expr_ext_to_string (expr_ext : Expr.expr_ext) : string =
@@ -327,30 +320,12 @@ module MatchExt (Cont : Ext) = struct
 
   (* Rewrites *)
 
-  (** Lowers `xs is cons` to the established reconstruct-and-compare idiom already used by
-      hand throughout this codebase (e.g. `decreasesExt.ml`'s auto-generated structural
-      order): `xs == cons(xs.field_1, ..., xs.field_n)`. Z3's native datatype theory
-      already reasons about constructor/selector axioms internally, so this costs about
-      the same as a native recognizer/tester would -- no new backend support is needed. *)
   let rewrite_expr_ext (expr_ext : Expr.expr_ext) (expr_list : expr list)
       (expr_attr : Expr.expr_attr) : expr Rewriter.t =
     let open Rewriter.Syntax in
     match (expr_ext, expr_list) with
-    | Is ctor_qi, [ scrutinee ] -> (
-        let* data_type = as_data_type (Expr.to_type scrutinee) in
-        match data_type with
-        | Some (data_qi, variant_decls) ->
-            let module_qi = QualIdent.pop data_qi in
-            let variant =
-              List.find_exn variant_decls ~f:(fun (v : Type.variant_decl) ->
-                  QualIdent.equal (QualIdent.append module_qi v.variant_name) ctor_qi)
-            in
-            Rewriter.return
-              (recognizer_cond ~loc:expr_attr.expr_loc module_qi scrutinee ctor_qi variant)
-        | None ->
-            Error.internal_error expr_attr.expr_loc
-              "MatchExt.Is reached the rewrite phase with a scrutinee that isn't a data \
-               type (should have been rejected at type-checking time)")
+    | Is ctor_qi, [ scrutinee ] ->
+        Rewriter.return (recognizer_cond ~loc:expr_attr.expr_loc scrutinee ctor_qi)
     | MatchExpr arms, scrutinee :: bodies -> (
         let* data_type = as_data_type (Expr.to_type scrutinee) in
         match data_type with
@@ -399,12 +374,11 @@ module MatchExt (Cont : Ext) = struct
                   match arm.arm_ctor with
                   | None -> body'
                   | Some ctor_ident ->
-                      let ctor_qi, variant =
+                      let ctor_qi, _ =
                         Option.value_exn (find_variant data_qi variant_decls ctor_ident)
                       in
                       let cond =
-                        recognizer_cond ~loc:expr_attr.expr_loc module_qi scrutinee
-                          ctor_qi variant
+                        recognizer_cond ~loc:expr_attr.expr_loc scrutinee ctor_qi
                       in
                       Expr.mk_ite ~loc:expr_attr.expr_loc cond body' (build rest))
             in

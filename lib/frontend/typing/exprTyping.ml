@@ -226,6 +226,25 @@ let rec check ?(allow_proc_call = false) ?(contextual = false) (expr : expr)
               | DataConstr constr_ident, args_list ->
                   check_data_constr constr_ident args_list constr expr_attr expr
                     expected_typ
+              | DataTest constr_ident, [ arg ] ->
+                  let loc = QualIdent.to_loc constr_ident in
+                  let* constr_ident, symbol = Rewriter.resolve_and_find constr_ident in
+                  let* symbol = Rewriter.Symbol.reify symbol in
+                  let constructor =
+                    match symbol with
+                    | ConstrDef constructor -> constructor
+                    | _ -> Error.type_error loc "Expected data constructor"
+                  in
+                  let* arg =
+                    check arg
+                      (constructor.constr_return_type |> Type.set_ghost_to expected_typ)
+                  in
+                  set_checked_type
+                    (App (DataTest constr_ident, [ arg ], expr_attr))
+                    Type.bool Type.bool expected_typ
+              | DataTest _, _ ->
+                  Error.type_error (Expr.to_loc expr)
+                    (Expr.constr_to_string constr ^ " takes exactly one argument")
               (* Data destructor expressions *)
               | DataDestr destr_qual_ident, [ expr1 ] ->
                   let loc = QualIdent.to_loc destr_qual_ident in

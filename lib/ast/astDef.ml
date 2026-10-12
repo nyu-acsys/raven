@@ -649,6 +649,7 @@ module Expr = struct
     (*| Call of qual_ident * (location [@compare.ignore])*)
     | DataConstr of QualIdent.t
     | DataDestr of QualIdent.t
+    | DataTest of QualIdent.t
     | Read
     (* Ternary operators *)
     | Ite
@@ -746,6 +747,7 @@ module Expr = struct
     | Null -> "null"
     | Tuple -> "()"
     | DataConstr id | DataDestr id -> QualIdent.to_string id
+    | DataTest id -> "is " ^ QualIdent.to_string id
     (*| Call (id, _) -> "call " ^ QualIdent.to_string id*)
     | Read -> "read"
     | Uminus -> "-"
@@ -791,7 +793,7 @@ module Expr = struct
     | Mult | Div | Mod -> 4
     | Minus | Plus -> 5
     | Gt | Lt | Geq | Leq -> 7
-    | Eq -> 8
+    | Eq | DataTest _ -> 8
     | And -> 12
     | Or | Impl -> 16
     | Ite -> 17
@@ -834,6 +836,9 @@ module Expr = struct
       | App (DataConstr id, es, _) | App (Var id, (_ :: _ as es), _) ->
           fprintf ppf "(%a(%a) \027[35m :%a \027[0m)" QualIdent.pr id pr_list es Type.pr
             (to_type e)
+      | App (DataTest id, [ arg ], _) ->
+          fprintf ppf "(%a is %a \027[35m :%a \027[0m)" pr_paran arg QualIdent.pr id
+            Type.pr (to_type e)
       | App (Read, [ e1; e2 ], _) ->
           fprintf ppf "((%a).(%a) \027[35m :%a \027[0m)" pr e1 pr e2 Type.pr (to_type e)
       | App (MapLookUp, [ e1; e2 ], _) ->
@@ -869,6 +874,11 @@ module Expr = struct
       | App (c, [], _) -> fprintf ppf "%a" pr_constr c
       | App (DataConstr id, es, _) | App (Var id, (_ :: _ as es), _) ->
           fprintf ppf "%a(%a)" QualIdent.pr id pr_list_compact es
+      | App (DataTest id, [ arg ], _) ->
+          let pr_arg =
+            if to_prio arg >= constr_to_prio (DataTest id) then pr_paran else pr
+          in
+          fprintf ppf "%a is %a" pr_arg arg QualIdent.pr id
       | App
           ( ((Minus | Plus | Mult | Div | Mod | Eq | Leq | Geq | Lt | Gt | And | Or | Impl)
              as c),
@@ -1118,6 +1128,7 @@ module Expr = struct
             | Var qual_ident -> Var (fct qual_ident)
             | DataConstr qual_ident -> DataConstr (fct qual_ident)
             | DataDestr qual_ident -> DataDestr (fct qual_ident)
+            | DataTest qual_ident -> DataTest (fct qual_ident)
             | _ -> constr
           in
           App (constr, args, expr_attr)
@@ -1211,8 +1222,11 @@ module Expr = struct
       | App (Var id, ts, attr) ->
           let syms = List.fold_left ts ~f:(symbols bv) ~init:syms in
           if Set.mem bv id then syms else Set.add syms id
-      | App ((DataConstr id | DataDestr id | AUPred id | AUPredCommit id), ts, _) ->
-          (* Unlike [Var], never locally bound -- a data constructor/destructor or
+      | App
+          ( (DataConstr id | DataDestr id | DataTest id | AUPred id | AUPredCommit id),
+            ts,
+            _ ) ->
+          (* Unlike [Var], never locally bound -- a data constructor/destructor/tester or
            atomic-update predicate name can't be shadowed by a binder -- so its own
            [id] always counts, with no [bv] check. This is what makes e.g. a data
            constructor's own datatype (and hence its declaration) discoverable from

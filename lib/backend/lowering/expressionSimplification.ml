@@ -21,6 +21,8 @@ let rec simplify (expr : expr) : expr Rewriter.t =
   let loc = Expr.to_loc expr in
   let bool value = Rewriter.return (Expr.mk_bool ~loc value) in
   match expr with
+  | App (DataTest tested, [ App (DataConstr constructor, _, _) ], _) ->
+      bool (QualIdent.equal tested constructor)
   | App (DataDestr selector, [ App (DataConstr constructor, args, _) ], _) ->
       let+ selectors = ProgUtils.get_data_destrs_from_constr constructor in
       begin match List.findi selectors ~f:(fun _ qi -> QualIdent.equal qi selector) with

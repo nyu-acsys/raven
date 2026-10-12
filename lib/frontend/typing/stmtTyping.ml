@@ -66,6 +66,9 @@ let rec disambiguate_expr (expr : expr) (disam_tbl : DisambiguationTbl.t) : expr
         | DataDestr qual_ident ->
             let+ qual_ident = disambiguate_ident qual_ident disam_tbl in
             Expr.DataDestr qual_ident
+        | DataTest qual_ident ->
+            let+ qual_ident = disambiguate_ident qual_ident disam_tbl in
+            Expr.DataTest qual_ident
         | _ -> Rewriter.return constr
       in
       Rewriter.return Expr.(App (constr, expr_list, expr_attr))

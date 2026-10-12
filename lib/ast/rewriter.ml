@@ -1267,6 +1267,9 @@ module Expr = struct
           | DataDestr qual_ident ->
               let+ qual_ident = f qual_ident in
               Expr.DataDestr qual_ident
+          | DataTest qual_ident ->
+              let+ qual_ident = f qual_ident in
+              Expr.DataTest qual_ident
           | _ -> return constr
         in
         Expr.App (constr, expr_list, expr_attr)
@@ -1290,6 +1293,7 @@ module Expr = struct
           | Var qual_ident -> Expr.Var (f qual_ident)
           | DataConstr qual_ident -> Expr.DataConstr (f qual_ident)
           | DataDestr qual_ident -> Expr.DataDestr (f qual_ident)
+          | DataTest qual_ident -> Expr.DataTest (f qual_ident)
           | _ -> constr
         in
         Expr.App (constr, expr_list, expr_attr)

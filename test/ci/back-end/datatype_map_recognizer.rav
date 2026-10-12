@@ -1,0 +1,33 @@
+// Map-valued datatype selectors have SMT array sorts.
+type Snapshot = data {
+  case absent;
+  case present(values: Map[Int, Int])
+}
+
+func lookup(s: Snapshot, i: Int) returns (r: Int)
+  ensures s is absent ==> r == 0
+  ensures s is present ==> r == s.values[i]
+{
+  match s {
+    case absent => 0
+    case present(m) => m[i]
+  }
+}
+
+proc constructors(m: Map[Int, Int], i: Int)
+{
+  assert absent is absent;
+  assert !(absent is present);
+  assert present(m) is present;
+  assert !(present(m) is absent);
+  assert lookup(absent, i) == 0;
+  assert lookup(present(m), i) == m[i];
+}
+
+proc recognized(s: Snapshot, i: Int)
+  requires s is present
+{
+  assert s == present(s.values);
+  assert !(s is absent);
+  assert lookup(s, i) == s.values[i];
+}
