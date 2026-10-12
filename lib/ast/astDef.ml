@@ -2818,8 +2818,8 @@ module Module = struct
             rather than declaring a new one -- the counterpart for fields of `rep type T =
             Int` for types. Such a field is registered as an alias in the symbol table, so
             every lookup redirects to the target and no second heap is created for it
-            (heaps are keyed by field name, see [HeapsExplicitTrnsl.field_heap_name]).
-            Passes that generate per-field artifacts must therefore skip it. *)
+            (heaps are keyed by field name, see [HeapNames.field_heap_name]). Passes that
+            generate per-field artifacts must therefore skip it. *)
     field_alias : QualIdent.t option;
     field_loc : Loc.t;
   }

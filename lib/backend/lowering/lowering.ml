@@ -1819,14 +1819,9 @@ let lower (m : Module.t) : (Module.t * CallGraph.Graph.t) Rewriter.t =
   in
 
   Logs.debug (fun m1 ->
-      m1
-        "Lowering.lower: Starting rewriter_find_witness_elim_exists_from_exhale on \
-         module %a"
-        Ident.pr m.mod_decl.mod_decl_name);
-  let* m =
-    Rewriter.Module.rewrite_stmts
-      ~f:HeapsExplicitTrnsl.TrnslExhale.rewriter_find_witness_elim_exists_from_exhale m
-  in
+      m1 "Lowering.lower: Starting witness computation on module %a" Ident.pr
+        m.mod_decl.mod_decl_name);
+  let* m = Rewriter.Module.rewrite_stmts ~f:WitnessComputation.rewrite_stmt m in
 
   Logs.debug (fun m1 ->
       m1 "Lowering.lower: Starting rewrite_make_heaps_explicit on module %a" Ident.pr
