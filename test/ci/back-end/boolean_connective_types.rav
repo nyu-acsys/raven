@@ -1,0 +1,24 @@
+field f: Int
+
+func nested_conjunction(b: Bool) returns (r: Bool) {
+  ((((((((((((((((((b && b) && b) && b) && b) && b) && b) && b) && b) && b) && b) && b) && b) && b) && b) && b) && b) && b) && b)
+}
+
+proc boolean_values(a: Bool, b: Bool, c: Bool) {
+  var conjunction: Bool := (a && b) && c;
+  var disjunction: Bool := (a || b) || c;
+  var implication: Bool := (a ==> b) ==> c;
+  assert conjunction == (a && b && c);
+  assert disjunction == (a || b || c);
+  assert implication == ((!a || b) ==> c);
+  assert nested_conjunction(a) == a;
+}
+
+lemma resource_connectives(x: Ref, y: Ref, b: Bool)
+  requires own(x.f, 1) && own(y.f, 2)
+  ensures own(x.f, 1) && own(y.f, 2)
+{
+  assert (b || !b) && own(x.f, 1);
+  assert b ==> (own(x.f, 1) && own(y.f, 2));
+  assert own(x.f, 1) && ((b || !b) && own(y.f, 2));
+}

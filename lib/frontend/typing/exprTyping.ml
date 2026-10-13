@@ -555,8 +555,13 @@ and check_binary (expr1 : expr) (expr2 : expr) (constr : Expr.constr)
     ty |> Type.set_ghost_to expected_typ
   in
   let* expr1 =
-    if Type.equal expected_typ1 typ1 then Rewriter.return expr1
-    else check expr1 expected_typ1
+    match constr with
+    (* The left operand already meets this fixed bound; its inferred [Bool]
+       type need not become [Perm]. *)
+    | And | Or | Impl -> Rewriter.return expr1
+    | _ ->
+        if Type.equal expected_typ1 typ1 then Rewriter.return expr1
+        else check expr1 expected_typ1
   in
   let* expr2 =
     match constr with

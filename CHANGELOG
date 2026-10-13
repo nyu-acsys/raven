@@ -48,6 +48,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Avoid exponential type checking of nested Boolean connectives.
 - Harden type checking for assignments, ghost state, `bind` statements, overloaded calls and generic module inheritance.
 - Insert explicit `Int`-to-`Real` coercions, including within tuples and maps.
 - Reject cyclic witness computations in existential resource assertions.
