@@ -115,20 +115,20 @@ let collect_ext_tags (m : Module.t) : ext_tag list =
   let open Rewriter.Syntax in
   let tags = ref [] in
   let rec collect_type tp =
-    let* tp = Rewriter.Type.descend tp ~f:collect_type in
-    (match tp with
-    | Type.App (TypeExt type_ext, _, _) ->
-        tags := TypeTag (type_ext, Type.to_loc tp) :: !tags
-    | _ -> ());
-    Rewriter.return tp
+    match tp with
+    | Type.App (TypeExt type_ext, args, attr) ->
+        let+ args = Rewriter.List.map args ~f:collect_type in
+        tags := TypeTag (type_ext, Type.to_loc tp) :: !tags;
+        Type.App (TypeExt type_ext, args, attr)
+    | _ -> Rewriter.Type.descend tp ~f:collect_type
   in
   let rec collect_expr e =
-    let* e = Rewriter.Expr.descend e ~f:collect_expr in
-    (match e with
-    | Expr.App (ExprExt expr_ext, _, _) ->
-        tags := ExprTag (expr_ext, Expr.to_loc e) :: !tags
-    | _ -> ());
-    Rewriter.return e
+    match e with
+    | Expr.App (ExprExt expr_ext, args, attr) ->
+        let+ args = Rewriter.List.map args ~f:collect_expr in
+        tags := ExprTag (expr_ext, Expr.to_loc e) :: !tags;
+        Expr.App (ExprExt expr_ext, args, attr)
+    | _ -> Rewriter.Expr.descend e ~f:collect_expr
   in
   (* Reaches every expression embedded in a [Basic] statement (an [Assign]'s RHS, a
      [Call]'s args, ...) as well as recursing into [Block]/[Loop]/[Cond] children --

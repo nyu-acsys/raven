@@ -1,0 +1,19 @@
+func marker(value: Int, key: Int) returns (r: Int) { value }
+
+proc outer_existential() {
+  inhale exists value: Int ::
+    forall key: Int :: {marker(value, key)} marker(value, key) == value;
+  assert marker(0, 1) == 0;
+}
+
+proc guarded_trigger() {
+  inhale exists value: Int :: value == 0 &&
+    (forall key: Int :: {marker(value, key)} marker(value, key) == 0);
+  assert marker(0, 1) == 0;
+}
+
+proc dependent_existential() {
+  inhale forall index: Int :: exists value: Int ::
+    forall key: Int :: {marker(value, key)} marker(value, key) == index;
+  assert marker(0, 1) == 0;
+}

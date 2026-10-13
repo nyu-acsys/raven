@@ -1335,13 +1335,12 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
             }
         in
         Rewriter.return stmt
-    | Block block_desc -> Rewriter.Stmt.descend stmt ~f:rewrite_au_cmnds
     | Cond cond_desc ->
-        let* then_stmt = Rewriter.Stmt.descend cond_desc.cond_then ~f:rewrite_au_cmnds in
+        let* then_stmt = rewrite_au_cmnds cond_desc.cond_then in
         let* then_atomicity_state = Rewriter.current_user_state in
 
         let* _ = Rewriter.set_user_state atomicity_state in
-        let* else_stmt = Rewriter.Stmt.descend cond_desc.cond_else ~f:rewrite_au_cmnds in
+        let* else_stmt = rewrite_au_cmnds cond_desc.cond_else in
         let* else_atomicity_state = Rewriter.current_user_state in
 
         let if_else_atomicity_states_equal =

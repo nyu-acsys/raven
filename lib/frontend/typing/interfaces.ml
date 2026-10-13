@@ -46,9 +46,10 @@ let check_implements_var (var_def : Stmt.var_def) (orig_var_def : Stmt.var_def)
 (* Transparent wrappers do not change a contract's meaning across type instantiation. *)
 let rec normalize_contract_expr seen expr =
   let open Rewriter.Syntax in
-  let* expr = Rewriter.Expr.descend expr ~f:(normalize_contract_expr seen) in
   match expr with
-  | Expr.App (Var name, args, _) when not (Set.mem seen name) ->
+  | Expr.App (Var name, args, attr) when not (Set.mem seen name) ->
+      let* args = Rewriter.List.map args ~f:(normalize_contract_expr seen) in
+      let expr = Expr.App (Var name, args, attr) in
       let* symbol = Rewriter.resolve_and_find_opt name in
       let* body =
         match symbol with
@@ -63,7 +64,7 @@ let rec normalize_contract_expr seen expr =
       | Some body -> normalize_contract_expr (Set.add seen name) body
       | None -> Rewriter.return expr
       end
-  | _ -> Rewriter.return expr
+  | _ -> Rewriter.Expr.descend expr ~f:(normalize_contract_expr seen)
 
 let contracts_equal ~sm (specs : Stmt.spec list) (originals : Stmt.spec list) =
   let open Rewriter.Syntax in

@@ -1232,12 +1232,12 @@ let rewrites_type_ext (m : Module.t) : Module.t Rewriter.t =
 
   let open Rewriter.Syntax in
   let rec rewrite_type_ext (type_expr : type_expr) : type_expr Rewriter.t =
-    let* type_expr = Rewriter.Type.descend type_expr ~f:rewrite_type_ext in
     match type_expr with
-    | App (TypeExt type_ext, args, type_attr) ->
+    | App (TypeExt type_ext, args, _) ->
+        let* args = Rewriter.List.map args ~f:rewrite_type_ext in
         let* ext_hooks = Rewriter.current_ext_hooks in
         ext_hooks.rewrite_type_ext type_ext args (Type.to_loc type_expr)
-    | _ -> Rewriter.return type_expr
+    | _ -> Rewriter.Type.descend type_expr ~f:rewrite_type_ext
   in
   let* m = Rewriter.Module.rewrite_types ~f:rewrite_type_ext m in
 
@@ -1246,9 +1246,9 @@ let rewrites_type_ext (m : Module.t) : Module.t Rewriter.t =
 let rewrites_expr_ext (m : Module.t) : Module.t Rewriter.t =
   let open Rewriter.Syntax in
   let rec rewrite_expr_ext (expr : expr) : expr Rewriter.t =
-    let* expr = Rewriter.Expr.descend expr ~f:rewrite_expr_ext in
     match expr with
     | App (ExprExt expr_ext, args, expr_attr) ->
+        let* args = Rewriter.List.map args ~f:rewrite_expr_ext in
         let* ext_hooks = Rewriter.current_ext_hooks in
         ext_hooks.rewrite_expr_ext expr_ext args expr_attr
     | _ -> Rewriter.Expr.descend expr ~f:rewrite_expr_ext

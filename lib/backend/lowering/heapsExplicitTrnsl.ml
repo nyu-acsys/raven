@@ -2328,6 +2328,9 @@ module TrnslInhale = struct
           { universal_quants with univ_vars = universal_quants.univ_vars @ new_quants }
         in
 
+        let trgs =
+          List.map trgs ~f:(List.map ~f:(fun e -> Expr.alpha_renaming e subst))
+        in
         let* e = skolemize_inhale_expr universal_quants subst e in
 
         Rewriter.return Expr.(Binder (Forall, var_decls, trgs, e, e_attr))
@@ -2353,14 +2356,16 @@ module TrnslInhale = struct
                 printers.pr_expr e)
         in
         Rewriter.return e
+    | App (Var name, args, attr) ->
+        let+ args =
+          Rewriter.List.map args ~f:(skolemize_inhale_expr universal_quants subst)
+        in
+        Option.value (Map.find subst name) ~default:(App (Var name, args, attr))
     | _ ->
         let* expr =
           Rewriter.Expr.descend expr ~f:(skolemize_inhale_expr universal_quants subst)
         in
 
-        let expr = Expr.alpha_renaming expr subst in
-
-        (* This will cause the renaming to be done at each step of descend, but renaming should be idempotent, so that should be okay *)
         let* () =
           Rewriter.Logs.debug (fun printers m ->
               m "HeapsExplicitTrnsl.TrnslInhale.skolemize_inhale_expr: e: %a"
@@ -4427,12 +4432,11 @@ let flatten_resource_blocks stmts =
   flatten [ stmts ] []
 
 let rec inherit_spec_name name stmt =
-  let open Rewriter.Syntax in
-  let+ stmt = Rewriter.Stmt.descend stmt ~f:(inherit_spec_name name) in
   match stmt.stmt_desc with
   | Basic (Spec (kind, spec)) when Option.is_none spec.spec_name ->
-      { stmt with stmt_desc = Basic (Spec (kind, { spec with spec_name = Some name })) }
-  | _ -> stmt
+      Rewriter.return
+        { stmt with stmt_desc = Basic (Spec (kind, { spec with spec_name = Some name })) }
+  | _ -> Rewriter.Stmt.descend stmt ~f:(inherit_spec_name name)
 
 let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
