@@ -137,9 +137,10 @@ let elaborate_cu ~ext_hooks config tbl (md : Ast.Module.t) front_end_out_chan =
     Stdlib.exit 0)
   else
     let tbl, md = Elaboration.elaborate_module ~tbl ~ext_hooks ~cli_config md in
-    Stdlib.Format.fprintf
-      (Stdlib.Format.formatter_of_out_channel front_end_out_chan)
-      "%a\n" printers.pr_module md;
+    Option.iter front_end_out_chan ~f:(fun out_chan ->
+        Stdlib.Format.fprintf
+          (Stdlib.Format.formatter_of_out_channel out_chan)
+          "%a\n" printers.pr_module md);
     (tbl, Some md)
 
 (** Lowers an elaborated compilation unit (see [Lowering.lower_module]), returning it
@@ -156,9 +157,10 @@ let lower_cu ~ext_hooks tbl md lowered_out_chan =
   Logs.debug (fun m -> m "%a" printers.pr_module processed_md);
   Logs.info (fun m -> m "Front-end processing successful.");
 
-  Stdlib.Format.fprintf
-    (Stdlib.Format.formatter_of_out_channel lowered_out_chan)
-    "%a\n" printers.pr_module processed_md;
+  Option.iter lowered_out_chan ~f:(fun out_chan ->
+      Stdlib.Format.fprintf
+        (Stdlib.Format.formatter_of_out_channel out_chan)
+        "%a\n" printers.pr_module processed_md);
 
   (tbl, (processed_md, lemma_calls))
 
@@ -196,8 +198,7 @@ let parse_and_check_all ~extension_mode config file_names =
   in
 
   let debug_out_chan file_name =
-    if external_logging then Stdio.Out_channel.create file_name
-    else Util.Channel.null_channel ()
+    if external_logging then Some (Stdio.Out_channel.create file_name) else None
   in
   let front_end_out_chan = debug_out_chan "front_end_output.log" in
   let lowered_out_chan = debug_out_chan "lowered_output.log" in
