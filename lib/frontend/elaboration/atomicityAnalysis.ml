@@ -204,8 +204,8 @@ let call_formal_actual_map (formals : Type.var_decl list) (call_args : Expr.t li
    same time agree if they agree on the explicit ones. *)
 let explicit_arity (qi : QualIdent.t) ~(default : int) : (int, 'a) Rewriter.t_ext =
   let open Rewriter.Syntax in
-  let+ symbol = Rewriter.find_and_reify qi in
-  match symbol with
+  let+ symbol = Rewriter.find qi in
+  match Rewriter.Symbol.orig_symbol symbol with
   | CallDef { call_decl = { call_decl_formals; _ }; _ } -> List.length call_decl_formals
   | _ -> default
 
@@ -584,15 +584,15 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
     let* curr_callable_name = Rewriter.current_scope_id in
 
     let callable_info call_ident =
-      let+ callable = Rewriter.find_and_reify_callable call_ident in
+      let* symbol = Rewriter.find call_ident in
+      let+ callable = Rewriter.Symbol.reify_callable_decl symbol in
 
       let concrete_args =
-        List.filter callable.call_decl.call_decl_formals ~f:(fun var_decl ->
+        List.filter callable.call_decl_formals ~f:(fun var_decl ->
             not var_decl.var_implicit)
       in
       let implicit_args =
-        List.filter callable.call_decl.call_decl_formals ~f:(fun var_decl ->
-            var_decl.var_implicit)
+        List.filter callable.call_decl_formals ~f:(fun var_decl -> var_decl.var_implicit)
       in
       (callable, concrete_args, implicit_args)
     in
@@ -622,8 +622,8 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
     match stmt.stmt_desc with
     | Basic (New new_desc) ->
         let* new_lhs =
-          let* symbol = Rewriter.find_and_reify new_desc.new_lhs in
-          match symbol with
+          let* symbol = Rewriter.find new_desc.new_lhs in
+          match Rewriter.Symbol.orig_symbol symbol with
           | VarDef v -> Rewriter.return v
           | _ -> Error.internal_error stmt.stmt_loc "expected a var_def"
         in
@@ -645,11 +645,11 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
         let* _ = Rewriter.set_user_state atomicity_state in
         Rewriter.return stmt
     | Basic (FieldRead field_read_desc) -> (
-        let* symbol = Rewriter.find_and_reify field_read_desc.field_read_lhs in
+        let* symbol = Rewriter.find field_read_desc.field_read_lhs in
         let atomicity_state =
           drop_stale ~qis:[ field_read_desc.field_read_lhs ] atomicity_state
         in
-        match symbol with
+        match Rewriter.Symbol.orig_symbol symbol with
         | VarDef v ->
             if v.var_decl.var_ghost then
               let* _ = Rewriter.set_user_state atomicity_state in
@@ -660,8 +660,8 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
               Rewriter.return stmt
         | _ -> Error.internal_error stmt.stmt_loc "expected a var_def")
     | Basic (FieldWrite field_write_desc) -> (
-        let* symbol = Rewriter.find_and_reify field_write_desc.field_write_field in
-        match symbol with
+        let* symbol = Rewriter.find field_write_desc.field_write_field in
+        match Rewriter.Symbol.orig_symbol symbol with
         | FieldDef fld ->
             if fld.field_is_ghost then Rewriter.return stmt
             else
@@ -674,10 +674,10 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
         let* _ = Rewriter.set_user_state atomicity_state in
         Rewriter.return stmt
     | Basic (Call call_desc) ->
-        let* symbol = Rewriter.find_and_reify call_desc.call_name in
-        let call_decl, call_def =
-          match symbol with
-          | CallDef c -> (c.call_decl, c.call_def)
+        let* symbol = Rewriter.find call_desc.call_name in
+        let* call_decl =
+          match Rewriter.Symbol.orig_symbol symbol with
+          | CallDef _ -> Rewriter.Symbol.reify_callable_decl symbol
           | _ -> Error.internal_error stmt.stmt_loc "expected a call_def"
         in
 
@@ -769,8 +769,8 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
         in
         let* is_call_lhs_ghost =
           Rewriter.List.for_all call_desc.call_lhs ~f:(fun qual_iden ->
-              let* symbol = Rewriter.find_and_reify qual_iden in
-              match symbol with
+              let* symbol = Rewriter.find qual_iden in
+              match Rewriter.Symbol.orig_symbol symbol with
               | VarDef v -> Rewriter.return v.var_decl.var_ghost
               | _ -> Error.internal_error stmt.stmt_loc "expected a var_def")
         in
@@ -872,15 +872,14 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
         let* _ = Rewriter.set_user_state atomicity_state in
         Rewriter.return stmt
     | Basic (Use use_desc) -> (
-        let* symbol = Rewriter.find_and_reify use_desc.use_name in
-        match symbol with
-        | CallDef c -> (
-            match c.call_decl.call_decl_kind with
+        let* symbol = Rewriter.find use_desc.use_name in
+        match Rewriter.Symbol.orig_symbol symbol with
+        | CallDef _ -> (
+            let* decl = Rewriter.Symbol.reify_callable_decl symbol in
+            match decl.call_decl_kind with
             | Pred -> Rewriter.return stmt
             | Invariant -> (
-                let all_params =
-                  c.call_decl.call_decl_formals @ c.call_decl.call_decl_returns
-                in
+                let all_params = decl.call_decl_formals @ decl.call_decl_returns in
                 match use_desc.use_kind with
                 | Unfold ->
                     (* Implicit arguments left out here are bound to fresh
@@ -1008,7 +1007,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
                         let spec_error =
                           let inv_id = use_desc.use_name |> QualIdent.unqualify in
                           let msg =
-                            if List.is_empty c.call_decl.call_decl_returns then
+                            if List.is_empty decl.call_decl_returns then
                               Printf.sprintf
                                 !"Cannot fold %{Ident}: its arguments no longer match \
                                   the instance that was opened by the corresponding \
@@ -1045,27 +1044,20 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
         match auaction_desc.auaction_kind with
         | BindAU qual_iden ->
             let loc = Stmt.to_loc stmt in
-            let* qual_iden_var =
-              let+ symbol = Rewriter.find_and_reify qual_iden in
-              match symbol with
-              | VarDef v -> v
-              | _ -> Error.internal_error stmt.stmt_loc "expected a var_def"
-            in
-
-            let* au_token_var =
-              let+ symbol =
-                Rewriter.find_and_reify
-                  (QualIdent.from_ident
-                     (ProgUtils.callable_au_token_ident ~loc
-                        (QualIdent.unqualify curr_callable_name)))
+            let* au_token_var_decl =
+              let name =
+                QualIdent.from_ident
+                  (ProgUtils.callable_au_token_ident ~loc
+                     (QualIdent.unqualify curr_callable_name))
               in
-              match symbol with
-              | VarDef v -> v
+              let* symbol = Rewriter.find name in
+              match Rewriter.Symbol.orig_symbol symbol with
+              | VarDef _ -> Rewriter.Symbol.reify_var_decl symbol
               | _ -> Error.internal_error stmt.stmt_loc "expected a var_def"
             in
 
             let assign_stmt =
-              Stmt.mk_assign ~loc [ qual_iden ] (Expr.from_var_decl au_token_var.var_decl)
+              Stmt.mk_assign ~loc [ qual_iden ] (Expr.from_var_decl au_token_var_decl)
             in
 
             Rewriter.return assign_stmt
@@ -1107,7 +1099,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
             in
 
             let inhale_stmts =
-              List.filter_map callable.call_decl.call_decl_precond ~f:(fun spec ->
+              List.filter_map callable.call_decl_precond ~f:(fun spec ->
                   if not spec.spec_atomic then None
                   else
                     Some
@@ -1155,9 +1147,9 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
             in
 
             let* callable_decl =
-              let+ symbol = Rewriter.find_and_reify opened_au_token.callable in
-              match symbol with
-              | CallDef c -> c.call_decl
+              let* symbol = Rewriter.find opened_au_token.callable in
+              match Rewriter.Symbol.orig_symbol symbol with
+              | CallDef _ -> Rewriter.Symbol.reify_callable_decl symbol
               | _ -> Error.internal_error stmt.stmt_loc "expected a call_def"
             in
 

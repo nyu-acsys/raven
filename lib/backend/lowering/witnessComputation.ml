@@ -428,12 +428,9 @@ and elim_a1 (univ_vars : universal_quants) (univ_conds : conditions) (expr : exp
       in
       let* env_decls =
         Rewriter.List.map (Set.to_list all_env_vars) ~f:(fun ident ->
-            let+ symbol = Rewriter.find_and_reify (QualIdent.from_ident ident) in
-            match symbol with
-            | VarDef v -> (ident, v.var_decl)
-            | _ ->
-                Error.internal_error (Ident.to_loc ident)
-                  "expected a variable declaration")
+            let* symbol = Rewriter.find (QualIdent.from_ident ident) in
+            let+ var_decl = Rewriter.Symbol.reify_var_decl symbol in
+            (ident, var_decl))
       in
       let env_decls = Map.of_alist_exn (module Ident) env_decls in
       let witness_environments =
@@ -839,9 +836,9 @@ and elim_a0 ?(fraction_fallback = false) (univ_vars : universal_quants)
 
       Rewriter.return witness_map
   | App (Var qual_ident, args, _) -> (
-      let* symbol = Rewriter.find_and_reify qual_ident in
+      let* symbol = Rewriter.find qual_ident in
 
-      match symbol with
+      match Rewriter.Symbol.orig_symbol symbol with
       | CallDef c
         when Poly.(
                c.call_decl.call_decl_kind = Pred || c.call_decl.call_decl_kind = Invariant)

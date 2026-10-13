@@ -508,18 +508,8 @@ let get_field_utils_id field_name : expr t =
   let loc = QualIdent.to_loc field_name in
   let* field_utils_module = get_field_utils_module field_name in
 
-  let* field = find_and_reify field_name in
-  let field_type =
-    match field with
-    | AstDef.Module.FieldDef { field_type; _ } -> field_type
-    | _ -> Error.internal_error loc "expected a field definition"
-  in
-
-  let field_elem_type =
-    match field_type with
-    | App (Fld, [ tp ], _) -> tp
-    | _ -> Error.internal_error loc "expected a field type"
-  in
+  let* field = find field_name in
+  let* field_elem_type = Symbol.reify_field_type loc field in
 
   let id_qual_ident = QualIdent.append field_utils_module (heap_utils_id_ident loc) in
 
@@ -530,10 +520,9 @@ let get_pred_utils_id loc pred_name : expr t =
   let loc = QualIdent.to_loc pred_name in
   let* pred_utils_module = get_pred_utils_module pred_name in
 
-  let* pred = find_and_reify pred_name in
-
-  let* pred_elem_type_name = get_pred_utils_rep_type pred_name in
-
+  let pred_elem_type_name =
+    QualIdent.append pred_utils_module (heap_utils_rep_type_ident loc)
+  in
   let pred_elem_type = AstDef.Type.mk_var pred_elem_type_name in
 
   let id_qual_ident = QualIdent.append pred_utils_module (heap_utils_id_ident loc) in
@@ -545,10 +534,9 @@ let get_au_utils_id loc call_name : expr t =
   let loc = QualIdent.to_loc call_name in
   let* call_utils_module = get_au_utils_module call_name in
 
-  let* call = find_and_reify call_name in
-
-  let* call_elem_type_name = get_au_utils_rep_type call_name in
-
+  let call_elem_type_name =
+    QualIdent.append call_utils_module (heap_utils_rep_type_ident loc)
+  in
   let call_elem_type = AstDef.Type.mk_var call_elem_type_name in
 
   let id_qual_ident = QualIdent.append call_utils_module (heap_utils_id_ident loc) in
@@ -561,8 +549,8 @@ let pred_ra_constr_qual_ident loc pred_name =
   let open Syntax in
   let* pred_ra_qual_iden = pred_get_ra_qual_iden pred_name in
   let loc = QualIdent.to_loc pred_name in
-  let+ pred = find_and_reify pred_name in
-  match pred with
+  let+ pred = find pred_name in
+  match Symbol.orig_symbol pred with
   | AstDef.Module.CallDef c -> (
       match c.call_decl.call_decl_kind with
       | Pred ->
@@ -595,8 +583,8 @@ let pred_ra_val_destr_qual_ident loc pred_name =
   let open Syntax in
   let* pred_ra_qual_iden = pred_get_ra_qual_iden pred_name in
   let loc = QualIdent.to_loc pred_name in
-  let+ pred = find_and_reify pred_name in
-  match pred with
+  let+ pred = find pred_name in
+  match Symbol.orig_symbol pred with
   | AstDef.Module.CallDef c -> (
       match c.call_decl.call_decl_kind with
       | Pred ->
@@ -606,33 +594,29 @@ let pred_ra_val_destr_qual_ident loc pred_name =
       | _ -> Error.internal_error loc "expected a predicate definition")
   | _ -> Error.internal_error loc "expected a predicate definition"
 
-let pred_in_types pred_name =
+let pred_param_types pred_name ~returns =
   let open Syntax in
-  let+ pred = find_and_reify pred_name in
+  let* pred = find pred_name in
 
-  match pred with
+  match Symbol.orig_symbol pred with
   | AstDef.Module.CallDef c
     when Poly.(
            c.call_decl.call_decl_kind = Pred || c.call_decl.call_decl_kind = Invariant) ->
-      Base.List.map c.call_decl.call_decl_formals ~f:(fun var_decl -> var_decl.var_type)
+      let params =
+        if returns then c.call_decl.call_decl_returns else c.call_decl.call_decl_formals
+      in
+      let types = Base.List.map params ~f:(fun var_decl -> var_decl.var_type) in
+      if Base.List.is_empty (Symbol.subst pred) then return types
+      else
+        Symbol.extract pred ~f:(fun _ requalify _ ->
+            List.map types ~f:(Type.rewrite_qual_idents ~f:requalify))
   | _ ->
       Error.internal_error
         (AstDef.QualIdent.to_loc pred_name)
         "expected a predicate definition"
 
-let pred_out_types pred_name =
-  let open Syntax in
-  let+ pred = find_and_reify pred_name in
-
-  match pred with
-  | AstDef.Module.CallDef c
-    when Poly.(
-           c.call_decl.call_decl_kind = Pred || c.call_decl.call_decl_kind = Invariant) ->
-      Base.List.map c.call_decl.call_decl_returns ~f:(fun var_decl -> var_decl.var_type)
-  | _ ->
-      Error.internal_error
-        (AstDef.QualIdent.to_loc pred_name)
-        "expected a predicate definition"
+let pred_in_types pred_name = pred_param_types pred_name ~returns:false
+let pred_out_types pred_name = pred_param_types pred_name ~returns:true
 
 let pred_heap_type pred_name =
   let open Syntax in
@@ -688,8 +672,8 @@ let get_data_destrs_from_constr (qual_ident : qual_ident) : qual_ident list t =
               "expected a variable"
       in
 
-      let* symbol = find_and_reify tp_name in
-      match symbol with
+      let* symbol = find tp_name in
+      match Symbol.orig_symbol symbol with
       | AstDef.Module.TypeDef { type_def_expr = Some tp_expr; _ } -> (
           match tp_expr with
           | App (Data (_, variant_decls), [], _) -> (

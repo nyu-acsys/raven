@@ -158,19 +158,12 @@ let compute_proc_lemma_mask (c : Callable.t) : (Callable.mask, 'a) Rewriter.t_ex
      source when it isn't. *)
   let* nested_entries =
     Rewriter.List.map direct_applications ~f:(fun (qi, _, args, spec_atomic) ->
-        let* symbol = Rewriter.find_and_reify qi in
-        match symbol with
-        | CallDef
-            {
-              call_decl =
-                {
-                  call_decl_kind = Pred | Invariant;
-                  call_decl_formals = mentioned_formals;
-                  call_decl_needs_mask;
-                  _;
-                };
-              _;
-            } ->
+        let* symbol = Rewriter.find qi in
+        match Rewriter.Symbol.orig_symbol symbol with
+        | CallDef { call_decl = { call_decl_kind = Pred | Invariant; _ }; _ } ->
+            let* decl = Rewriter.Symbol.reify_callable_decl symbol in
+            let mentioned_formals = decl.call_decl_formals in
+            let call_decl_needs_mask = decl.call_decl_needs_mask in
             let expressible =
               if spec_atomic then non_implicit_formal_idents else formal_idents
             in
@@ -257,19 +250,12 @@ let fixpoint_compute_masks (c : Callable.t) : (Callable.t, bool) Rewriter.t_ext 
             in
             let* nested_entries =
               Rewriter.List.map applications ~f:(fun (qi, _, args) ->
-                  let* symbol = Rewriter.find_and_reify qi in
-                  match symbol with
-                  | CallDef
-                      {
-                        call_decl =
-                          {
-                            call_decl_kind = Pred | Invariant;
-                            call_decl_formals = mentioned_formals;
-                            call_decl_needs_mask;
-                            _;
-                          };
-                        _;
-                      } ->
+                  let* symbol = Rewriter.find qi in
+                  match Rewriter.Symbol.orig_symbol symbol with
+                  | CallDef { call_decl = { call_decl_kind = Pred | Invariant; _ }; _ } ->
+                      let* decl = Rewriter.Symbol.reify_callable_decl symbol in
+                      let mentioned_formals = decl.call_decl_formals in
+                      let call_decl_needs_mask = decl.call_decl_needs_mask in
                       let nested_mask = Option.value call_decl_needs_mask ~default:[] in
                       Rewriter.return
                         (substitute_and_truncate_mask ~mentioned_formals ~actual_args:args
@@ -486,7 +472,16 @@ let check_interface_reach_back (n : Module.t) : (unit, 'a) Rewriter.t_ext =
   | parents ->
       let* ifaces =
         Rewriter.List.map parents ~f:(fun (iface_qual_ident, _args) ->
-            let+ iface = Rewriter.find_and_reify_module iface_qual_ident in
+            let+ symbol = Rewriter.find iface_qual_ident in
+            let iface =
+              match Rewriter.Symbol.orig_symbol symbol with
+              | ModDef iface -> iface
+              | symbol ->
+                  Error.type_error
+                    (QualIdent.to_loc iface_qual_ident)
+                    (Printf.sprintf "Expected module or interface but found %s"
+                       (Symbol.kind symbol))
+            in
             (iface_qual_ident, iface))
       in
       (* Invariants owned by *any* parent, each tagged with the interface that

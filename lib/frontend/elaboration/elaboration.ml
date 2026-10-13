@@ -84,7 +84,14 @@ let rec rewrite_inline_preds_expr seen (expr : expr) : expr Rewriter.t =
             call_decl = { call_decl_kind = Pred; call_decl_is_inline = true; _ };
             call_def = FuncDef { func_body = Some _ };
           } ->
-          let* pred_def = Rewriter.find_and_reify_callable qual_ident in
+          let* symbol = Rewriter.Symbol.reify symbol in
+          let pred_def =
+            match symbol with
+            | CallDef pred_def -> pred_def
+            | _ ->
+                Error.type_error (QualIdent.to_loc qual_ident)
+                  (Printf.sprintf "Expected callable but found %s" (Symbol.kind symbol))
+          in
           let pred_decl = pred_def.call_decl in
           let body =
             match pred_def.call_def with
@@ -307,12 +314,13 @@ let rewrite_compr_modules (tbl : SymbolTbl.t) (m : Module.t) =
 let is_library_qual_ident (qid : QualIdent.t) : bool =
   String.(Ident.name (QualIdent.first_ident qid) = Ident.name Predefs.lib_ident)
 
-let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
+let rec rewrite_loops (enclosing : Callable.call_decl) (stmt : Stmt.t) : Stmt.t Rewriter.t
+    =
   let open Rewriter.Syntax in
   match stmt.stmt_desc with
   | Loop loop ->
-      let* loop_prebody = rewrite_loops loop.loop_prebody in
-      let* loop_postbody = rewrite_loops loop.loop_postbody in
+      let* loop_prebody = rewrite_loops enclosing loop.loop_prebody in
+      let* loop_postbody = rewrite_loops enclosing loop.loop_postbody in
       let loop = { loop with loop_prebody; loop_postbody } in
       let loc = Stmt.to_loc stmt in
       let* () =
@@ -338,8 +346,13 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
           (* Not the procedure of a nested loop, which the body calls unqualified. *)
           let+ var_decls =
             Rewriter.List.map curr_loop_args ~f:(fun var ->
-                let+ symbol = Rewriter.find_and_reify (QualIdent.from_ident var) in
-                match symbol with VarDef v -> Some v.var_decl | _ -> None)
+                let name = QualIdent.from_ident var in
+                let* symbol = Rewriter.find name in
+                match Rewriter.Symbol.orig_symbol symbol with
+                | VarDef _ ->
+                    let+ decl = Rewriter.Symbol.reify_var_decl symbol in
+                    Some decl
+                | _ -> Rewriter.return None)
           in
           List.filter_opt var_decls
         in
@@ -408,8 +421,9 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
         in
         let* curr_loop_ret_var_decls =
           Rewriter.List.map curr_loop_rets ~f:(fun var ->
-              let+ var_def = Rewriter.find_and_reify_var (QualIdent.from_ident var) in
-              var_def.var_decl)
+              let name = QualIdent.from_ident var in
+              let* symbol = Rewriter.find name in
+              Rewriter.Symbol.reify_var_decl symbol)
         in
 
         (* redefined loop_rets for uniqueness *)
@@ -433,8 +447,9 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
         let loop_local_vars = Stmt.stmt_local_vars_initialized loop.loop_postbody in
         let+ loop_local_var_decls =
           Rewriter.List.map loop_local_vars ~f:(fun var ->
-              let+ var_def = Rewriter.find_and_reify_var (QualIdent.from_ident var) in
-              var_def.var_decl)
+              let name = QualIdent.from_ident var in
+              let* symbol = Rewriter.find name in
+              Rewriter.Symbol.reify_var_decl symbol)
         in
 
         ( loop_ret_var_decls,
@@ -465,10 +480,8 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
       let* ext_hooks = Rewriter.current_ext_hooks in
 
       (* A loop may open whatever its enclosing callable's [opens] clause allows. *)
-      let* loop_opens =
-        let* enclosing_qi = Rewriter.current_scope_id in
-        let+ enclosing = Rewriter.find_and_reify_callable enclosing_qi in
-        Option.map enclosing.call_decl.call_decl_opens ~f:(fun clause ->
+      let loop_opens =
+        Option.map enclosing.call_decl_opens ~f:(fun clause ->
             {
               clause with
               opens_entries =
@@ -637,7 +650,7 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
             m "Loop new_stmt:\n %a" printers.pr_stmt new_stmt)
       in
       Rewriter.return new_stmt
-  | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_loops
+  | _ -> Rewriter.Stmt.descend stmt ~f:(rewrite_loops enclosing)
 
 (** Runs once per [Proc]/[Lemma] callable, before [rewrite_contract_ext_calls] below
     visits any of its statements: delegates to [ext_hooks.rewrite_callable_entry] to
@@ -728,12 +741,16 @@ let check_contract_ext_group_compatibility (tbl : SymbolTbl.t) (sm : scc_map) :
         if is_library_qual_ident qid then None
         else
           let tbl1 = SymbolTbl.goto qid tbl in
-          let _, symbol =
-            Rewriter.eval ~update:false (Rewriter.find_and_reify qid) tbl1
+          let lookup =
+            let* symbol = Rewriter.find qid in
+            match Rewriter.Symbol.orig_symbol symbol with
+            | Module.CallDef _ ->
+                let+ decl = Rewriter.Symbol.reify_callable_decl symbol in
+                Some decl
+            | _ -> Rewriter.return None
           in
-          match symbol with
-          | Module.CallDef call_def -> Some call_def.Callable.call_decl
-          | _ -> None)
+          let _, decl = Rewriter.eval ~update:false lookup tbl1 in
+          decl)
   in
   Rewriter.List.iter sm.sccs ~f:(fun members ->
       let is_recursive =
@@ -758,11 +775,10 @@ let rec rewrite_contract_ext_call_args (sm : scc_map) (stmt : Stmt.t) : Stmt.t R
   match stmt.stmt_desc with
   | Basic (Call call_desc) ->
       let* caller = Rewriter.current_scope_id in
-      let* callee = Rewriter.resolve call_desc.call_name in
+      let* callee, symbol = Rewriter.resolve_and_find call_desc.call_name in
       if not (same_scc sm caller callee) then Rewriter.return stmt
       else
-        let* callable = Rewriter.find_and_reify_callable callee in
-        let decl = callable.call_decl in
+        let* decl = Rewriter.Symbol.reify_callable_decl symbol in
         let _, omitted =
           List.split_n decl.call_decl_formals (List.length call_desc.call_args)
         in
@@ -846,22 +862,21 @@ let rec rewrite_contract_ext_call_args (sm : scc_map) (stmt : Stmt.t) : Stmt.t R
     [elaborate_phase_1]) has already turned every loop into a self-recursive tail proc and
     transferred its [loop_contract_ext] onto that proc's [call_decl_contract_ext], loop
     termination checking falls out of this same pass with no separate code path. *)
-let rec rewrite_contract_ext_calls (sm : scc_map) (stmt : Stmt.t) : Stmt.t Rewriter.t =
+let rec rewrite_contract_ext_calls (sm : scc_map) (caller_call_decl : Callable.call_decl)
+    (stmt : Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
   match stmt.stmt_desc with
   | Basic (Call call_desc) -> (
       let loc = Stmt.to_loc stmt in
-      let* callee_qual_ident = Rewriter.resolve call_desc.call_name in
-      let* callee_callable = Rewriter.find_and_reify_callable callee_qual_ident in
-      let callee_call_decl = callee_callable.call_decl in
+      let* callee_qual_ident, symbol = Rewriter.resolve_and_find call_desc.call_name in
+      let* callee_call_decl = Rewriter.Symbol.reify_callable_decl symbol in
       if List.is_empty callee_call_decl.call_decl_contract_ext then Rewriter.return stmt
       else
         let* caller_qual_ident = Rewriter.current_scope_id in
-        let* caller_callable = Rewriter.find_and_reify_callable caller_qual_ident in
         let* ext_hooks = Rewriter.current_ext_hooks in
         let same_scc_here = same_scc sm caller_qual_ident callee_qual_ident in
         let+ extra_stmts =
-          ext_hooks.rewrite_contract_ext_call caller_callable.call_decl callee_call_decl
+          ext_hooks.rewrite_contract_ext_call caller_call_decl callee_call_decl
             same_scc_here call_desc.call_args loc
         in
         match extra_stmts with
@@ -869,7 +884,7 @@ let rec rewrite_contract_ext_calls (sm : scc_map) (stmt : Stmt.t) : Stmt.t Rewri
         | _ -> Stmt.mk_block_stmt ~loc (extra_stmts @ [ stmt ]))
   | _ ->
       Rewriter.Stmt.rewrite_expressions_top ~f:Rewriter.return
-        ~c:(rewrite_contract_ext_calls sm)
+        ~c:(rewrite_contract_ext_calls sm caller_call_decl)
         stmt
 
 let rewrite_atomic_callable_token (c : Callable.t) : Callable.t Rewriter.t =
@@ -1140,7 +1155,12 @@ let rec elaborate_phase_1 (m : Module.t) : (Module.t * scc_map) Rewriter.t =
   Logs.debug (fun m1 ->
       m1 "Elaboration.elaborate_phase_1: Starting rewrite_loops on module %a" Ident.pr
         m.mod_decl.mod_decl_name);
-  let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_loops m in
+  let* m =
+    Rewriter.Module.rewrite_callables
+      ~f:(fun callable ->
+        Rewriter.Callable.rewrite_stmts ~f:(rewrite_loops callable.call_decl) callable)
+      m
+  in
 
   Logs.debug (fun m1 ->
       m1 "Elaboration.elaborate_phase_1: Starting rewrite_inline_preds_expr on module %a"
@@ -1176,7 +1196,14 @@ let rec elaborate_phase_1 (m : Module.t) : (Module.t * scc_map) Rewriter.t =
   Logs.debug (fun m1 ->
       m1 "Elaboration.elaborate_phase_1: Starting rewrite_contract_ext_calls on module %a"
         Ident.pr m.mod_decl.mod_decl_name);
-  let* m = Rewriter.Module.rewrite_stmts ~f:(rewrite_contract_ext_calls scc_map) m in
+  let* m =
+    Rewriter.Module.rewrite_callables
+      ~f:(fun callable ->
+        Rewriter.Callable.rewrite_stmts
+          ~f:(rewrite_contract_ext_calls scc_map callable.call_decl)
+          callable)
+      m
+  in
 
   Rewriter.return (m, scc_map)
 
@@ -1292,6 +1319,33 @@ let elaborate_module ?(tbl = SymbolTbl.create ()) ?ext_hooks ?cli_config (m : Mo
   (tbl, m)
 
 module ProgStats = struct
+  let variable_is_ghost qi =
+    let open Rewriter.Syntax in
+    let+ symbol = Rewriter.find qi in
+    match Rewriter.Symbol.orig_symbol symbol with
+    | VarDef var -> var.var_decl.var_ghost
+    | symbol ->
+        Error.type_error (QualIdent.to_loc qi)
+          (Printf.sprintf "Expected var or val but found %s" (Symbol.kind symbol))
+
+  let field_is_ghost qi =
+    let open Rewriter.Syntax in
+    let+ symbol = Rewriter.find qi in
+    match Rewriter.Symbol.orig_symbol symbol with
+    | FieldDef field -> field.field_is_ghost
+    | symbol ->
+        Error.type_error (QualIdent.to_loc qi)
+          (Printf.sprintf "Expected field but found %s" (Symbol.kind symbol))
+
+  let callable_kind qi =
+    let open Rewriter.Syntax in
+    let+ symbol = Rewriter.find qi in
+    match Rewriter.Symbol.orig_symbol symbol with
+    | CallDef callable -> callable.call_decl.call_decl_kind
+    | symbol ->
+        Error.type_error (QualIdent.to_loc qi)
+          (Printf.sprintf "Expected callable but found %s" (Symbol.kind symbol))
+
   type prog_stats = {
     prog_decls : int;
     proof_decls : int;
@@ -1494,14 +1548,12 @@ module ProgStats = struct
                     Ident.(vd.var_name = QualIdent.to_ident qi))
               in
 
-              let+ v_decl =
+              let+ is_ghost =
                 match local_vd_optn with
-                | Some vd -> Rewriter.return vd
-                | None ->
-                    let+ v_def = Rewriter.find_and_reify_var qi in
-                    v_def.var_decl
+                | Some vd -> Rewriter.return vd.var_ghost
+                | None -> variable_is_ghost qi
               in
-              b || v_decl.var_ghost)
+              b || is_ghost)
         in
 
         if is_ghost then { init_prog_stats with proof_remaining_instr = 1 }
@@ -1515,8 +1567,8 @@ module ProgStats = struct
               Logs.debug (fun m ->
                   m "Elaboration.ProgStats.computeBasicStmtStats: new_desc field = %a"
                     QualIdent.pr qi);
-              let+ field_decl = Rewriter.find_and_reify_field qi in
-              (b1 || field_decl.field_is_ghost, b2 || not field_decl.field_is_ghost))
+              let+ is_ghost = field_is_ghost qi in
+              (b1 || is_ghost, b2 || not is_ghost))
         in
 
         if is_ghost && is_concrete then
@@ -1527,27 +1579,23 @@ module ProgStats = struct
           let _ = Logs.debug (fun m -> m "prog_instr: %a" printers.pr_stmt_basic b) in
           { init_prog_stats with prog_instr = 1 }
     | FieldRead field_read_desc ->
-        let+ field_def = Rewriter.find_and_reify_field field_read_desc.field_read_field in
-        let is_ghost = field_def.field_is_ghost in
+        let+ is_ghost = field_is_ghost field_read_desc.field_read_field in
 
         if is_ghost then { init_prog_stats with proof_remaining_instr = 1 }
         else
           let _ = Logs.debug (fun m -> m "prog_instr: %a" printers.pr_stmt_basic b) in
           { init_prog_stats with prog_instr = 1 }
     | FieldWrite field_write_desc ->
-        let+ field_def =
-          Rewriter.find_and_reify_field field_write_desc.field_write_field
-        in
-        let is_ghost = field_def.field_is_ghost in
+        let+ is_ghost = field_is_ghost field_write_desc.field_write_field in
 
         if is_ghost then { init_prog_stats with proof_remaining_instr = 1 }
         else
           let _ = Logs.debug (fun m -> m "prog_instr: %a" printers.pr_stmt_basic b) in
           { init_prog_stats with prog_instr = 1 }
     | Call call_desc ->
-        let+ callable = Rewriter.find_and_reify_callable call_desc.call_name in
+        let+ kind = callable_kind call_desc.call_name in
 
-        begin match callable.call_decl.call_decl_kind with
+        begin match kind with
         | Lemma -> { init_prog_stats with proof_remaining_instr = 1 }
         | Proc ->
             let _ = Logs.debug (fun m -> m "prog_instr: %a" printers.pr_stmt_basic b) in
@@ -1560,9 +1608,9 @@ module ProgStats = struct
     | Spec _ | Bind _ | Fpu _ ->
         Rewriter.return { init_prog_stats with proof_remaining_instr = 1 }
     | Use use_desc ->
-        let+ use_callable = Rewriter.find_and_reify_callable use_desc.use_name in
+        let+ kind = callable_kind use_desc.use_name in
 
-        begin match use_callable.call_decl.call_decl_kind with
+        begin match kind with
         | Pred -> { init_prog_stats with proof_pred_instr = 1 }
         | Invariant -> { init_prog_stats with proof_inv_instr = 1 }
         | _ -> { init_prog_stats with proof_remaining_instr = 1 }

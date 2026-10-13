@@ -2024,6 +2024,12 @@ module Symbol = struct
         let open Syntax in
         let+ tbl = get_table in
         let tbl_scope = SymbolTbl.goto name tbl in
+        let seal =
+          match symbol with
+          | AstDef.Module.CallDef { call_def = ProcDef { proc_body }; _ } ->
+              Base.Option.is_some proc_body
+          | _ -> false
+        in
         let symbol0 =
           match symbol with
           | AstDef.Module.ModDef mod_def ->
@@ -2037,6 +2043,10 @@ module Symbol = struct
                 }
               in
               AstDef.Module.ModDef { mod_def with mod_decl }
+          | CallDef ({ call_def = ProcDef _; _ } as callable) ->
+              (* Reification discards procedure bodies; retain the original status
+                 until qualification has finished. *)
+              CallDef { callable with call_def = ProcDef { proc_body = None } }
           | _ -> symbol
         in
         let _, symbol1 =
@@ -2050,7 +2060,14 @@ module Symbol = struct
         (* Logs.debug (fun m -> m "Rewriter.Symbol.reify: Reified symbol = %a" AstDef.Symbol.pr symbol1); *)
         match symbol1 with
         | CallDef call_def ->
-            AstDef.Module.CallDef (AstDef.Callable.set_machine_free call_def)
+            let call_def = AstDef.Callable.set_machine_free call_def in
+            let call_decl =
+              {
+                call_def.call_decl with
+                call_decl_is_sealed = call_def.call_decl.call_decl_is_sealed || seal;
+              }
+            in
+            AstDef.Module.CallDef { call_def with call_decl }
         | _ -> symbol1)
 
   let reify_type_def loc (name, symbol, subst) : (AstDef.Type.t Base.Option.t, 'a) t_ext =
@@ -2080,9 +2097,9 @@ module Symbol = struct
       | FieldDef field_def -> field_def.field_type
       | _ -> Error.error loc "Expected expression identifier"
     in
-    Type.rewrite_qual_idents
-      ~f:(subst |> SymbolTbl.qid_subst |> QualIdent.requalify)
-      tp_expr
+    match SymbolTbl.qid_subst subst with
+    | [] -> return tp_expr
+    | subst -> Type.rewrite_qual_idents ~f:(QualIdent.requalify subst) tp_expr
 
   let reify_field_type loc (_name, symbol, subst) : (AstDef.Type.t, 'a) t_ext =
     let tp_expr =
@@ -2090,9 +2107,44 @@ module Symbol = struct
       | AstDef.Module.FieldDef { field_type = App (Fld, [ tp ], _); _ } -> tp
       | _ -> Error.error loc "Expected field identifier"
     in
-    Type.rewrite_qual_idents
-      ~f:(subst |> SymbolTbl.qid_subst |> QualIdent.requalify)
-      tp_expr
+    match SymbolTbl.qid_subst subst with
+    | [] -> return tp_expr
+    | subst -> Type.rewrite_qual_idents ~f:(QualIdent.requalify subst) tp_expr
+
+  let reify_var_decl ((name, symbol, subst) as resolved) =
+    let open Syntax in
+    match symbol with
+    | AstDef.Module.VarDef { var_decl; _ } ->
+        if Base.List.is_empty (SymbolTbl.qid_subst subst) then return var_decl
+        else
+          let+ var_type = reify_type (QualIdent.to_loc name) resolved in
+          { var_decl with var_type }
+    | _ ->
+        Error.type_error (QualIdent.to_loc name)
+          (Printf.sprintf "Expected var or val but found %s" (AstDef.Symbol.kind symbol))
+
+  let reify_callable_decl (name, symbol, subst) =
+    let open Syntax in
+    let callable =
+      match symbol with
+      | AstDef.Module.CallDef callable -> callable
+      | _ ->
+          Error.type_error (QualIdent.to_loc name)
+            (Printf.sprintf "Expected callable but found %s" (AstDef.Symbol.kind symbol))
+    in
+    if Base.List.is_empty (SymbolTbl.qid_subst subst) then return callable.call_decl
+    else
+      let call_def =
+        match callable.call_def with
+        | AstDef.Callable.FuncDef _ -> AstDef.Callable.FuncDef { func_body = None }
+        | ProcDef _ as call_def -> call_def
+      in
+      let+ symbol =
+        reify (name, AstDef.Module.CallDef { callable with call_def }, subst)
+      in
+      match symbol with
+      | AstDef.Module.CallDef { call_decl; _ } -> call_decl
+      | _ -> Error.internal_error (QualIdent.to_loc name) "Expected callable declaration"
 
   let orig_symbol (_name, symbol, _subst) = symbol
   let orig_qid (name, _symbol, _subst) = name

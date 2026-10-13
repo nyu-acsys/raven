@@ -8,7 +8,8 @@ open Util
 let rec rewrite_expand_types (tp_expr : type_expr) : type_expr Rewriter.t =
   !Rewriter.expand_type_expr_ref tp_expr
 
-let rec rewrite_ret_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
+let rec rewrite_ret_stmts (callable_decl : Callable.call_decl) (stmt : Stmt.t) :
+    Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
   match stmt.stmt_desc with
   | Basic (Return ret_expr) ->
@@ -16,12 +17,8 @@ let rec rewrite_ret_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
       let* curr_proc_name = Rewriter.current_scope_id in
 
-      let* callable_decl =
-        Logs.debug (fun m ->
-            m "Lowering.rewrite_ret_stmts: curr_proc_name: %a" QualIdent.pr curr_proc_name);
-
-        Rewriter.find_and_reify_callable curr_proc_name |+> fun c -> c.call_decl
-      in
+      Logs.debug (fun m ->
+          m "Lowering.rewrite_ret_stmts: curr_proc_name: %a" QualIdent.pr curr_proc_name);
 
       let ret_expr_list = Expr.unfold_tuple ret_expr in
 
@@ -129,7 +126,7 @@ let rec rewrite_ret_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
       in
 
       Rewriter.return new_stmt
-  | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_ret_stmts
+  | _ -> Rewriter.Stmt.descend stmt ~f:(rewrite_ret_stmts callable_decl)
 
 let rec rewrite_new_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
@@ -150,7 +147,14 @@ let rec rewrite_new_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
             match e_opt with
             | None -> Rewriter.return None
             | Some e ->
-                let+ field_symbol = Rewriter.find_and_reify_field fld_qi in
+                let* symbol = Rewriter.find fld_qi in
+                let field =
+                  match Rewriter.Symbol.orig_symbol symbol with
+                  | FieldDef field -> field
+                  | _ -> Error.internal_error stmt.stmt_loc "expected a field_def"
+                in
+                let+ field_type = Rewriter.Symbol.reify_type stmt.stmt_loc symbol in
+                let field_symbol = { field with field_type } in
 
                 let field_ra_valid_qi =
                   let field_ra = ProgUtils.field_get_ra_qual_iden field_symbol in
@@ -185,12 +189,8 @@ let rec rewrite_new_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
               | None -> ProgUtils.get_field_utils_id field_name
             in
 
-            let* field_type =
-              let* field_symbol = Rewriter.find_and_reify field_name in
-              match field_symbol with
-              | FieldDef f -> Rewriter.return f.field_type
-              | _ -> Error.internal_error stmt.stmt_loc "expected a field_def"
-            in
+            let* field_symbol = Rewriter.find field_name in
+            let* field_type = Rewriter.Symbol.reify_type stmt.stmt_loc field_symbol in
 
             let inhale_expr =
               Expr.mk_app ~typ:Type.perm ~loc:stmt.stmt_loc Expr.Own
@@ -223,8 +223,8 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
   match stmt.stmt_desc with
   | Basic (Use use_desc) ->
-      let* pred_qual_ident = Rewriter.resolve use_desc.use_name in
-      let* symbol = Rewriter.find_and_reify use_desc.use_name in
+      let* pred_qual_ident, symbol = Rewriter.resolve_and_find use_desc.use_name in
+      let* symbol = Rewriter.Symbol.reify symbol in
 
       let pred_decl, body =
         match symbol with
@@ -358,14 +358,8 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
                           Ident.pr bd_iden Ident.pr exis_iden);
 
                     let+ bd_var_decl =
-                      let+ bd_var_symbol =
-                        Rewriter.find_and_reify (QualIdent.from_ident bd_iden)
-                      in
-
-                      begin match bd_var_symbol with
-                      | VarDef v -> v.var_decl
-                      | _ -> Error.internal_error stmt.stmt_loc "expected a var_def"
-                      end
+                      let* symbol = Rewriter.find (QualIdent.from_ident bd_iden) in
+                      Rewriter.Symbol.reify_var_decl symbol
                     in
 
                     let bd_var_expr = Expr.from_var_decl bd_var_decl in
@@ -479,17 +473,17 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
   match stmt.stmt_desc with
   | Basic (Call call_desc) -> (
-      let* callee_qual_ident = Rewriter.resolve call_desc.call_name in
-      let* symbol = Rewriter.find_and_reify call_desc.call_name in
-
-      let call_decl, call_def =
-        match symbol with
-        | CallDef c ->
-            if call_desc.call_is_spawn then
-              ( { c.call_decl with call_decl_postcond = []; call_decl_returns = [] },
-                c.call_def )
-            else (c.call_decl, c.call_def)
+      let* callee_qual_ident, symbol = Rewriter.resolve_and_find call_desc.call_name in
+      let call_def =
+        match Rewriter.Symbol.orig_symbol symbol with
+        | CallDef c -> c.call_def
         | _ -> Error.internal_error stmt.stmt_loc "expected a call_def"
+      in
+      let* call_decl = Rewriter.Symbol.reify_callable_decl symbol in
+      let call_decl =
+        if call_desc.call_is_spawn then
+          { call_decl with call_decl_postcond = []; call_decl_returns = [] }
+        else call_decl
       in
 
       let _, dropped_returns =
@@ -514,14 +508,9 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
       in
 
       let* lhs_list =
-        Rewriter.List.map call_desc.call_lhs ~f:(fun qual_iden ->
-            let* symbol = Rewriter.find_and_reify qual_iden in
-
-            match symbol with
-            | VarDef v -> Rewriter.return v.var_decl
-            | _ ->
-                Error.internal_error stmt.stmt_loc
-                  ("expected a variable; found " ^ Symbol.to_string symbol))
+        Rewriter.List.map call_desc.call_lhs ~f:(fun name ->
+            let* symbol = Rewriter.find name in
+            Rewriter.Symbol.reify_var_decl symbol)
       in
       let lhs_list = lhs_list @ fresh_dropped_returns in
 
@@ -803,29 +792,32 @@ let rec rewrite_add_pred_implicit_args (expr : Expr.t) : Expr.t Rewriter.t =
   let open Rewriter.Syntax in
   match expr with
   | App (Var qual_iden, args, expr_attr) ->
-      let* symbol = Rewriter.find_and_reify qual_iden in
-      begin match symbol with
+      let* symbol = Rewriter.find qual_iden in
+      begin match Rewriter.Symbol.orig_symbol symbol with
       | CallDef callable
         when Poly.(
                callable.call_decl.call_decl_kind = Callable.Pred
                || callable.call_decl.call_decl_kind = Callable.Invariant) ->
-          let* callable = Rewriter.find_and_reify_callable qual_iden in
-          let* () =
-            Rewriter.Logs.debug (fun printers m ->
-                m "Lowering.rewrite_add_pred_implicit_args called on: %a; callable = %a"
-                  printers.pr_expr expr printers.pr_callable callable)
+          let parameters =
+            callable.call_decl.call_decl_formals @ callable.call_decl.call_decl_returns
           in
-          if
-            List.length
-              (callable.call_decl.call_decl_formals @ callable.call_decl.call_decl_returns)
-            = List.length args
-          then Rewriter.return expr
+          if List.length parameters = List.length args then Rewriter.return expr
           else
-            let dropped_args =
-              List.drop
-                (callable.call_decl.call_decl_formals
-               @ callable.call_decl.call_decl_returns)
-                (List.length args)
+            let dropped_args = List.drop parameters (List.length args) in
+            let* dropped_args =
+              if List.is_empty (Rewriter.Symbol.subst symbol) then
+                Rewriter.return dropped_args
+              else
+                Rewriter.Symbol.extract symbol ~f:(fun _ requalify _ ->
+                    Rewriter.List.map dropped_args
+                      ~f:
+                        (Rewriter.VarDecl.rewrite_types
+                           ~f:(Rewriter.Type.rewrite_qual_idents ~f:requalify)))
+            in
+            let* () =
+              Rewriter.Logs.debug (fun printers m ->
+                  m "Lowering.rewrite_add_pred_implicit_args called on: %a"
+                    printers.pr_expr expr)
             in
             let new_dropped_args =
               List.map dropped_args ~f:(fun var_decl ->
@@ -857,7 +849,8 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) : Module.symbol Rewrit
      the Frac module's name (see [rewrite_own_expr_4_arg]), so leaving it as the
      pre-rewrite type derives the wrong name. *)
   | FieldDef ({ field_alias = Some target; _ } as f) ->
-      let* target_field = Rewriter.find_and_reify_field target in
+      let* target, target_symbol = Rewriter.resolve_and_find target in
+      let* target_type = Rewriter.Symbol.reify_type f.field_loc target_symbol in
       (* The alias generates no Frac module of its own, but a name derived from it can
          still be asked for: a callee whose contract was rewritten before this module
          existed carries `<A>.Frac$f` with `A` substituted to the alias's module, and
@@ -865,13 +858,9 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) : Module.symbol Rewrit
          as another spelling of the target's, the same way the field itself is
          registered as another spelling of the target. *)
       let* () =
-        let* is_field_an_ra =
-          ProgUtils.is_ra_type (Type.field_val target_field.field_type)
-        in
-        let* target = Rewriter.resolve target in
+        let* is_field_an_ra = ProgUtils.is_ra_type (Type.field_val target_type) in
         let target_frac_mod =
-          ProgUtils.frac_field_to_frac_mod_qual_ident ~loc:f.field_loc target
-            target_field.field_type
+          ProgUtils.frac_field_to_frac_mod_qual_ident ~loc:f.field_loc target target_type
         in
         (* A target from a unit lowered earlier, such as the library, has already been
            rewritten to its Frac module's type, so it has a Frac module despite looking
@@ -881,10 +870,10 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) : Module.symbol Rewrit
         else
           Rewriter.add_transparent
             (ProgUtils.frac_field_to_frac_mod_ident ~loc:f.field_loc f.field_name
-               target_field.field_type)
+               target_type)
             target_frac_mod
       in
-      Rewriter.return (Module.FieldDef { f with field_type = target_field.field_type })
+      Rewriter.return (Module.FieldDef { f with field_type = target_type })
   | FieldDef f ->
       let* is_field_an_ra = ProgUtils.is_ra_type (Type.field_val f.field_type) in
 
@@ -1086,17 +1075,9 @@ let rec rewrite_new_fpu_stmt_heap_arg (stmt : Stmt.t) : Stmt.t Rewriter.t =
             | Some expr ->
                 let* expr_typ = !Rewriter.expand_type_expr_ref (Expr.to_type expr) in
 
+                let* field_symbol = Rewriter.find field_name in
                 let* field_elem_type =
-                  let+ field_symbol = Rewriter.find_and_reify field_name in
-
-                  match field_symbol with
-                  | FieldDef f -> (
-                      match f.field_type with
-                      | App (Fld, [ tp_expr ], _) -> tp_expr
-                      | _ ->
-                          Error.type_error (Expr.to_loc expr) "Expected field identifier."
-                      )
-                  | _ -> Error.internal_error stmt.stmt_loc "expected a field_def"
+                  Rewriter.Symbol.reify_field_type (Expr.to_loc expr) field_symbol
                 in
 
                 let* field_elem_typ_expanded =
@@ -1131,33 +1112,21 @@ let rec rewrite_new_fpu_stmt_heap_arg (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
       Rewriter.return { stmt with stmt_desc = Basic (New { new_desc with new_args }) }
   | Basic (Fpu fpu_desc) ->
-      let compute_new_expr old_expr field_name =
+      let* field_symbol = Rewriter.find fpu_desc.fpu_field in
+      let* field_elem_type =
+        match Rewriter.Symbol.orig_symbol field_symbol with
+        | FieldDef { field_type = App (Fld, [ _ ], _); _ } ->
+            Rewriter.Symbol.reify_field_type stmt.stmt_loc field_symbol
+        | FieldDef _ -> Error.type_error stmt.stmt_loc "Expected field identifier."
+        | _ -> Error.internal_error stmt.stmt_loc "expected a field_def"
+      in
+      let* field_elem_typ_expanded = !Rewriter.expand_type_expr_ref field_elem_type in
+      let compute_new_expr old_expr =
         let loc = Expr.to_loc old_expr in
         let* expr_typ = !Rewriter.expand_type_expr_ref (Expr.to_type old_expr) in
 
-        let* field_elem_type =
-          let+ field_symbol = Rewriter.find_and_reify field_name in
-
-          match field_symbol with
-          | FieldDef f -> (
-              match f.field_type with
-              | App (Fld, [ tp_expr ], _) -> tp_expr
-              | _ -> Error.type_error loc "Expected field identifier.")
-          | _ -> Error.internal_error stmt.stmt_loc "expected a field_def"
-        in
-
-        let* field_elem_typ_expanded = !Rewriter.expand_type_expr_ref field_elem_type in
-
         if Type.(expr_typ = field_elem_typ_expanded) then Rewriter.return old_expr
         else
-          let* field_type =
-            let+ field_symbol = Rewriter.find_and_reify field_name in
-
-            match field_symbol with
-            | FieldDef f -> f.field_type
-            | _ -> Error.internal_error stmt.stmt_loc "expected a field_def"
-          in
-
           let frac_mod_name =
             match field_elem_type with
             | App (Var qual_iden, _, _) -> QualIdent.pop qual_iden
@@ -1181,11 +1150,11 @@ let rec rewrite_new_fpu_stmt_heap_arg (stmt : Stmt.t) : Stmt.t Rewriter.t =
         match fpu_desc.fpu_old_val with
         | None -> Rewriter.return None
         | Some expr ->
-            let+ new_expr = compute_new_expr expr fpu_desc.fpu_field in
+            let+ new_expr = compute_new_expr expr in
             Some new_expr
       in
 
-      let* fpu_new_val = compute_new_expr fpu_desc.fpu_new_val fpu_desc.fpu_field in
+      let* fpu_new_val = compute_new_expr fpu_desc.fpu_new_val in
 
       let new_fpu_desc = { fpu_desc with fpu_old_val; fpu_new_val } in
 
@@ -1661,10 +1630,8 @@ let rec rewrite_assign_stmts (s : Stmt.t) : Stmt.t Rewriter.t =
       let+ assign_lhs =
         Rewriter.List.map assign_stmt.assign_lhs ~f:(fun qual_ident ->
             let* qual_ident, symbol = Rewriter.resolve_and_find qual_ident in
-            let+ symbol = Rewriter.Symbol.reify symbol in
-            match symbol with
-            | VarDef { var_decl; _ } -> Expr.mk_var ~typ:var_decl.var_type qual_ident
-            | _ -> assert false)
+            let+ typ = Rewriter.Symbol.reify_type s.stmt_loc symbol in
+            Expr.mk_var ~typ qual_ident)
       in
 
       let assume_stmt =
@@ -1695,7 +1662,12 @@ let lower (m : Module.t) : (Module.t * CallGraph.Graph.t) Rewriter.t =
   Logs.debug (fun m1 ->
       m1 "Lowering.lower: Starting rewrite_ret_stmts on module %a" Ident.pr
         m.mod_decl.mod_decl_name);
-  let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_ret_stmts m in
+  let* m =
+    Rewriter.Module.rewrite_callables
+      ~f:(fun callable ->
+        Rewriter.Callable.rewrite_stmts ~f:(rewrite_ret_stmts callable.call_decl) callable)
+      m
+  in
 
   Logs.debug (fun m1 ->
       m1 "Lowering.lower: Starting rewrite_frac_field_types on module %a" Ident.pr
