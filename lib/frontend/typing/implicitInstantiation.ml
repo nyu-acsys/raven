@@ -153,11 +153,7 @@ and unify_type_list ~(loc : location) ~(functor_qual_ident : qual_ident)
     let* t2 = TypeExpr.expand_type_expr (t2 |> Type.set_ghost false) in
     match List.Assoc.find u formal_ident ~equal:Ident.equal with
     | Some prior when not (Type.equal prior t2) ->
-        Error.type_error loc
-          (Printf.sprintf
-             !"Cannot infer a single type for parameter %{Ident} of %{QualIdent}: found \
-               both %{Type} and %{Type}"
-             formal_ident functor_qual_ident prior t2)
+        conflicting_inferred_types_error loc formal_ident functor_qual_ident prior t2
     | Some _ -> Rewriter.return u
     | None -> Rewriter.return (List.Assoc.add u formal_ident t2 ~equal:Ident.equal)
   in
@@ -235,10 +231,7 @@ and unify_type_list ~(loc : location) ~(functor_qual_ident : qual_ident)
           (* A formal of type `Set[_]` accepts an argument of type `FinSet[_]`, but not
              the reverse. *)
           | App (Map, [ t1_elem; App (Bool, _, _) ], _) -> (
-              let incompatible () =
-                Error.type_error loc
-                  (Printf.sprintf !"Cannot unify type %{Type} with type %{Type}" t1 t2)
-              in
+              let incompatible () = unify_types_error loc t1 t2 in
               match t2 with
               | App (FinSet, [ t2_elem ], _) -> go u [ (t1_elem, t2_elem) ]
               | App (Map, [ t2_elem; codomain ], _) ->
@@ -252,10 +245,7 @@ and unify_type_list ~(loc : location) ~(functor_qual_ident : qual_ident)
                 when Int.equal (List.length args1) (List.length args2) && same_head c1 c2
                 ->
                   go u (List.zip_exn args1 args2)
-              | _ ->
-                  Error.type_error loc
-                    (Printf.sprintf !"Cannot unify type %{Type} with type %{Type}" t1 t2))
-          )
+              | _ -> unify_types_error loc t1 t2))
   in
   go u pairs
 
@@ -283,17 +273,9 @@ and solve_field_formals ~(claimed_location : expr -> expr t) ~(loc : location)
             let+ field = Rewriter.resolve field in
             (formal_ident, field, i)
         | Some arg ->
-            Error.type_error (Expr.to_loc arg)
-              (Printf.sprintf
-                 !"Cannot infer the field argument for parameter %{Ident} of \
-                   %{QualIdent} from this argument; pass a location, `x.f`, or write an \
-                   explicit instantiation, e.g. `module M_X = %{QualIdent}[...]`"
-                 formal_ident functor_qual_ident functor_qual_ident)
-        | None ->
-            Error.type_error loc
-              (Printf.sprintf
-                 !"Cannot infer a field argument for parameter %{Ident} of %{QualIdent}"
-                 formal_ident functor_qual_ident))
+            field_argument_from_arg_error (Expr.to_loc arg) formal_ident
+              functor_qual_ident
+        | None -> field_argument_error loc formal_ident functor_qual_ident)
   in
   ( List.map solved ~f:(fun (formal_ident, field, _) -> (formal_ident, field)),
     List.map solved ~f:(fun (_, _, i) -> i) )
@@ -321,11 +303,7 @@ and field_arg_module ~(loc : location) ~(insert_scope : qual_ident)
     Rewriter.List.map mod_members ~f:(fun member ->
         match List.Assoc.find bindings member.mod_inst_name ~equal:Ident.equal with
         | None ->
-            Error.type_error loc
-              (Printf.sprintf
-                 !"Cannot infer module member %{Ident} of %{QualIdent} from field \
-                   %{QualIdent}; write an explicit instantiation instead"
-                 member.mod_inst_name interface_qi field_qi)
+            module_member_inference_error loc member.mod_inst_name interface_qi field_qi
         | Some tp ->
             let* rep = lift (ProgUtils.resolve_rep_ident member.mod_inst_type) in
             let interface_qual_ident, rep_ident =
@@ -489,10 +467,7 @@ and try_resolve_implicit_instantiation ~(check_expr : expr -> type_expr -> expr 
       match member_signatures ~only_calls member_ident m with
       | [] -> Rewriter.return None
       | _ :: _ :: _ as members ->
-          Error.type_error loc
-            (Printf.sprintf
-               !"Ambiguous function name %{Ident} (%d candidates)"
-               member_ident (List.length members))
+          ambiguous_member_error loc member_ident (List.length members)
       | [ (declaration_ident, member_formals, return_type_opt, loc_params) ] -> (
           let* signature = discover_functor_signature ~functor_qual_ident m in
           let* inferred =
@@ -512,19 +487,8 @@ and try_resolve_implicit_instantiation ~(check_expr : expr -> type_expr -> expr 
               else if
                 List.Assoc.mem signature.field_formals formal_ident ~equal:Ident.equal
               then
-                Error.type_error loc
-                  (Printf.sprintf
-                     !"Cannot infer a field argument for parameter %{Ident} of \
-                       %{QualIdent}, since this call takes no location; write an \
-                       explicit instantiation, e.g. `module M_X = %{QualIdent}[...]`"
-                     formal_ident functor_qual_ident functor_qual_ident)
-              else
-                Error.type_error loc
-                  (Printf.sprintf
-                     !"Cannot infer a type argument for parameter %{Ident} of \
-                       %{QualIdent}; write an explicit instantiation, e.g. `module M_X = \
-                       %{QualIdent}[...]`"
-                     formal_ident functor_qual_ident functor_qual_ident)))
+                field_argument_without_location_error loc formal_ident functor_qual_ident
+              else type_argument_inference_error loc formal_ident functor_qual_ident))
 
 (** [ProgUtils.instantiate_type_functor] for a functor with at least one field-typed
     formal: each formal's argument module comes either from wrapping its solved type (as
@@ -563,9 +527,7 @@ and instantiate_mixed_functor ~(loc : location) ~(functor_qual_ident : qual_iden
             let field_type =
               match field_symbol with
               | Module.FieldDef fd -> fd.field_type
-              | _ ->
-                  Error.type_error loc
-                    (Printf.sprintf !"Expected a field, but found %{QualIdent}" field_qi)
+              | _ -> expected_field_error loc field_qi
             in
             field_arg_module ~loc ~insert_scope ~reference_scope ~interface_qi ~field
               ~mod_members ~field_qi ~field_type

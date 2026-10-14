@@ -17,12 +17,7 @@ let rec check (tp_expr : type_expr) : type_expr t =
           Rewriter.return (App (Var fully_qualified_qual_ident, [], tp_attr))
       | ModDef m -> (
           match m.mod_decl.mod_decl_rep with
-          | None ->
-              Error.type_error tp_attr.type_loc
-                ("Module "
-                ^ QualIdent.to_string qual_ident
-                ^ " does not have a rep type. It cannot be used in a context expecting a \
-                   type")
+          | None -> no_rep_type_error tp_attr.type_loc qual_ident
           | Some rep_ident -> (
               let rep_fully_qualified_qual_ident =
                 QualIdent.append fully_qualified_qual_ident rep_ident
@@ -48,7 +43,7 @@ let rec check (tp_expr : type_expr) : type_expr t =
                       Rewriter.return
                         (App (Var rep_fully_qualified_qual_ident, [], tp_attr)))))
       | ModInst _ -> unexpected_functor_error tp_attr.type_loc
-      | _ -> Error.type_error tp_attr.type_loc "Expected type identifier")
+      | _ -> expected_type_ident_error tp_attr.type_loc)
   | App (Var qual_ident, (_ :: _ as tp_args), tp_attr) -> (
       (* `M[T1,...,Tn]`: if `M` is a functor with rep-typed formals, instantiate it
          implicitly (see [ProgUtils.instantiate_type_functor]) and resolve to the
@@ -78,12 +73,7 @@ let rec check (tp_expr : type_expr) : type_expr t =
                    ~functor_mod_decl:m.mod_decl tp_args)
             in
             match m.mod_decl.mod_decl_rep with
-            | None ->
-                Error.type_error tp_attr.type_loc
-                  ("Module "
-                  ^ QualIdent.to_string qual_ident
-                  ^ " does not have a rep type. It cannot be used in a context expecting \
-                     a type")
+            | None -> no_rep_type_error tp_attr.type_loc qual_ident
             | Some rep_ident ->
                 Rewriter.return
                   (App (Var (QualIdent.append inst_qual_ident rep_ident), [], tp_attr))))
@@ -165,11 +155,7 @@ and expand_type_expr_visiting ~recursive (visiting : QualIdentSet.t) (tp_expr : 
                   | _, Module.TypeDef type_def, _ -> Ident.to_loc type_def.type_def_name
                   | _ -> Type.to_loc tp_expr
                 in
-                Error.type_error loc
-                  (Printf.sprintf
-                     !"The definition of type %{Ident} refers to itself. Only data types \
-                       can be recursive"
-                     (QualIdent.unqualify qual_ident))
+                recursive_type_alias_error loc (QualIdent.unqualify qual_ident)
               else
                 let+ exp_typ =
                   expand_type_expr_visiting ~recursive (Set.add visiting qual_ident)

@@ -144,10 +144,7 @@ let disambiguate_and_check_field_read ~is_ghost ref field disam_tbl =
       in
       (arg, field, destr_return_type, symbol)
   | _ ->
-      Error.type_error (QualIdent.to_loc field)
-        (Printf.sprintf
-           !"Expected field identifier but found %s %{QualIdent}"
-           (Symbol.kind symbol) field)
+      field_identifier_mismatch_error (QualIdent.to_loc field) (Symbol.kind symbol) field
 
 let check_spec (disam_tbl : DisambiguationTbl.t) (spec : Stmt.spec) : Stmt.spec t =
   let open Rewriter.Syntax in
@@ -168,10 +165,7 @@ let check_au_action (call_decl : Callable.call_decl) (assign_lhs : qual_ident li
   let _ =
     List.iter2_exn assign_lhs var_decls_lhs ~f:(fun qual_ident var_decl ->
         if var_decl.var_type |> Type.is_ghost then ()
-        else
-          Error.type_error
-            (qual_ident |> QualIdent.to_loc)
-            "Ghost command cannot assign to non-ghost variable")
+        else ghost_command_assign_error (qual_ident |> QualIdent.to_loc))
   in
   match args with
   | _ when QualIdent.(qual_ident = QualIdent.from_ident Predefs.fpu_ident) ->
@@ -182,9 +176,7 @@ let check_au_action (call_decl : Callable.call_decl) (assign_lhs : qual_ident li
             let+ symbol = Rewriter.Symbol.reify symbol in
             begin match symbol with
             | FieldDef field_decl when not field_decl.field_is_ghost ->
-                Error.type_error (QualIdent.to_loc qual_ident)
-                  "Frame-preserving updates ('fpu') can only be applied to ghost fields \
-                   whose value is a resource algebra (RA) element"
+                fpu_field_error (QualIdent.to_loc qual_ident)
             | FieldDef { field_type = App (Fld, [ given_type ], _); _ } ->
                 Some (field_qual_ident, given_type)
             | _ -> None
@@ -211,8 +203,8 @@ let check_au_action (call_decl : Callable.call_decl) (assign_lhs : qual_ident li
                       Rewriter.return (expr1, field_qual_ident, expr3_opt))
                 in
                 Rewriter.Option.lazy_value field ~default:(fun () ->
-                    Error.type_error (Expr.to_loc expr1) "Expected field location")
-            | _ -> Error.type_error loc "Could not find field location in fpu")
+                    expected_field_location_error (Expr.to_loc expr1))
+            | _ -> fpu_location_error loc)
       in
       let* ref_expr =
         disambiguate_and_check_expr ref_expr (Type.ref |> Type.set_ghost true) disam_tbl
@@ -227,10 +219,7 @@ let check_au_action (call_decl : Callable.call_decl) (assign_lhs : qual_ident li
         match fpu_exprs with
         | [ old_val_expr; new_val_expr ] -> (Some old_val_expr, new_val_expr)
         | [ new_val_expr ] -> (None, new_val_expr)
-        | _ ->
-            Error.type_error loc
-              "fpu expects a field location followed by one or two values, or a \
-               reference and field followed by one or two values"
+        | _ -> fpu_arity_error loc
       in
 
       ( Stmt.Fpu
@@ -250,7 +239,7 @@ let check_au_action (call_decl : Callable.call_decl) (assign_lhs : qual_ident li
           let token_expr = Expr.mk_var ~typ:token.var_decl.var_type token_qual_ident in
           let+ _ = ExprTyping.check token_expr (Type.atomic_token proc_qual_ident) in
           (Stmt.AUAction { auaction_kind = BindAU token_qual_ident }, disam_tbl)
-      | _ -> Error.type_error loc "bindAU takes no arguments"
+      | _ -> bind_au_arity_error loc
       end
   | token :: args ->
       let* token =
@@ -295,9 +284,7 @@ let check_au_action (call_decl : Callable.call_decl) (assign_lhs : qual_ident li
               false
           | ret :: [] when QualIdent.(qual_ident = from_ident Predefs.commitAU_ident) ->
               false
-          | _ ->
-              Error.type_error loc
-                "Incorrect number of arguments supplied to AU operator."
+          | _ -> au_operator_arity_error loc
           end
         in
 
@@ -333,11 +320,7 @@ let check_au_action (call_decl : Callable.call_decl) (assign_lhs : qual_ident li
                     Expr.from_var_decl var_def.var_decl)
               in
               curr_callable_concrete_arg_exprs
-            else
-              Error.type_error loc
-                "Incorrect number of arguments supplied to AU operator; expected in-args \
-                 (as a single tuple) since another procedure's atomicToken is being \
-                 manipulated."
+            else au_operator_foreign_token_error loc
       in
       (* openAU *)
       if QualIdent.(qual_ident = QualIdent.from_ident Predefs.openAU_ident) then
@@ -350,10 +333,7 @@ let check_au_action (call_decl : Callable.call_decl) (assign_lhs : qual_ident li
               if var_decl.var_implicit then Some var_decl.var_type else None)
         in
         if List.(not (length implicit_expected_types = length implicit_vars)) then
-          Error.type_error loc
-            (Printf.sprintf
-               !"Incorrect number of implicit arguments supplied on LHS for %{QualIdent}"
-               proc_qual_ident)
+          implicit_lhs_count_error loc proc_qual_ident
         else
           let+ _ =
             Rewriter.List.map2_exn implicit_vars implicit_expected_types
@@ -393,15 +373,8 @@ let check_au_action (call_decl : Callable.call_decl) (assign_lhs : qual_ident li
         (* abortAU *)
         Rewriter.return
           (Stmt.AUAction { auaction_kind = AbortAU { token; proc_args } }, disam_tbl)
-      else
-        Error.type_error loc
-          (Printf.sprintf
-             !"'%{QualIdent}' is not a recognized atomic-update (AU) action (expected \
-               one of bindAU, openAU, commitAU, abortAU, ...)"
-             qual_ident)
-  | _ ->
-      Error.type_error loc
-        (Printf.sprintf !"%{QualIdent} expects at least one argument" qual_ident)
+      else unknown_au_action_error loc qual_ident
+  | _ -> missing_arguments_error loc qual_ident
 
 (** The variable [orig_qual_ident] assigned to, with its declaration. *)
 let get_assign_lhs ~is_ghost_scope disam_tbl ~is_init ?(is_ghost_cmd = false)
@@ -413,17 +386,12 @@ let get_assign_lhs ~is_ghost_scope disam_tbl ~is_init ?(is_ghost_cmd = false)
   match symbol with
   | VarDef { var_decl; _ } when (is_ghost_scope || is_ghost_cmd) && not var_decl.var_ghost
     ->
-      Error.type_error (QualIdent.to_loc qual_ident)
-        (Printf.sprintf
-           !"Cannot assign to non-ghost var %{QualIdent} in ghost context"
-           orig_qual_ident)
+      ghost_assign_var_error (QualIdent.to_loc qual_ident) orig_qual_ident
   | VarDef { var_decl; _ } when (not var_decl.var_const) || is_init ->
       (qual_ident, var_decl)
   | _ ->
-      Error.type_error (QualIdent.to_loc qual_ident)
-        (Printf.sprintf
-           !"Cannot assign to %s %{QualIdent}"
-           (Symbol.kind symbol) orig_qual_ident)
+      cannot_assign_error (QualIdent.to_loc qual_ident) (Symbol.kind symbol)
+        orig_qual_ident
 
 (** The type checker's functions handed to an extension's statement. *)
 let ext_stmt_functs ~is_ghost_scope disam_tbl =
@@ -473,11 +441,7 @@ let rec check_basic call_decl (basic_stmt : Stmt.basic_stmt_desc) (stmt_loc : Lo
                 ~is_init:false
             in
             if Set.mem seen qual_ident then
-              Error.type_error
-                (QualIdent.to_loc orig_qual_ident)
-                (Printf.sprintf
-                   !"Duplicate bind destination %{QualIdent}"
-                   orig_qual_ident);
+              duplicate_bind_error (QualIdent.to_loc orig_qual_ident) orig_qual_ident;
             (qual_ident :: assign_lhs, Set.add seen qual_ident))
       in
       let+ bind_rhs = check_spec disam_tbl bind_desc.bind_rhs in
@@ -493,7 +457,7 @@ let rec check_basic call_decl (basic_stmt : Stmt.basic_stmt_desc) (stmt_loc : Lo
       (Stmt.Havoc { hvc with havoc_var }, disam_tbl)
   | Return expr ->
       if is_ghost_scope && Poly.(call_decl.Callable.call_decl_kind = Proc) then
-        Error.type_error stmt_loc "Cannot return in a ghost block";
+        ghost_return_error stmt_loc;
 
       let* expr = disambiguate_expr expr disam_tbl in
       let return_list = Expr.unfold_tuple expr in
@@ -585,10 +549,7 @@ and check_var_def (var_def : Stmt.var_def) (call_decl : Callable.call_decl)
       let var_decl =
         if not (Type.equal var_type Type.any) then
           { var_decl with var_type = var_type |> Type.set_ghost var_ghost; var_ghost }
-        else
-          Error.error var_decl.var_loc
-          @@ Printf.sprintf "Type annotation missing for variable %s"
-               (Ident.to_string var_decl.var_name)
+        else missing_type_annotation_error var_decl.var_loc var_decl.var_name
       in
       let var_decl, disam_tbl' = DisambiguationTbl.add_var_decl var_decl disam_tbl in
       let* _ =
@@ -665,9 +626,7 @@ and check_assign (assign_desc : Stmt.assign_desc) (call_decl : Callable.call_dec
                 let field_read_lhs =
                   match assign_desc.assign_lhs with
                   | [ lhs ] -> lhs
-                  | _ ->
-                      Error.type_error stmt_loc
-                        "Expected exactly one variable on left-hand side of field read"
+                  | _ -> field_read_lhs_error stmt_loc
                 in
 
                 let field_read_desc =
@@ -688,12 +647,7 @@ and check_assign (assign_desc : Stmt.assign_desc) (call_decl : Callable.call_dec
                 check_basic call_decl
                   (Stmt.Assign { assign_desc with assign_rhs })
                   stmt_loc disam_tbl
-            | _ ->
-                Error.type_error stmt_loc
-                  (Printf.sprintf
-                     "Expected a data destructor on the right-hand side of this field \
-                      read, but found %s"
-                     (Symbol.kind read_symbol))
+            | _ -> field_read_not_destructor_error stmt_loc (Symbol.kind read_symbol)
             end
         (* AU action *)
         | App (Var qual_ident, args, _) when Predefs.is_qual_ident_au_cmnd qual_ident ->
@@ -791,22 +745,15 @@ and check_field_write (fw_desc : Stmt.field_write_desc) (stmt_loc : location)
     match symbol with
     | FieldDef { field_type = App (Fld, [ field_type ], _); field_is_ghost; _ } ->
         if is_ghost_scope && not field_is_ghost then
-          Error.type_error
+          ghost_assign_field_error
             (QualIdent.to_loc fw_desc.field_write_field)
-            (Printf.sprintf
-               !"Cannot assign to non-ghost field %{QualIdent} in ghost context"
-               fw_desc.field_write_field)
+            fw_desc.field_write_field
         else field_type
-    | _ -> Error.type_error (QualIdent.to_loc fw_desc.field_write_field) "Expected field"
+    | _ -> not_a_field_error (QualIdent.to_loc fw_desc.field_write_field)
   in
   let* is_field_an_ra = lift (ProgUtils.is_ra_type field_type) in
   let _ =
-    if is_field_an_ra then
-      Error.type_error stmt_loc
-        (Printf.sprintf
-           !"Cannot assign directly to field %{QualIdent}, whose value is a resource \
-             algebra (RA) element; use a frame-preserving update ('fpu') instead"
-           fw_desc.field_write_field)
+    if is_field_an_ra then ra_field_assign_error stmt_loc fw_desc.field_write_field
   in
   let* field_write_ref =
     disambiguate_and_check_expr fw_desc.field_write_ref
@@ -907,10 +854,7 @@ and check_use (use_desc : Stmt.use_desc) (call_decl : Callable.call_decl)
           call_def = FuncDef { func_body = pred_def };
         } ->
         (pred_decl, pred_def)
-    | _ ->
-        Error.type_error stmt_loc
-          ("Expected predicate or invariant identifier, but found "
-         ^ QualIdent.to_string use_name)
+    | _ -> expected_predicate_error stmt_loc use_name
   in
 
   let exists_vars =
@@ -926,10 +870,8 @@ and check_use (use_desc : Stmt.use_desc) (call_decl : Callable.call_decl)
     match ty_opt with
     | Some ty -> TypeExpr.check ty
     | _ ->
-        Error.type_error (Ident.to_loc ident)
-          (Printf.sprintf
-             !"Could not find existential variable %{Ident} in %s %{QualIdent}"
-             ident (Symbol.kind symbol) use_desc.use_name)
+        unknown_existential_error (Ident.to_loc ident) ident (Symbol.kind symbol)
+          use_desc.use_name
   in
 
   let* use_args =
@@ -963,7 +905,7 @@ and check_use (use_desc : Stmt.use_desc) (call_decl : Callable.call_decl)
                   ExprTyping.check_assignment_target ie (Type.set_ghost true ty)
                 in
                 (Expr.to_ident ie, e)
-            | _ -> Error.type_error (Expr.to_loc e) "Expected local identifier"))
+            | _ -> expected_local_identifier_error (Expr.to_loc e)))
   in
 
   (Stmt.Use { use_desc with use_name; use_args; use_witnesses_or_binds }, disam_tbl)
@@ -990,12 +932,9 @@ and check_new (new_desc : Stmt.new_desc) (stmt_loc : location)
         match Rewriter.Symbol.orig_symbol symbol with
         | FieldDef { field_is_ghost; _ } ->
             if is_ghost_new && not field_is_ghost then
-              Error.type_error (QualIdent.to_loc field_name)
-                (Printf.sprintf
-                   !"Cannot assign to non-ghost field %{QualIdent} in ghost context"
-                   field_name)
+              ghost_assign_field_error (QualIdent.to_loc field_name) field_name
             else Rewriter.return ()
-        | _ -> Error.type_error (QualIdent.to_loc field_name) "Expected field"
+        | _ -> not_a_field_error (QualIdent.to_loc field_name)
       in
       let* field_type = Rewriter.Symbol.reify_field_type stmt_loc symbol in
       let+ expr_opt =
@@ -1085,16 +1024,10 @@ and check_fpu (fpu_desc : Stmt.fpu_desc) (disam_tbl : DisambiguationTbl.t) :
         match field_decl.field_type with
         | App (Fld, [ elem_ty ], _) ->
             if not field_decl.field_is_ghost then
-              Error.type_error
-                (QualIdent.to_loc fpu_desc.fpu_field)
-                "Frame-preserving updates are only allowed on ghost fields"
+              fpu_non_ghost_error (QualIdent.to_loc fpu_desc.fpu_field)
             else Rewriter.return elem_ty
-        | _ ->
-            Error.type_error
-              (QualIdent.to_loc fpu_desc.fpu_field)
-              "Expected field identifier")
-    | _ ->
-        Error.type_error (QualIdent.to_loc fpu_desc.fpu_field) "Expected field identifier"
+        | _ -> expected_field_identifier_error (QualIdent.to_loc fpu_desc.fpu_field))
+    | _ -> expected_field_identifier_error (QualIdent.to_loc fpu_desc.fpu_field)
   in
 
   (* Process optional old value and mandatory new value at the field element type *)

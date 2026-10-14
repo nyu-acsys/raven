@@ -62,10 +62,7 @@ let set_checked_type ?(coerce = true) (expr : expr) (given_typ_lb : type_expr)
   let _ =
     if
       (not @@ expected_ghost) && (Type.is_ghost given_typ_ub || Type.is_ghost given_typ_lb)
-    then
-      Error.type_error (Expr.to_loc expr)
-        "This expression reads ghost state, so it can only be used inside a ghost block, \
-         spec, or ghost-typed field"
+    then ghost_read_error (Expr.to_loc expr)
   in
   let typ = Type.meet given_typ_ub expected_typ |> Type.set_ghost expected_ghost in
   if Type.subtype_of given_typ_lb typ then
@@ -95,10 +92,10 @@ let check_triggers_mention ~(kind : string) (var_decls : var_decl list)
       in
       List.iter var_decls ~f:(fun var_decl ->
           if not (Set.mem mentioned (QualIdent.from_ident var_decl.var_name)) then
-            Error.type_error
+            trigger_missing_variable_error
               (Expr.to_loc (List.hd_exn trg))
-              (Printf.sprintf "This trigger does not mention the %s %s" kind
-                 (Ident.name var_decl.var_name))))
+              kind
+              (Ident.name var_decl.var_name)))
 
 (** Checks the value assigned to [target], retaining the destination's declared type. *)
 let check_assignment_target (target : expr) (source_type : type_expr) : expr t =
@@ -153,8 +150,7 @@ let rec check ?(allow_proc_call = false) ?(contextual = false) (expr : expr)
                   in
                   set_checked_type expr given_type_lb given_type_ub expected_typ
               | (Null | Real _ | Int _ | Bool _ | Empty), _expr_list ->
-                  Error.type_error (Expr.to_loc expr)
-                    (Expr.constr_to_string constr ^ " takes no arguments")
+                  constr_arity_error (Expr.to_loc expr) constr "no arguments"
               (* Variables, fields, and call expressions *)
               | Var qual_ident, args_list ->
                   check_var qual_ident args_list expr_attr expr expected_typ
@@ -201,8 +197,7 @@ let rec check ?(allow_proc_call = false) ?(contextual = false) (expr : expr)
                     (App (constr, [ expr_arg ], expr_attr))
                     given_type_lb given_type_lb expected_typ
               | (Not | Uminus), _expr_list ->
-                  Error.type_error (Expr.to_loc expr)
-                    (Expr.constr_to_string constr ^ " takes exactly one argument")
+                  constr_arity_error (Expr.to_loc expr) constr "exactly one argument"
               | ToReal, [ expr_arg ] ->
                   let* expr_arg =
                     check expr_arg (Type.set_ghost_to expected_typ Type.int)
@@ -210,8 +205,7 @@ let rec check ?(allow_proc_call = false) ?(contextual = false) (expr : expr)
                   set_checked_type
                     (App (ToReal, [ expr_arg ], expr_attr))
                     Type.real Type.real expected_typ
-              | ToReal, _ ->
-                  Error.type_error (Expr.to_loc expr) "to_real takes exactly one argument"
+              | ToReal, _ -> to_real_arity_error (Expr.to_loc expr)
               (* Binary expressions *)
               | ( ( TupleLookUp | MapLookUp | Plus | Minus | Mult | Div | Mod | Gt | Lt
                   | Geq | Leq | And | Or | Impl | Eq ),
@@ -220,32 +214,21 @@ let rec check ?(allow_proc_call = false) ?(contextual = false) (expr : expr)
               | ( ( TupleLookUp | MapLookUp | Plus | Minus | Mult | Div | Mod | And | Or
                   | Impl | Eq | Gt | Lt | Geq | Leq ),
                   _expr_list ) ->
-                  Error.type_error (Expr.to_loc expr)
-                    (Expr.constr_to_string constr ^ " takes exactly two arguments")
+                  constr_arity_error (Expr.to_loc expr) constr "exactly two arguments"
               (* Ternary expressions *)
               | (Ite | MapUpdate), [ expr1; expr2; expr3 ] ->
                   check_ternary expr1 expr2 expr3 constr expr_attr expr expected_typ
               | (Ite | MapUpdate), _expr_list ->
-                  Error.type_error (Expr.to_loc expr)
-                    (Expr.constr_to_string constr ^ " takes exactly three arguments")
+                  constr_arity_error (Expr.to_loc expr) constr "exactly three arguments"
               (* Ownership predicates *)
               | Own, arg_list -> check_own arg_list constr expr_attr expr expected_typ
               | AUPred call_name, [ token; args_tuple ] ->
                   check_au_pred call_name token args_tuple expr_attr expr expected_typ
-              | AUPred _, _ ->
-                  Error.type_error (Expr.to_loc expr)
-                    "au<proc>() called with incorrect number of arguments. Expected: \
-                     first argument: AtomicToken<proc>; second argument: tuple of proc \
-                     args (or unit)"
+              | AUPred _, _ -> au_pred_arity_error (Expr.to_loc expr)
               | AUPredCommit call_name, [ token; args_tuple; rets_tuple ] ->
                   check_au_pred_commit call_name token args_tuple rets_tuple expr_attr
                     expr expected_typ
-              | AUPredCommit _, _ ->
-                  Error.type_error (Expr.to_loc expr)
-                    "auCommit<proc>() called with incorrect number of arguments. \
-                     Expected: first argument: AtomicToken<proc>; second argument: tuple \
-                     of prog args (or unit); third argument: tuple of proc ret vals (or \
-                     unit)"
+              | AUPredCommit _, _ -> au_pred_commit_arity_error (Expr.to_loc expr)
               (* Data constructor expressions *)
               | DataConstr constr_ident, args_list ->
                   check_data_constr constr_ident args_list constr expr_attr expr
@@ -257,7 +240,7 @@ let rec check ?(allow_proc_call = false) ?(contextual = false) (expr : expr)
                   let constructor =
                     match symbol with
                     | ConstrDef constructor -> constructor
-                    | _ -> Error.type_error loc "Expected data constructor"
+                    | _ -> expected_data_constructor_error loc
                   in
                   let* arg =
                     check arg
@@ -267,8 +250,7 @@ let rec check ?(allow_proc_call = false) ?(contextual = false) (expr : expr)
                     (App (DataTest constr_ident, [ arg ], expr_attr))
                     Type.bool Type.bool expected_typ
               | DataTest _, _ ->
-                  Error.type_error (Expr.to_loc expr)
-                    (Expr.constr_to_string constr ^ " takes exactly one argument")
+                  constr_arity_error (Expr.to_loc expr) constr "exactly one argument"
               (* Data destructor expressions *)
               | DataDestr destr_qual_ident, [ expr1 ] ->
                   let loc = QualIdent.to_loc destr_qual_ident in
@@ -279,7 +261,7 @@ let rec check ?(allow_proc_call = false) ?(contextual = false) (expr : expr)
                     let+ symbol = Rewriter.Symbol.reify symbol in
                     match symbol with
                     | DestrDef destr -> (destr_qual_ident, destr)
-                    | _tp_env -> Error.type_error loc "Expected data destructor"
+                    | _tp_env -> expected_data_destructor_error loc
                   in
                   let* expr1 =
                     check expr1 (destr.destr_arg |> Type.set_ghost_to expected_typ)
@@ -290,14 +272,12 @@ let rec check ?(allow_proc_call = false) ?(contextual = false) (expr : expr)
                   in
                   set_checked_type expr given_typ given_typ expected_typ
               | DataDestr _, _ ->
-                  Error.type_error (Expr.to_loc expr)
-                    (Expr.constr_to_string constr ^ " takes exactly one argument")
+                  constr_arity_error (Expr.to_loc expr) constr "exactly one argument"
               (* Read expressions *)
               | Read, [ expr1; App (Var field_ident, [], expr_attr') ] ->
                   check_read expr1 field_ident expr_attr expr expected_typ
               | Read, _expr_list ->
-                  Error.type_error (Expr.to_loc expr)
-                    (Expr.constr_to_string constr ^ " takes exactly two arguments")
+                  constr_arity_error (Expr.to_loc expr) constr "exactly two arguments"
               (* Tuple expressions *)
               | Tuple, elem_expr_list ->
                   let typed_elem_expr_list =
@@ -389,15 +369,11 @@ and check_var (qual_ident : qual_ident) (args_list : expr list)
           let* _ =
             match callable_decl.call_decl_kind with
             | (Proc | Lemma) when not allow_proc_call ->
-                Error.type_error (Expr.to_loc expr)
-                  (Printf.sprintf
-                     !"%s %{Ident} can only be called as the right-hand side of an \
-                       assignment statement, e.g. `x := %{Ident}(...)`. Assign its \
-                       result to a variable first if you need to use it in an expression"
-                     (match callable_decl.call_decl_kind with
-                     | Proc -> "Procedure"
-                     | _ -> "Lemma")
-                     callable_decl.call_decl_name callable_decl.call_decl_name)
+                proc_call_in_expression_error (Expr.to_loc expr)
+                  (match callable_decl.call_decl_kind with
+                  | Proc -> "Procedure"
+                  | _ -> "Lemma")
+                  callable_decl.call_decl_name
             | _ -> Rewriter.return ()
           in
           let* is_ghost_scope = Rewriter.is_ghost_scope in
@@ -429,10 +405,8 @@ and check_var (qual_ident : qual_ident) (args_list : expr list)
                  @ callable.call_decl.call_decl_postcond) ~f:(fun spec ->
                     let+ is_pure = lift (ProgUtils.is_expr_pure spec.spec_form) in
                     if not is_pure then
-                      Error.type_error callable.call_decl.call_decl_loc
-                        (Printf.sprintf
-                           !"This specification of auto lemma %{Ident} is not pure"
-                           callable.call_decl.call_decl_name))
+                      impure_auto_lemma_spec_error callable.call_decl.call_decl_loc
+                        callable.call_decl.call_decl_name)
               in
               ()
             end
@@ -450,16 +424,11 @@ and check_var (qual_ident : qual_ident) (args_list : expr list)
             match (symbol, args_list) with
             | VarDef var_def, [] -> var_def.var_decl.var_type
             | FieldDef field_def, [] -> field_def.field_type
-            | _ ->
-                Error.type_error (Expr.to_loc expr)
-                  (Printf.sprintf !"Identifier %{QualIdent} cannot be called" qual_ident)
+            | _ -> not_callable_error (Expr.to_loc expr) qual_ident
           in
           let expr = Expr.App (Var qual_ident, [], expr_attr) in
           set_checked_type expr given_typ given_typ expected_typ
-      | _ ->
-          Error.type_error (Expr.to_loc expr)
-            ("Expected a variable, field, or callable identifier, but found "
-            ^ QualIdent.to_string qual_ident))
+      | _ -> expected_identifier_error (Expr.to_loc expr) qual_ident)
 
 (** Native empty and singleton finite-set construction. *)
 and check_finset args (expr_attr : Expr.expr_attr) expected_typ =
@@ -486,7 +455,7 @@ and check_finset args (expr_attr : Expr.expr_attr) expected_typ =
         Expr.App (MapUpdate, [ empty; element; Expr.mk_bool ~loc true ], expr_attr)
       in
       set_checked_type expr typ typ expected_typ
-  | _ -> Error.type_error expr_attr.expr_loc "finset takes zero or one argument"
+  | _ -> finset_arity_error expr_attr.expr_loc
 
 (** A binary operation. *)
 and check_binary (expr1 : expr) (expr2 : expr) (constr : Expr.constr)
@@ -539,13 +508,8 @@ and check_binary (expr1 : expr) (expr2 : expr) (constr : Expr.constr)
           begin match typ1 with
           | App (Prod, ts, _) when idx < List.length ts && idx >= 0 -> typ1
           | App (Prod, ts, _) ->
-              Error.type_error (Expr.to_loc expr2)
-                (Printf.sprintf
-                   !"Tuple index %d is out of bounds; %{Type} has %d component(s)"
-                   idx typ1 (List.length ts))
-          | App _ ->
-              Error.type_error (Expr.to_loc expr1)
-                (Printf.sprintf !"Expected product type, but found %{Type}" typ1)
+              tuple_index_error (Expr.to_loc expr2) idx typ1 (List.length ts)
+          | App _ -> expected_product_type_error (Expr.to_loc expr1) typ1
           end
       | MapLookUp -> Type.(map typ2 (Type.map_codom typ1))
       | Plus | Minus | Mult | Div | Mod | Eq | Gt | Lt | Geq | Leq -> Type.join typ1 typ2
@@ -722,14 +686,13 @@ and check_own (arg_list : expr list) (constr : Expr.constr) (expr_attr : Expr.ex
         | _ -> (
             match expr4_opt with
             | expr41 :: expr4_opt -> (expr12, expr3, expr41, expr4_opt)
-            | _ -> Error.type_error (Expr.to_loc expr12) "Expected field location")
+            | _ -> expected_field_location_error (Expr.to_loc expr12))
       end
     | expr1 :: (App (Var qual_ident, [], expr_attr') as expr2) :: expr3 :: expr4_opt ->
         Rewriter.return (expr1, expr2, expr3, expr4_opt)
     | _ ->
-        Error.type_error (Expr.to_loc expr)
-          (Expr.constr_to_string constr
-         ^ " takes either three or four arguments, and second argument is a field name")
+        constr_arity_error (Expr.to_loc expr) constr
+          "either three or four arguments, and second argument is a field name"
   in
   let* expr1 = check expr1 (Type.ref |> Type.set_ghost_to expected_typ)
   and* expr2 = check expr2 (Type.any |> Type.set_ghost_to expected_typ) in
@@ -739,7 +702,7 @@ and check_own (arg_list : expr list) (constr : Expr.constr) (expr_attr : Expr.ex
     | App (Var qual_ident, [], _) ->
         let+ field_def = Rewriter.find_and_reify_field qual_ident in
         field_def.field_type |> Type.field_val |> Type.set_ghost_to expected_typ
-    | _ -> Error.type_error (Expr.to_loc expr2) "Expected field identifier"
+    | _ -> expected_field_identifier_error (Expr.to_loc expr2)
   in
   let* is_ra_type = lift (ProgUtils.is_ra_type field_type) in
   let* expr3 = check expr3 field_type
@@ -751,16 +714,11 @@ and check_own (arg_list : expr list) (constr : Expr.constr) (expr_attr : Expr.ex
           Rewriter.return [ Expr.mk_real ~loc:(Expr.to_loc expr) 1.0 ]
         else Rewriter.return []
     | [ e ] ->
-        if is_ra_type then
-          Error.type_error (Expr.to_loc e)
-            "'own(...)' for a field whose value is a resource algebra (RA) element does \
-             not take an extra fraction argument"
+        if is_ra_type then own_ra_fraction_error (Expr.to_loc e)
         else
           let+ e = check e (Type.real |> Type.set_ghost_to expected_typ) in
           [ e ]
-    | _ ->
-        Error.type_error (Expr.to_loc expr)
-          "Too many arguments supplied to predicate 'own'"
+    | _ -> own_arity_error (Expr.to_loc expr)
   in
   (* Reconstruct and check expr *)
   let expr = Expr.App (Own, expr1 :: expr2 :: expr3 :: expr4_opt, expr_attr) in
@@ -780,11 +738,10 @@ and check_au_pred (call_name : qual_ident) (token : expr) (args_tuple : expr)
     match symbol with
     | CallDef callable when Poly.(callable.call_decl.call_decl_kind = Proc) ->
         callable.call_decl
-    | _ -> Error.type_error loc "Expected callable identifier"
+    | _ -> expected_callable_error loc
   in
 
-  if not (Callable.is_atomic callable_decl) then
-    Error.type_error loc "Expected procedure with atomic specification"
+  if not (Callable.is_atomic callable_decl) then expected_atomic_procedure_error loc
   else
     let* token = check token (Type.atomic_token call_name) in
     let* args_list = check_args ~is_called:false loc true callable_decl args_list in
@@ -808,11 +765,10 @@ and check_au_pred_commit (call_name : qual_ident) (token : expr) (args_tuple : e
     match symbol with
     | CallDef callable when Poly.(callable.call_decl.call_decl_kind = Proc) ->
         callable.call_decl
-    | _ -> Error.type_error loc "Expected procedure identifier"
+    | _ -> expected_procedure_error loc
   in
 
-  if not (Callable.is_atomic callable_decl) then
-    Error.type_error loc "Expected procedure with atomic specification"
+  if not (Callable.is_atomic callable_decl) then expected_atomic_procedure_error loc
   else
     let* token = check token (Type.atomic_token call_name) in
     let* args_list = check_args ~is_called:false loc true callable_decl args_list in
@@ -839,7 +795,7 @@ and check_data_constr (constr_ident : qual_ident) (args_list : expr list)
     let+ symbol = Rewriter.Symbol.reify symbol in
     match symbol with
     | ConstrDef constr -> constr
-    | _ -> Error.type_error loc "Expected data constructor"
+    | _ -> expected_data_constructor_error loc
   in
   let constr_arg_types_list =
     List.map constr_decl.constr_args ~f:(fun var_decl ->
@@ -852,11 +808,7 @@ and check_data_constr (constr_ident : qual_ident) (args_list : expr list)
   let args_list =
     match maybe_args_list with
     | Ok list -> list
-    | Unequal_lengths ->
-        Error.type_error (Expr.to_loc expr)
-          ("data constructor "
-          ^ QualIdent.to_string constr_ident
-          ^ " called with incorrect number of arguments")
+    | Unequal_lengths -> constructor_arity_error (Expr.to_loc expr) constr_ident
   in
   let given_typ = constr_decl.constr_return_type in
   let expr = Expr.App (constr, args_list, expr_attr) in
@@ -882,14 +834,8 @@ and check_read (expr1 : expr) (field_ident : qual_ident) (expr_attr : Expr.expr_
   let* symbol = Rewriter.Symbol.reify symbol in
   match symbol with
   | DestrDef _ -> check (App (DataDestr qual_ident, [ expr1 ], expr_attr)) expected_typ
-  | FieldDef _ ->
-      Error.type_error (Expr.to_loc expr)
-        (Printf.sprintf !"Cannot read field %{QualIdent} in this context" field_ident)
-  | _ ->
-      Error.type_error (Expr.to_loc expr)
-        (Printf.sprintf
-           !"Expected destructor identifier, but found %s %{QualIdent}"
-           (Symbol.kind symbol) qual_ident)
+  | FieldDef _ -> field_read_context_error (Expr.to_loc expr) field_ident
+  | _ -> expected_destructor_error (Expr.to_loc expr) (Symbol.kind symbol) qual_ident
 
 (** A quantifier or a comprehension. *)
 and check_binder (binder : Expr.binder) (var_decl_list : var_decl list)
@@ -920,9 +866,7 @@ and check_binder (binder : Expr.binder) (var_decl_list : var_decl list)
       let var_decl =
         match var_decl_list with
         | [ v ] -> v
-        | _ ->
-            Error.type_error (Expr.to_loc expr)
-              "Map/set comprehensions can only quantify over one variable"
+        | _ -> comprehension_variables_error (Expr.to_loc expr)
       in
 
       let inner_expr_expected_typ =
@@ -1021,8 +965,7 @@ and check_args ?(is_called = true) loc is_ghost_scope callable_decl args_list =
   let open Rewriter.Syntax in
   let callable_formals =
     match callable_decl.call_decl_kind with
-    | Proc when is_ghost_scope && is_called ->
-        Error.type_error loc "Cannot call procedure in ghost context"
+    | Proc when is_ghost_scope && is_called -> ghost_procedure_call_error loc
     | Pred | Invariant ->
         callable_decl.call_decl_formals @ callable_decl.call_decl_returns
     | _ -> callable_decl.call_decl_formals
@@ -1045,11 +988,8 @@ and check_args ?(is_called = true) loc is_ghost_scope callable_decl args_list =
     List.drop callable_formals (List.length args_list)
     |> List.find ~f:(fun var_decl -> not @@ var_decl.Type.var_implicit)
     |> Option.iter ~f:(fun decl ->
-        Error.type_error loc
-        @@ Printf.sprintf
-             !"Explicit argument %s is missing in this call to %{Ident}"
-             (Ident.name decl.Type.var_name)
-             callable_decl.call_decl_name)
+        missing_explicit_argument_error loc decl.Type.var_name
+          callable_decl.call_decl_name)
   in
 
   (* A location parameter may be given as `x.f`, with the field the callee declares; `x`
@@ -1074,11 +1014,8 @@ and check_args ?(is_called = true) loc is_ghost_scope callable_decl args_list =
                       if QualIdent.equal field declared_field then
                         Rewriter.return ref_expr
                       else
-                        Error.type_error (Expr.to_loc arg)
-                          (Printf.sprintf
-                             !"%{Ident} operates on field %{QualIdent} here, but this \
-                               argument names %{QualIdent}"
-                             callable_decl.call_decl_name declared_field field)
+                        location_field_mismatch_error (Expr.to_loc arg)
+                          callable_decl.call_decl_name declared_field field
                   | _ -> Rewriter.return arg
                   end
               | _ -> Rewriter.return arg))
@@ -1099,9 +1036,7 @@ and check_args ?(is_called = true) loc is_ghost_scope callable_decl args_list =
       args_list
   | Unequal_lengths ->
       (* Catches if too many args given. *)
-      Error.type_error loc
-      @@ Printf.sprintf "Too many arguments passed to %s"
-           (Ident.to_string callable_decl.call_decl_name)
+      too_many_arguments_error loc callable_decl.call_decl_name
 
 and check_returns loc ~is_ghost_scope ~is_call callable_decl returns_list =
   let open Rewriter.Syntax in
@@ -1123,11 +1058,8 @@ and check_returns loc ~is_ghost_scope ~is_call callable_decl returns_list =
     let num_found = List.length returns_list in
     let num_expected = List.length callable_returns in
     if not (num_found = num_expected) then
-      Error.type_error loc
-      @@ Printf.sprintf
-           !"%s has %d return parameter(s), but found %d return variable(s)"
-           (callable_decl.call_decl_name |> Ident.to_string)
-           num_expected num_found
+      return_count_error loc callable_decl.call_decl_name ~expected:num_expected
+        ~found:num_found
   in
 
   let provided_returns = List.take callable_returns (List.length returns_list) in
@@ -1142,6 +1074,4 @@ and check_returns loc ~is_ghost_scope ~is_call callable_decl returns_list =
   | Ok returns_list -> Rewriter.return returns_list
   | Unequal_lengths ->
       (* Catches if too many return values given. *)
-      Error.type_error loc
-      @@ Printf.sprintf "Too many values returned for %s"
-           (Ident.to_string callable_decl.call_decl_name)
+      too_many_returns_error loc callable_decl.call_decl_name

@@ -2,6 +2,7 @@ open Base
 open Ast
 open Util
 open TypingMonad
+open TypingErrors
 
 type generic = {
   functor_name : QualIdent.t;
@@ -117,10 +118,7 @@ let normalized ?fallback ~tbl ~loc tp =
   match CandidateTypes.normalize ~lookup tp with
   | Ok tp -> tp
   | Error (Unknown_type qi | Not_type qi | Cyclic_alias qi | Needs_instantiation qi) ->
-      Error.type_error loc
-        (Printf.sprintf
-           !"Cannot normalize type %{QualIdent} while resolving overloads"
-           qi)
+      overload_type_normalization_error loc qi
 
 let exported_declarations functor_name module_ =
   let open Rewriter.Syntax in
@@ -783,9 +781,7 @@ let resolve_overloaded ~check_expr ~claimed_location ~loc ~name ~args ~expected
             Option.map symbol ~f:(fun (name, symbol) -> Symbol (name, symbol, None))
         | None -> Rewriter.return None
         end
-    | _ ->
-        Error.type_error loc
-          (Printf.sprintf !"No applicable overload of %{QualIdent}" name)
+    | _ -> no_applicable_overload_error loc name
   in
   match (deferred, winners) with
   | [], [ (target, instance, solution) ] ->
@@ -846,9 +842,8 @@ let resolve_overloaded ~check_expr ~claimed_location ~loc ~name ~args ~expected
                           (OverloadResolution.partial_subtype target.candidate actual
                              expected)
                       then
-                        Error.type_error
+                        literal_argument_type_error
                           (Expr.to_loc (List.nth_exn args index))
-                          "This argument does not match the contextual literal type"
                   | _ -> ())
           in
           let* instance =
@@ -882,12 +877,8 @@ let resolve_overloaded ~check_expr ~claimed_location ~loc ~name ~args ~expected
       if speculative && not (List.is_empty deferred) then Rewriter.return None
       else if List.length targets = 1 then resolve_single_generic ()
       else
-        Error.type_error loc
-          (Printf.sprintf
-             !"Ambiguous function name %{Ident} (%d candidates); add a type annotation \
-               or qualify the call"
-             (QualIdent.unqualify name)
-             (List.length deferred + List.length winners))
+        ambiguous_overload_error loc (QualIdent.unqualify name)
+          (List.length deferred + List.length winners)
 
 let resolve_opt ~check_expr ~claimed_location ~loc ~name ~args ~expected
     ?(only_calls = false) ?(contextual = false) () =
@@ -897,8 +888,7 @@ let resolve_opt ~check_expr ~claimed_location ~loc ~name ~args ~expected
   let primitive =
     match primitive_operator name with
     | Some Finset when List.length args > 1 ->
-        if List.is_empty ordinary && List.is_empty imported then
-          Error.type_error loc "finset takes zero or one argument";
+        if List.is_empty ordinary && List.is_empty imported then finset_arity_error loc;
         None
     | primitive -> primitive
   in

@@ -12,35 +12,20 @@ let check_implements_var (var_def : Stmt.var_def) (orig_var_def : Stmt.var_def)
     unit t =
   let open Rewriter.Syntax in
   if var_def.var_decl.var_ghost && not orig_var_def.var_decl.var_ghost then
-    Error.type_error loc
-      (Printf.sprintf
-         !"Cannot redeclare %s %{Ident} from interface %{QualIdent} as ghost"
-         (Symbol.kind symbol) ident interface_ident)
+    redeclared_as_ghost_error loc (Symbol.kind symbol) ident interface_ident
   else if (not var_def.var_decl.var_ghost) && orig_var_def.var_decl.var_ghost then
-    Error.type_error loc
-      (Printf.sprintf
-         !"Cannot redeclare ghost %s %{Ident} from interface %{QualIdent} as non-ghost"
-         (Symbol.kind symbol) ident interface_ident)
+    redeclared_as_non_ghost_error loc (Symbol.kind symbol) ident interface_ident
   else
     let* orig_var_def_var_type =
       TypeExpr.expand_type_expr orig_var_def.var_decl.var_type
     in
 
     if Type.(var_def.var_decl.var_type <> orig_var_def_var_type) then
-      Error.type_error loc
-        (Printf.sprintf
-           !"%s %{Ident} must have type %{Type} according to interface %{QualIdent}"
-           (Symbol.kind symbol |> String.capitalize)
-           ident orig_var_def.var_decl.var_type interface_ident)
+      interface_type_mismatch_error loc (Symbol.kind symbol) ident
+        orig_var_def.var_decl.var_type interface_ident
     else
       match (var_def.var_init, orig_var_def.var_init) with
-      | _, Some _ ->
-          Error.type_error loc
-            (Printf.sprintf
-               !"%s %{Ident} was already defined in interface %{QualIdent}. It cannot be \
-                 redefined"
-               (Symbol.kind symbol |> String.capitalize)
-               ident interface_ident)
+      | _, Some _ -> redefined_error loc (Symbol.kind symbol) ident interface_ident
       | _ -> Rewriter.return ()
 
 (* Transparent wrappers do not change a contract's meaning across type instantiation. *)
@@ -100,12 +85,8 @@ let check_implements_callable (call_def : Callable.t) (orig_call_def : Callable.
           || Bool.(var_decl.var_ghost <> ovar_decl.var_ghost)
           || Type.(var_decl_var_type <> ovar_decl_var_type)
         then
-          Error.type_error loc
-            (Printf.sprintf
-               !"Formal parameter %{Ident} of %s %{Ident} does not match parameter \
-                 %{Ident} of %{Ident} in interface %{QualIdent}"
-               var_decl.var_name (Symbol.kind symbol) ident ovar_decl.var_name ident
-               interface_ident)
+          formal_parameter_mismatch_error loc var_decl.var_name (Symbol.kind symbol) ident
+            ovar_decl.var_name ident interface_ident
         else
           Map.add_exn sm
             ~key:(QualIdent.from_ident ovar_decl.var_name)
@@ -114,19 +95,14 @@ let check_implements_callable (call_def : Callable.t) (orig_call_def : Callable.
     match%bind ret_val with
     | Ok sm -> Rewriter.return sm
     | Unequal_lengths ->
-        Error.type_error loc
-          (Printf.sprintf
-             !"%s %{Ident} does not have the same number of parameters as %{Ident} in \
-               interface %{QualIdent}"
-             (Symbol.kind symbol) ident ident interface_ident)
+        parameter_count_mismatch_error loc (Symbol.kind symbol) ident ident
+          interface_ident
   in
 
   if Poly.(call_def.call_decl.call_decl_kind <> orig_call_def.call_decl.call_decl_kind)
   then
-    Error.type_error loc
-      (Printf.sprintf
-         !"Cannot redeclare %s %{Ident} from %{QualIdent} as %s"
-         (Symbol.kind orig_symbol) ident interface_ident (Symbol.kind symbol))
+    redeclared_as_other_kind_error loc (Symbol.kind orig_symbol) ident interface_ident
+      (Symbol.kind symbol)
   else
     let* sm =
       make_subst call_def.call_decl.call_decl_formals
@@ -138,11 +114,8 @@ let check_implements_callable (call_def : Callable.t) (orig_call_def : Callable.
     in
     let _ =
       if not pre_ok then
-        Error.type_error loc
-          (Printf.sprintf
-             !"%s %{Ident} does not have the same precondition as %{Ident} in interface \
-               %{QualIdent}. Repeat its contract exactly, or omit it to inherit it"
-             (Symbol.kind symbol) ident ident interface_ident)
+        contract_mismatch_error loc ~clause:"precondition" (Symbol.kind symbol) ident
+          interface_ident
     in
     let* sm =
       make_subst call_def.call_decl.call_decl_returns
@@ -154,11 +127,8 @@ let check_implements_callable (call_def : Callable.t) (orig_call_def : Callable.
     in
     let _ =
       if not post_ok then
-        Error.type_error loc
-          (Printf.sprintf
-             !"%s %{Ident} does not have the same postcondition as %{Ident} in interface \
-               %{QualIdent}. Repeat its contract exactly, or omit it to inherit it"
-             (Symbol.kind symbol) ident ident interface_ident)
+        contract_mismatch_error loc ~clause:"postcondition" (Symbol.kind symbol) ident
+          interface_ident
     in
     let opens_ok =
       let entry_expr (qi, args) = Expr.mk_app ~typ:Type.bool (Var qi) args in
@@ -178,31 +148,17 @@ let check_implements_callable (call_def : Callable.t) (orig_call_def : Callable.
     in
     let _ =
       if not opens_ok then
-        Error.type_error loc
-          (Printf.sprintf
-             !"%s %{Ident} does not have the same opens clause as %{Ident} in interface \
-               %{QualIdent}. Repeat its contract exactly, or omit it to inherit it"
-             (Symbol.kind symbol) ident ident interface_ident)
+        contract_mismatch_error loc ~clause:"opens clause" (Symbol.kind symbol) ident
+          interface_ident
     in
     (* A sealed callable, whose body freeing dropped, counts as defined. *)
     let is_defined (c : Callable.t) =
       (not (Callable.is_abstract c)) || c.call_decl.call_decl_is_sealed
     in
     match (is_defined call_def, is_defined orig_call_def) with
-    | true, true ->
-        Error.type_error loc
-          (Printf.sprintf
-             !"%s %{Ident} was already defined in interface %{QualIdent}. It cannot be \
-               redefined"
-             (Symbol.kind symbol |> String.capitalize)
-             ident interface_ident)
+    | true, true -> redefined_error loc (Symbol.kind symbol) ident interface_ident
     | false, true ->
-        Error.type_error loc
-          (Printf.sprintf
-             !"%s %{Ident} cannot be redeclared as abstract. It was already defined in \
-               interface %{QualIdent}"
-             (Symbol.kind symbol |> String.capitalize)
-             ident interface_ident)
+        redeclared_abstract_error loc (Symbol.kind symbol) ident interface_ident
     | _ -> Rewriter.return ()
 
 (** A module [mod_def] implementing the module instance [orig_mod_inst]. *)
@@ -210,18 +166,10 @@ let check_implements_mod_inst (mod_def : Module.t) (orig_mod_inst : Module.modul
     (interface_ident : qual_ident) (symbol : Symbol.t) (loc : location) (ident : ident) :
     unit t =
   if mod_def.mod_decl.mod_decl_is_interface && not orig_mod_inst.mod_inst_is_interface
-  then
-    Error.type_error loc
-      (Printf.sprintf
-         !"Cannot redeclare module %{Ident} from interface %{QualIdent} as interface"
-         ident interface_ident)
+  then redeclared_module_as_interface_error loc ident interface_ident
   else if
     (not mod_def.mod_decl.mod_decl_is_interface) && orig_mod_inst.mod_inst_is_interface
-  then
-    Error.type_error loc
-      (Printf.sprintf
-         !"Cannot redeclare interface %{Ident} from interface %{QualIdent} as module"
-         ident interface_ident)
+  then redeclared_interface_as_module_error loc ident interface_ident
   else
     let _ =
       (* The module meets the interface's requirement if any of its parents is the
@@ -232,28 +180,13 @@ let check_implements_mod_inst (mod_def : Module.t) (orig_mod_inst : Module.modul
             QualIdent.equal mod_typ orig_mod_typ)
       in
       if not implements_required then
-        Error.type_error loc
-          (Printf.sprintf
-             !"%s %{Ident} must implement interface %{QualIdent} according to interface \
-               %{QualIdent}"
-             (Symbol.kind symbol |> String.capitalize)
-             ident orig_mod_typ interface_ident)
+        must_implement_error loc (Symbol.kind symbol) ident orig_mod_typ interface_ident
     in
     if not @@ List.is_empty mod_def.mod_decl.mod_decl_formals then
-      Error.type_error loc
-        (Printf.sprintf
-           !"%s %{Ident} cannot have module parameters"
-           (Symbol.kind symbol |> String.capitalize)
-           ident)
+      module_parameters_error loc (Symbol.kind symbol) ident
     else
       match orig_mod_inst.mod_inst_def with
-      | Some _ ->
-          Error.type_error loc
-            (Printf.sprintf
-               !"%s %{Ident} was already defined in interface %{QualIdent}. It cannot be \
-                 redefined"
-               (Symbol.kind symbol |> String.capitalize)
-               ident interface_ident)
+      | Some _ -> redefined_error loc (Symbol.kind symbol) ident interface_ident
       | _ -> Rewriter.return ()
 
 (** A module instance [mod_inst] implementing the module instance [orig_mod_inst]. *)
@@ -262,42 +195,21 @@ let check_implements_mod_inst_by_inst (mod_inst : Module.module_inst)
     (symbol : Symbol.t) (loc : location) (ident : ident) : unit t =
   let open Rewriter.Syntax in
   if mod_inst.mod_inst_is_interface && not orig_mod_inst.mod_inst_is_interface then
-    Error.type_error loc
-      (Printf.sprintf
-         !"Cannot redeclare module %{Ident} from interface %{QualIdent} as interface"
-         ident interface_ident)
+    redeclared_module_as_interface_error loc ident interface_ident
   else if (not mod_inst.mod_inst_is_interface) && orig_mod_inst.mod_inst_is_interface then
-    Error.type_error loc
-      (Printf.sprintf
-         !"Cannot redeclare interface %{Ident} from interface %{QualIdent} as module"
-         ident interface_ident)
+    redeclared_interface_as_module_error loc ident interface_ident
   else
     let* mod_inst_def = Rewriter.find_and_reify_module mod_inst.mod_inst_type in
     if
       not @@ Set.mem mod_inst_def.mod_decl.mod_decl_interfaces orig_mod_inst.mod_inst_type
     then
-      Error.type_error loc
-        (Printf.sprintf
-           !"%s %{Ident} must implement interface %{QualIdent} according to interface \
-             %{QualIdent}"
-           (Symbol.kind symbol |> String.capitalize)
-           ident orig_mod_inst.mod_inst_type interface_ident)
+      must_implement_error loc (Symbol.kind symbol) ident orig_mod_inst.mod_inst_type
+        interface_ident
     else
       match (mod_inst.mod_inst_def, orig_mod_inst.mod_inst_def) with
-      | Some _, Some _ ->
-          Error.type_error loc
-            (Printf.sprintf
-               !"%s %{Ident} was already defined in interface %{QualIdent}. It cannot be \
-                 redefined"
-               (Symbol.kind symbol |> String.capitalize)
-               ident interface_ident)
+      | Some _, Some _ -> redefined_error loc (Symbol.kind symbol) ident interface_ident
       | None, Some _ ->
-          Error.type_error loc
-            (Printf.sprintf
-               !"%s %{Ident} cannot be redeclared as abstract. It was already defined in \
-                 interface %{QualIdent}"
-               (Symbol.kind symbol |> String.capitalize)
-               ident interface_ident)
+          redeclared_abstract_error loc (Symbol.kind symbol) ident interface_ident
       | _ -> Rewriter.return ()
 
 (* [manifest_subst] maps a manifest field's name in the interface's specs (`Impl.f`) to
@@ -314,40 +226,18 @@ let check_implements_symbol ?(manifest_subst = Map.empty (module QualIdent))
       let* target_type = TypeExpr.expand_type_expr field_def.field_type
       and* orig_type = TypeExpr.expand_type_expr orig_field_def.field_type in
       if not (Type.equal target_type orig_type) then
-        Error.type_error loc
-          (Printf.sprintf
-             !"Field %{Ident} stands for %{QualIdent}, of type %{Type}, but interface \
-               %{QualIdent} declares it with type %{Type}"
-             ident target target_type interface_ident orig_type)
+        manifest_field_type_error loc ident target target_type interface_ident orig_type
       else if Bool.(field_def.field_is_ghost <> orig_field_def.field_is_ghost) then
-        Error.type_error loc
-          (Printf.sprintf
-             !"Field %{Ident} is declared %s, but interface %{QualIdent} declares it %s"
-             ident
-             (if field_def.field_is_ghost then "ghost" else "non-ghost")
-             interface_ident
-             (if orig_field_def.field_is_ghost then "ghost" else "non-ghost"))
+        interface_field_ghost_error loc ident ~ghost:field_def.field_is_ghost
+          interface_ident ~orig_ghost:orig_field_def.field_is_ghost
       else Rewriter.return ()
   | TypeDef typ_def, TypeDef orig_typ_def -> (
       if Bool.(typ_def.type_def_rep <> orig_typ_def.type_def_rep) then
-        Error.type_error loc
-          (Printf.sprintf
-             !"Cannot change rep type annotation for type %{Ident} inherited from \
-               interface %{QualIdent}"
-             ident interface_ident)
+        rep_type_change_error loc ident interface_ident
       else
         match (typ_def.type_def_expr, orig_typ_def.type_def_expr) with
-        | None, Some _ ->
-            Error.type_error loc
-              (Printf.sprintf
-                 !"Type %{Ident} cannot be redeclared as abstract. It was already \
-                   defined in interface %{QualIdent}"
-                 ident interface_ident)
-        | Some _tp, Some _orig_tp ->
-            Error.type_error loc
-              (Printf.sprintf
-                 !"Type %{Ident} was already defined in interface %{QualIdent}"
-                 ident interface_ident)
+        | None, Some _ -> type_redeclared_abstract_error loc ident interface_ident
+        | Some _tp, Some _orig_tp -> type_redefined_error loc ident interface_ident
         | _ -> Rewriter.return ())
   | VarDef var_def, VarDef orig_var_def ->
       check_implements_var var_def orig_var_def interface_ident symbol loc ident
@@ -364,17 +254,10 @@ let check_implements_symbol ?(manifest_subst = Map.empty (module QualIdent))
       if is_free mod_def.mod_decl.mod_decl_status then Rewriter.return ()
       else
         (* Otherwise, RHS is being redefined, which is not OK. *)
-        Error.type_error loc
-          (Printf.sprintf
-             !"%s %{Ident} was already defined in interface %{QualIdent}. It cannot be \
-               redefined"
-             (Symbol.kind symbol |> String.capitalize)
-             ident interface_ident)
+        redefined_error loc (Symbol.kind symbol) ident interface_ident
   | _ ->
-      Error.type_error loc
-        (Printf.sprintf
-           !"Cannot redeclare %s %{Ident} from interface %{QualIdent} as %s"
-           (Symbol.kind orig_symbol) ident interface_ident (Symbol.kind symbol))
+      redeclared_from_interface_as_other_kind_error loc (Symbol.kind orig_symbol) ident
+        interface_ident (Symbol.kind symbol)
 
 (** Check that module `mod_ident` (M) implements interface `int_ident` (I) *)
 let check_module_type mod_ident int_ident =
@@ -410,22 +293,17 @@ let check_module_type mod_ident int_ident =
   (* Check if I is one of M's interfaces *)
   if not (QualIdent.(qual_mod_ident = qual_int_ident) || Set.mem interfaces qual_int_ident)
   then
-    Error.type_error (QualIdent.to_loc mod_ident)
-      (Printf.sprintf
-         !"%s %{QualIdent} does not implement interface %{QualIdent}"
-         (Symbol.kind (Rewriter.Symbol.orig_symbol mod_symbol) |> String.capitalize)
-         mod_ident int_ident)
+    does_not_implement_error (QualIdent.to_loc mod_ident)
+      (Symbol.kind (Rewriter.Symbol.orig_symbol mod_symbol))
+      mod_ident int_ident
   else if
     (* Make sure that I is the type of M itself rather than the expected type
          of the module obtained by instantiating *)
     int_is_instance && not mod_is_instance
   then
-    Error.type_error (QualIdent.to_loc mod_ident)
-      (Printf.sprintf
-         !"%s %{QualIdent} first needs to be instantiated to obtain a module with \
-           interface %{QualIdent}"
-         (Symbol.kind (Rewriter.Symbol.orig_symbol mod_symbol) |> String.capitalize)
-         mod_ident int_ident)
+    needs_instantiation_error (QualIdent.to_loc mod_ident)
+      (Symbol.kind (Rewriter.Symbol.orig_symbol mod_symbol))
+      mod_ident int_ident
 
 (** A module may implement several interfaces only if they share no ancestor: Raven
     identifies module types by path, so two routes to the same declaration give types that
@@ -438,12 +316,7 @@ let check_parents_disjoint ~loc parent_ancestors =
             let shared = Set.inter p_ancestors q_ancestors in
             match Set.min_elt shared with
             | None -> ()
-            | Some common ->
-                Error.type_error loc
-                  (Printf.sprintf
-                     !"Interfaces %{QualIdent} and %{QualIdent} cannot both be \
-                       implemented here: they share the ancestor %{QualIdent}"
-                     p_mid q_mid common));
+            | Some common -> shared_ancestor_error loc p_mid q_mid common);
         go rest
   in
   go parent_ancestors
@@ -727,11 +600,7 @@ let merge_defs ~(m : Module.t) ~(mod_qual_ident : qual_ident)
   let normalize typ =
     match CandidateTypes.normalize ~lookup typ with
     | Ok typ -> typ
-    | Error _ ->
-        Error.type_error (Type.to_loc typ)
-          (Printf.sprintf
-             !"Cannot determine type %{Type} while matching overloaded interface function"
-             typ)
+    | Error _ -> overloaded_interface_type_error (Type.to_loc typ) typ
   in
   let nominal_remapping = ref (Map.empty (module QualIdent)) in
   let inherited_application qi =
@@ -866,17 +735,13 @@ let merge_defs ~(m : Module.t) ~(mod_qual_ident : qual_ident)
                 match compatible with
                 | [ own ] -> own
                 | [] ->
-                    Error.type_error m.mod_decl.mod_decl_loc
-                      (Printf.sprintf
-                         "No implementation matches overload %s in interface %s"
-                         (Ident.to_string source)
-                         (QualIdent.to_string parent_ident))
+                    no_overload_implementation_error m.mod_decl.mod_decl_loc
+                      (Ident.to_string source)
+                      (QualIdent.to_string parent_ident)
                 | _ ->
-                    Error.type_error m.mod_decl.mod_decl_loc
-                      (Printf.sprintf
-                         "Multiple implementations match overload %s in interface %s"
-                         (Ident.to_string source)
-                         (QualIdent.to_string parent_ident))
+                    multiple_overload_implementations_error m.mod_decl.mod_decl_loc
+                      (Ident.to_string source)
+                      (QualIdent.to_string parent_ident)
               in
               let parent_name = Callable.to_ident parent in
               let own_name = Callable.to_ident own in
@@ -1082,11 +947,7 @@ let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_iden
             | Module.ModDef parent ->
                 if is_instance then [] else parent.mod_decl.mod_decl_formals
             | symbol ->
-                Error.type_error (QualIdent.to_loc mid)
-                  (Printf.sprintf
-                     !"Expected a module or interface in the parent clause, but found %s \
-                       %{QualIdent}"
-                     (Symbol.kind symbol) mid))
+                parent_not_module_error (QualIdent.to_loc mid) (Symbol.kind symbol) mid)
         in
         (* A parameterized parent's formals are substituted by its arguments first, then
              its name by this module's; in the other order, a mapping for `Base.A` would
@@ -1106,10 +967,7 @@ let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_iden
                 else
                   let+ qi = Rewriter.resolve qi in
                   qi
-            | Module.TypeArg tp ->
-                Error.type_error (Type.to_loc tp)
-                  "An inherited interface must be applied to modules, not to bare types; \
-                   name a module implementing the parameter's interface instead")
+            | Module.TypeArg tp -> type_as_interface_argument_error (Type.to_loc tp))
         in
         let* interface_symbol =
           match interface_symbol with
@@ -1194,14 +1052,9 @@ let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_iden
                   match Map.add acc ~key ~data:(qual_interface_ident, data) with
                   | `Ok acc -> acc
                   | `Duplicate ->
-                      Error.type_error m.mod_decl.mod_decl_loc
-                        (Printf.sprintf
-                           !"Member %{Ident} is declared by more than one of the \
-                             interfaces %s implements; a module cannot inherit two \
-                             declarations of the same name"
-                           key
-                           (Ident.to_string
-                              (ProgUtils.source_module_name m.mod_decl.mod_decl_name))))
+                      inherited_twice_error m.mod_decl.mod_decl_loc key
+                        (Ident.to_string
+                           (ProgUtils.source_module_name m.mod_decl.mod_decl_name)))
             in
             (* Only an unapplied parameterised parent imposes its formals on
                    this module; an applied one supplied them as arguments. *)

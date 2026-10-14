@@ -45,8 +45,7 @@ let check_type_def (type_def : Module.type_def) : Module.symbol t =
 
             let _ =
               if List.is_empty variant_decl_list then
-                Error.error (Type.to_loc tp_expr)
-                  "data types must have at least one constructor"
+                data_type_without_constructors_error (Type.to_loc tp_expr)
             in
 
             (* _constr_map is constructed just to make sure no duplicate constructors are used in data type declaration. *)
@@ -58,9 +57,9 @@ let check_type_def (type_def : Module.type_def) : Module.symbol t =
                       match Map.add mp ~key:var_arg.var_name ~data:var_arg with
                       | `Ok mp -> mp
                       | `Duplicate ->
-                          Error.error (Ident.to_loc var_arg.var_name)
-                          @@ Printf.sprintf "Duplicate constructor found in data type %s"
-                               (Type.to_string tp_expr)))
+                          duplicate_constructor_error
+                            (Ident.to_loc var_arg.var_name)
+                            tp_expr))
             in
 
             let* variant_decl_list =
@@ -103,8 +102,7 @@ let check_type_def (type_def : Module.type_def) : Module.symbol t =
                   Rewriter.introduce_symbol Module.(ConstrDef data_type_constr))
             in
             Type.App (Data (fully_qualified_tp_name, variant_decl_list), [], _tp_attr)
-        | App (Data _, _, _tp_attr) ->
-            Error.error (Type.to_loc tp_expr) "Data types don't take arguments"
+        | App (Data _, _, _tp_attr) -> data_type_arguments_error (Type.to_loc tp_expr)
         | _ -> TypeExpr.check tp_expr
       in
 
@@ -121,21 +119,13 @@ let check_alias_field (field : Module.field_def) (target : qual_ident) : Module.
     match symbol with
     | Module.FieldDef target_field -> target_field
     | _ ->
-        Error.type_error (QualIdent.to_loc target)
-          (Printf.sprintf
-             !"Expected a field on the right-hand side of 'field %{Ident} = ...', but \
-               found %s %{QualIdent}"
-             field.field_name (Symbol.kind symbol) target)
+        manifest_field_target_error (QualIdent.to_loc target) field.field_name
+          (Symbol.kind symbol) target
   in
   let _ =
     if Bool.(field.field_is_ghost <> target_field.field_is_ghost) then
-      Error.type_error field.field_loc
-        (Printf.sprintf
-           !"Field %{Ident} is declared %s, but %{QualIdent} is %s"
-           field.field_name
-           (if field.field_is_ghost then "ghost" else "non-ghost")
-           target
-           (if target_field.field_is_ghost then "ghost" else "non-ghost"))
+      manifest_field_ghost_error field.field_loc field.field_name
+        ~ghost:field.field_is_ghost target ~target_ghost:target_field.field_is_ghost
   in
   Rewriter.return
     (Module.FieldDef
@@ -164,11 +154,7 @@ let check_field (field : Module.field_def) : Module.symbol t =
 
 let check_var (var : Stmt.var_def) : Module.symbol t =
   let open Rewriter.Syntax in
-  let _ =
-    if not var.var_decl.var_const then
-      Error.type_error var.var_decl.var_loc
-        "Modules and interfaces cannot have var members"
-  in
+  let _ = if not var.var_decl.var_const then var_member_error var.var_decl.var_loc in
   let* var_decl = TypeExpr.check_var_decl var.var_decl in
   let+ var_init =
     Rewriter.Option.map var.var_init ~f:(fun expr ->
@@ -179,9 +165,7 @@ let check_var (var : Stmt.var_def) : Module.symbol t =
   in
   let _ =
     if Type.equal var_type Type.any then
-      Error.error var_decl.var_loc
-      @@ Printf.sprintf "Type annotation missing for variable %s"
-           (Ident.to_string var_decl.var_name)
+      missing_type_annotation_error var_decl.var_loc var_decl.var_name
   in
   let var_is_free = var.var_is_free in
   let (var : Stmt.var_def) =
@@ -208,18 +192,12 @@ let check_no_abstract_members (mod_decl : Module.module_decl)
                 call_decl = { call_decl_status = NotFree; _ };
               } ->
               if Ident.(mod_decl.mod_decl_name = Predefs.prog_ident) then
-                Error.type_error (Symbol.to_loc symbol)
-                  (Printf.sprintf
-                     !"The %s %{Ident} cannot be abstract here. An abstract member can \
-                       only be declared in an interface"
-                     (Symbol.kind symbol) (Symbol.to_name symbol))
+                abstract_in_program_error (Symbol.to_loc symbol) (Symbol.kind symbol)
+                  (Symbol.to_name symbol)
               else
-                Error.type_error mod_decl.mod_decl_loc
-                  (Printf.sprintf
-                     !"Module %{Ident} must be declared as an interface. The %s %{Ident} \
-                       is still abstract"
-                     (ProgUtils.source_module_name mod_decl.mod_decl_name)
-                     (Symbol.kind symbol) (Symbol.to_name symbol))
+                still_abstract_error mod_decl.mod_decl_loc
+                  (ProgUtils.source_module_name mod_decl.mod_decl_name)
+                  (Symbol.kind symbol) (Symbol.to_name symbol)
           | ModInst
               { mod_inst_def = Some (mod_inst_func, _); mod_inst_is_interface = false; _ }
             -> (
@@ -227,10 +205,8 @@ let check_no_abstract_members (mod_decl : Module.module_decl)
               match mod_inst_symbol with
               | Module.ModDef mdef ->
                   if mdef.mod_decl.mod_decl_is_interface then
-                    Error.type_error (Symbol.to_loc symbol)
-                      (Printf.sprintf
-                         !"Module %{Ident} must be declared as an interface"
-                         (ProgUtils.source_module_name (Symbol.to_name symbol)))
+                    must_be_interface_error (Symbol.to_loc symbol)
+                      (ProgUtils.source_module_name (Symbol.to_name symbol))
               | _ -> ())
           | _ -> Rewriter.return ())
       | _ -> Rewriter.return ())
@@ -262,13 +238,9 @@ let check_word_sized (mod_decl : Module.module_decl) (mod_def : Module.module_in
       if is_word_sized then Rewriter.return ()
       else
         let* printers = Rewriter.current_printers in
-        Error.type_error mod_decl.mod_decl_loc
-          (Printf.sprintf
-             !"`%s` is not word-sized, so it cannot implement %{QualIdent}. An atomic \
-               primitive operates on a single machine word: Int, Bool, Ref, or a data \
-               type with at most four constructors each taking at most one of those"
-             (Print.string_of_format printers.pr_type rep_type)
-             Predefs.lib_word_sized_mod_qual_ident)
+        not_word_sized_error mod_decl.mod_decl_loc
+          (Print.string_of_format printers.pr_type rep_type)
+          Predefs.lib_word_sized_mod_qual_ident
   | _ -> Rewriter.return ()
 
 let assign_function_identities (instrs : Module.module_instr list) =
@@ -333,7 +305,7 @@ let check_function_signatures (instrs : Module.module_instr list) =
             let source = Callable.source_ident call in
             let previous = Map.find signatures source |> Option.value ~default:[] in
             if List.exists previous ~f:(List.equal Type.equal types) then
-              Error.redeclaration_error (Callable.to_loc call) (Ident.to_string source);
+              duplicate_overload_error (Callable.to_loc call) source;
             Rewriter.return (Map.set signatures ~key:source ~data:(types :: previous))
         | _ -> Rewriter.return signatures)
   in
@@ -348,10 +320,7 @@ let rec check (m : Module.t) : Module.t t =
   let () =
     let decl = m.mod_decl in
     if decl.mod_decl_is_sealed && decl.mod_decl_is_interface then
-      Error.type_error decl.mod_decl_loc
-        (Printf.sprintf
-           !"Interface %{Ident} cannot be sealed with ':>'"
-           decl.mod_decl_name)
+      sealed_interface_error decl.mod_decl_loc decl.mod_decl_name
   in
 
   let* sc = Rewriter.current_scope_children in
@@ -438,10 +407,8 @@ let rec check (m : Module.t) : Module.t t =
       | SymbolDef (TypeDef type_def) when type_def.type_def_rep ->
           Option.map_or_else
             ~m:(fun _ ->
-              Error.syntax_error type_def.type_def_loc
-                (Printf.sprintf
-                   !"Found more than one rep type in module %{Ident}"
-                   (ProgUtils.source_module_name m.mod_decl.mod_decl_name)))
+              multiple_rep_types_error type_def.type_def_loc
+                (ProgUtils.source_module_name m.mod_decl.mod_decl_name))
             ~e:(fun () -> Some type_def.type_def_name)
             () rep_type
       | _ -> rep_type)
@@ -491,12 +458,9 @@ let rec check (m : Module.t) : Module.t t =
                 Ident.(param.mod_inst_name <> oparam.mod_inst_name)
                 || QualIdent.(param.mod_inst_type <> oparam.mod_inst_type)
               then
-                Error.type_error param.mod_inst_loc
-                  (Printf.sprintf
-                     !"Parameter %{Ident} of %s %{Ident} does not match declaration of \
-                       parameter %{Ident} of interface %{QualIdent}"
-                     param.mod_inst_name (Symbol.kind (ModDef m)) mod_decl.mod_decl_name
-                     oparam.mod_inst_name interface_ident))
+                parameter_mismatch_error param.mod_inst_loc param.mod_inst_name
+                  (Symbol.kind (ModDef m)) mod_decl.mod_decl_name oparam.mod_inst_name
+                  interface_ident)
         in
         match res with
         | Ok list -> list
@@ -645,12 +609,8 @@ and check_instr (m : Module.t) (instr : Module.module_instr) : Module.module_ins
                             let* rep = lift (ProgUtils.resolve_rep_ident formal_iface) in
                             match rep with
                             | None ->
-                                Error.type_error (Type.to_loc tp)
-                                  (Printf.sprintf
-                                     !"Cannot pass a type as argument for parameter \
-                                       %{Ident}: interface %{QualIdent} does not declare \
-                                       a rep type"
-                                     formal.mod_inst_name formal_iface)
+                                type_argument_without_rep_error (Type.to_loc tp)
+                                  formal.mod_inst_name formal_iface
                             | Some (interface_qual_ident, rep_ident) ->
                                 let* insert_scope, reference_scope =
                                   lift (ProgUtils.find_insertion_scope_for_types [ tp ])
