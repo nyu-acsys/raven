@@ -591,6 +591,11 @@ let type_argument_without_rep_error loc formal interface_qi =
 
 (* Interfaces *)
 
+let inherited_member_msg kind ident parent_kind parent_ident =
+  Printf.sprintf
+    !"%s %{Ident} inherited from %s %{QualIdent}.%{Ident}"
+    (String.capitalize kind) ident parent_kind parent_ident ident
+
 let contract_mismatch_error loc ~clause kind ident interface_ident =
   Error.type_error loc
     (Printf.sprintf
