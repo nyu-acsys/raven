@@ -8,13 +8,12 @@ open TypingMonad
 open TypingErrors
 
 type context = {
-  tbl : SymbolTbl.t;
   mod_qual_ident : qual_ident;
   own_instrs : Module.module_instr list;
   own_symbols : Module.symbol Map.M(Ident).t;
   parent_instrs : Module.module_instr list;
 }
-(** What names are resolved against: the symbol table, and the members of the module
+(** What names are resolved against besides the symbol table: the members of the module
     [mod_qual_ident], with its formals, and of the interface it implements. *)
 
 (** The members [instrs] of the module [prefix], each with its qualified name. *)
@@ -25,11 +24,24 @@ let qualify_members prefix instrs =
         Some (QualIdent.from_ident name, QualIdent.to_list (QualIdent.append prefix name))
     | Import _ -> None)
 
+(** The module that the instance [mi] stands for, with its name. *)
+let instance_module (mi : Module.module_inst) =
+  let open Rewriter.Syntax in
+  let target =
+    match mi.mod_inst_def with Some (target, []) -> target | _ -> mi.mod_inst_type
+  in
+  let+ found = CandidateTypes.lookup target in
+  Option.bind found ~f:(fun (target_qi, target_symbol) ->
+      Rewriter.Symbol.extract target_symbol ~f:(fun _ subst -> function
+        | Module.ModDef md -> Some (target_qi, subst, md)
+        | _ -> None))
+
 (** The member at [path] among [instrs], the members of the module [prefix], looking
     through module instances to their modules. *)
-let rec local_lookup tbl prefix instrs path =
+let rec local_lookup prefix instrs path =
+  let open Rewriter.Syntax in
   match path with
-  | [] -> None
+  | [] -> Rewriter.return None
   | name :: rest ->
       let symbol =
         List.find_map instrs ~f:(function
@@ -37,7 +49,9 @@ let rec local_lookup tbl prefix instrs path =
               Some symbol
           | _ -> None)
       in
-      Option.bind symbol ~f:(fun symbol ->
+      begin match symbol with
+      | None -> Rewriter.return None
+      | Some symbol ->
           let resolved = QualIdent.append prefix name in
           let symbol =
             match symbol with
@@ -52,73 +66,67 @@ let rec local_lookup tbl prefix instrs path =
                   { md with mod_decl = { md.mod_decl with mod_decl_rep = rep } }
             | symbol -> symbol
           in
-          match (symbol, rest) with
+          begin match (symbol, rest) with
           | Module.ModInst mi, [] ->
-              let target =
-                match mi.mod_inst_def with
-                | Some (target, []) -> target
-                | _ -> mi.mod_inst_type
-              in
-              Option.bind (CandidateTypes.lookup tbl target)
-                ~f:(fun (target_qi, target_symbol) ->
-                  Rewriter.Symbol.extract target_symbol ~f:(fun _ _ -> function
-                    | Module.ModDef md ->
-                        Some
-                          ( resolved,
-                            ( resolved,
-                              Module.ModDef md,
-                              (false, true, [ (target_qi, QualIdent.to_list resolved) ])
-                            ) )
-                    | _ -> None))
+              let+ target = instance_module mi in
+              Option.map target ~f:(fun (target_qi, _, md) ->
+                  ( resolved,
+                    ( resolved,
+                      Module.ModDef md,
+                      (false, true, [ (target_qi, QualIdent.to_list resolved) ]) ) ))
           | _, [] ->
-              Some
-                ( resolved,
-                  (resolved, symbol, (false, false, qualify_members prefix instrs)) )
-          | Module.ModDef md, _ -> local_lookup tbl resolved md.mod_def rest
+              Rewriter.return
+                (Some
+                   ( resolved,
+                     (resolved, symbol, (false, false, qualify_members prefix instrs)) ))
+          | Module.ModDef md, _ -> local_lookup resolved md.mod_def rest
           | Module.ModInst mi, _ ->
-              let target =
-                match mi.mod_inst_def with
-                | Some (target, []) -> target
-                | _ -> mi.mod_inst_type
-              in
-              Option.bind (CandidateTypes.lookup tbl target)
-                ~f:(fun (target_qi, target_symbol) ->
-                  Rewriter.Symbol.extract target_symbol ~f:(fun _ subst -> function
-                    | Module.ModDef md ->
-                        Option.map (local_lookup tbl resolved md.mod_def rest)
-                          ~f:(fun (qi, (name, symbol, (_, _, substitutions))) ->
-                            ( qi,
-                              ( name,
-                                symbol,
-                                ( false,
-                                  true,
-                                  (target_qi, QualIdent.to_list resolved)
-                                  :: List.map substitutions ~f:(fun (from, dest) ->
-                                      (subst from, dest)) ) ) ))
-                    | _ -> None))
-          | _ -> None)
+              let* target = instance_module mi in
+              begin match target with
+              | None -> Rewriter.return None
+              | Some (target_qi, subst, md) ->
+                  let+ found = local_lookup resolved md.mod_def rest in
+                  Option.map found ~f:(fun (qi, (name, symbol, (_, _, substitutions))) ->
+                      ( qi,
+                        ( name,
+                          symbol,
+                          ( false,
+                            true,
+                            (target_qi, QualIdent.to_list resolved)
+                            :: List.map substitutions ~f:(fun (from, dest) ->
+                                (subst from, dest)) ) ) ))
+              end
+          | _ -> Rewriter.return None
+          end
+      end
 
 (** Resolves [qi] against the module's members, the symbol table, and the interface's
     members. *)
 let lookup ctx qi =
+  let open Rewriter.Syntax in
   let path = QualIdent.to_list qi in
   let prefix = QualIdent.to_list ctx.mod_qual_ident in
   let is_qualified = List.is_prefix path ~prefix ~equal:Ident.equal in
   let path = if is_qualified then List.drop path (List.length prefix) else path in
   match path with
   | name :: _ when Map.mem ctx.own_symbols name ->
-      local_lookup ctx.tbl ctx.mod_qual_ident ctx.own_instrs path
+      local_lookup ctx.mod_qual_ident ctx.own_instrs path
   | _ ->
-      Option.first_some
-        (CandidateTypes.lookup ctx.tbl qi)
-        (local_lookup ctx.tbl ctx.mod_qual_ident
-           (List.filter ctx.parent_instrs ~f:(function
-             | Module.SymbolDef (ModInst _) -> false
-             | _ -> true))
-           path)
+      let* found = CandidateTypes.lookup qi in
+      begin match found with
+      | Some _ -> Rewriter.return found
+      | None ->
+          local_lookup ctx.mod_qual_ident
+            (List.filter ctx.parent_instrs ~f:(function
+              | Module.SymbolDef (ModInst _) -> false
+              | _ -> true))
+            path
+      end
 
 let normalize ctx typ =
-  match CandidateTypes.normalize ~lookup:(lookup ctx) typ with
+  let open Rewriter.Syntax in
+  let+ normalized = CandidateTypes.normalize ~lookup:(lookup ctx) typ in
+  match normalized with
   | Ok typ -> typ
   | Error _ -> overloaded_interface_type_error (Type.to_loc typ) typ
 
@@ -137,7 +145,9 @@ let rename_instance instances qi =
 (** Whether [functor_qi] names a module with a rep type, which its applications stand for.
 *)
 let has_rep_type ctx functor_qi =
-  match lookup ctx functor_qi with
+  let open Rewriter.Syntax in
+  let+ found = lookup ctx functor_qi in
+  match found with
   | Some (_, symbol) ->
       Rewriter.Symbol.extract symbol ~f:(fun _ _ -> function
         | Module.ModDef { mod_decl = { mod_decl_rep = Some _; _ }; _ } -> true
@@ -148,33 +158,37 @@ let has_rep_type ctx functor_qi =
     interface created it implicitly, with the instances in its arguments renamed by
     [instances]. *)
 let inherited_application ctx instances (mi : Module.module_inst) =
+  let open Rewriter.Syntax in
   match mi.mod_inst_def with
   | Some (functor_qi, args)
     when String.is_prefix (Ident.name mi.mod_inst_name)
-           ~prefix:ProgUtils.inst_mod_ident_prefix
-         && has_rep_type ctx functor_qi ->
-      let argument_types =
-        List.map args ~f:(function
-          | Module.TypeArg typ ->
-              Ok (CandidateTypes.rewrite_type ~f:(rename_instance instances) typ)
-          | Module.ModArg module_qi ->
-              CandidateTypes.normalize ~lookup:(lookup ctx)
-                (Type.var (rename_instance instances module_qi)))
-        |> Result.all
-      in
-      begin match argument_types with
-      | Error _ -> None
-      | Ok args ->
-          Some
-            (Type.App
-               (Type.Var functor_qi, args, Type.mk_attr (Ident.to_loc mi.mod_inst_name)))
-      end
-  | _ -> None
+           ~prefix:ProgUtils.inst_mod_ident_prefix ->
+      let* has_rep_type = has_rep_type ctx functor_qi in
+      if not has_rep_type then Rewriter.return None
+      else
+        let+ argument_types =
+          Rewriter.List.map args ~f:(function
+            | Module.TypeArg typ ->
+                Rewriter.return
+                  (Ok (CandidateTypes.rewrite_type ~f:(rename_instance instances) typ))
+            | Module.ModArg module_qi ->
+                CandidateTypes.normalize ~lookup:(lookup ctx)
+                  (Type.var (rename_instance instances module_qi)))
+        in
+        begin match Result.all argument_types with
+        | Error _ -> None
+        | Ok args ->
+            Some
+              (Type.App
+                 (Type.Var functor_qi, args, Type.mk_attr (Ident.to_loc mi.mod_inst_name)))
+        end
+  | _ -> Rewriter.return None
 
 (** Normalizes [typ], instantiating types that need it. *)
 let rec prepare_type ctx visiting (Type.App (head, args, attr) as typ) =
   let open Rewriter.Syntax in
-  match CandidateTypes.normalize ~lookup:(lookup ctx) typ with
+  let* normalized = CandidateTypes.normalize ~lookup:(lookup ctx) typ in
+  match normalized with
   | Ok typ -> Rewriter.return typ
   | Error (CandidateTypes.Needs_instantiation _) ->
       begin match (head, args) with
@@ -182,33 +196,34 @@ let rec prepare_type ctx visiting (Type.App (head, args, attr) as typ) =
           let* args = Rewriter.List.map args ~f:(prepare_type ctx visiting) in
           TypeExpr.check (Type.App (head, args, attr))
       | Type.Var qi, [] when not (Set.mem visiting qi) ->
-          begin match lookup ctx qi with
+          let* found = lookup ctx qi in
+          begin match found with
           | Some (_, symbol) ->
               Rewriter.Symbol.extract symbol ~f:(fun _ requalify -> function
                 | Module.TypeDef { type_def_expr = Some definition; _ } ->
                     prepare_type ctx (Set.add visiting qi)
                       (CandidateTypes.rewrite_type ~f:requalify definition)
-                | _ -> Rewriter.return (normalize ctx typ))
-          | None -> Rewriter.return (normalize ctx typ)
+                | _ -> normalize ctx typ)
+          | None -> normalize ctx typ
           end
       | _ ->
           let+ args = Rewriter.List.map args ~f:(prepare_type ctx visiting) in
           Type.App (head, args, attr)
       end
-  | Error _ -> Rewriter.return (normalize ctx typ)
+  | Error _ -> normalize ctx typ
 
 (** The normalized parameter types of [call]. *)
 let signature ctx call =
   let open Rewriter.Syntax in
+  (* Prefers the symbol table, which now has the instances that [prepare_type] created. *)
+  let lookup_table_first qi =
+    let* found = CandidateTypes.lookup qi in
+    match found with Some _ -> Rewriter.return found | None -> lookup ctx qi
+  in
   Rewriter.List.map call.Callable.call_decl.call_decl_formals ~f:(fun formal ->
       let* typ = prepare_type ctx (Set.empty (module QualIdent)) formal.var_type in
-      let+ current_tbl = Rewriter.get_table in
-      let lookup_current qi =
-        Option.first_some (CandidateTypes.lookup current_tbl qi) (lookup ctx qi)
-      in
-      match CandidateTypes.normalize ~lookup:lookup_current typ with
-      | Ok typ -> typ
-      | Error _ -> normalize ctx typ)
+      let* normalized = CandidateTypes.normalize ~lookup:lookup_table_first typ in
+      match normalized with Ok typ -> Rewriter.return typ | Error _ -> normalize ctx typ)
 
 let own_functions mod_def source =
   List.filter_map mod_def ~f:(function
@@ -295,7 +310,8 @@ let match_instances ctx =
     ~init:(Map.empty (module QualIdent))
     ~f:(fun instances -> function
       | Module.SymbolDef (ModInst mi) ->
-          begin match inherited_application ctx instances mi with
+          let* application = inherited_application ctx instances mi in
+          begin match application with
           | None -> Rewriter.return instances
           | Some application ->
               let+ prepared =
@@ -334,7 +350,6 @@ let match_overloads ~(m : Module.t) ~(mod_qual_ident : qual_ident)
     ~(mod_def_formals : Module.module_instr list) ~(mod_def : Module.module_instr list)
     ~(parent_ident : qual_ident) (parent_mod_def : Module.module_instr list) =
   let open Rewriter.Syntax in
-  let* tbl = Rewriter.get_table in
   let own_instrs = mod_def_formals @ mod_def in
   let own_symbols =
     List.filter_map own_instrs ~f:(function
@@ -342,9 +357,7 @@ let match_overloads ~(m : Module.t) ~(mod_qual_ident : qual_ident)
       | Import _ -> None)
     |> Map.of_alist_reduce (module Ident) ~f:(fun first _ -> first)
   in
-  let ctx =
-    { tbl; mod_qual_ident; own_instrs; own_symbols; parent_instrs = parent_mod_def }
-  in
+  let ctx = { mod_qual_ident; own_instrs; own_symbols; parent_instrs = parent_mod_def } in
   let* instances = match_instances ctx in
   let* parent_mod_def =
     Rewriter.List.map parent_mod_def ~f:(rewrite_member ~f:(rename_instance instances))

@@ -370,8 +370,10 @@ let resolve_candidates ?(canonical_aliases = false) ?(read_only = false) name (t
             orig_qual_ident |> QualIdent.set_loc (QualIdent.to_loc name),
             subst )))
 
-let resolve name tbl =
-  match resolve_candidates name tbl with Some [ resolved ] -> Some resolved | _ -> None
+let resolve ?read_only name tbl =
+  match resolve_candidates ?read_only name tbl with
+  | Some [ resolved ] -> Some resolved
+  | _ -> None
 
 (** The sealed view that the module [name] resolves to, if any. *)
 let find_sealed_view name tbl : sealed_view option =
@@ -455,11 +457,11 @@ let unknown_member_error loc (name : QualIdent.t) (tbl : t) =
       symbol is used
     - the associated symbol, relative to the scope where the symbol is declared
     - a substitution map that maps the symbol definition to the scope where it is used. *)
-let resolve_and_find name tbl : (QualIdent.t * QualIdent.t * Module.symbol * subst) option
-    =
+let resolve_and_find ?read_only name tbl :
+    (QualIdent.t * QualIdent.t * Module.symbol * subst) option =
   let open Option.Syntax in
   (* Logs.debug (fun m -> m "SymbolTbl.resolve_and_find: %a" QualIdent.pr name); *)
-  let* alias_qual_ident, orig_qual_ident, subst = resolve name tbl in
+  let* alias_qual_ident, orig_qual_ident, subst = resolve ?read_only name tbl in
 
   let+ symbol = Map.find tbl.tbl_symbols alias_qual_ident in
 

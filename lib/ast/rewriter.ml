@@ -2176,13 +2176,17 @@ let resolve_and_find_candidates name : ((QualIdent.t * Symbol.t) list, 'a) t_ext
   |> Base.List.map ~f:(fun (alias, target, symbol, subst) ->
       (target, (alias, symbol, subst)))
 
-let resolve_and_find_opt name : ((QualIdent.t * Symbol.t) option, 'a) t_ext =
+(** Resolves [name] to its symbol. A [read_only] lookup, for one that only probes the
+    table, does not count as a read of a local variable and has no relaxed fallback. *)
+let resolve_and_find_opt ?(read_only = false) name :
+    ((QualIdent.t * Symbol.t) option, 'a) t_ext =
   let open Syntax in
   let* tbl = get_table in
 
-  match SymbolTbl.resolve_and_find name tbl with
+  match SymbolTbl.resolve_and_find ~read_only name tbl with
   | Some (alias_qual_ident, qual_ident, symbol, subst) ->
       return (Some (qual_ident, (alias_qual_ident, symbol, subst)))
+  | None when read_only -> return None
   | None ->
       (* Last resort for a machine-free symbol's already-validated contract/body: a prior
        qualident substitution (e.g. a functor formal rewritten to its argument) can
@@ -2196,6 +2200,34 @@ let resolve_and_find_opt name : ((QualIdent.t * Symbol.t) option, 'a) t_ext =
         let+ symbol = find_absolute name in
         Base.Option.map symbol ~f:(fun symbol ->
             (name, (name, symbol, (false, false, []))))
+
+(** The names that [name] may resolve to, probed without counting as a read of a local
+    variable. *)
+let probe_candidates name : (QualIdent.t list, 'a) t_ext =
+  let open Syntax in
+  let+ tbl = get_table in
+  SymbolTbl.resolve_candidates ~read_only:true name tbl
+  |> Base.Option.value ~default:[]
+  |> Base.List.map ~f:(fun (_, target, _) -> target)
+
+(** Runs [m] in the scope that declares the symbol [name], for lookups relative to it. *)
+let in_scope_of name (m : ('b, 'a) t_ext) : ('b, 'a) t_ext =
+ fun s ->
+  let tbl = s.state_table in
+  let s', result = m { s with state_table = SymbolTbl.goto name tbl } in
+  ( {
+      s' with
+      state_table =
+        { s'.state_table with tbl_curr = tbl.tbl_curr; tbl_path = tbl.tbl_path };
+    },
+    result )
+
+(** The sealed view of the instance with the fully qualified name [qual_ident], if it is
+    one. *)
+let find_sealed_view qual_ident : (SymbolTbl.sealed_view option, 'a) t_ext =
+  let open Syntax in
+  let+ tbl = get_table in
+  Base.Map.find tbl.tbl_sealed qual_ident
 
 let resolve_and_find name : (QualIdent.t * Symbol.t, 'a) t_ext =
   let open Syntax in

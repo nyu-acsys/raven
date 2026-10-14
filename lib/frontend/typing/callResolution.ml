@@ -109,13 +109,18 @@ let specialize_map_operator constr (candidate : OverloadResolution.candidate) ar
       }
   | _ -> candidate
 
-let normalized ?fallback ~tbl ~loc tp =
+let normalized ?scope ?(fallback = false) ~loc tp =
+  let open Rewriter.Syntax in
   let lookup qi =
-    match CandidateTypes.lookup tbl qi with
-    | Some symbol -> Some symbol
-    | None -> Option.bind fallback ~f:(fun scope -> CandidateTypes.lookup scope qi)
+    match scope with
+    | None -> CandidateTypes.lookup qi
+    | Some scope ->
+        let* found = Rewriter.in_scope_of scope (CandidateTypes.lookup qi) in
+        if fallback && Option.is_none found then CandidateTypes.lookup qi
+        else Rewriter.return found
   in
-  match CandidateTypes.normalize ~lookup tp with
+  let+ normalized = CandidateTypes.normalize ~lookup tp in
+  match normalized with
   | Ok tp -> tp
   | Error (Unknown_type qi | Not_type qi | Cyclic_alias qi | Needs_instantiation qi) ->
       overload_type_normalization_error loc qi
@@ -214,35 +219,48 @@ let is_literal hooks = function
   | Expr.App (ExprExt extension, _, _) -> hooks.Rewriter.expr_ext_is_literal extension
   | _ -> false
 
-let reads_ghost tbl expr =
+let reads_ghost expr =
+  let open Rewriter.Syntax in
   (* Speculative types reflect the ghost context, rather than a value's origin. *)
   let rec go bound = function
     | Expr.App (Var qi, args, _) ->
-        let arguments () = List.exists args ~f:(go bound) in
-        begin match CandidateTypes.lookup tbl qi with
+        let arguments () = Rewriter.List.exists args ~f:(go bound) in
+        let* found = CandidateTypes.lookup qi in
+        begin match found with
         | Some (_, (_, Module.VarDef var, _)) ->
-            arguments ()
+            let+ arguments = arguments () in
+            arguments
             || (not (Set.mem bound qi))
                && (var.var_decl.var_ghost || Type.is_ghost var.var_decl.var_type)
-        | Some (_, (_, Module.FieldDef field, _)) -> arguments () || field.field_is_ghost
+        | Some (_, (_, Module.FieldDef field, _)) ->
+            let+ arguments = arguments () in
+            arguments || field.field_is_ghost
         | Some (_, (_, Module.CallDef call, _)) ->
-            Type.is_ghost (Callable.return_type call.call_decl)
-            || List.existsi args ~f:(fun index arg ->
-                let erased =
-                  Option.value_map (List.nth call.call_decl.call_decl_formals index)
-                    ~default:false ~f:(fun formal ->
-                      formal.var_ghost || Type.is_ghost formal.var_type)
-                in
-                (not erased) && go bound arg)
+            if Type.is_ghost (Callable.return_type call.call_decl) then
+              Rewriter.return true
+            else
+              Rewriter.List.exists
+                (List.mapi args ~f:(fun index arg -> (index, arg)))
+                ~f:(fun (index, arg) ->
+                  let erased =
+                    Option.value_map (List.nth call.call_decl.call_decl_formals index)
+                      ~default:false ~f:(fun formal ->
+                        formal.var_ghost || Type.is_ghost formal.var_type)
+                  in
+                  if erased then Rewriter.return false else go bound arg)
         | _ -> arguments ()
         end
-    | Expr.App (_, args, _) -> List.exists args ~f:(go bound)
+    | Expr.App (_, args, _) -> Rewriter.List.exists args ~f:(go bound)
     | Expr.Binder (_, vars, triggers, body, _) ->
         let bound =
           List.fold vars ~init:bound ~f:(fun bound var ->
               Set.add bound (QualIdent.from_ident var.Type.var_name))
         in
-        go bound body || List.exists triggers ~f:(List.exists ~f:(go bound))
+        let* body = go bound body in
+        if body then Rewriter.return true
+        else
+          Rewriter.List.exists triggers ~f:(fun trigger ->
+              Rewriter.List.exists trigger ~f:(go bound))
   in
   go (Set.empty (module QualIdent)) expr
 
@@ -257,20 +275,20 @@ let evidence ~check_expr ~claimed_location ~location_indices args =
             claimed_location original
           else Rewriter.return original
         in
-        let* tbl = Rewriter.get_table in
-        let expr, location =
+        let* expr, location =
           match claimed with
           | Expr.App (Read, [ ref_expr; App (Var field, [], _) ], _)
             when List.mem location_indices index ~equal:Int.equal ->
-              begin match CandidateTypes.lookup tbl field with
+              let+ found = CandidateTypes.lookup field in
+              begin match found with
               | Some (_, (_, Module.FieldDef _, _)) -> (ref_expr, Some (index, field))
               | _ -> (original, None)
               end
-          | _ -> (original, None)
+          | _ -> Rewriter.return (original, None)
         in
         let* typed = speculatively (check_expr expr (Type.any |> Type.set_ghost true)) in
         let* hooks = Rewriter.current_ext_hooks in
-        let+ tbl = Rewriter.get_table in
+        let+ ghost = reads_ghost typed in
         let tp = Expr.to_type typed |> Type.set_ghost false in
         let type_ =
           if is_literal hooks expr then OverloadResolution.Literal tp
@@ -281,7 +299,7 @@ let evidence ~check_expr ~claimed_location ~location_indices args =
             | _ -> Unknown
           else Known tp
         in
-        ({ OverloadResolution.type_; ghost = reads_ghost tbl typed }, location))
+        ({ OverloadResolution.type_; ghost }, location))
   in
   (List.map prepared ~f:fst, List.filter_map prepared ~f:snd)
 
@@ -294,12 +312,21 @@ let location_parameters target =
         | _ -> [])
   | _ -> []
 
-let field_constraints tbl target locations =
+let field_constraints target locations =
+  let open Rewriter.Syntax in
   let parameters = location_parameters target in
+  (* Whether [declared] names the field [actual]. *)
+  let same_field declared actual rest bindings solve =
+    let* expected = CandidateTypes.lookup declared in
+    match expected with
+    | Some (expected, _) when QualIdent.equal expected actual -> solve bindings rest
+    | _ -> Rewriter.return (Error OverloadResolution.Argument)
+  in
   let rec solve bindings = function
-    | [] -> Ok bindings
+    | [] -> Rewriter.return (Ok bindings)
     | (index, field) :: rest ->
-        begin match (List.nth parameters index, CandidateTypes.lookup tbl field) with
+        let* found = CandidateTypes.lookup field in
+        begin match (List.nth parameters index, found) with
         | Some declared, Some (actual, ((_, Module.FieldDef _, _) as symbol)) ->
             let definition =
               Rewriter.Symbol.extract symbol ~f:(fun _ requalify -> function
@@ -312,27 +339,16 @@ let field_constraints tbl target locations =
                 | _ -> Error.internal_error (QualIdent.to_loc field) "Expected field")
             in
             begin match target.generic with
-            | None ->
-                begin match CandidateTypes.lookup tbl declared with
-                | Some (expected, _) when QualIdent.equal expected actual ->
-                    solve bindings rest
-                | _ -> Error OverloadResolution.Argument
-                end
+            | None -> same_field declared actual rest bindings solve
             | Some generic ->
                 let formal = QualIdent.unqualify (QualIdent.pop declared) in
                 begin match
                   List.Assoc.find generic.signature.field_formals formal
                     ~equal:Ident.equal
                 with
-                | None ->
-                    begin match CandidateTypes.lookup tbl declared with
-                    | Some (expected, _) when QualIdent.equal expected actual ->
-                        solve bindings rest
-                    | _ -> Error OverloadResolution.Argument
-                    end
-                | Some (interface, expected, _) ->
-                    let scope = SymbolTbl.goto target.name tbl in
-                    let expected_type =
+                | None -> same_field declared actual rest bindings solve
+                | Some (interface, expected, _) -> (
+                    let* expected_type =
                       CandidateTypes.rewrite_type
                         ~f:
                           (QualIdent.requalify
@@ -342,17 +358,20 @@ let field_constraints tbl target locations =
                                    (QualIdent.append generic.functor_name formal) );
                              ])
                         expected.field_type
-                      |> normalized ~tbl:scope ~loc:(QualIdent.to_loc field)
+                      |> normalized ~scope:target.name ~loc:(QualIdent.to_loc field)
                     in
-                    let actual_type =
-                      normalized ~tbl ~loc:(QualIdent.to_loc field) definition.field_type
+                    let* actual_type =
+                      normalized ~loc:(QualIdent.to_loc field) definition.field_type
                     in
                     if Bool.(expected.field_is_ghost <> definition.field_is_ghost) then
-                      Error OverloadResolution.Ghost
+                      Rewriter.return (Error OverloadResolution.Ghost)
                     else
-                      Result.bind
-                        (OverloadResolution.infer target.candidate ~only_unbound:false
-                           bindings expected_type actual_type) ~f:(fun bindings ->
+                      match
+                        OverloadResolution.infer target.candidate ~only_unbound:false
+                          bindings expected_type actual_type
+                      with
+                      | Error reason -> Rewriter.return (Error reason)
+                      | Ok bindings ->
                           let expected_type =
                             OverloadResolution.substitute bindings expected_type
                           in
@@ -360,10 +379,10 @@ let field_constraints tbl target locations =
                             OverloadResolution.partial_subtype target.candidate
                               actual_type expected_type
                           then solve bindings rest
-                          else Error OverloadResolution.Argument)
+                          else Rewriter.return (Error OverloadResolution.Argument))
                 end
             end
-        | _ -> Error OverloadResolution.Argument
+        | _ -> Rewriter.return (Error OverloadResolution.Argument)
         end
   in
   solve [] locations
@@ -389,11 +408,14 @@ let virtual_formals generic tp =
   in
   virtualize tp
 
-let existing_instance generic tbl qi =
-  match CandidateTypes.lookup tbl qi with
-  | None -> None
+let existing_instance generic qi =
+  let open Rewriter.Syntax in
+  let* found = CandidateTypes.lookup qi in
+  match found with
+  | None -> Rewriter.return None
   | Some (target, symbol) ->
-      begin match Map.find tbl.SymbolTbl.tbl_sealed target with
+      let+ view = Rewriter.find_sealed_view target in
+      begin match view with
       | Some view when QualIdent.equal view.sealed_functor generic.functor_name ->
           Some
             (fun formal -> List.Assoc.find_exn view.sealed_args formal ~equal:Ident.equal)
@@ -404,7 +426,8 @@ let existing_instance generic tbl qi =
       | _ -> None
       end
 
-let virtual_arguments generic tbl ~templates evidence =
+let virtual_arguments generic ~templates evidence =
+  let open Rewriter.Syntax in
   let head =
     QualIdent.append generic.functor_name
       (Option.value generic.module_.mod_decl.mod_decl_rep
@@ -414,54 +437,71 @@ let virtual_arguments generic tbl ~templates evidence =
     match (template, constr, args) with
     | Type.App (Var template_head, _ :: _, _), Type.Var qi, []
       when QualIdent.equal template_head head ->
-        let paths =
+        let candidates =
           List.filter_map generic.signature.rep_suffixes ~f:(fun suffix ->
               let path = QualIdent.to_list qi in
               let n = List.length path - List.length suffix in
               if n > 0 && List.equal Ident.equal (List.drop path n) suffix then
-                let instance = QualIdent.from_list (List.take path n) in
-                Option.map (existing_instance generic tbl instance) ~f:(fun modules ->
-                    (instance, modules))
+                Some (QualIdent.from_list (List.take path n))
               else None)
         in
-        begin match paths with
-        | [] -> (tp, [])
+        let* paths =
+          Rewriter.List.map candidates ~f:(fun instance ->
+              let+ modules = existing_instance generic instance in
+              Option.map modules ~f:(fun modules -> (instance, modules)))
+        in
+        begin match List.filter_opt paths with
+        | [] -> Rewriter.return (tp, [])
         | (instance, modules) :: _ ->
-            let args =
-              List.map generic.signature.formal_reps ~f:(fun (_, formal, rep) ->
-                  normalized ~tbl ~loc:(Type.to_loc tp)
+            let+ args =
+              Rewriter.List.map generic.signature.formal_reps ~f:(fun (_, formal, rep) ->
+                  normalized ~loc:(Type.to_loc tp)
                     (Type.var (QualIdent.append (modules formal) rep)))
             in
             (Type.App (Var head, args, attr), [ instance ])
         end
     | Type.App (Map, [ domain; _ ], _), Type.FinSet, [ element ] ->
-        let element, instances = virtualize domain element in
+        let+ element, instances = virtualize domain element in
         (Type.App (constr, [ element ], attr), instances)
     | Type.App (_, formal_args, _), _, _ ->
         begin match List.zip formal_args args with
         | Ok pairs ->
-            let expanded =
-              List.map pairs ~f:(fun (formal, actual) -> virtualize formal actual)
+            let+ expanded =
+              Rewriter.List.map pairs ~f:(fun (formal, actual) ->
+                  virtualize formal actual)
             in
             ( Type.App (constr, List.map expanded ~f:fst, attr),
               List.concat_map expanded ~f:snd )
-        | Unequal_lengths -> (tp, [])
+        | Unequal_lengths -> Rewriter.return (tp, [])
         end
   in
-  let expanded =
-    List.mapi evidence ~f:(fun index argument ->
+  let+ expanded =
+    Rewriter.List.map
+      (List.mapi evidence ~f:(fun index argument -> (index, argument)))
+      ~f:(fun (index, argument) ->
         let template = Option.value (List.nth templates index) ~default:Type.any in
         match argument.OverloadResolution.type_ with
-        | Unknown -> (argument, [])
+        | Unknown -> Rewriter.return (argument, [])
         | Known tp ->
-            let tp, instances = virtualize template tp in
+            let+ tp, instances = virtualize template tp in
             ({ argument with type_ = Known tp }, instances)
         | Literal tp ->
-            let tp, _ = virtualize template tp in
+            let+ tp, _ = virtualize template tp in
             ({ argument with type_ = Literal tp }, []))
   in
   ( List.map expanded ~f:fst,
     List.concat_map expanded ~f:snd |> List.dedup_and_sort ~compare:QualIdent.compare )
+
+(** The names under which to look for generic functions: [name] if it resolves to nothing,
+    or else the [imported] names that resolve to nothing. *)
+let generic_names ~ordinary ~imported name =
+  let open Rewriter.Syntax in
+  if List.is_empty imported then
+    Rewriter.return (if List.is_empty ordinary then [ name ] else [])
+  else
+    Rewriter.List.fold_right imported ~init:[] ~f:(fun imported names ->
+        let+ candidates = Rewriter.probe_candidates imported in
+        if List.is_empty candidates then imported :: names else names)
 
 (* Test literal result shapes without creating generic instances. *)
 let enumeration_accepts_type opener singleton expected =
@@ -472,15 +512,7 @@ let enumeration_accepts_type opener singleton expected =
   in
   let* ordinary = Rewriter.resolve_and_find_candidates name in
   let* imported = Rewriter.find_import_targets name in
-  let* tbl = Rewriter.get_table in
-  let generic_names =
-    if List.is_empty imported then if List.is_empty ordinary then [ name ] else []
-    else
-      List.filter imported ~f:(fun qi ->
-          match SymbolTbl.resolve_candidates ~read_only:true qi tbl with
-          | None | Some [] -> true
-          | Some _ -> false)
-  in
+  let* generic_names = generic_names ~ordinary ~imported name in
   let* generics = discover_generics generic_names in
   let accepts candidate expected =
     match
@@ -492,80 +524,80 @@ let enumeration_accepts_type opener singleton expected =
           (OverloadResolution.substitute bindings candidate.returns)
           expected
   in
-  let ordinary_accepts =
-    List.exists ordinary ~f:(fun (identity, symbol) ->
-        match OverloadResolution.of_symbol ~identity ~generic_parameters:[] symbol with
-        | None -> false
-        | Some candidate ->
-            let scope = SymbolTbl.goto (Rewriter.Symbol.orig_qid symbol) tbl in
-            accepts
-              {
-                candidate with
-                returns =
-                  normalized ~tbl:scope ~fallback:tbl ~loc:(Type.to_loc expected)
-                    candidate.returns;
-              }
-              expected)
+  let ordinary_accepts (identity, symbol) =
+    match OverloadResolution.of_symbol ~identity ~generic_parameters:[] symbol with
+    | None -> Rewriter.return false
+    | Some candidate ->
+        let+ returns =
+          normalized
+            ~scope:(Rewriter.Symbol.orig_qid symbol)
+            ~fallback:true ~loc:(Type.to_loc expected) candidate.returns
+        in
+        accepts { candidate with returns } expected
   in
-  Rewriter.return
-    (ordinary_accepts
-    || List.exists generics ~f:(fun generic ->
-        let parameters =
-          List.map generic.signature.formal_reps ~f:(fun (qi, _, _) -> qi)
-        in
-        let identity =
-          QualIdent.append generic.functor_name
-            generic.declaration.call_decl.call_decl_name
-        in
-        let candidate =
-          {
-            OverloadResolution.identity;
-            kind = Func;
-            ghost = false;
-            parameters = [];
-            returns = Callable.return_type generic.declaration.call_decl;
-            generic_parameters = parameters;
-          }
-        in
-        let scope = SymbolTbl.goto identity tbl in
-        let returns =
-          normalized ~tbl:scope ~fallback:tbl ~loc:(Type.to_loc expected)
-            candidate.returns
-          |> virtual_formals generic
-        in
-        let candidate = { candidate with returns } in
-        let expected, _ =
-          virtual_arguments generic tbl ~templates:[ returns ]
-            [ { OverloadResolution.type_ = Known expected; ghost = false } ]
-        in
-        match expected with
-        | [ { type_ = Known expected; _ } ] -> accepts candidate expected
-        | _ -> false))
+  let generic_accepts generic =
+    let parameters = List.map generic.signature.formal_reps ~f:(fun (qi, _, _) -> qi) in
+    let identity =
+      QualIdent.append generic.functor_name generic.declaration.call_decl.call_decl_name
+    in
+    let candidate =
+      {
+        OverloadResolution.identity;
+        kind = Func;
+        ghost = false;
+        parameters = [];
+        returns = Callable.return_type generic.declaration.call_decl;
+        generic_parameters = parameters;
+      }
+    in
+    let* returns =
+      normalized ~scope:identity ~fallback:true ~loc:(Type.to_loc expected)
+        candidate.returns
+    in
+    let returns = virtual_formals generic returns in
+    let candidate = { candidate with returns } in
+    let+ expected, _ =
+      virtual_arguments generic ~templates:[ returns ]
+        [ { OverloadResolution.type_ = Known expected; ghost = false } ]
+    in
+    match expected with
+    | [ { type_ = Known expected; _ } ] -> accepts candidate expected
+    | _ -> false
+  in
+  let* ordinary_accepts = Rewriter.List.exists ordinary ~f:ordinary_accepts in
+  if ordinary_accepts then Rewriter.return true
+  else Rewriter.List.exists generics ~f:generic_accepts
+
+(** [candidate] with [f] applied to the types of its parameters and result. *)
+let map_candidate_types (candidate : OverloadResolution.candidate) ~f =
+  let open Rewriter.Syntax in
+  let* parameters =
+    Rewriter.List.map candidate.parameters ~f:(fun p ->
+        let+ type_ = f p.OverloadResolution.type_ in
+        { p with type_ })
+  in
+  let+ returns = f candidate.returns in
+  { candidate with parameters; returns }
 
 (** The target of the ordinary function [name], with its types normalized in its scope. *)
-let ordinary_target ~tbl ~loc (name, symbol) =
+let ordinary_target ~loc (name, symbol) =
+  let open Rewriter.Syntax in
   match OverloadResolution.of_symbol ~identity:name ~generic_parameters:[] symbol with
-  | None -> None
+  | None -> Rewriter.return None
   | Some candidate ->
-      let scope = SymbolTbl.goto (Rewriter.Symbol.orig_qid symbol) tbl in
-      let candidate =
-        {
-          candidate with
-          parameters =
-            List.map candidate.parameters ~f:(fun p ->
-                { p with type_ = normalized ~tbl:scope ~fallback:tbl ~loc p.type_ });
-          returns = normalized ~tbl:scope ~fallback:tbl ~loc candidate.returns;
-        }
+      let+ candidate =
+        map_candidate_types candidate
+          ~f:(normalized ~scope:(Rewriter.Symbol.orig_qid symbol) ~fallback:true ~loc)
       in
       Some { name; symbol = Some symbol; generic = None; candidate; primitive = None }
 
 (** The target of the function of the functor [generic], with its rep types as generic
     parameters. *)
-let generic_target ~tbl ~loc generic =
+let generic_target ~loc generic =
+  let open Rewriter.Syntax in
   let name =
     QualIdent.append generic.functor_name generic.declaration.call_decl.call_decl_name
   in
-  let scope = SymbolTbl.goto name tbl in
   let parameters =
     List.map (generic.signature.formal_reps @ generic.field_reps) ~f:(fun (qi, _, _) ->
         qi)
@@ -579,20 +611,16 @@ let generic_target ~tbl ~loc generic =
   let normalize tp =
     let rec expand (Type.App (head, args, attr) as tp) =
       match (head, args) with
-      | Type.Var _, _ :: _ -> tp
-      | _ when List.is_empty args -> normalized ~tbl:scope ~loc tp
-      | _ -> Type.App (head, List.map args ~f:expand, attr)
+      | Type.Var _, _ :: _ -> Rewriter.return tp
+      | _ when List.is_empty args -> normalized ~scope:name ~loc tp
+      | _ ->
+          let+ args = Rewriter.List.map args ~f:expand in
+          Type.App (head, args, attr)
     in
-    expand (virtual_formals generic tp) |> virtual_formals generic
+    let+ expanded = expand (virtual_formals generic tp) in
+    virtual_formals generic expanded
   in
-  let candidate =
-    {
-      candidate with
-      parameters =
-        List.map candidate.parameters ~f:(fun p -> { p with type_ = normalize p.type_ });
-      returns = normalize candidate.returns;
-    }
-  in
+  let+ candidate = map_candidate_types candidate ~f:normalize in
   { name; symbol = None; generic = Some generic; candidate; primitive = None }
 
 (** The target of the primitive operator [constr], applied to [arity] arguments. *)
@@ -617,9 +645,10 @@ let primitive_target ~loc ~arity constr =
 
 (** The expected type in terms of the virtual formals of [generic], with the instances
     that its result type selects. *)
-let virtual_expected generic tbl target expected =
-  let result, instances =
-    virtual_arguments generic tbl ~templates:[ target.candidate.returns ]
+let virtual_expected generic target expected =
+  let open Rewriter.Syntax in
+  let+ result, instances =
+    virtual_arguments generic ~templates:[ target.candidate.returns ]
       [ { OverloadResolution.type_ = Known expected; ghost = false } ]
   in
   let expected = match result with [ { type_ = Known tp; _ } ] -> tp | _ -> expected in
@@ -627,7 +656,8 @@ let virtual_expected generic tbl target expected =
 
 (** Tries [target] on [arguments]: the outcome of matching it, with the existing instance
     that a generic target selects, if any. *)
-let try_target ~expected tbl arguments locations target =
+let try_target ~expected arguments locations target =
+  let open Rewriter.Syntax in
   let target =
     match target.primitive with
     | Some (Core ((MapUpdate | MapLookUp) as constr)) ->
@@ -637,24 +667,26 @@ let try_target ~expected tbl arguments locations target =
         }
     | _ -> target
   in
-  let arguments, instances, expected =
+  let* arguments, instances, expected =
     match target.generic with
-    | None -> (arguments, [], expected)
+    | None -> Rewriter.return (arguments, [], expected)
     | Some generic ->
-        let arguments, instances =
-          virtual_arguments generic tbl
+        let* arguments, instances =
+          virtual_arguments generic
             ~templates:(List.map target.candidate.parameters ~f:(fun p -> p.type_))
             arguments
         in
-        let expected, result_instances = virtual_expected generic tbl target expected in
+        let+ expected, result_instances = virtual_expected generic target expected in
         ( arguments,
           (if List.is_empty instances then result_instances else instances),
           expected )
   in
-  let outcome =
-    if List.length instances > 1 then OverloadResolution.Mismatch Argument
+  let+ outcome =
+    if List.length instances > 1 then
+      Rewriter.return (OverloadResolution.Mismatch Argument)
     else
-      match field_constraints tbl target locations with
+      let+ constraints = field_constraints target locations in
+      match constraints with
       | Error reason -> OverloadResolution.Mismatch reason
       | Ok bindings ->
           let candidate =
@@ -676,20 +708,24 @@ let try_target ~expected tbl arguments locations target =
 
 (** [trials] without the generic targets whose instance is one of the [ordinary] targets:
     a concrete import and a generic import can select the same existing instance. *)
-let without_duplicate_instances ordinary tbl trials =
-  List.filter trials ~f:(fun (target, instance, _) ->
+let without_duplicate_instances ordinary trials =
+  let open Rewriter.Syntax in
+  Rewriter.List.fold_right trials ~init:[]
+    ~f:(fun ((target, instance, _) as trial) kept ->
       match (target.generic, instance) with
       | Some generic, Some instance ->
-          let name =
-            QualIdent.append instance generic.declaration.call_decl.call_decl_name
+          let+ resolved =
+            Rewriter.probe_candidates
+              (QualIdent.append instance generic.declaration.call_decl.call_decl_name)
           in
-          let resolved = SymbolTbl.resolve_candidates ~read_only:true name tbl in
-          not
-            (List.exists ordinary ~f:(fun concrete ->
-                 match resolved with
-                 | Some [ (_, name, _) ] -> QualIdent.equal concrete.name name
-                 | _ -> false))
-      | _ -> true)
+          let duplicate =
+            List.exists ordinary ~f:(fun concrete ->
+                match resolved with
+                | [ name ] -> QualIdent.equal concrete.name name
+                | _ -> false)
+          in
+          if duplicate then kept else trial :: kept
+      | _ -> Rewriter.return (trial :: kept))
 
 (** Rejects the trials whose solution gives an empty or singleton literal among [args] a
     type that the literal cannot have. *)
@@ -767,12 +803,12 @@ let resolve_implicitly ~check_expr ~claimed_location ~loc ~args ~expected ~retur
 (** Resolves the selected function of the functor [generic] to its instance: the existing
     [instance], or a new one with the bindings of [solution], refined by context if the
     call is [contextual]. *)
-let resolve_generic_winner ~loc ~args ~expected ~contextual tbl arguments generic target
+let resolve_generic_winner ~loc ~args ~expected ~contextual arguments generic target
     instance (solution : OverloadResolution.solution) =
   let open Rewriter.Syntax in
-  let bindings =
+  let* bindings =
     if contextual && Option.is_none instance then
-      let context, _ = virtual_expected generic tbl target expected in
+      let+ context, _ = virtual_expected generic target expected in
       (* Context refines this selected target; it never chooses another overload. *)
       match
         OverloadResolution.infer target.candidate ~only_unbound:true []
@@ -782,7 +818,7 @@ let resolve_generic_winner ~loc ~args ~expected ~contextual tbl arguments generi
       | Ok context ->
           List.fold context ~init:solution.bindings ~f:(fun bindings (qi, tp) ->
               List.Assoc.add bindings qi tp ~equal:QualIdent.equal)
-    else solution.bindings
+    else Rewriter.return solution.bindings
   in
   let () =
     if contextual && Option.is_none instance then
@@ -823,9 +859,9 @@ let resolve_overloaded ~check_expr ~claimed_location ~loc ~name ~args ~expected
     ~contextual ordinary generics primitive =
   let open Rewriter.Syntax in
   let* expected = TypeExpr.expand_type_expr expected in
-  let* tbl = Rewriter.get_table in
-  let ordinary = List.filter_map ordinary ~f:(ordinary_target ~tbl ~loc) in
-  let generics = List.map generics ~f:(generic_target ~tbl ~loc) in
+  let* ordinary = Rewriter.List.map ordinary ~f:(ordinary_target ~loc) in
+  let ordinary = List.filter_opt ordinary in
+  let* generics = Rewriter.List.map generics ~f:(generic_target ~loc) in
   let primitives =
     Option.to_list
       (Option.map primitive ~f:(primitive_target ~loc ~arity:(List.length args)))
@@ -842,11 +878,8 @@ let resolve_overloaded ~check_expr ~claimed_location ~loc ~name ~args ~expected
   let* arguments, locations =
     evidence ~check_expr ~claimed_location ~location_indices args
   in
-  let* tbl = Rewriter.get_table in
-  let trials =
-    List.map targets ~f:(try_target ~expected tbl arguments locations)
-    |> without_duplicate_instances ordinary tbl
-  in
+  let* trials = Rewriter.List.map targets ~f:(try_target ~expected arguments locations) in
+  let* trials = without_duplicate_instances ordinary trials in
   let* trials = check_literal_arguments ~args arguments trials in
   let winners, deferred = select trials in
   let resolve_implicitly =
@@ -869,8 +902,8 @@ let resolve_overloaded ~check_expr ~claimed_location ~loc ~name ~args ~expected
       | _, Some generic, _ when not (List.is_empty generic.signature.field_formals) ->
           resolve_implicitly ~return_type:(Some solution.return_type) target.name
       | _, Some generic, _ ->
-          resolve_generic_winner ~loc ~args ~expected ~contextual tbl arguments generic
-            target instance solution
+          resolve_generic_winner ~loc ~args ~expected ~contextual arguments generic target
+            instance solution
       | _ -> Error.internal_error loc "Missing overload target"
       end
   | [], [] -> resolve_single_generic ()
@@ -897,15 +930,7 @@ let resolve_opt ~check_expr ~claimed_location ~loc ~name ~args ~expected
   if List.is_empty ordinary && List.is_empty imported && Option.is_some primitive then
     Rewriter.return (Option.map primitive ~f:(fun constr -> Primitive (constr, None)))
   else
-    let* tbl = Rewriter.get_table in
-    let generic_names =
-      if List.is_empty imported then if List.is_empty ordinary then [ name ] else []
-      else
-        List.filter imported ~f:(fun name ->
-            match SymbolTbl.resolve_candidates ~read_only:true name tbl with
-            | None | Some [] -> true
-            | Some _ -> false)
-    in
+    let* generic_names = generic_names ~ordinary ~imported name in
     let* generics = discover_generics generic_names in
     if
       List.length ordinary > 1
