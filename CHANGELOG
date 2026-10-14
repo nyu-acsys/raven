@@ -49,6 +49,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - Accept implementations of interface members whose types apply a generic module, such as `Library.Seq[E]`.
+- Show identifiers in type errors as written, without internal indices such as `f^2`.
 - Avoid exponential expression traversal in type checking and elaboration.
 - Avoid repeated substitution in inhales and substitute existential variables in quantifier triggers.
 - Harden type checking for assignments, ghost state, `bind` statements, overloaded calls and generic module inheritance.

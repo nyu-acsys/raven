@@ -54,6 +54,10 @@ module Ident = struct
     { ident_name = name; ident_num = num; ident_loc = loc }
 
   let name id = id.ident_name
+
+  (** The name as written in the program, without the index that distinguishes it. *)
+  let to_string_user = name
+
   let used_names = Hashtbl.create (module String)
 
   let fresh loc =
@@ -108,18 +112,24 @@ module QualIdent = struct
   let set_loc loc qid = { qid with qual_base = Ident.set_loc loc qid.qual_base }
   let first_ident qid = match qid.qual_path with id :: _ -> id | [] -> qid.qual_base
 
-  let pr ppf qid =
+  let shown_path qid =
     let path =
       match qid.qual_path with
       | maybe_program :: path when String.(Ident.name maybe_program = "$Program") -> path
       | path -> path
     in
-    Print.pr_list_sep "." Ident.pr ppf (path @ [ qid.qual_base ])
+    path @ [ qid.qual_base ]
+
+  let pr ppf qid = Print.pr_list_sep "." Ident.pr ppf (shown_path qid)
 
   (* let pr ppf qid = Print.pr_list_sep "." Ident.pr ppf (qid.qual_path @ [qid.qual_base]) *)
 
   let pr_list ppf qids = Print.pr_list_comma pr ppf qids
   let to_string qid = Print.string_of_format pr qid
+
+  (** The name as written in the program, without the indices of its parts. *)
+  let to_string_user qid =
+    String.concat ~sep:"." (List.map (shown_path qid) ~f:Ident.to_string_user)
 
   let to_ident qid =
     match qid.qual_path with

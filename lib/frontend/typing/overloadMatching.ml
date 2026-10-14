@@ -271,13 +271,11 @@ let match_functions ~(m : Module.t) ~parent_ident ctx mod_def parent_mod_def
               match compatible with
               | [ own ] -> own
               | [] ->
-                  no_overload_implementation_error m.mod_decl.mod_decl_loc
-                    (Ident.to_string source)
-                    (QualIdent.to_string parent_ident)
+                  no_overload_implementation_error m.mod_decl.mod_decl_loc source
+                    parent_ident
               | _ ->
-                  multiple_overload_implementations_error m.mod_decl.mod_decl_loc
-                    (Ident.to_string source)
-                    (QualIdent.to_string parent_ident)
+                  multiple_overload_implementations_error m.mod_decl.mod_decl_loc source
+                    parent_ident
             in
             let parent_name = Callable.to_ident parent in
             let own_name = Callable.to_ident own in

@@ -467,7 +467,7 @@ let rec check (m : Module.t) : Module.t t =
         | Unequal_lengths ->
             param_mismatch_error "Interface"
               (Ident.to_loc mod_decl.mod_decl_name)
-              (QualIdent.to_string interface_ident)
+              interface_ident
               (List.length interface_formals))
   in
 

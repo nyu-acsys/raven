@@ -1,0 +1,12 @@
+interface I {
+  func f(x: Int) returns (r: Int)
+  func f(b: Bool) returns (r: Bool)
+    ensures r == b
+}
+
+module M : I {
+  func f(x: Int) returns (r: Int) { x }
+  func f(c: Bool) returns (r: Bool)
+    ensures r || !r
+  { c }
+}

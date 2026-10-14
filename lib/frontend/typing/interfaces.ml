@@ -760,8 +760,7 @@ let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_iden
                   | `Ok acc -> acc
                   | `Duplicate ->
                       inherited_twice_error m.mod_decl.mod_decl_loc key
-                        (Ident.to_string
-                           (ProgUtils.source_module_name m.mod_decl.mod_decl_name)))
+                        (ProgUtils.source_module_name m.mod_decl.mod_decl_name))
             in
             (* Only an unapplied parameterised parent imposes its formals on
                    this module; an applied one supplied them as arguments. *)
