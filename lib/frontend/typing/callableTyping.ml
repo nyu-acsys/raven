@@ -20,10 +20,7 @@ let check_opens (call_decl : Callable.call_decl) (formals : Type.var_decl list)
     match call_decl.call_decl_kind with
     | Proc | Lemma -> ()
     | Func | Pred | Invariant ->
-        Error.type_error call_decl.call_decl_loc
-          (Printf.sprintf
-             !"%{Ident} may not have an opens clause; only procedures and lemmas can"
-             call_decl.call_decl_name)
+        opens_on_pure_callable_error call_decl.call_decl_loc call_decl.call_decl_name
   in
   let is_atomic =
     List.exists (precond @ postcond) ~f:(fun spec -> spec.Stmt.spec_atomic)
@@ -44,20 +41,13 @@ let check_opens (call_decl : Callable.call_decl) (formals : Type.var_decl list)
         match symbol with
         | CallDef { call_decl = { call_decl_kind = Invariant; _ } as inv_decl; _ } ->
             inv_decl
-        | _ ->
-            Error.type_error loc
-              (Printf.sprintf
-                 !"Expected an invariant in this opens clause, but found %s %{QualIdent}"
-                 (Symbol.kind symbol) qi)
+        | _ -> opens_not_invariant_error loc (Symbol.kind symbol) qi
       in
       let inv_params = inv_decl.call_decl_formals @ inv_decl.call_decl_returns in
       let () =
         if (not (List.is_empty args)) && List.length args <> List.length inv_params then
-          Error.type_error loc
-            (Printf.sprintf
-               !"Invariant %{Ident} takes %d argument(s), but %d are given here; write \
-                 `_` for an argument left unspecified"
-               inv_decl.call_decl_name (List.length inv_params) (List.length args))
+          opens_arity_error loc inv_decl.call_decl_name ~expected:(List.length inv_params)
+            ~given:(List.length args)
       in
       let prefix =
         List.take_while args ~f:(fun e -> not (Callable.is_opens_wildcard e))
@@ -74,13 +64,7 @@ let check_opens (call_decl : Callable.call_decl) (formals : Type.var_decl list)
             let () =
               match Set.choose (Set.diff (Expr.local_vars arg) allowed) with
               | None -> ()
-              | Some ident ->
-                  Error.type_error (Expr.to_loc arg)
-                    (Printf.sprintf
-                       !"%{String} cannot be used in an opens clause; arguments may only \
-                         mention the callable's formals%s"
-                       (Ident.name ident)
-                       (if is_atomic then ", other than implicit ones" else ""))
+              | Some ident -> opens_non_formal_error (Expr.to_loc arg) ident ~is_atomic
             in
             arg)
       in
@@ -104,19 +88,13 @@ let check (callable : Callable.t) : Module.symbol t =
     Option.iter holes ~f:(fun holes ->
         let decl = callable.call_decl in
         if Poly.(decl.call_decl_kind <> Func) then
-          Error.type_error (Ident.to_loc source)
-            "A mixfix operator must be declared as a function";
+          mixfix_not_function_error (Ident.to_loc source);
         let explicit, implicit = List.split_n decl.call_decl_formals holes in
         if
           List.length explicit <> holes
           || List.exists explicit ~f:(fun p -> p.Type.var_implicit)
           || List.exists implicit ~f:(fun p -> not (p.Type.var_implicit && p.var_ghost))
-        then
-          Error.type_error (Ident.to_loc source)
-            (Printf.sprintf
-               "Mixfix operator %s requires %d explicit parameters, followed only by \
-                implicit ghost parameters"
-               (Ident.name source) holes))
+        then mixfix_parameters_error (Ident.to_loc source) source holes)
   in
   let* () =
     Rewriter.Logs.debug (fun printers m ->
@@ -129,9 +107,7 @@ let check (callable : Callable.t) : Module.symbol t =
   let () =
     if Poly.(call_decl.call_decl_kind = Pred) then
       List.iter call_decl.call_decl_formals ~f:(fun param ->
-          if param.Type.var_implicit then
-            Error.type_error param.var_loc
-              "Implicit predicate parameters must follow the ';' delimiter")
+          if param.Type.var_implicit then implicit_pred_input_error param.var_loc)
   in
   let check_decls var_decls disam_tbl =
     Rewriter.List.fold_map var_decls ~init:disam_tbl ~f:(fun disam_tbl var_decl ->
@@ -147,11 +123,8 @@ let check (callable : Callable.t) : Module.symbol t =
         match symbol with
         | Module.FieldDef _ -> field
         | _ ->
-            Error.type_error (QualIdent.to_loc field)
-              (Printf.sprintf
-                 !"Expected a field in the location parameter of %{Ident}, but found %s \
-                   %{QualIdent}"
-                 call_decl.call_decl_name (Symbol.kind symbol) field))
+            loc_param_not_field_error (QualIdent.to_loc field) call_decl.call_decl_name
+              (Symbol.kind symbol) field)
   in
   let* disam_tbl, call_decl_formals = check_decls call_decl.call_decl_formals disam_tbl in
   let* disam_tbl, call_decl_returns = check_decls call_decl.call_decl_returns disam_tbl in
@@ -165,9 +138,7 @@ let check (callable : Callable.t) : Module.symbol t =
                (Type.set_ghost false container.var_type)
                (Type.set_ghost false result.var_type) ->
           ()
-      | _ ->
-          Error.type_error (Ident.to_loc source)
-            "An update operator must return the same type as its container parameter"
+      | _ -> update_operator_type_error (Ident.to_loc source)
   in
 
   let* ext_hooks = Rewriter.current_ext_hooks in
@@ -193,9 +164,7 @@ let check (callable : Callable.t) : Module.symbol t =
     List.iter call_decl_postcond ~f:(fun spec ->
         List.iter spec.spec_trigs ~f:(fun trg ->
             let loc = Expr.to_loc (List.hd_exn trg) in
-            if not is_auto_lemma then
-              Error.type_error loc
-                "Only the postcondition of an auto lemma can have triggers";
+            if not is_auto_lemma then trigger_outside_auto_lemma_error loc;
             ExprTyping.check_triggers_mention ~kind:"parameter" call_decl_formals [ trg ]))
   in
 
@@ -212,11 +181,8 @@ let check (callable : Callable.t) : Module.symbol t =
         | Some qual_ident ->
             (* Prints the source name, without disambiguation, like the check on the body
                below. *)
-            Error.type_error (QualIdent.to_loc qual_ident)
-              (Printf.sprintf
-                 !"Return variable %{String} cannot be used in a requires clause; it is \
-                   only in scope in ensures clauses"
-                 (Ident.name (QualIdent.to_ident qual_ident)))
+            return_var_in_requires_error (QualIdent.to_loc qual_ident)
+              (Ident.name (QualIdent.to_ident qual_ident))
         | None -> ())
   in
 
@@ -226,11 +192,7 @@ let check (callable : Callable.t) : Module.symbol t =
        [ensures]. *)
     match (call_decl.call_decl_kind, call_decl_precond) with
     | (Func | Pred | Invariant), _ :: _ ->
-        Error.type_error call_decl.call_decl_loc
-          (Printf.sprintf
-             !"%{Ident} may not have a requires clause; func/pred/invariant contracts \
-               must be total"
-             call_decl.call_decl_name)
+        requires_on_pure_callable_error call_decl.call_decl_loc call_decl.call_decl_name
     | _ -> ()
   in
 
@@ -310,12 +272,9 @@ let check (callable : Callable.t) : Module.symbol t =
                     with
                     | Some qual_ident ->
                         (* Prints the source name, without disambiguation. *)
-                        Error.type_error (QualIdent.to_loc qual_ident)
-                          (Printf.sprintf
-                             !"Return variable %{String} cannot be used in the body of \
-                               %{String}; it is only in scope in ensures clauses"
-                             (Ident.name (QualIdent.to_ident qual_ident))
-                             (Ident.name call_decl.call_decl_name))
+                        return_var_in_func_body_error (QualIdent.to_loc qual_ident)
+                          (Ident.name (QualIdent.to_ident qual_ident))
+                          (Ident.name call_decl.call_decl_name)
                     | None -> ())
               in
               Rewriter.return expr)

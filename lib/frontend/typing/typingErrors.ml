@@ -103,3 +103,80 @@ let unexpected_functor_error loc =
   Error.type_error loc
     "A functor can only be instantiated as the definition of a module (e.g. 'module M = \
      F[...]'), not used as a type or value here"
+
+(* Callables *)
+
+let opens_on_pure_callable_error loc name =
+  Error.type_error loc
+    (Printf.sprintf
+       !"%{Ident} may not have an opens clause; only procedures and lemmas can"
+       name)
+
+let opens_not_invariant_error loc kind qual_ident =
+  Error.type_error loc
+    (Printf.sprintf
+       !"Expected an invariant in this opens clause, but found %s %{QualIdent}"
+       kind qual_ident)
+
+let opens_arity_error loc inv_name ~expected ~given =
+  Error.type_error loc
+    (Printf.sprintf
+       !"Invariant %{Ident} takes %d argument(s), but %d are given here; write `_` for \
+         an argument left unspecified"
+       inv_name expected given)
+
+let opens_non_formal_error loc ident ~is_atomic =
+  Error.type_error loc
+    (Printf.sprintf
+       !"%{String} cannot be used in an opens clause; arguments may only mention the \
+         callable's formals%s"
+       (Ident.name ident)
+       (if is_atomic then ", other than implicit ones" else ""))
+
+let mixfix_not_function_error loc =
+  Error.type_error loc "A mixfix operator must be declared as a function"
+
+let mixfix_parameters_error loc name holes =
+  Error.type_error loc
+    (Printf.sprintf
+       "Mixfix operator %s requires %d explicit parameters, followed only by implicit \
+        ghost parameters"
+       (Ident.name name) holes)
+
+let implicit_pred_input_error loc =
+  Error.type_error loc "Implicit predicate parameters must follow the ';' delimiter"
+
+let loc_param_not_field_error loc callable_name kind field =
+  Error.type_error loc
+    (Printf.sprintf
+       !"Expected a field in the location parameter of %{Ident}, but found %s \
+         %{QualIdent}"
+       callable_name kind field)
+
+let update_operator_type_error loc =
+  Error.type_error loc
+    "An update operator must return the same type as its container parameter"
+
+let trigger_outside_auto_lemma_error loc =
+  Error.type_error loc "Only the postcondition of an auto lemma can have triggers"
+
+let return_var_in_requires_error loc var_name =
+  Error.type_error loc
+    (Printf.sprintf
+       !"Return variable %{String} cannot be used in a requires clause; it is only in \
+         scope in ensures clauses"
+       var_name)
+
+let requires_on_pure_callable_error loc name =
+  Error.type_error loc
+    (Printf.sprintf
+       !"%{Ident} may not have a requires clause; func/pred/invariant contracts must be \
+         total"
+       name)
+
+let return_var_in_func_body_error loc var_name func_name =
+  Error.type_error loc
+    (Printf.sprintf
+       !"Return variable %{String} cannot be used in the body of %{String}; it is only \
+         in scope in ensures clauses"
+       var_name func_name)
