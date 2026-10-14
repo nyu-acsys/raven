@@ -1,0 +1,34 @@
+interface GenericSequenceIdentity[E: Library.Type] {
+  func identity(s: Library.Seq[E]) returns (r: Library.Seq[E])
+    ensures r == s
+}
+
+module GenericSequenceIdentityImpl[E: Library.Type] : GenericSequenceIdentity[E] {
+  func identity(s: Library.Seq[E]) returns (r: Library.Seq[E]) { s }
+}
+
+interface LocalSequences {
+  type Local
+  func identity(s: Library.Seq[Library.Seq[Local]])
+    returns (r: Library.Seq[Library.Seq[Local]])
+    ensures r == s
+  func size(s: Library.Seq[Local]) returns (n: Int)
+  lemma size_nonneg(s: Library.Seq[Local])
+    ensures size(s) >= 0
+}
+
+module LocalSequencesImpl : LocalSequences {
+  type Local = data { case element }
+  func identity(s: Library.Seq[Library.Seq[Local]])
+    returns (r: Library.Seq[Library.Seq[Local]])
+  { s }
+  func size(s: Library.Seq[Local]) returns (n: Int) { 0 }
+}
+
+module GenericInt = GenericSequenceIdentityImpl[Library.IntType]
+
+module Client {
+  proc check(t: Library.Seq[Library.Seq[LocalSequencesImpl.Local]]) {
+    assert LocalSequencesImpl.identity(t) == t;
+  }
+}

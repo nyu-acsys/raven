@@ -1,6 +1,6 @@
 (** Pairs the overloaded functions of an interface with the functions of a module that
     implement them, by their parameter types, and renames the interface's members to the
-    module's. *)
+    module's, together with the instances that the interface created implicitly. *)
 
 open Base
 open Ast
@@ -122,89 +122,86 @@ let normalize ctx typ =
   | Ok typ -> typ
   | Error _ -> overloaded_interface_type_error (Type.to_loc typ) typ
 
-(** The functor application that the implicitly created instance in [qi] stands for, if
-    the interface created it. *)
-let inherited_application ctx qi =
-  let instance_name = QualIdent.unqualify (QualIdent.pop qi) in
-  let inherited_instance =
-    List.find_map ctx.parent_instrs ~f:(function
-      | Module.SymbolDef (ModInst mi) when Ident.equal mi.mod_inst_name instance_name ->
-          mi.mod_inst_def
-      | _ -> None)
+(** [qi] with the instance it lies in renamed by [instances]. *)
+let rename_instance instances qi =
+  let replacement =
+    Map.to_alist instances
+    |> List.find ~f:(fun (source, _) ->
+        List.is_prefix (QualIdent.to_list qi) ~prefix:(QualIdent.to_list source)
+          ~equal:Ident.equal)
   in
-  let inherited_instance =
-    if
-      QualIdent.equal (QualIdent.pop (QualIdent.pop qi)) ctx.mod_qual_ident
-      && String.is_prefix (Ident.name instance_name)
+  match replacement with
+  | None -> qi
+  | Some (source, target) -> QualIdent.requalify [ (source, QualIdent.to_list target) ] qi
+
+(** Whether [functor_qi] names a module with a rep type, which its applications stand for.
+*)
+let has_rep_type ctx functor_qi =
+  match lookup ctx functor_qi with
+  | Some (_, symbol) ->
+      Rewriter.Symbol.extract symbol ~f:(fun _ _ -> function
+        | Module.ModDef { mod_decl = { mod_decl_rep = Some _; _ }; _ } -> true
+        | _ -> false)
+  | None -> false
+
+(** The type application that [mi], a member of the interface, stands for, if the
+    interface created it implicitly, with the instances in its arguments renamed by
+    [instances]. *)
+let inherited_application ctx instances (mi : Module.module_inst) =
+  match mi.mod_inst_def with
+  | Some (functor_qi, args)
+    when String.is_prefix (Ident.name mi.mod_inst_name)
            ~prefix:ProgUtils.inst_mod_ident_prefix
-    then inherited_instance
-    else None
-  in
-  Option.bind inherited_instance ~f:(fun (functor_qi, args) ->
+         && has_rep_type ctx functor_qi ->
       let argument_types =
         List.map args ~f:(function
-          | Module.TypeArg typ -> Ok typ
+          | Module.TypeArg typ ->
+              Ok (CandidateTypes.rewrite_type ~f:(rename_instance instances) typ)
           | Module.ModArg module_qi ->
-              CandidateTypes.normalize ~lookup:(lookup ctx) (Type.var module_qi))
+              CandidateTypes.normalize ~lookup:(lookup ctx)
+                (Type.var (rename_instance instances module_qi)))
         |> Result.all
       in
-      match argument_types with
+      begin match argument_types with
       | Error _ -> None
       | Ok args ->
-          Some (Type.App (Type.Var functor_qi, args, Type.mk_attr (QualIdent.to_loc qi))))
+          Some
+            (Type.App
+               (Type.Var functor_qi, args, Type.mk_attr (Ident.to_loc mi.mod_inst_name)))
+      end
+  | _ -> None
 
-(** Normalizes [typ], instantiating types that need it, and records in [nominal_remapping]
-    the instances that implicitly created ones of the interface stand for. *)
-let rec prepare_type ctx nominal_remapping visiting (Type.App (head, args, attr) as typ) =
+(** Normalizes [typ], instantiating types that need it. *)
+let rec prepare_type ctx visiting (Type.App (head, args, attr) as typ) =
   let open Rewriter.Syntax in
   match CandidateTypes.normalize ~lookup:(lookup ctx) typ with
   | Ok typ -> Rewriter.return typ
   | Error (CandidateTypes.Needs_instantiation _) ->
       begin match (head, args) with
       | Type.Var _, _ :: _ ->
-          let* args =
-            Rewriter.List.map args ~f:(prepare_type ctx nominal_remapping visiting)
-          in
+          let* args = Rewriter.List.map args ~f:(prepare_type ctx visiting) in
           TypeExpr.check (Type.App (head, args, attr))
       | Type.Var qi, [] when not (Set.mem visiting qi) ->
           begin match lookup ctx qi with
           | Some (_, symbol) ->
               Rewriter.Symbol.extract symbol ~f:(fun _ requalify -> function
                 | Module.TypeDef { type_def_expr = Some definition; _ } ->
-                    prepare_type ctx nominal_remapping (Set.add visiting qi)
+                    prepare_type ctx (Set.add visiting qi)
                       (CandidateTypes.rewrite_type ~f:requalify definition)
                 | _ -> Rewriter.return (normalize ctx typ))
           | None -> Rewriter.return (normalize ctx typ)
           end
       | _ ->
-          let+ args =
-            Rewriter.List.map args ~f:(prepare_type ctx nominal_remapping visiting)
-          in
+          let+ args = Rewriter.List.map args ~f:(prepare_type ctx visiting) in
           Type.App (head, args, attr)
-      end
-  | Error (CandidateTypes.Unknown_type qi) ->
-      begin match inherited_application ctx qi with
-      | Some application ->
-          let+ prepared = prepare_type ctx nominal_remapping visiting application in
-          begin match prepared with
-          | Type.App (Var target, [], _) ->
-              nominal_remapping :=
-                Map.set !nominal_remapping ~key:(QualIdent.pop qi)
-                  ~data:(QualIdent.pop target)
-          | _ -> ()
-          end;
-          prepared
-      | None -> Rewriter.return (normalize ctx typ)
       end
   | Error _ -> Rewriter.return (normalize ctx typ)
 
 (** The normalized parameter types of [call]. *)
-let signature ctx nominal_remapping call =
+let signature ctx call =
   let open Rewriter.Syntax in
   Rewriter.List.map call.Callable.call_decl.call_decl_formals ~f:(fun formal ->
-      let* typ =
-        prepare_type ctx nominal_remapping (Set.empty (module QualIdent)) formal.var_type
-      in
+      let* typ = prepare_type ctx (Set.empty (module QualIdent)) formal.var_type in
       let+ current_tbl = Rewriter.get_table in
       let lookup_current qi =
         Option.first_some (CandidateTypes.lookup current_tbl qi) (lookup ctx qi)
@@ -230,7 +227,7 @@ let parent_functions parent_mod_def source =
 
 (** The signatures of the module's functions that implement an overloaded function of the
     interface. *)
-let own_signatures ctx nominal_remapping mod_def parent_mod_def =
+let own_signatures ctx mod_def parent_mod_def =
   let open Rewriter.Syntax in
   Rewriter.List.fold_left mod_def
     ~init:(Map.empty (module Ident))
@@ -242,15 +239,15 @@ let own_signatures ctx nominal_remapping mod_def parent_mod_def =
             || parent_functions parent_mod_def source = 1
                && List.length (own_functions mod_def source) > 1
           then
-            let+ types = signature ctx nominal_remapping call in
+            let+ types = signature ctx call in
             Map.set signatures ~key:(Callable.to_ident call) ~data:types
           else Rewriter.return signatures
       | _ -> Rewriter.return signatures)
 
 (** Pairs each overloaded function of the interface [parent_ident] with the module's
     function of the same signature, by name and by qualified name. *)
-let match_functions ~(m : Module.t) ~parent_ident ctx nominal_remapping mod_def
-    parent_mod_def own_signatures =
+let match_functions ~(m : Module.t) ~parent_ident ctx mod_def parent_mod_def
+    own_signatures =
   let open Rewriter.Syntax in
   Rewriter.List.fold_left parent_mod_def
     ~init:(Map.empty (module Ident), Map.empty (module QualIdent))
@@ -263,7 +260,7 @@ let match_functions ~(m : Module.t) ~parent_ident ctx nominal_remapping mod_def
             || (List.length candidates = 1 && parent_functions parent_mod_def source = 1)
           then Rewriter.return (matches, remapping)
           else begin
-            let* parent_signature = signature ctx nominal_remapping parent in
+            let* parent_signature = signature ctx parent in
             let compatible =
               List.filter candidates ~f:(fun own ->
                   List.equal Type.equal
@@ -292,67 +289,49 @@ let match_functions ~(m : Module.t) ~parent_ident ctx nominal_remapping mod_def
           end
       | _ -> Rewriter.return (matches, remapping))
 
-(** Prepares the return types of the matched functions, which completes
-    [nominal_remapping]. *)
-let prepare_return_types ctx nominal_remapping parent_mod_def matches =
+(** Maps the instances that the interface created implicitly to the module's instances of
+    the same functor applications. *)
+let match_instances ctx =
   let open Rewriter.Syntax in
-  Rewriter.List.iter parent_mod_def ~f:(function
-    | Module.SymbolDef (CallDef call) when Map.mem matches (Callable.to_ident call) ->
-        Rewriter.List.iter call.call_decl.call_decl_returns ~f:(fun formal ->
-            let+ _ =
-              prepare_type ctx nominal_remapping
-                (Set.empty (module QualIdent))
-                formal.var_type
-            in
-            ())
-    | _ -> Rewriter.return ())
+  Rewriter.List.fold_left ctx.parent_instrs
+    ~init:(Map.empty (module QualIdent))
+    ~f:(fun instances -> function
+      | Module.SymbolDef (ModInst mi) ->
+          begin match inherited_application ctx instances mi with
+          | None -> Rewriter.return instances
+          | Some application ->
+              let+ prepared =
+                prepare_type ctx (Set.empty (module QualIdent)) application
+              in
+              begin match prepared with
+              | Type.App (Var target, [], _) ->
+                  Map.set instances
+                    ~key:(QualIdent.append ctx.mod_qual_ident mi.mod_inst_name)
+                    ~data:(QualIdent.pop target)
+              | _ -> instances
+              end
+          end
+      | _ -> Rewriter.return instances)
 
-let rewrite_qi remapping nominal_remapping qi =
-  match Map.find remapping qi with
-  | Some target -> target
-  | None ->
-      let replacement =
-        Map.to_alist !nominal_remapping
-        |> List.find ~f:(fun (source, _) ->
-            List.is_prefix (QualIdent.to_list qi) ~prefix:(QualIdent.to_list source)
-              ~equal:Ident.equal)
-      in
-      begin match replacement with
-      | None -> qi
-      | Some (source, target) ->
-          QualIdent.requalify [ (source, QualIdent.to_list target) ] qi
-      end
-
-(** The member [instr] of the interface with the renamings applied. *)
-let rec rewrite_member remapping nominal_remapping =
+(** The member [instr] of the interface with its names rewritten by [f]. *)
+let rec rewrite_member ~f =
   let open Rewriter.Syntax in
   function
   | Module.SymbolDef (CallDef call) ->
-      let+ call =
-        lift
-          (Rewriter.Callable.rewrite_qual_idents
-             ~f:(rewrite_qi remapping nominal_remapping)
-             call)
-      in
+      let+ call = lift (Rewriter.Callable.rewrite_qual_idents ~f call) in
       Module.SymbolDef (CallDef call)
   | Module.SymbolDef (ModDef md) ->
-      let+ mod_def =
-        Rewriter.List.map md.mod_def ~f:(rewrite_member remapping nominal_remapping)
-      in
+      let+ mod_def = Rewriter.List.map md.mod_def ~f:(rewrite_member ~f) in
       Module.SymbolDef (ModDef { md with mod_def })
   | Module.SymbolDef symbol ->
-      let+ symbol =
-        lift
-          (Rewriter.Module.rewrite_qual_idents_in_symbol
-             ~f:(rewrite_qi remapping nominal_remapping)
-             symbol)
-      in
+      let+ symbol = lift (Rewriter.Module.rewrite_qual_idents_in_symbol ~f symbol) in
       Module.SymbolDef symbol
   | instr -> Rewriter.return instr
 
 (** Pairs the overloaded functions of the interface [parent_ident], whose members are
     [parent_mod_def], with the functions of [m] that implement them. Returns the pairing,
-    by name, and the interface's members renamed to [m]'s. *)
+    by name, and the interface's members renamed to [m]'s functions and to [m]'s instances
+    of the functor applications that the interface instantiated implicitly. *)
 let match_overloads ~(m : Module.t) ~(mod_qual_ident : qual_ident)
     ~(mod_def_formals : Module.module_instr list) ~(mod_def : Module.module_instr list)
     ~(parent_ident : qual_ident) (parent_mod_def : Module.module_instr list) =
@@ -368,14 +347,17 @@ let match_overloads ~(m : Module.t) ~(mod_qual_ident : qual_ident)
   let ctx =
     { tbl; mod_qual_ident; own_instrs; own_symbols; parent_instrs = parent_mod_def }
   in
-  let nominal_remapping = ref (Map.empty (module QualIdent)) in
-  let* own_signatures = own_signatures ctx nominal_remapping mod_def parent_mod_def in
-  let* matches, remapping =
-    match_functions ~m ~parent_ident ctx nominal_remapping mod_def parent_mod_def
-      own_signatures
+  let* instances = match_instances ctx in
+  let* parent_mod_def =
+    Rewriter.List.map parent_mod_def ~f:(rewrite_member ~f:(rename_instance instances))
   in
-  let* () = prepare_return_types ctx nominal_remapping parent_mod_def matches in
+  let ctx = { ctx with parent_instrs = parent_mod_def } in
+  let* own_signatures = own_signatures ctx mod_def parent_mod_def in
+  let* matches, remapping =
+    match_functions ~m ~parent_ident ctx mod_def parent_mod_def own_signatures
+  in
+  let rename_function qi = Map.find remapping qi |> Option.value ~default:qi in
   let+ parent_mod_def =
-    Rewriter.List.map parent_mod_def ~f:(rewrite_member remapping nominal_remapping)
+    Rewriter.List.map parent_mod_def ~f:(rewrite_member ~f:rename_function)
   in
   (matches, parent_mod_def)
