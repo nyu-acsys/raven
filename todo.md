@@ -38,7 +38,7 @@ Type-checking:
   - [x] Check that `bindAU` assigns to exactly one ghost token of the enclosing procedure's token type
 
 - [x] Implement mask computation to check interface <-> module compatibility
-- Revamp witness computation code
+- [x] Revamp witness computation code
 
 - [x] Fix `return proc()` stmts
 - [x] Allow parsing of `map[m1][m2]` expressions
