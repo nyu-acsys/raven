@@ -70,7 +70,7 @@ import PrivatePublicRA._
 // Initializing Resource Algebras:
 module UnitType: Library.Type { rep type T = () }
 module Excl_Unit = Library.Excl[UnitType]
-module Excl_Int = Library.Excl[Library.IntType]
+module Excl_Int = Library.Excl[Int]
 module Auth_Excl_Int = Library.Auth[Excl_Int]
 
 // descr fields

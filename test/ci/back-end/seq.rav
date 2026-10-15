@@ -1,6 +1,6 @@
 // Clients of Library.Seq reason about sequences through SeqSpec's lemmas.
 
-module IntSeq = Library.Seq[Library.IntType]
+module IntSeq = Library.Seq[Int]
 
 lemma operations(x: Int, y: Int)
 {

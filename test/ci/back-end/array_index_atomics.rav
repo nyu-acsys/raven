@@ -3,7 +3,7 @@
 import Library.IntAtomics._
 
 module M {
-  module A = Library.Array[Library.IntType]
+  module A = Library.Array[Int]
   import A._
 
   proc bump(a: A.T, i: Int, implicit ghost v: Int) returns (old: Int)

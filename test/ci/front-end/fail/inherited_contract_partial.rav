@@ -17,6 +17,6 @@ module PlainBox[A: Library.Type] : Box[A] {
 }
 
 module Client {
-  module B = PlainBox[Library.IntType]
+  module B = PlainBox[Int]
   lemma l() ensures B.get(B.mk(3)) == 3 { B.get_mk(3); }
 }

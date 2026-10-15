@@ -5,7 +5,7 @@ interface MembershipContract[E: Library.Type] {
     ensures r == (e in s)
 }
 
-module MembershipImplementation: MembershipContract[Library.IntType] {
+module MembershipImplementation: MembershipContract[Int] {
   proc member(e: Int, s: T) returns (r: Bool)
     ensures r == (e in s)
   {

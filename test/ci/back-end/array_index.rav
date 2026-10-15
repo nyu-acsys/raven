@@ -1,6 +1,6 @@
 // Reading, writing and owning array entries by index.
 module M {
-  module A = Library.Array[Library.IntType]
+  module A = Library.Array[Int]
   import A._
 
   proc swap(a: A.T, i: Int, j: Int, implicit ghost vi: Int, implicit ghost vj: Int)

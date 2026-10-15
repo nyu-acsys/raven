@@ -22,7 +22,7 @@ module Seq[E: Library.Type] : Library.Type {
   }
 }
 
-module IntSeq = Seq[Library.IntType]
+module IntSeq = Seq[Int]
 import IntSeq._
 
 // `+++`/`***`/`<+>` land on the add/mult/rel tiers by leading character; `>:`

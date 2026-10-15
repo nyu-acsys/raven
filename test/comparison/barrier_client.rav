@@ -8,7 +8,7 @@ module BarrierClient[N: NumThreads] {
     import N.threads_gt_zero
 
     module SumRA = Library.SumRA[Library.MaxNat, Library.MaxNat]
-    module AgreeInt = Library.Agree[Library.IntType]
+    module AgreeInt = Library.Agree[Int]
     module ProdRA = Library.Prod[SumRA, AgreeInt]
     module FracRA = Library.FracRA[ProdRA]
     module CLRA = Library.Auth[FracRA]

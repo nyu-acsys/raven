@@ -68,7 +68,7 @@ module PlainBox[E: Library.Type] : Box[E] {
   {}
 }
 
-module IntBox :> Box = PlainBox[Library.IntType]
+module IntBox :> Box = PlainBox[Int]
 
 lemma box_client()
   ensures IntBox.get(IntBox.mk(3)) == 3

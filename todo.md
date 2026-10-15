@@ -1,6 +1,9 @@
 15 oct, 2026:
-- [ ] Generative functor instances with type arguments: in `G[IntType]`,
+- [ ] Generative functor instances with type arguments: in `G[Int]`,
     `Seq[E]` does not match `Seq[Int]` (independent of interfaces).
+- [ ] Investigate expressing error messages only in source-level terms: type errors
+    currently expose internally generated modules, e.g. `GI.GenInst$$Seq$$G_E_T.T`
+    instead of `Seq[E]`/`Seq[Int]`, and `TypeMod$$...` rep modules.
 - [ ] Support `==` on `Seq`.
 - [ ] Finish the limited-functions branch.
 - [ ] Add explicit triggers to the remaining (~500) untriggered user quantifiers.

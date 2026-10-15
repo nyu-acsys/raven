@@ -1,7 +1,7 @@
 // A standalone example for §6: `Box` is a functor with one formal, `T:
 // Library.Type` -- since `Library.Type` itself declares a `rep type`, `Box`
 // qualifies for *implicit* instantiation. `demo` below never writes
-// `module BoxInt = Box[Library.IntType]`; Raven infers it every time.
+// `module BoxInt = Box[Int]`; Raven infers it every time.
 
 module Box[T: Library.Type] {
   rep type S = data {

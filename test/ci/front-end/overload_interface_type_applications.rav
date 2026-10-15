@@ -25,7 +25,7 @@ module GenericSequenceIdentityImpl[E: Library.Type] : GenericSequenceIdentity[E]
   func identity(s: Sequence) returns (r: Sequence) { s }
 }
 
-module GenericInt = GenericSequenceIdentityImpl[Library.IntType]
+module GenericInt = GenericSequenceIdentityImpl[Int]
 
 module Client {
   proc check(s: Library.Seq[Int]) {

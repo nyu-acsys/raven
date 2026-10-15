@@ -4,7 +4,7 @@ module Box[E: Library.Type] : Library.Type {
   func get(b: Alias) returns (r: E) { b.value }
   func get(b: Alias, fallback: E) returns (r: E) { b.value }
 }
-module IntBox = Box[Library.IntType]
+module IntBox = Box[Int]
 import IntBox._
 proc check() {
   var b: IntBox.T := box(7);

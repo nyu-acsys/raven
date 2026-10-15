@@ -1,4 +1,4 @@
-module IntSetRA = Library.SetRA[Library.IntType]
+module IntSetRA = Library.SetRA[Int]
 
 type T = Int
 

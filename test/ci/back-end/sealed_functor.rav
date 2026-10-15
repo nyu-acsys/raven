@@ -24,7 +24,7 @@ module ListStack[E: Library.Type] :> Stack[E] {
 }
 
 module Client {
-  module S = ListStack[Library.IntType]
+  module S = ListStack[Int]
   module L = Library.List[S]
 
   lemma uses_interface(xs: L.T)

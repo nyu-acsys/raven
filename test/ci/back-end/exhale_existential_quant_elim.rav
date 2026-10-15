@@ -1,5 +1,5 @@
 module NatAuth = Library.Auth[Library.Nat]
-module IntSetRA = Library.SetRA[Library.IntType]
+module IntSetRA = Library.SetRA[Int]
 
 field f: NatAuth
 field g: Int

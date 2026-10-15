@@ -5,7 +5,7 @@ interface LCList {
 
     // definitions
 
-    module DFRA = Dfrac[Library.RefType]
+    module DFRA = Dfrac[Ref]
 
     field next: Ref
     field lock: Ref

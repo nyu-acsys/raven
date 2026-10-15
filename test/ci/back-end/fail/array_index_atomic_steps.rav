@@ -1,5 +1,5 @@
 // Each access to an array entry is an atomic step.
-module A = Library.Array[Library.IntType]
+module A = Library.Array[Int]
 import A._
 
 inv two(a: A.T) {

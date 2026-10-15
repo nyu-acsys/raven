@@ -1,5 +1,5 @@
 // An array entry cannot be written in ghost code.
-module A = Library.Array[Library.IntType]
+module A = Library.Array[Int]
 import A._
 
 proc p(a: A.T)

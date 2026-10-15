@@ -1,4 +1,4 @@
-module IntOption = Library.Option[Library.IntType]
+module IntOption = Library.Option[Int]
 
 import List._
 

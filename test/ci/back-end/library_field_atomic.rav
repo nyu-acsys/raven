@@ -4,7 +4,7 @@
 
 import Library.IntAtomics._
 
-module Counts = Library.Array[Library.IntType]
+module Counts = Library.Array[Int]
 
 proc bump(a: Counts.T, implicit ghost v: Int)
   requires Counts.length(a) > 0 && own(Counts.loc(a, 0).Counts.value, v, 1.0)
@@ -14,7 +14,7 @@ proc bump(a: Counts.T, implicit ghost v: Int)
 }
 
 module Shelf {
-  module Cells = Library.Array[Library.IntType]
+  module Cells = Library.Array[Int]
   import Cells._
 
   proc bump(a: Cells.T, i: Int, implicit ghost v: Int)

@@ -2,8 +2,8 @@ module F[X: Library.Type] {
   type U = data { case c }
 }
 
-module A = F[Library.IntType]
-module B = F[Library.IntType]
+module A = F[Int]
+module B = F[Int]
 
 module Client {
   proc p(a: A.U) returns (b: B.U) {

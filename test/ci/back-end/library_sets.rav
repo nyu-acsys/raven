@@ -1,7 +1,7 @@
 // The set operators stand for the operations of Library.Sets, which can also be called
 // directly. `choose` names a function when qualified. `S` is an instance of its own, so
 // its `choose` need not pick the same element as the operator.
-module S = Library.Sets[Library.IntType]
+module S = Library.Sets[Int]
 
 lemma operators(a: Set[Int], b: Set[Int])
   ensures S.union(a, b) == a ++ b && S.inter(a, b) == a ** b && S.diff(a, b) == a -- b

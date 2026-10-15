@@ -10,9 +10,8 @@ main tutorial doesn't use: options, lists, sequences, and arrays.
 
 Each data type is a functor over `Library.Type`, the interface of all types, so you choose the
 element type by instantiating it. You can declare an instance explicitly, as in
-`module IntOption = Library.Option[Library.IntType]`, where `Library.IntType`, `Library.BoolType` and
-`Library.RefType` stand for the built-in types `Int`, `Bool` and `Ref`. You can also write the
-instance as a type, as in `List[Int]`, or let Raven infer it from a call
+`module IntOption = Library.Option[Int]`. You can also write the instance as a type, as in
+`List[Int]`, or let Raven infer it from a call
 ({{ref sec:implicit-functor-instantiation}}). Each instance's type is called `T`, and
 `Library.Type` also gives every element type an unspecified value `default`.
 
@@ -104,7 +103,7 @@ each numbered when it happens, instead of a number:
 
 ```raven
 module HitLog {
-  module Log = Library.Seq[Library.IntType]
+  module Log = Library.Seq[Int]
 
   field log: Log.T
 

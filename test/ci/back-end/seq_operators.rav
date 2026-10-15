@@ -46,7 +46,7 @@ proc p(s: Seq[Int]) returns (r: Seq[Int])
 }
 
 module M {
-  module IS = Library.Seq[Library.IntType]
+  module IS = Library.Seq[Int]
   lemma l(s: IS.T, t: IS.T)
     ensures IS.length(s ++ t) == IS.length(s) + IS.length(t)
   {}
@@ -54,7 +54,7 @@ module M {
 
 // A literal takes the instance of the sequence type expected, also one declared explicitly.
 module N {
-  module IS = Library.Seq[Library.IntType]
+  module IS = Library.Seq[Int]
   lemma l(s: IS.T)
     ensures IS.length(s ++ [|1|]) == IS.length(s) + 1
     ensures IS.length(( [||] : IS.T)) == 0

@@ -6,18 +6,6 @@ interface Type {
   free val default: T
 }
 
-module IntType: Type {
-  rep type T = Int
-}
-
-module BoolType: Type {
-  rep type T = Bool
-}
-
-module RefType: Type {
-  rep type T = Ref
-}
-
 // Set operations are library functions. The inline definitions expose pointwise
 // comprehensions to the SMT solver's theory of arrays.
 module Sets[E: Type] {

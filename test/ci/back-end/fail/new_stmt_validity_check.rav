@@ -1,4 +1,4 @@
-module Agree_Int = Library.Agree[Library.IntType]
+module Agree_Int = Library.Agree[Int]
 
 field f: Agree_Int
 

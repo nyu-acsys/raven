@@ -32,7 +32,7 @@ Nothing here depends on how large `length(s)` turns out to be at run time.
 
 ## Addressing {#sec:addressing}
 
-The shelf is an array from the standard library, `Counts = Library.Array[Library.IntType]`
+The shelf is an array from the standard library, `Counts = Library.Array[Int]`
 ({{ref app:stdlib-types}} describes arrays in more detail). Its counters are the array's entries,
 and `length(s)` is the number of entries. The entry `s[i]` at index `i` is the `value` field of a
 cell, a `Ref` written `loc(s, i)`. Since `s[i]` is not an expression, the trigger `{loc(s, i)}`

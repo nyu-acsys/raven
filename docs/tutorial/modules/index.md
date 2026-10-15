@@ -251,7 +251,7 @@ module ListStack[E: Library.Type] :> Stack[E] {
 }
 
 module Client {
-  module S = ListStack[Library.IntType]
+  module S = ListStack[Int]
 
   lemma two_pushes()
   {

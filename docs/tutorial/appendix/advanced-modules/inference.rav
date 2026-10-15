@@ -8,7 +8,7 @@ module Box[T: Library.Type] {
   func getTag(b: S) returns (res: Bool) { b.flag }
 }
 
-module BoxTag = Box[Library.IntType]
+module BoxTag = Box[Int]
 
 lemma expected_instances() {
   val inferred: Box[Int] := Box.mkTag();

@@ -5,7 +5,7 @@ module CollFreeHashMap {
   import CollFreeHash._
   import Hash.IntListOps.IntListT._
 
-  module OptInt = Library.Option[Library.IntType]
+  module OptInt = Library.Option[Int]
 
   field cfHashMapVal: OptInt
 

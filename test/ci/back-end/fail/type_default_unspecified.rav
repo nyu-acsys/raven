@@ -1,6 +1,8 @@
 // An inherited `default` is unspecified, so nothing about its value is provable.
 
+module IntOption = Library.Option[Int]
+
 lemma int_default_is_zero()
-  ensures Library.IntType.default == 0
+  ensures IntOption.E.default == 0
 {
 }

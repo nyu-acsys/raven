@@ -6,7 +6,6 @@ import Library.Auth
 import Library.Prod
 import Library.MaxNat
 import Library.Excl
-import Library.IntType
 
 import Library.IntAtomics._
 
@@ -25,7 +24,7 @@ interface RWTicketLockBounded[SharedPred: ShareablePredicate] {
     import Tk._
 
     // Instantiation Auth[Prod[MaxNat, Excl(Int)]] RA
-    module ExclInt = Excl[Library.IntType]
+    module ExclInt = Excl[Int]
     module ProdRA = Prod[MaxNat, ExclInt]
     module CtrRA = Auth[ProdRA]
 

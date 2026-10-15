@@ -41,7 +41,7 @@ interface Barrier[N: NumThreads, A: AbstractPredicates] {
     module Tk1 = Tokens[P1]
     module Tk2 = Tokens[P2]
 
-    module IntSet = Library.DisjSet[Library.IntType]
+    module IntSet = Library.DisjSet[Int]
 
     // definitions
 

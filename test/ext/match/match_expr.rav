@@ -2,7 +2,7 @@
 // `Library.List[T]`. Covers the shapes that exercise pattern-variable binding:
 // wildcard arms, `_` pattern variables, nesting, and an arm variable shadowing an
 // enclosing local.
-module IntList = Library.List[Library.IntType]
+module IntList = Library.List[Int]
 import IntList._
 
 type T1 = data {

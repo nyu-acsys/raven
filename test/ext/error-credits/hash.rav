@@ -7,7 +7,7 @@ module Hash {
 
   free val val_size: Int
 
-  module OptInt = Library.Option[Library.IntType]
+  module OptInt = Library.Option[Int]
 
   type HashMap = IntPairList.T
 

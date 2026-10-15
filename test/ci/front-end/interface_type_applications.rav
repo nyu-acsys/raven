@@ -25,7 +25,7 @@ module LocalSequencesImpl : LocalSequences {
   func size(s: Library.Seq[Local]) returns (n: Int) { 0 }
 }
 
-module GenericInt = GenericSequenceIdentityImpl[Library.IntType]
+module GenericInt = GenericSequenceIdentityImpl[Int]
 
 module Client {
   proc check(t: Library.Seq[Library.Seq[LocalSequencesImpl.Local]]) {

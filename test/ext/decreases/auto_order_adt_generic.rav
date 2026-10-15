@@ -19,7 +19,7 @@ module GenList[E: Library.Type] {
   }
 }
 
-module IntGenList = GenList[Library.IntType]
+module IntGenList = GenList[Int]
 
 proc use_it(l: IntGenList.T)
 {

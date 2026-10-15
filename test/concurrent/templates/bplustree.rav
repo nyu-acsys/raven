@@ -4,7 +4,7 @@ include "../../arrays/ordered_array.rav"
 interface BPlusTree[Key: Library.OrderedType] : NodeImpl {
   // Arrays of keys, kept sorted, and of child references.
   module AK = OrderedArray[Key]
-  module AN = ArrayUtils[Library.RefType]
+  module AN = ArrayUtils[Ref]
 
   module Spec : SearchStructureSpec {
     type K = Key
@@ -165,7 +165,7 @@ interface BPlusTree[Key: Library.OrderedType] : NodeImpl {
       authSet: AuthSetRef.auth(SetRefRA.set({||}))
     );
 
-    val cmap: Map[Int, Ref] := {| i: Int :: 0 <= i < 2*b ? null : Library.RefType.default |};
+    val cmap: Map[Int, Ref] := {| i: Int :: 0 <= i < 2*b ? null : AN.E.default |};
 
     val ir := flow_int_of(r, 0, none, none, AK.AU.default_map, cmap);
     fold AK.sorted_array_with_content(ka, 0, AK.AU.default_map);

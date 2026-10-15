@@ -1,5 +1,5 @@
 // An array entry is not an expression, so it cannot be passed as a value.
-module A = Library.Array[Library.IntType]
+module A = Library.Array[Int]
 import A._
 proc q(n: Int) {}
 proc p(a: A.T)

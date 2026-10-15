@@ -1,5 +1,5 @@
 // An array is not a value that can be updated functionally.
-module A = Library.Array[Library.IntType]
+module A = Library.Array[Int]
 import A._
 
 proc p(a: A.T, b: A.T)

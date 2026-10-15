@@ -1,6 +1,6 @@
 // Constructor-recognizer test `xs is cons` on a user-declared `data` type and on
 // the stdlib `Library.List[T]` type.
-module IntList = Library.List[Library.IntType]
+module IntList = Library.List[Int]
 import IntList._
 
 type T1 = data {

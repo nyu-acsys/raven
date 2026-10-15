@@ -43,7 +43,7 @@ works with an expression annotation, `(Box.mkTag() : Box[Int])`. You can also in
 explicitly and call the member through that module:
 
 ```raven
-module BoxTag = Box[Library.IntType]
+module BoxTag = Box[Int]
 ```
 
 `BoxTag.mkTag()` needs no inference. An expected type naming this existing instance also works:
@@ -80,9 +80,10 @@ are more limited than ordinary function calls.
 besides `rep type T`: a value `default: T`. It gives generic code some value of `T` to fall back
 on, for instance as the result of a `func` on inputs where there is nothing meaningful to
 return. The value is deliberately unspecified. You can't prove anything about it beyond its
-type, so even `assert Library.IntType.default == 0` fails. `default` is declared `free`, which
-means an implementation of `Library.Type` doesn't have to define it and simply inherits it. A
-module that wants a specific value can still define `val default: T = ...` itself. Leaving it
+type, so for `module IntOption = Library.Option[Int]`, even `assert IntOption.E.default == 0`
+fails. `default` is declared `free`, which means an implementation of `Library.Type` doesn't
+have to define it and simply inherits it. A module that wants a specific value can still define
+`val default: T = ...` itself. Leaving it
 undefined is sound because every Raven type is backed by a non-empty SMT sort, so some value of
 `T` always exists.
 
@@ -95,7 +96,7 @@ own body can still use its representation. A sealed module names exactly one int
 A module without parameters can be sealed the same way. Outside its own body, `module M :> I {
 ... }` shows only the members of `I`, and its abstract types are distinct from every other type.
 You can also seal a single instance of a module that implements an interface: `module V :> I = N`
-makes `V` a view of `N` through `I`, and `module V :> Stack = F[Library.IntType]` does the same
+makes `V` a view of `N` through `I`, and `module V :> Stack = F[Int]` does the same
 for an instance of a functor `F`. `N` or `F` has to declare that it implements the interface, and Raven
 takes the interface's arguments from that declaration. Code that names `N` directly still sees
 its definitions, but to clients of `V`, `V.T` is an abstract type, distinct from `N.T`.

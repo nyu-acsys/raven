@@ -1,4 +1,4 @@
-module Sequences = Library.Seq[Library.IntType]
+module Sequences = Library.Seq[Int]
 
 lemma sequence_update(s: Sequences.T, i: Int, e: Int)
   ensures s[i := e] == Sequences.update(s, i, e)

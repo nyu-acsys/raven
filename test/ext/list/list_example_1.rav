@@ -10,8 +10,8 @@ interface Abstract[S: Type] {
     type T' = S.T
   }
 
-  module M = I1[IntType]
-  module N = I2[BoolType]
+  module M = I1[Int]
+  module N = I2[Bool]
 
   type Test = (M.T, N.T')
 

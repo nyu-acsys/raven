@@ -1,4 +1,4 @@
-module IntList = Library.List[Library.IntType]
+module IntList = Library.List[Int]
 import IntList._
 
 proc p0() 

@@ -1,4 +1,4 @@
-module Fink = Library.Frac[Library.IntType]
+module Fink = Library.Frac[Int]
 ghost field plink: Fink
 
 module T {

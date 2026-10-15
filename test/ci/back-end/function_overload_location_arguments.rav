@@ -10,8 +10,8 @@ func first(a: Bool, b: Bool) returns (r: Bool) { a && b }
 module Box[E: Library.Type] : Library.Type {
   rep type T = data { case box(value: E) }
 }
-module IntBox = Box[Library.IntType]
-module RefBox = Box[Library.RefType]
+module IntBox = Box[Int]
+module RefBox = Box[Ref]
 import IntBox._
 
 func select(v: Int) returns (r: Int) { v + 1 }

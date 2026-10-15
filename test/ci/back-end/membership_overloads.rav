@@ -1,6 +1,6 @@
-module Lists = Library.List[Library.IntType]
-module Sequences = Library.Seq[Library.IntType]
-module Sets = Library.Sets[Library.IntType]
+module Lists = Library.List[Int]
+module Sequences = Library.Seq[Int]
+module Sets = Library.Sets[Int]
 
 inline func container_kind(s: Library.Seq[Int]) returns (r: Int) { 1 }
 inline func container_kind(s: Library.List[Int]) returns (r: Int) { 2 }

@@ -1,4 +1,4 @@
-module Sequences = Library.Seq[Library.IntType]
+module Sequences = Library.Seq[Int]
 
 lemma sequence_index(s: Sequences.T, i: Int)
   ensures s[i] == Sequences.index(s, i)

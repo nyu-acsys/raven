@@ -14,7 +14,7 @@
 import Library.IntAtomics._
 
 module Shelf {
-  module Counts = Library.Array[Library.IntType]
+  module Counts = Library.Array[Int]
   import Counts._
 
   // The ISC: `counts` is existentially quantified once, for the whole

@@ -1,5 +1,5 @@
 module SequenceOperators {
-  module S = Library.Seq[Library.IntType]
+  module S = Library.Seq[Int]
 
   lemma sealed(s: S.T, t: S.T, lo: Int, hi: Int)
     ensures s ++ t == S.++(s, t)

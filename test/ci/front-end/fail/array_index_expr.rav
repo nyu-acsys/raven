@@ -1,5 +1,5 @@
 // An array entry cannot be read in an expression.
-module A = Library.Array[Library.IntType]
+module A = Library.Array[Int]
 import A._
 
 proc p(a: A.T) returns (x: Int)

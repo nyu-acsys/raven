@@ -1,6 +1,6 @@
-module BoolList = Library.List[Library.BoolType]
-module RefList = Library.List[Library.RefType]
-module IntList = Library.List[Library.IntType]
+module BoolList = Library.List[Bool]
+module RefList = Library.List[Ref]
+module IntList = Library.List[Int]
 module BoolRefList = Library.List[(Bool, Ref)]
 
 type T = BoolList.T

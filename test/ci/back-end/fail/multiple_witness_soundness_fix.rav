@@ -1,4 +1,4 @@
-module Agree = Library.Agree[Library.RefType]
+module Agree = Library.Agree[Ref]
 
 func f1(l: Ref) returns (ret: Bool) {true}
 func f2(l: Ref) returns (ret: Bool) {true}

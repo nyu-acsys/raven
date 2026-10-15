@@ -1,7 +1,7 @@
 // A hit counter that keeps a log of its hits, numbered from 0, instead of a
 // number. Its value is the length of the log.
 module HitLog {
-  module Log = Library.Seq[Library.IntType]
+  module Log = Library.Seq[Int]
 
   field log: Log.T
 
