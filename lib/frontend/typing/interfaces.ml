@@ -568,12 +568,12 @@ let inherit_member ~(m : Module.t) ~parent_status ~parent_is_interface parent_id
 
 (** Merges the members of the interface [parent_ident] into [mod_def], the members of [m]:
     a member of the interface that [m] neither defines nor has as a formal is inherited.
-    Returns the merged members, ordered by [order_members], and the members of the
-    interface that [m] defines, to be checked against it. *)
+    Returns the merged members, ordered by [order_members], the members of the interface
+    that [m] defines, to be checked against it, and the inherited members as they are
+    declared in the interface. *)
 let merge_defs ~(m : Module.t) ~(mod_qual_ident : qual_ident)
     ~(mod_def_formals : Module.module_instr list) ~(defined_symbols : Set.M(Ident).t)
-    ~inherited_members ~parent_status ~parent_is_interface parent_ident parent_mod_def
-    mod_def =
+    ~parent_status ~parent_is_interface parent_ident parent_mod_def mod_def =
   let open Rewriter.Syntax in
   let* matches, parent_mod_def =
     OverloadMatching.match_overloads ~m ~mod_qual_ident ~mod_def_formals ~mod_def
@@ -601,14 +601,13 @@ let merge_defs ~(m : Module.t) ~(mod_qual_ident : qual_ident)
             let name = Map.find matches name |> Option.value ~default:name in
             if Set.mem formals name || Set.mem defined_symbols name then
               (Map.add_exn to_check ~key:name ~data:parent_symbol, inherited)
-            else (
-              inherited_members := (parent_ident, parent_symbol) :: !inherited_members;
-              let symbol =
-                inherit_member ~m ~parent_status ~parent_is_interface parent_ident
-                  parent_symbol
-              in
-              (to_check, Module.SymbolDef symbol :: inherited))
+            else (to_check, parent_symbol :: inherited)
         | _ -> (to_check, inherited))
+  in
+  let inherited = List.rev inherited in
+  let inherited_instr parent_symbol =
+    Module.SymbolDef
+      (inherit_member ~m ~parent_status ~parent_is_interface parent_ident parent_symbol)
   in
   let fixed =
     List.filter mod_def ~f:(function
@@ -616,14 +615,16 @@ let merge_defs ~(m : Module.t) ~(mod_qual_ident : qual_ident)
       | _ -> true)
   in
   Rewriter.return
-    (order_members ~mod_qual_ident ~fixed ~others:(List.rev inherited), to_check)
+    ( order_members ~mod_qual_ident ~fixed ~others:(List.map inherited ~f:inherited_instr),
+      to_check,
+      List.map inherited ~f:(fun parent_symbol -> (parent_ident, parent_symbol)) )
 
 (** The parents of [m]: its return types, the interfaces it implements, its first parent
     and that parent's formals, and its members merged with theirs, with those to check
-    against the interfaces. *)
+    against the interfaces and the inherited members, each with its interface. *)
 let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_ident)
     ~(mod_def : Module.module_instr list) ~(mod_def_formals : Module.module_instr list)
-    ~(defined_symbols : Set.M(Ident).t) ~inherited_members =
+    ~(defined_symbols : Set.M(Ident).t) =
   let open Rewriter.Syntax in
   (* Disjointness is checked on the parents as declared, before the substitution below
        renames each parent to this module. *)
@@ -737,22 +738,27 @@ let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_iden
         else Set.add m.mod_decl.mod_decl_interfaces mod_qual_ident
       in
       Rewriter.return
-        ([], interfaces, mod_ident, None, (m.mod_def, Map.empty (module Ident)))
+        ([], interfaces, mod_ident, None, (m.mod_def, Map.empty (module Ident), []))
   | first_parent :: _ ->
       (* Merge each parent in turn, threading the accumulated definition, so
              a later parent sees earlier parents' members as already defined. *)
-      let* returns, interfaces, formals, merged, to_check =
+      let* returns, interfaces, formals, merged, to_check, inherited =
         Rewriter.List.fold_left parent_defs
           ~init:
-            ([], Set.empty (module QualIdent), None, m.mod_def, Map.empty (module Ident))
+            ( [],
+              Set.empty (module QualIdent),
+              None,
+              m.mod_def,
+              Map.empty (module Ident),
+              [] )
           ~f:(fun
-              (returns, interfaces, formals, mod_def, to_check)
+              (returns, interfaces, formals, mod_def, to_check, inherited)
               (qual_interface_ident, _mid, args, parent_is_interface, interface)
             ->
-            let* merged, to_check' =
+            let* merged, to_check', inherited' =
               merge_defs ~m ~mod_qual_ident ~mod_def_formals ~defined_symbols
-                ~inherited_members ~parent_status:interface.mod_decl.mod_decl_status
-                ~parent_is_interface qual_interface_ident interface.mod_def mod_def
+                ~parent_status:interface.mod_decl.mod_decl_status ~parent_is_interface
+                qual_interface_ident interface.mod_def mod_def
             in
             let to_check =
               Map.fold to_check' ~init:to_check ~f:(fun ~key ~data acc ->
@@ -778,11 +784,16 @@ let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_iden
                   (Set.add interface.mod_decl.mod_decl_interfaces qual_interface_ident),
                 formals,
                 merged,
-                to_check ))
+                to_check,
+                inherited' :: inherited ))
       in
       let qual_first, _, _, _, _ = first_parent in
       Rewriter.return
-        (List.rev returns, interfaces, qual_first, formals, (merged, to_check))
+        ( List.rev returns,
+          interfaces,
+          qual_first,
+          formals,
+          (merged, to_check, List.concat (List.rev inherited)) )
 
 (** A callable that omits its contract -- no `requires`, `ensures` or `opens` -- inherits
     the contract of the interface member it implements, with the interface's parameters

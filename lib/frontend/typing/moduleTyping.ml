@@ -372,17 +372,14 @@ let rec check (m : Module.t) : Module.t t =
       | Module.SymbolDef symbol -> lift (Rewriter.declare_symbol symbol)
       | Module.Import _ -> Rewriter.return ())
   in
-  (* The members inherited from interfaces, for [EditorAnnotations.record_inherited_members]. *)
-  let inherited_members = ref [] in
-
   (* Compute symbols that are inherited from parent interface, respectively, that need to be checked against the parent interface *)
   let* ( mod_decl_returns,
          mod_decl_interfaces,
          interface_ident,
          interface_formals,
-         (merged_symbols, symbols_to_check) ) =
+         (merged_symbols, symbols_to_check, inherited_members) ) =
     Interfaces.merge_parents ~m ~is_root ~mod_qual_ident ~mod_def ~mod_def_formals
-      ~defined_symbols ~inherited_members
+      ~defined_symbols
   in
 
   let merged_symbols =
@@ -390,7 +387,7 @@ let rec check (m : Module.t) : Module.t t =
   in
   let () =
     EditorAnnotations.record_inherited_members ~module_ident:mod_qual_ident
-      ~module_loc:m.mod_decl.mod_decl_loc !inherited_members
+      ~module_loc:m.mod_decl.mod_decl_loc inherited_members
   in
   let mod_def = mod_def_formals @ merged_symbols in
   let _ = Logs.info (fun mm -> mm !"Merged in %{Ident}" (Symbol.to_name (ModDef m))) in

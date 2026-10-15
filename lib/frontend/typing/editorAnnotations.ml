@@ -161,7 +161,7 @@ let declaration_text (symbol : Module.symbol) : string option =
 let record_inherited_members ~(module_ident : qual_ident) ~(module_loc : Loc.t)
     (inherited : (qual_ident * Module.symbol) list) =
   let members =
-    List.filter_map (List.rev inherited) ~f:(fun (interface_ident, symbol) ->
+    List.filter_map inherited ~f:(fun (interface_ident, symbol) ->
         let name = Ident.name (Symbol.to_name symbol) in
         let origin =
           Annotations.origin
