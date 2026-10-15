@@ -6,46 +6,46 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- Optional assertion labels, e.g. `assert bounds: i < n`, in diagnostics and SMT logs.
-- Structured strict-mode warnings in `--lsp-mode`.
 - Function and operator overloading by argument type, including infix, indexing, slicing and update notation.
 - User-defined enumeration literals with empty/singleton constructors and right-associated `++`. Library literals for sequences `[|...|]`, lists `<|...|>` and finite sets `{|...|}`, with contextual typing for nested empty literals.
-- Add `--lsp-annotations` for editor annotations and included-file dependencies alongside errors in `--lsp-mode`. Bumps `lsp_protocol_version` to 3.
-- Module members without a contract inherit it from their interface.
-- Triggers on parameterized `auto lemma` postconditions, e.g. `ensures {f(n)} f(n) >= 0`.
-- Viper-style sequence operators: append, indexing, update, membership and slicing, plus `[|...|]` literals and indexed assignment.
-- Prelude imports for `Option`, `List`, `Seq` and `Array`, with local declarations taking precedence.
-- Add `inline func` for SMT macros; ignored on recursive functions.
-- Indexing syntax for `Library.Array` reads, writes and locations, including `own` and atomic operations.
-- Bare types as arguments of an interface a module implements, as in `module M : I[Int]`.
-- Warn when a declaration hides an import of a single member into the same module.
 - Indexed assignment to local maps, including nested updates such as `m[i][j] := v`.
-- Extension hooks `claim_expr`, `claim_basic_stmt` and `claim_location` for handling core syntax rejected by core typing.
-- Add `Library.Array[E]`, with indexed heap cells, an ownership predicate and allocation.
-- Add immutable sequences, `Library.Seq[E]`, with a list implementation verified against `Library.SeqSpec`.
+- Add `inline func` for SMT macros; ignored on recursive functions.
+- Triggers on parameterized `auto lemma` postconditions, e.g. `ensures {f(n)} f(n) >= 0`.
 - Explicit invariant masks via `opens` clauses on procedures and lemmas, replacing masks inferred from `requires`.
 - Module and functor sealing with `:>`, including individual instances; clients see only the declared interface.
+- Module members without a contract inherit it from their interface.
+- Bare types as arguments of an interface a module implements, as in `module M : I[Int]`.
+- Prelude imports for `Option`, `List`, `Seq` and `Array`, with local declarations taking precedence.
+- Warn when a declaration hides an import of a single member into the same module.
+- Add `Library.Array[E]`, with indexed heap cells, an ownership predicate and allocation.
+- Indexing syntax for `Library.Array` reads, writes and locations, including `own` and atomic operations.
+- Add immutable sequences, `Library.Seq[E]`, with a list implementation verified against `Library.SeqSpec`.
+- Viper-style sequence operators: append, indexing, update, membership and slicing, plus `[|...|]` literals and indexed assignment.
 - Add an inherited, unspecified `default: T` to `Library.Type`; implementations may override it with a value of type `T`.
+- Optional assertion labels, e.g. `assert bounds: i < n`, in diagnostics and SMT logs.
+- Structured strict-mode warnings in `--lsp-mode`.
+- Add `--lsp-annotations` for editor annotations and included-file dependencies alongside errors in `--lsp-mode`. Bumps `lsp_protocol_version` to 3.
+- Extension hooks `claim_expr`, `claim_basic_stmt` and `claim_location` for handling core syntax rejected by core typing.
 
 ### Changed
 
+- Remove `[| x: T :: e |]` map comprehensions; use `{| x: T :: e |}` instead. Reserve `[| |]` for sequence literals.
+- Rename `auto pred` to `inline pred`. Restrict `auto` to lemmas and axioms, and reject recursive inline predicates.
+- Require implicit parameters to follow all explicit parameters.
+- Reject quantifier triggers that omit bound variables.
 - Inferred functor instances now have applicative semantics.
 - Look up unqualified destructors in the data type of the value they are applied to.
 - Remove `Library.IntType`, `Library.BoolType` and `Library.RefType`; pass the type itself, as in `Library.Option[Int]`.
+- Move set operators `++`, `**`, `--`, `subseteq` and `choose` into `Library.Sets`. Allow qualified calls such as `S.choose(s)`.
 - Report an existential without a computable witness only when the assertion it belongs to fails, as a related location of that error.
-- Avoid redundant symbol lookups and reification in elaboration and lowering.
 - Limit witness-function arguments to their individual dependencies.
 - Infer resource witnesses through addition, subtraction and negation.
-- Simplify constructor guards and inactive branches before heap translation.
 - Infer existential resource witnesses from pure equalities.
+- Avoid redundant symbol lookups and reification in elaboration and lowering.
+- Simplify constructor guards and inactive branches before heap translation.
 - Fuse adjacent exhale/inhale and inhale/exhale pairs and update scalar heaps directly to improve verification performance.
 - Omit trivially true facts from SMT queries.
 - Generate triggers for ISC location distinctness and function postconditions (on function applications). Omit trivial distinctness checks and assumptions.
-- Remove `[| x: T :: e |]` map comprehensions; use `{| x: T :: e |}` instead. Reserve `[| |]` for sequence literals.
-- Move set operators `++`, `**`, `--`, `subseteq` and `choose` into `Library.Sets`. Allow qualified calls such as `S.choose(s)`.
-- Rename `auto pred` to `inline pred`. Restrict `auto` to lemmas and axioms, and reject recursive inline predicates.
-- Reject quantifier triggers that omit bound variables.
-- Require implicit parameters to follow all explicit parameters.
 - Encode elementwise set comprehensions as native SMT set operations.
 - Omit unused definitions and lemmas from SMT queries, speeding up small programs.
 - Improve verification speed and timing stability for non-linear arithmetic.
@@ -55,27 +55,27 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - Reject an atomic call inside an open invariant if the invariant could not be closed should the call abort.
-- Accept implementations of interface members whose types apply a generic module, such as `Library.Seq[E]`.
-- Show identifiers in type errors as written, without internal indices such as `f^2`.
-- Avoid exponential expression traversal in type checking and elaboration.
-- Avoid repeated substitution in inhales and substitute existential variables in quantifier triggers.
-- Harden type checking for assignments, ghost state, `bind` statements, overloaded calls and generic module inheritance.
-- Insert explicit `Int`-to-`Real` coercions, including within tuples and maps.
-- Reject cyclic witness computations in existential resource assertions.
+- Allow loops to open invariants listed in the enclosing procedure's `opens` clause.
 - Fix false recursion detection through contracts and atomic-update predicates.
 - Check decreases clauses on recursive calls inside `assert ... with` proofs.
 - Fix decreases checks on recursive calls with omitted implicit arguments.
+- Harden type checking for assignments, ghost state, `bind` statements, overloaded calls and generic module inheritance.
+- Insert explicit `Int`-to-`Real` coercions, including within tuples and maps.
+- Accept implementations of interface members whose types apply a generic module, such as `Library.Seq[E]`.
+- Reject redefinitions of procedures and lemmas inherited from library or included interfaces.
+- Infer instances of generic-functor values such as `Seq.empty` from the expected type.
+- Accept explicitly supplied implicit arguments in generic predicates and instantiate at `fold`/`unfold`.
+- Infer functor arguments when the rep type aliases a nested module's type.
+- Use expected element types for set literals, including nested empty sets.
+- Fix equality between finite and general sets with either operand order.
+- Show identifiers in type errors as written, without internal indices such as `f^2`.
+- Fix `--extension auto` misclassifying shared extension syntax as a mix of prophecy and error-credit extensions.
+- Reject cyclic witness computations in existential resource assertions.
+- Avoid repeated substitution in inhales and substitute existential variables in quantifier triggers.
+- Avoid exponential expression traversal in type checking and elaboration.
 - Clean up solver sessions on errors and bound waits for missing or incomplete responses.
 - Keep SMT assertion names identical in solver input and logs; make command printing side-effect free.
 - Prevent SMT identifier collisions between apostrophes and underscores.
-- Infer instances of generic-functor values such as `Seq.empty` from the expected type.
-- Accept explicitly supplied implicit arguments in generic predicates and instantiate at `fold`/`unfold`.
-- Fix equality between finite and general sets with either operand order.
-- Use expected element types for set literals, including nested empty sets.
-- Fix `--extension auto` misclassifying shared extension syntax as a mix of prophecy and error-credit extensions.
-- Reject redefinitions of procedures and lemmas inherited from library or included interfaces.
-- Allow loops to open invariants listed in the enclosing procedure's `opens` clause.
-- Infer functor arguments when the rep type aliases a nested module's type.
 
 ## [1.4.2] - 2026-10-07
 
