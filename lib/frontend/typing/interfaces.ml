@@ -6,6 +6,24 @@ open Util
 open TypingMonad
 open TypingErrors
 
+(** The module standing for the type [tp] passed for [formal], whose interface is
+    [formal_iface] (see [ProgUtils.get_or_intros_rep_module]). *)
+let rep_module_of_type_arg (formal : Module.module_inst) (formal_iface : qual_ident)
+    (tp : Type.t) : qual_ident t =
+  let open Rewriter.Syntax in
+  let* rep = lift (ProgUtils.resolve_rep_ident formal_iface) in
+  match rep with
+  | None ->
+      type_argument_without_rep_error (Type.to_loc tp) formal.mod_inst_name formal_iface
+  | Some (interface_qual_ident, rep_ident) ->
+      let* insert_scope, reference_scope =
+        lift (ProgUtils.find_insertion_scope_for_types [ tp ])
+      in
+      lift
+        (ProgUtils.get_or_intros_rep_module ~loc:(Type.to_loc tp)
+           ~f:!Rewriter.check_symbol_ref ~insert_scope ~reference_scope
+           ~interface_qual_ident ~rep_ident tp)
+
 (** A value [var_def] implementing [orig_var_def]. *)
 let check_implements_var (var_def : Stmt.var_def) (orig_var_def : Stmt.var_def)
     (interface_ident : qual_ident) (symbol : Symbol.t) (loc : location) (ident : ident) :
@@ -664,21 +682,31 @@ let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_iden
              its name by this module's; in the other order, a mapping for `Base.A` would
              no longer match. *)
         let* arg_subst =
-          Rewriter.List.map args ~f:(function
-            | Module.ModArg qi ->
-                let base = QualIdent.unqualify qi in
-                if
-                  QualIdent.is_local qi
-                  && List.exists m.mod_decl.mod_decl_formals ~f:(fun formal ->
-                      Ident.equal formal.mod_inst_name base)
-                then
-                  (* An argument naming one of this module's formals: these are not in
-                       the symbol table yet, so point at the formal directly. *)
-                  Rewriter.return (QualIdent.append mod_qual_ident base)
-                else
-                  let+ qi = Rewriter.resolve qi in
-                  qi
-            | Module.TypeArg tp -> type_as_interface_argument_error (Type.to_loc tp))
+          Rewriter.List.map
+            (List.mapi args ~f:(fun i arg -> (List.nth formals i, arg)))
+            ~f:(function
+              | _, Module.ModArg qi ->
+                  let base = QualIdent.unqualify qi in
+                  if
+                    QualIdent.is_local qi
+                    && List.exists m.mod_decl.mod_decl_formals ~f:(fun formal ->
+                        Ident.equal formal.mod_inst_name base)
+                  then
+                    (* An argument naming one of this module's formals: these are not in
+                         the symbol table yet, so point at the formal directly. *)
+                    Rewriter.return (QualIdent.append mod_qual_ident base)
+                  else
+                    let+ qi = Rewriter.resolve qi in
+                    qi
+              | Some formal, Module.TypeArg tp ->
+                  let formal_iface =
+                    Rewriter.Symbol.extract interface_symbol ~f:(fun _ requalify _ ->
+                        requalify formal.mod_inst_type)
+                  in
+                  rep_module_of_type_arg formal formal_iface tp
+              | None, Module.TypeArg _ ->
+                  arg_mismatch_error "Interface" (QualIdent.to_loc mid) (Type.Var mid)
+                    (List.length formals))
         in
         let* interface_symbol =
           match interface_symbol with

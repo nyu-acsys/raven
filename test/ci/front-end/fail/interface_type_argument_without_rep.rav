@@ -1,0 +1,11 @@
+// A bare type can only stand for a parameter whose interface declares a rep type.
+
+interface Counter {
+  val start: Int
+}
+
+interface Wrapper[C: Counter] {
+}
+
+module IntWrapper : Wrapper[Int] {
+}

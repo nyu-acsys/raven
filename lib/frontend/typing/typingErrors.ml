@@ -761,11 +761,6 @@ let parent_not_module_error loc kind parent =
          %{QualIdent#user}"
        kind parent)
 
-let type_as_interface_argument_error loc =
-  Error.type_error loc
-    "An inherited interface must be applied to modules, not to bare types; name a module \
-     implementing the parameter's interface instead"
-
 let inherited_twice_error loc member module_name =
   Error.type_error loc
     (Printf.sprintf

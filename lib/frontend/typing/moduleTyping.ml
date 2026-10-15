@@ -614,24 +614,11 @@ and check_instr (m : Module.t) (instr : Module.module_instr) : Module.module_ins
                       ~f:(fun (arg, (formal, formal_iface)) ->
                         match arg with
                         | Module.ModArg qi -> Rewriter.return (qi, formal_iface)
-                        | Module.TypeArg tp -> (
-                            let* rep = lift (ProgUtils.resolve_rep_ident formal_iface) in
-                            match rep with
-                            | None ->
-                                type_argument_without_rep_error (Type.to_loc tp)
-                                  formal.mod_inst_name formal_iface
-                            | Some (interface_qual_ident, rep_ident) ->
-                                let* insert_scope, reference_scope =
-                                  lift (ProgUtils.find_insertion_scope_for_types [ tp ])
-                                in
-                                let+ qi =
-                                  lift
-                                    (ProgUtils.get_or_intros_rep_module
-                                       ~loc:(Type.to_loc tp) ~f:!Rewriter.check_symbol_ref
-                                       ~insert_scope ~reference_scope
-                                       ~interface_qual_ident ~rep_ident tp)
-                                in
-                                (qi, formal_iface)))
+                        | Module.TypeArg tp ->
+                            let+ qi =
+                              Interfaces.rep_module_of_type_arg formal formal_iface tp
+                            in
+                            (qi, formal_iface))
                   in
                   ( Some
                       ( qual_functor_ident,
