@@ -54,7 +54,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- Reject an atomic call inside an open invariant if a ghost update since the invariant was opened would keep it from being closed should the call abort.
+- Reject an atomic call inside an open invariant if the invariant could not be closed should the call abort.
 - Accept implementations of interface members whose types apply a generic module, such as `Library.Seq[E]`.
 - Show identifiers in type errors as written, without internal indices such as `f^2`.
 - Avoid exponential expression traversal in type checking and elaboration.

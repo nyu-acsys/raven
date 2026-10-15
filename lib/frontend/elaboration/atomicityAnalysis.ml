@@ -28,11 +28,11 @@ type invs = {
      instance (see [open_inv]); restored verbatim on the matching close (see
      [close_inv]). *)
   inv_consumed_mask_entry : Callable.mask_entry;
-  (* Whether a ghost update -- an [fpu], a ghost field write, or a call that may
-     contain one -- happened since the instance was opened. Only then can the
+  (* Whether a statement that may make the instance less closable happened since it was
+     opened (see [keeps_closable]). Only then, or if the call takes resources, can the
      state on abort of an atomic call fail to close it (see [abort_check]). *)
   inv_updated : bool;
-  (* A ghost [Bool] local, false at the [unfold] and set by every ghost update, so that
+  (* A ghost [Bool] local, false at the [unfold] and set by every such statement, so that
      the check at an atomic call runs only on paths that performed one. *)
   inv_updated_flag : Expr.t;
 }
@@ -382,16 +382,27 @@ let join_ghost_updates ~(from : invs list) (into : invs list) : invs list =
 (* A logically atomic callee may abort, handing back its atomic precondition but
    keeping its ordinary one. Every instance open around the call must then still be
    closable, which a branch before the call checks: it gives up the ordinary
-   precondition, folds the instances, and ends in [assume false]. Only instances updated
-   since they were opened are checked; any other is as closable as at its [unfold].
+   precondition, folds the instances, and ends in [assume false]. If the ordinary
+   precondition is pure, only instances updated since they were opened are checked; any
+   other is as closable as at its [unfold].
    Implicit arguments the call omits are bound first, as the call itself would bind them,
    and passed explicitly, so that the branch and the call agree on them. *)
 let abort_check ~loc (call_decl : Callable.call_decl) (call_desc : Stmt.call_desc)
     (state : atomicity_check) :
     (Stmt.t list * Stmt.call_desc, atomicity_check) Rewriter.t_ext =
   let open Rewriter.Syntax in
-  let updated = List.filter state.invs_opened ~f:(fun inv -> inv.inv_updated) in
-  if List.is_empty updated || call_desc.call_is_spawn then Rewriter.return ([], call_desc)
+  let ordinary_precond =
+    List.filter call_decl.call_decl_precond ~f:(fun spec -> not spec.spec_atomic)
+  in
+  let takes =
+    List.exists ordinary_precond ~f:(fun spec ->
+        not (Type.equal (Expr.to_type spec.spec_form |> Type.set_ghost false) Type.bool))
+  in
+  let checked =
+    if takes then state.invs_opened
+    else List.filter state.invs_opened ~f:(fun inv -> inv.inv_updated)
+  in
+  if List.is_empty checked then Rewriter.return ([], call_desc)
   else
     let fresh_ghost_var name typ =
       let var_decl = Type.mk_var_decl ~ghost:true ~loc (Ident.fresh loc name) typ in
@@ -433,13 +444,11 @@ let abort_check ~loc (call_decl : Callable.call_decl) (call_desc : Stmt.call_des
           ]
     in
     let exhale_stmts =
-      List.filter_map call_decl.call_decl_precond ~f:(fun spec ->
-          if spec.spec_atomic then None
-          else
-            Some (Stmt.mk_exhale_expr ~loc ~spec_error:spec.spec_error (instantiate spec)))
+      List.map ordinary_precond ~f:(fun spec ->
+          Stmt.mk_exhale_expr ~loc ~spec_error:spec.spec_error (instantiate spec))
     in
     let* fold_stmts =
-      Rewriter.List.map updated ~f:(fun inv ->
+      Rewriter.List.map checked ~f:(fun inv ->
           let* symbol = Rewriter.find inv.inv_name in
           let+ decl = Rewriter.Symbol.reify_callable_decl symbol in
           let arity =
@@ -476,7 +485,10 @@ let abort_check ~loc (call_decl : Callable.call_decl) (call_desc : Stmt.call_des
                 stmt_loc = loc;
               }
           in
-          Stmt.mk_cond ~loc (Some inv.inv_updated_flag) fold (Stmt.mk_block_stmt ~loc []))
+          if takes then fold
+          else
+            Stmt.mk_cond ~loc (Some inv.inv_updated_flag) fold
+              (Stmt.mk_block_stmt ~loc []))
     in
     let+ abort = fresh_ghost_var "$abort" Type.bool in
     let abort_qi = QualIdent.from_ident abort.var_name in
@@ -724,9 +736,39 @@ let close_au ~loc token atomicity_state : atomicity_check =
       { atomicity_state with au_opened; atomic_step_taken = false }
     else { atomicity_state with au_opened }
 
+(* Whether [stmt] cannot take a resource that closing an open invariant needs, nor
+   replace one by a weaker one. A call is classified where it is checked. *)
+let keeps_closable (stmt : Stmt.t) : bool =
+  match stmt.stmt_desc with
+  | Basic
+      (VarDef _ | New _ | Assign _ | Bind _ | Havoc _ | FieldRead _ | Return _ | Call _)
+    ->
+      true
+  | Basic (Spec (kind, _)) -> not (Poly.equal kind Stmt.Exhale)
+  | Basic (Use { use_kind = Unfold; _ }) -> true
+  | Basic (AUAction { auaction_kind = BindAU _ | OpenAU _; _ }) -> true
+  | Basic (Use { use_kind = Fold; _ } | AUAction _ | Fpu _ | FieldWrite _ | BasicStmtExt _)
+  | StmtExt _ ->
+      false
+  | Block _ | Cond _ | Loop _ -> true
+
 let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext =
   let open Rewriter.Syntax in
+  (* Every open instance is marked updated before a statement that may make it less
+     closable (see [keeps_closable]). *)
   let rec rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext =
+    let loc = stmt.stmt_loc in
+    let* atomicity_state = Rewriter.current_user_state in
+    let atomicity_state, update_flag_stmts =
+      if keeps_closable stmt then (atomicity_state, [])
+      else mark_ghost_update ~loc atomicity_state
+    in
+    let* () = Rewriter.set_user_state atomicity_state in
+    let+ stmt = rewrite_au_cmnd stmt in
+    match update_flag_stmts with
+    | [] -> stmt
+    | _ :: _ -> Stmt.mk_block_stmt ~loc (update_flag_stmts @ [ stmt ])
+  and rewrite_au_cmnd (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext =
     let* is_ghost_scope = Rewriter.is_ghost_scope in
     let* curr_callable_name = Rewriter.current_scope_id in
 
@@ -810,19 +852,13 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
         let* symbol = Rewriter.find field_write_desc.field_write_field in
         match Rewriter.Symbol.orig_symbol symbol with
         | FieldDef fld ->
-            if fld.field_is_ghost then
-              let atomicity_state, flag_stmts = mark_ghost_update ~loc atomicity_state in
-              let* _ = Rewriter.set_user_state atomicity_state in
-              Rewriter.return (Stmt.mk_block_stmt ~loc (stmt :: flag_stmts))
+            if fld.field_is_ghost then Rewriter.return stmt
             else
               let atomicity_state = take_atomic_step ~loc atomicity_state in
               let* _ = Rewriter.set_user_state atomicity_state in
               Rewriter.return stmt
         | _ -> Error.internal_error stmt.stmt_loc "expected a field_def")
-    | Basic (Fpu _) ->
-        let atomicity_state, flag_stmts = mark_ghost_update ~loc atomicity_state in
-        let* _ = Rewriter.set_user_state atomicity_state in
-        Rewriter.return (Stmt.mk_block_stmt ~loc (stmt :: flag_stmts))
+    | Basic (Fpu _) -> Rewriter.return stmt
     | Basic (Havoc hvc) ->
         let atomicity_state = drop_stale ~qis:[ hvc.havoc_var ] atomicity_state in
         let* _ = Rewriter.set_user_state atomicity_state in
@@ -998,7 +1034,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
           Rewriter.return
             (Stmt.mk_block_stmt ~loc
                (availability_asserts @ reentrancy_asserts @ [ stmt ] @ flag_stmts))
-        else if Callable.is_atomic call_decl then
+        else if Callable.is_atomic call_decl && not call_desc.call_is_spawn then
           let* abort_stmts, call_desc =
             abort_check ~loc call_decl call_desc atomicity_state
           in
@@ -1009,11 +1045,15 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
             (Stmt.mk_block_stmt ~loc
                (availability_asserts @ reentrancy_asserts @ abort_stmts @ [ stmt ]))
         else
-          let atomicity_state = take_non_atomic_step ~loc atomicity_state in
+          let atomicity_state, flag_stmts =
+            (if Callable.is_atomic call_decl then take_atomic_step ~loc atomicity_state
+             else take_non_atomic_step ~loc atomicity_state)
+            |> mark_ghost_update ~loc
+          in
           let* _ = Rewriter.set_user_state atomicity_state in
           Rewriter.return
             (Stmt.mk_block_stmt ~loc
-               (availability_asserts @ reentrancy_asserts @ [ stmt ]))
+               (availability_asserts @ reentrancy_asserts @ [ stmt ] @ flag_stmts))
     | Basic (BasicStmtExt (stmt_ext, args)) ->
         let* ext_hooks = Rewriter.current_ext_hooks in
         let atomicity_state =
@@ -1021,12 +1061,11 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
             ~idents:(ext_hooks.basic_stmt_ext_local_vars_modified stmt_ext args)
             atomicity_state
         in
-        let atomicity_state, flag_stmts =
+        let atomicity_state =
           take_ext_step ~loc (ext_hooks.stmt_ext_atomicity stmt_ext) atomicity_state
-          |> mark_ghost_update ~loc
         in
         let* _ = Rewriter.set_user_state atomicity_state in
-        Rewriter.return (Stmt.mk_block_stmt ~loc (stmt :: flag_stmts))
+        Rewriter.return stmt
     | Basic (Return return_expr) ->
         let atomicity_state = take_atomic_step ~loc atomicity_state in
         let* _ = Rewriter.set_user_state atomicity_state in
@@ -1459,12 +1498,11 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
             ~idents:(ext_hooks.stmt_ext_local_vars_modified stmt_ext)
             atomicity_state
         in
-        let atomicity_state, flag_stmts =
+        let atomicity_state =
           take_ext_step ~loc (ext_hooks.stmt_ext_atomicity stmt_ext) atomicity_state
-          |> mark_ghost_update ~loc
         in
         let* _ = Rewriter.set_user_state atomicity_state in
-        Rewriter.return (Stmt.mk_block_stmt ~loc (stmt :: flag_stmts))
+        Rewriter.return stmt
     | Block { block_kind = Atomic; _ } ->
         (* `--strict`: the block is the one construct whose claim the verifier takes on
            trust rather than checking -- there is no model of the target machine, and no

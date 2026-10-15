@@ -1,0 +1,52 @@
+// An atomic call keeps its ordinary precondition if it aborts, so an invariant open
+// around the call must be closable without it. Here p takes x.d from dInv for its
+// whole run and writes 1 to it before restoring 0. If this were accepted, the observer
+// could read 1 and fail its assertion, although no ghost update precedes the call.
+
+import Library.IntAtomics._
+
+field d: Int
+field c: Int
+
+// x.d is always 0.
+inv dInv(x: Ref) {
+  exists n: Int :: own(x.d, 0, 1.0) && own(x.c, n, 1.0)
+}
+
+proc p(x: Ref, implicit ghost n: Int)
+  requires own(x.d, 0, 1.0)
+  ensures own(x.d, 0, 1.0)
+  atomic requires own(x.c, n, 1.0)
+  atomic ensures own(x.c, n + 1, 1.0)
+{
+  ghost var phi := bindAU();
+  x.d := 1;
+  x.d := 0;
+  ghost var n0: Int := openAU(phi);
+  var old_val: Int := faa(x.c, 1);
+  commitAU(phi, ());
+}
+
+proc writer(x: Ref)
+  requires dInv(x)
+{
+  unfold dInv(x);
+  p(x);
+  fold dInv(x);
+}
+
+proc observer(x: Ref)
+  requires dInv(x)
+{
+  unfold dInv(x);
+  var v: Int := x.d;
+  fold dInv(x);
+  assert v == 0;
+}
+
+proc main() {
+  var x: Ref := new(d: 0, c: 0);
+  fold dInv(x);
+  spawn writer(x);
+  observer(x);
+}

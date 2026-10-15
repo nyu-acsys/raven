@@ -253,6 +253,7 @@ interface RWTicketLockBounded[SharedPred: ShareablePredicate] {
     {
         var lk_ref := l.lk;
 
+        fold LkResource.resource(l)[i := i];
         ghost var z1: Int; ghost var d1: Int; ghost var i1: Int; ghost var b1: Bool;
         unfold readers_inv(l, lk_ref)[z1 := z, d1 := d, i1 := i, b1 := b];
         {!
@@ -265,7 +266,6 @@ interface RWTicketLockBounded[SharedPred: ShareablePredicate] {
                 }
             }
         !}
-        fold LkResource.resource(l)[i := i];
         Lk.release(lk_ref);
         fold readers_inv(l, lk_ref)[z := z1, d := d1, i := i1, b := false];
     }
