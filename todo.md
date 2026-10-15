@@ -1,3 +1,16 @@
+15 oct, 2026:
+- [ ] Generative functor instances with type arguments: in `G[IntType]`,
+    `Seq[E]` does not match `Seq[Int]` (independent of interfaces).
+- [ ] Support `==` on `Seq`.
+- [ ] Finish the limited-functions branch.
+- [ ] Add explicit triggers to the remaining (~500) untriggered user quantifiers.
+- [ ] Investigate solver flakiness under parallel `dune runtest`
+    (`dist_counter`, `ticket_lock_atomic*`, `amortised_hash`); consider a solver
+    option `smt.arith.nl.delay=200`.
+- [ ] Consider moving from exception-based to monadic error handling; then move
+    the global warning/annotation refs into the monad's state and remove the
+    second `try ... with` in `ExprTyping.set_checked_type`.
+
 30 jul, 2026:
 - [ ] Consider warning when an explicitly named import (`import M.x`) is
     hidden by a declaration of `x` in the importing module. Local declarations
