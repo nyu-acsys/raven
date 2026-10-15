@@ -92,19 +92,19 @@ and resolves_to_instantiation_of ~(functor_qual_ident : qual_ident) (qi : qual_i
 and instantiation_formal_module ~(functor_qual_ident : qual_ident) (qi : qual_ident) :
     (ident -> qual_ident) option t =
   let open Rewriter.Syntax in
-  let* tbl = Rewriter.get_table in
-  match SymbolTbl.find_sealed_view qi tbl with
-  | Some view when QualIdent.equal view.sealed_functor functor_qual_ident ->
-      Rewriter.return
-        (Some
-           (fun formal -> List.Assoc.find_exn view.sealed_args formal ~equal:Ident.equal))
-  | _ -> (
-      let+ resolved = Rewriter.resolve_and_find_opt qi in
-      match resolved with
-      | Some (_, symbol)
-        when QualIdent.equal (Rewriter.Symbol.orig_qid symbol) functor_qual_ident ->
+  let* resolved = Rewriter.resolve_and_find_opt qi in
+  match resolved with
+  | None -> Rewriter.return None
+  | Some (target, symbol) ->
+      let+ view = Rewriter.find_sealed_view target in
+      begin match view with
+      | Some view when QualIdent.equal view.sealed_functor functor_qual_ident ->
+          Some
+            (fun formal -> List.Assoc.find_exn view.sealed_args formal ~equal:Ident.equal)
+      | _ when QualIdent.equal (Rewriter.Symbol.orig_qid symbol) functor_qual_ident ->
           Some (QualIdent.append qi)
-      | _ -> None)
+      | _ -> None
+      end
 
 (** The existing instance of the functor [m] that [typ] names, if any. *)
 and resolve_existing_instantiation ~(functor_qual_ident : qual_ident) (m : Module.t)

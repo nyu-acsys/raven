@@ -333,8 +333,8 @@ let rec check (m : Module.t) : Module.t t =
         (Hashtbl.keys sc));
   (* Whether [m] is the root module of the symbol table. *)
   let* is_root =
-    let+ tbl = Rewriter.get_table in
-    Ident.(m.mod_decl.mod_decl_name = QualIdent.to_ident (SymbolTbl.root_ident tbl))
+    let+ root = Rewriter.root_scope_id in
+    Ident.(m.mod_decl.mod_decl_name = QualIdent.to_ident root)
   in
 
   (* Add formal parameters to module definitions *)

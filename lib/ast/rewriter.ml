@@ -719,6 +719,9 @@ let __get_state s = (s, s)
 let current_scope s : 'a state * SymbolTbl.scope = (s, s.state_table.tbl_curr)
 let current_scope_id s : 'a state * qual_ident = (s, s.state_table.tbl_curr.scope_id)
 
+(** The name of the root scope of the symbol table. *)
+let root_scope_id s : 'a state * qual_ident = (s, SymbolTbl.root_ident s.state_table)
+
 let current_scope_children s : 'a state * SymbolTbl.scope IdentHashtbl.t =
   (s, s.state_table.tbl_curr.scope_children)
 
