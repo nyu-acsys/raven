@@ -1,28 +1,27 @@
-// Viper's test sequences.vpr. Viper's `==` on sequences compares them entry by entry,
-// which is `Seq.equal` here. The assertions Viper expects to fail are in
-// failures.t, and Viper's range sequence `[-1..10)` and its checks that an
-// index is in bounds have no counterpart in Raven.
+// Viper's test sequences.vpr. The assertions Viper expects to fail are in failures.t,
+// and Viper's range sequence `[-1..10)` and its checks that an index is in bounds have
+// no counterpart in Raven.
 
 proc t1(x: Int, xs: Seq[Int]) {
   var n: Seq[Int] := [||];
   assert Seq.length(n) == 0;
-  assert !Seq.equal(n, [|x|]);
+  assert n != [|x|];
   assert Seq.length([|1|]) == 1;
 }
 
 proc t2() {
   assert 1 in [|1, 2, 3|];
-  assert Seq.equal([|1|] ++ [|2|], [|1, 2|]);
+  assert [|1|] ++ [|2|] == [|1, 2|];
 
   var a: Seq[Int] := [|0, 1, -11, 22|];
   assert a[2] == -11;
 
-  assert Seq.equal(a[..1], [|0|]);
-  assert Seq.equal(a[1..], [|1, -11, 22|]);
-  assert Seq.equal(a[1..2], [|1|]);
+  assert a[..1] == [|0|];
+  assert a[1..] == [|1, -11, 22|];
+  assert a[1..2] == [|1|];
 
-  assert Seq.equal(a[1 := 22], a[1 := -1][1 := 22]);
-  assert Seq.equal(a[1 := 22], [|0, 22, -11, 22|]);
+  assert a[1 := 22] == a[1 := -1][1 := 22];
+  assert a[1 := 22] == [|0, 22, -11, 22|];
   assert Seq.length(a[1 := 22]) == 4;
   assert a[1 := 22][1] == 22;
   assert a[1 := 22][2] == -11;
@@ -39,13 +38,13 @@ proc test4(s: Seq[Int], i: Int, j: Int)
   requires 0 <= i
   requires i <= j
 {
-  assert Seq.equal(s, s[..i] ++ s[i..]);
-  assert Seq.equal(s, s[..i] ++ s[i..j] ++ s[j..]);
-  assert Seq.equal((s[..i] ++ s[i..j]) ++ s[j..], s[..i] ++ (s[i..j] ++ s[j..]));
+  assert s == s[..i] ++ s[i..];
+  assert s == s[..i] ++ s[i..j] ++ s[j..];
+  assert (s[..i] ++ s[i..j]) ++ s[j..] == s[..i] ++ (s[i..j] ++ s[j..]);
 }
 
 proc test5(s: Seq[Int], i: Int, j: Int) {
-  assert Seq.equal(s, s[..i] ++ s[i..]);
+  assert s == s[..i] ++ s[i..];
 }
 
 proc test6() {

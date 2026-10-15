@@ -4,7 +4,7 @@
 - [ ] Investigate expressing error messages only in source-level terms: type errors
     currently expose internally generated modules, e.g. `GI.GenInst$$Seq$$G_E_T.T`
     instead of `Seq[E]`/`Seq[Int]`, and `TypeMod$$...` rep modules.
-- [ ] Support `==` on `Seq`.
+- [x] Support `==` on `Seq`.
 - [ ] Finish the limited-functions branch.
 - [ ] Add explicit triggers to the remaining (~500) untriggered user quantifiers.
 - [ ] Investigate solver flakiness under parallel `dune runtest`

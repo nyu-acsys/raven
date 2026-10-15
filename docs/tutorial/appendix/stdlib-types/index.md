@@ -82,7 +82,7 @@ also be written with a notation of their own:
 | `update(s, i, e)` | `s[i := e]` | `s` with the entry at position `i` replaced by `e` |
 | `take(s, n)`, `drop(s, n)` | `s[..n]`, `s[n..]` | the first `n` entries of `s`, and the remaining ones |
 | `contains(s, e)` | `e in s` | whether `e` is an entry of `s` |
-| `equal(s, t)` | | whether `s` and `t` are equal |
+| `equal(s, t)` | `s == t` | whether `s` and `t` have the same entries |
 
 `index` is unspecified outside the range from 0 to `length(s) - 1`. As with a map, the
 statement `s[i] := e` is short for `s := s[i := e]`. The slice `s[m..n]` holds the entries from
@@ -132,25 +132,19 @@ of `increment` needs the length and the entries of the extended log, and `SeqSpe
 as an existentially quantified `l` in `valid`, and Raven finds it when you fold `valid`
 ({{ref sec:witness-computation}}).
 
-One thing works differently from what you might expect. Two sequences with the same length and
-the same entries are equal, but Raven doesn't compare sequences entry by entry on its own. Unless
-`SeqSpec`'s lemmas rewrite one of them into the other, it concludes that they are equal only when
-you ask whether they are `equal`. The lemma `split` at the end of `hit_log.rav` shows this:
+Two sequences with the same length and the same entries are equal, and Raven compares
+sequences entry by entry whenever it needs to decide whether they are equal. So the lemma `split`
+at the end of `hit_log.rav` needs no proof:
 
 ```raven
 lemma split(s: Seq[Int], n: Int)
   requires 0 <= n && n <= Seq.length(s)
   ensures s[..n] ++ s[n..] == s
-{
-  assert Seq.equal(s[..n] ++ s[n..], s);
-}
+{}
 ```
 
 Here, `Seq[Int]` names the sequences of integers, and each call such as `Seq.length(s)` infers
 the instance from the type of its argument ({{ref sec:implicit-functor-instantiation}}).
-
-Without the `assert`, the postcondition fails. The assertion makes Raven compare the two
-sequences entry by entry, and once it holds, the two are known to be equal.
 
 ## Arrays {#sec:stdlib-array}
 

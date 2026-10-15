@@ -359,7 +359,7 @@ interface SeqSpec[E: Type] : Type {
         index(s0, skolem_diff(s0, s1)) != index(s1, skolem_diff(s0, s1)))
 
   auto lemma equal_ext()
-    ensures forall a: T, b: T :: {equal(a, b)} equal(a, b) ==> a == b
+    ensures forall a: T, b: T :: {equal(a, b)} {a == b} equal(a, b) <=> a == b
 
   // Extras
 

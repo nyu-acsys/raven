@@ -38,13 +38,10 @@ module HitLog {
   }
 }
 
-// Two sequences with the same length and the same entries are equal, but Raven only
-// compares them entry by entry when asked whether they are `equal`.
+// Two sequences with the same length and the same entries are equal.
 module Split {
   lemma split(s: Seq[Int], n: Int)
     requires 0 <= n && n <= Seq.length(s)
     ensures s[..n] ++ s[n..] == s
-  {
-    assert Seq.equal(s[..n] ++ s[n..], s);
-  }
+  {}
 }
