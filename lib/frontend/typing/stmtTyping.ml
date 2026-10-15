@@ -162,6 +162,7 @@ let check_au_action (call_decl : Callable.call_decl) (assign_lhs : qual_ident li
     (var_decls_lhs : var_decl list) qual_ident args (loc : location)
     (disam_tbl : DisambiguationTbl.t) : (Stmt.basic_stmt_desc * DisambiguationTbl.t) t =
   let open Rewriter.Syntax in
+  (* A ghost command assigns only ghost variables. *)
   let _ =
     List.iter2_exn assign_lhs var_decls_lhs ~f:(fun qual_ident var_decl ->
         if var_decl.var_type |> Type.is_ghost then ()
@@ -170,6 +171,7 @@ let check_au_action (call_decl : Callable.call_decl) (assign_lhs : qual_ident li
   match args with
   | _ when QualIdent.(qual_ident = QualIdent.from_ident Predefs.fpu_ident) ->
       (* fpu *)
+      (* The ghost field that an argument names, with the type of its values. *)
       let field_opt = function
         | Expr.App (Var qual_ident, [], _) ->
             let* field_qual_ident, symbol = Rewriter.resolve_and_find qual_ident in
@@ -183,6 +185,7 @@ let check_au_action (call_decl : Callable.call_decl) (assign_lhs : qual_ident li
             end
         | _ -> Rewriter.return None
       in
+      (* The location, as `x.f` or as `x, f`, followed by the values. *)
       let* ref_expr, field, fpu_exprs =
         let* opt_list =
           match args with
@@ -215,6 +218,7 @@ let check_au_action (call_decl : Callable.call_decl) (assign_lhs : qual_ident li
             disambiguate_and_check_expr fpu_expr given_type disam_tbl)
       in
 
+      (* The old value, which may be omitted, and the new one. *)
       let old_val_expr, new_val_expr =
         match fpu_exprs with
         | [ old_val_expr; new_val_expr ] -> (Some old_val_expr, new_val_expr)
@@ -242,6 +246,7 @@ let check_au_action (call_decl : Callable.call_decl) (assign_lhs : qual_ident li
       | _ -> bind_au_arity_error loc
       end
   | token :: args ->
+      (* openAU, commitAU and abortAU: the token, of the procedure it belongs to *)
       let* token =
         disambiguate_and_check_expr token (Type.any |> Type.set_ghost true) disam_tbl
       in
@@ -261,6 +266,8 @@ let check_au_action (call_decl : Callable.call_decl) (assign_lhs : qual_ident li
         proc_callable.call_decl
       in
 
+      (* The procedure's arguments: a tuple, or, for a token of the current procedure,
+         its own parameters. *)
       let* proc_args =
         let proc_concrete_in_args =
           List.filter proc_call_decl.call_decl_formals ~f:(fun var_decl ->
@@ -324,6 +331,7 @@ let check_au_action (call_decl : Callable.call_decl) (assign_lhs : qual_ident li
       in
       (* openAU *)
       if QualIdent.(qual_ident = QualIdent.from_ident Predefs.openAU_ident) then
+        (* The left-hand side receives the procedure's implicit parameters. *)
         let implicit_vars =
           Base.List.map2_exn assign_lhs var_decls_lhs ~f:(fun qual_ident var_decl ->
               Expr.mk_var ~typ:var_decl.var_type qual_ident)
@@ -568,6 +576,7 @@ and check_assign (assign_desc : Stmt.assign_desc) (call_decl : Callable.call_dec
     (Stmt.basic_stmt_desc * DisambiguationTbl.t) t =
   let open Rewriter.Syntax in
   begin
+    (* An extension may claim an indexed right-hand side that is not on a map. *)
     let* claimed =
       claim_if_not_core_indexed ~is_ghost_scope call_decl stmt_loc disam_tbl basic_stmt
         assign_desc.assign_rhs
@@ -575,6 +584,7 @@ and check_assign (assign_desc : Stmt.assign_desc) (call_decl : Callable.call_dec
     match claimed with
     | Some res -> Rewriter.return res
     | None -> (
+        (* The targets, with their declarations. *)
         let* assign_lhs, var_decls_lhs =
           Rewriter.List.fold_right assign_desc.assign_lhs ~init:([], [])
             ~f:(fun orig_qual_ident (assign_lhs, var_decls_lhs) ->
@@ -615,6 +625,7 @@ and check_assign (assign_desc : Stmt.assign_desc) (call_decl : Callable.call_dec
             in
             let* read_symbol = Rewriter.Symbol.reify read_symbol in
 
+            (* A field read, or else a destructor applied as an expression *)
             begin match read_symbol with
             | FieldDef f ->
                 let* () =
@@ -653,6 +664,7 @@ and check_assign (assign_desc : Stmt.assign_desc) (call_decl : Callable.call_dec
         | App (Var qual_ident, args, _) when Predefs.is_qual_ident_au_cmnd qual_ident ->
             check_au_action call_decl assign_lhs var_decls_lhs qual_ident args stmt_loc
               disam_tbl
+        (* Call or expression *)
         | _ -> (
             let* () =
               Rewriter.Logs.debug (fun printers m ->
@@ -693,6 +705,7 @@ and check_assign (assign_desc : Stmt.assign_desc) (call_decl : Callable.call_dec
             in
 
             match assign_rhs_callable_opt with
+            (* A call of a procedure or lemma *)
             | Some (symbol, proc_qual_ident, args) -> begin
                 Logs.debug (fun m ->
                     m "StmtTyping.check: assign_rhs_qual_ident: %a; %b" QualIdent.pr
@@ -712,6 +725,7 @@ and check_assign (assign_desc : Stmt.assign_desc) (call_decl : Callable.call_dec
                 check_basic call_decl (Stmt.Call call_desc) stmt_loc disam_tbl
                 (*(Stmt.Call call_desc, disam_tbl)*)
               end
+            (* An expression, of the type of the targets *)
             | None ->
                 let expected_type =
                   Type.mk_prod

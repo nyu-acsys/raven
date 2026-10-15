@@ -643,6 +643,8 @@ let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_iden
         in
         check_parents_disjoint ~loc:m.mod_decl.mod_decl_loc parent_ancestors
   in
+  (* Each parent, resolved, with its formals renamed to its arguments and its name to
+     this module's. *)
   let* parents =
     Rewriter.List.map m.mod_decl.mod_decl_returns ~f:(fun (mid, args) ->
         Logs.debug (fun mm ->
@@ -650,6 +652,7 @@ let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_iden
               !"ModuleTyping.check: module %{Ident}: checking return type %{QualIdent}"
               (Symbol.to_name (ModDef m)) mid);
         let* qual_interface_ident, interface_symbol = Rewriter.resolve_and_find mid in
+        (* The formals of the parent; an instance has none left. *)
         let formals =
           Rewriter.Symbol.extract interface_symbol ~f:(fun is_instance _ -> function
             | Module.ModDef parent ->
@@ -731,6 +734,7 @@ let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_iden
       | _ -> None)
   in
   match parent_defs with
+  (* Without parents, the module's own members stand. *)
   | [] ->
       let mod_ident = QualIdent.from_ident m.mod_decl.mod_decl_name in
       let interfaces =
