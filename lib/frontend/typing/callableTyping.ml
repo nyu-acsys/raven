@@ -73,6 +73,7 @@ let check_opens (call_decl : Callable.call_decl) (formals : Type.var_decl list)
 let check (callable : Callable.t) : Module.symbol t =
   let open Rewriter.Syntax in
   let source = Callable.source_ident callable in
+  (* The holes of a mixfix name, e.g. 3 for [_[_:=_]], which its explicit parameters fill. *)
   let holes =
     match Ident.name source with
     | "_[_.._]" | "_[_:=_]" -> Some 3
@@ -84,6 +85,7 @@ let check (callable : Callable.t) : Module.symbol t =
         Some (if String.mem name '_' then 1 else 0)
     | _ -> None
   in
+  (* A mixfix operator is a func; parameters beyond its holes are implicit and ghost. *)
   let () =
     Option.iter holes ~f:(fun holes ->
         let decl = callable.call_decl in
@@ -104,11 +106,13 @@ let check (callable : Callable.t) : Module.symbol t =
   let* _ = Rewriter.enter_callable callable in
   let disam_tbl = DisambiguationTbl.push [] in
   let call_decl = Callable.to_decl callable in
+  (* The implicit parameters of a predicate follow its `;`. *)
   let () =
     if Poly.(call_decl.call_decl_kind = Pred) then
       List.iter call_decl.call_decl_formals ~f:(fun param ->
           if param.Type.var_implicit then implicit_pred_input_error param.var_loc)
   in
+  (* Checks the types of [var_decls] and adds them to [disam_tbl]. *)
   let check_decls var_decls disam_tbl =
     Rewriter.List.fold_map var_decls ~init:disam_tbl ~f:(fun disam_tbl var_decl ->
         let+ var_decl = TypeExpr.check_var_decl var_decl in
@@ -126,10 +130,12 @@ let check (callable : Callable.t) : Module.symbol t =
             loc_param_not_field_error (QualIdent.to_loc field) call_decl.call_decl_name
               (Symbol.kind symbol) field)
   in
+  (* Parameters, return variables and locals. *)
   let* disam_tbl, call_decl_formals = check_decls call_decl.call_decl_formals disam_tbl in
   let* disam_tbl, call_decl_returns = check_decls call_decl.call_decl_returns disam_tbl in
   let* disam_tbl, call_decl_locals = check_decls call_decl.call_decl_locals disam_tbl in
 
+  (* The update operator returns a value of the type of its container. *)
   let () =
     if String.equal (Ident.name source) "_[_:=_]" then
       match (call_decl_formals, call_decl_returns) with
@@ -143,6 +149,7 @@ let check (callable : Callable.t) : Module.symbol t =
 
   let* ext_hooks = Rewriter.current_ext_hooks in
 
+  (* The contract, with the parameters, return variables and locals in scope. *)
   let* _ = Rewriter.add_locals call_decl_formals in
 
   let* _ = Rewriter.add_locals call_decl_returns in
@@ -196,6 +203,7 @@ let check (callable : Callable.t) : Module.symbol t =
     | _ -> ()
   in
 
+  (* Contract clauses added by extensions. *)
   let call_decl_for_ext =
     { call_decl with call_decl_formals; call_decl_returns; call_decl_locals }
   in
@@ -223,6 +231,7 @@ let check (callable : Callable.t) : Module.symbol t =
              }))
   in
 
+  (* The invariants that the callable opens. *)
   let* call_decl_opens =
     Rewriter.Option.map call_decl.call_decl_opens ~f:(fun clause ->
         let+ opens_entries =
@@ -245,6 +254,7 @@ let check (callable : Callable.t) : Module.symbol t =
       call_decl_loc_params;
     }
   in
+  (* The body. *)
   let* callable =
     match callable.call_def with
     | FuncDef func_def ->

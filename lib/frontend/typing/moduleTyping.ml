@@ -317,6 +317,7 @@ let rec check (m : Module.t) : Module.t t =
   let _ =
     Logs.info (fun mm -> mm !"Processing module %{Ident}" (Symbol.to_name (ModDef m)))
   in
+  (* Only a module can be sealed. *)
   let () =
     let decl = m.mod_decl in
     if decl.mod_decl_is_sealed && decl.mod_decl_is_interface then
@@ -330,9 +331,9 @@ let rec check (m : Module.t) : Module.t t =
         (Symbol.to_name (ModDef m))
         (Print.pr_list_comma Ident.pr)
         (Hashtbl.keys sc));
+  (* Whether [m] is the root module of the symbol table. *)
   let* is_root =
     let+ tbl = Rewriter.get_table in
-    (* Hashtbl.mem  *)
     Ident.(m.mod_decl.mod_decl_name = QualIdent.to_ident (SymbolTbl.root_ident tbl))
   in
 
@@ -342,6 +343,7 @@ let rec check (m : Module.t) : Module.t t =
         Module.SymbolDef (ModInst mod_def_formal))
   in
   let mod_def = mod_def_formals @ m.mod_def in
+  (* The names of the members of [mod_def]. *)
   let get_defined_symbols mod_def =
     List.fold mod_def
       ~init:(Set.empty (module Ident))
@@ -350,6 +352,7 @@ let rec check (m : Module.t) : Module.t t =
   in
   let defined_symbols = get_defined_symbols mod_def in
 
+  (* The qualified name of [m]. *)
   let* mod_qual_ident =
     if is_root then Rewriter.return @@ QualIdent.from_ident (Symbol.to_name (ModDef m))
     else
@@ -361,6 +364,7 @@ let rec check (m : Module.t) : Module.t t =
 
       Rewriter.resolve (QualIdent.from_ident (Symbol.to_name (ModDef m)))
   in
+  (* The formals and types are declared before the other members. *)
   let type_headers =
     List.filter m.mod_def ~f:(function
       | Module.SymbolDef (TypeDef _) -> true
@@ -372,7 +376,8 @@ let rec check (m : Module.t) : Module.t t =
       | Module.SymbolDef symbol -> lift (Rewriter.declare_symbol symbol)
       | Module.Import _ -> Rewriter.return ())
   in
-  (* Compute symbols that are inherited from parent interface, respectively, that need to be checked against the parent interface *)
+  (* Merge in the members of the parents: those inherited, and those to check against
+     the interfaces. *)
   let* ( mod_decl_returns,
          mod_decl_interfaces,
          interface_ident,
@@ -382,6 +387,7 @@ let rec check (m : Module.t) : Module.t t =
       ~defined_symbols
   in
 
+  (* Members without a contract inherit the one of the interface member they implement. *)
   let merged_symbols =
     List.map merged_symbols ~f:(Interfaces.inherit_contract symbols_to_check)
   in
@@ -425,7 +431,7 @@ let rec check (m : Module.t) : Module.t t =
     mod_decl_is_ra || QualIdent.(mod_qual_ident = Ast.Predefs.lib_ra_mod_qual_ident)
   in
 
-  (* Add return type to module declaration *)
+  (* The formals, with their interfaces resolved. *)
   let* mod_decl_formals =
     Rewriter.List.map m.mod_decl.mod_decl_formals ~f:(fun mod_inst ->
         let+ mod_inst_type = Rewriter.resolve mod_inst.mod_inst_type in
@@ -468,6 +474,8 @@ let rec check (m : Module.t) : Module.t t =
               (List.length interface_formals))
   in
 
+  (* Declare the remaining members. An instance with a definition is declared when it is
+     checked, once its arguments are known. *)
   let* _ =
     Rewriter.List.iter merged_symbols ~f:(function
       | Module.SymbolDef (ModInst { mod_inst_def = Some _; _ }) | Module.Import _ ->
@@ -477,6 +485,8 @@ let rec check (m : Module.t) : Module.t t =
           else lift (Rewriter.declare_symbol symbol))
   in
 
+  (* The parameter and return types of overloaded functions are checked before the members
+     and recorded in the symbol table. *)
   let* merged_symbols =
     Rewriter.List.map merged_symbols ~f:(function
       | Module.SymbolDef (CallDef call)
@@ -514,6 +524,7 @@ let rec check (m : Module.t) : Module.t t =
 
   (* Check symbols against what is specified in the interface *)
   let manifest_subst =
+    (* Fields that stand for another field, by their qualified names. *)
     List.fold mod_def
       ~init:(Map.empty (module QualIdent))
       ~f:(fun acc -> function
@@ -532,6 +543,7 @@ let rec check (m : Module.t) : Module.t t =
       | _ -> Rewriter.return ())
   in
 
+  (* Rules that depend on the whole module. *)
   let* () = check_no_abstract_members mod_decl mod_def in
   let* () = check_word_sized mod_decl mod_def in
 

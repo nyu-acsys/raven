@@ -130,6 +130,7 @@ let rec check ?(allow_proc_call = false) ?(contextual = false) (expr : expr)
   | None -> (
       match expr with
       | App (constr, expr_list, expr_attr) -> (
+          (* An extension may claim a core construct first. *)
           let* claimed = claim_core_app constr expr_list expr_attr expected_typ in
           match claimed with
           | Some expr -> Rewriter.return expr
@@ -155,6 +156,7 @@ let rec check ?(allow_proc_call = false) ?(contextual = false) (expr : expr)
               | Var qual_ident, args_list ->
                   check_var qual_ident args_list expr_attr expr expected_typ
                     ~allow_proc_call ~contextual
+              (* Enumeration literals, as calls of their library functions *)
               | Enumeration opener, entries ->
                   let loc = Expr.to_loc expr in
                   let call name args =
@@ -233,6 +235,7 @@ let rec check ?(allow_proc_call = false) ?(contextual = false) (expr : expr)
               | DataConstr constr_ident, args_list ->
                   check_data_constr constr_ident args_list constr expr_attr expr
                     expected_typ
+              (* Constructor tests *)
               | DataTest constr_ident, [ arg ] ->
                   let loc = QualIdent.to_loc constr_ident in
                   let* constr_ident, symbol = Rewriter.resolve_and_find constr_ident in
@@ -302,6 +305,7 @@ let rec check ?(allow_proc_call = false) ?(contextual = false) (expr : expr)
                   let given_typ = Type.mk_prod (Expr.to_loc expr) elem_types in
                   let expr = Expr.App (Tuple, elem_expr_list, expr_attr) in
                   set_checked_type expr given_typ given_typ expected_typ
+              (* Extension expressions *)
               | ExprExt expr_ext, expr_list ->
                   let* ext_hooks = Rewriter.current_ext_hooks in
                   (* The extension's own operands are typed as speculatively as the construct. *)
@@ -317,6 +321,7 @@ let rec check ?(allow_proc_call = false) ?(contextual = false) (expr : expr)
                          expand_type_expr =
                            (fun tp -> run_typing (TypeExpr.expand_type_expr tp));
                        })))
+      (* Quantifiers and comprehensions *)
       | Binder (binder, var_decl_list, trgs, inner_expr, expr_attr) ->
           check_binder binder var_decl_list trgs inner_expr expr_attr expr expected_typ)
 
