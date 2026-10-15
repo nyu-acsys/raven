@@ -13,6 +13,8 @@
 - [ ] Consider moving from exception-based to monadic error handling; then move
     the global warning/annotation refs into the monad's state and remove the
     second `try ... with` in `ExprTyping.set_checked_type`.
+- [ ] Fix destructor lookup inside functors: `l.hd` on `l: Library.List[E]`
+    fails with "Unknown identifier hd".
 
 30 jul, 2026:
 - [ ] Consider warning when an explicitly named import (`import M.x`) is
