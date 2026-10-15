@@ -221,34 +221,41 @@ let resolve_dependencies (vars : var_decl list) (outer_conds : conditions)
      cyclically on the existentials they determine. *)
   resolve initially_resolved candidates (Map.empty (module Ident))
 
-let rec find_witnesses_elim_exists (expr : expr) : (expr * expr list) Rewriter.t =
+(* The result of eliminating existentials: the expression, the [assume]s that bind their
+   witnesses, and, for each existential without a witness, a note for the error that is
+   reported if the enclosing statement fails. *)
+let rec find_witnesses_elim_exists (expr : expr) :
+    (expr * expr list * Error.t list) Rewriter.t =
   elim_a { univ_vars = []; triggers = [] } [] expr
 
 and elim_a (universal_quants : universal_quants) (conds : conditions) (expr : expr) :
-    (expr * expr list) Rewriter.t =
+    (expr * expr list * Error.t list) Rewriter.t =
   let open Rewriter.Syntax in
-  if%bind ProgUtils.is_expr_pure expr then Rewriter.return (expr, [])
+  if%bind ProgUtils.is_expr_pure expr then Rewriter.return (expr, [], [])
   else
     match expr with
     | App (Ite, [ c; e1; e2 ], expr_attr) ->
-        let* e1, wtns_specs1 = elim_a universal_quants (c :: conds) e1 in
+        let* e1, wtns_specs1, notes1 = elim_a universal_quants (c :: conds) e1 in
 
         let not_c = Expr.mk_not ~loc:(Expr.to_loc c) c in
-        let* e2, wtns_specs2 = elim_a universal_quants (not_c :: conds) e2 in
+        let* e2, wtns_specs2, notes2 = elim_a universal_quants (not_c :: conds) e2 in
 
         Rewriter.return
-          (Expr.App (Ite, [ c; e1; e2 ], expr_attr), wtns_specs1 @ wtns_specs2)
+          ( Expr.App (Ite, [ c; e1; e2 ], expr_attr),
+            wtns_specs1 @ wtns_specs2,
+            notes1 @ notes2 )
     | App (Impl, [ c; e2 ], expr_attr) ->
-        let+ e2, wtns_specs = elim_a universal_quants (c :: conds) e2 in
-        (Expr.App (Impl, [ c; e2 ], expr_attr), wtns_specs)
+        let+ e2, wtns_specs, notes = elim_a universal_quants (c :: conds) e2 in
+        (Expr.App (Impl, [ c; e2 ], expr_attr), wtns_specs, notes)
     | App (And, e_list, expr_attr) ->
         let* e_wtns_specs_list =
           Rewriter.List.map e_list ~f:(fun e -> elim_a universal_quants conds e)
         in
 
-        let e_list, wtns_specs = List.unzip e_wtns_specs_list in
+        let e_list, wtns_specs, notes = List.unzip3 e_wtns_specs_list in
 
-        Rewriter.return (Expr.App (And, e_list, expr_attr), List.concat wtns_specs)
+        Rewriter.return
+          (Expr.App (And, e_list, expr_attr), List.concat wtns_specs, List.concat notes)
     | Binder (Forall, var_decls, trgs, e, expr_attr) ->
         let universal_quants =
           let new_quants =
@@ -265,13 +272,14 @@ and elim_a (universal_quants : universal_quants) (conds : conditions) (expr : ex
           }
         in
 
-        let* e, wtns_specs = elim_a universal_quants conds e in
+        let* e, wtns_specs, notes = elim_a universal_quants conds e in
 
-        Rewriter.return (Expr.Binder (Forall, var_decls, trgs, e, expr_attr), wtns_specs)
+        Rewriter.return
+          (Expr.Binder (Forall, var_decls, trgs, e, expr_attr), wtns_specs, notes)
     | _ -> elim_a1 universal_quants conds expr
 
 and elim_a1 (univ_vars : universal_quants) (univ_conds : conditions) (expr : expr) :
-    (expr * expr list) Rewriter.t =
+    (expr * expr list * Error.t list) Rewriter.t =
   let open Rewriter.Syntax in
   (* Flattens multiple existentials *)
   let normalize_expr expr =
@@ -519,7 +527,7 @@ and elim_a1 (univ_vars : universal_quants) (univ_conds : conditions) (expr : exp
 
       let* skolem_fn_records =
         Rewriter.List.map var_decls_skolem_idents ~f:(fun (var_decl, skolem_ident) ->
-            let* preconds, postconds, optn_args =
+            let* preconds, postconds, optn_args, note =
               match Map.find witness_args_conds_exprs_map var_decl.var_name with
               | None | Some [] ->
                   (* Only warn if the variable actually occurs somewhere in the
@@ -531,20 +539,21 @@ and elim_a1 (univ_vars : universal_quants) (univ_conds : conditions) (expr : exp
                    occur (even only in a pure guard the search doesn't look
                    inside), its value can still affect what gets exhaled or what
                    later code can prove, so the warning stays. *)
-                  if Set.mem e_local_vars var_decl.var_name then
-                    (* Point at the variable's own binder, `var_decl.var_loc`, rather
-                     than the whole existential's `expr` -- which can span many
-                     lines and puts the caret nowhere near the actual variable. *)
-                    Logs.warn (fun m ->
-                        m "%s%s"
-                          (Loc.to_string var_decl.var_loc)
-                          (Printf.sprintf
-                             "No witness could be computed for %s -- it will be treated \
-                              as an arbitrary unconstrained value, which may cause later \
-                              assertions about it to fail."
-                             (Ident.name var_decl.var_name)));
-
-                  Rewriter.return ([], [], [])
+                  let note =
+                    if Set.mem e_local_vars var_decl.var_name then
+                      (* Point at the variable's own binder, `var_decl.var_loc`, rather
+                       than the whole existential's `expr` -- which can span many
+                       lines and puts the caret nowhere near the actual variable. *)
+                      Some
+                        ( Error.RelatedLoc,
+                          var_decl.var_loc,
+                          Printf.sprintf
+                            "No witness could be computed for %s, so it was treated as \
+                             an arbitrary value"
+                            (Ident.name var_decl.var_name) )
+                    else None
+                  in
+                  Rewriter.return ([], [], [], note)
               | Some witness_arg_exprs ->
                   let postconds =
                     List.map witness_arg_exprs ~f:(fun (optn_arg, conds, e) ->
@@ -577,7 +586,7 @@ and elim_a1 (univ_vars : universal_quants) (univ_conds : conditions) (expr : exp
 
                   let optn_args = witness_optn_args @ environment var_decl.var_name in
 
-                  Rewriter.return (preconds, postconds, optn_args)
+                  Rewriter.return (preconds, postconds, optn_args, None)
             in
 
             let preconds_sanitized, postconds_sanitized =
@@ -600,16 +609,19 @@ and elim_a1 (univ_vars : universal_quants) (univ_conds : conditions) (expr : exp
             in
 
             Rewriter.return
-              {
-                universal_quants = univ_vars;
-                var_decl;
-                preconds = preconds_sanitized;
-                postconds = postconds_sanitized;
-                optn_args;
-                skolem_fn_id = skolem_ident;
-                loc = var_decl.var_loc;
-              })
+              ( {
+                  universal_quants = univ_vars;
+                  var_decl;
+                  preconds = preconds_sanitized;
+                  postconds = postconds_sanitized;
+                  optn_args;
+                  skolem_fn_id = skolem_ident;
+                  loc = var_decl.var_loc;
+                },
+                note ))
       in
+      let skolem_fn_records, notes = List.unzip skolem_fn_records in
+      let notes = List.filter_opt notes in
 
       let* skolemized_exprs = generate_skolem_functions skolem_fn_records in
 
@@ -721,12 +733,12 @@ and elim_a1 (univ_vars : universal_quants) (univ_conds : conditions) (expr : exp
         List.map wtns_specs_exprs ~f:(fun wtns_expr ->
             Expr.alpha_renaming wtns_expr renaming_map_sanitized)
       in
-      let* e, wtns_specs = elim_a univ_vars univ_conds e in
+      let* e, wtns_specs, inner_notes = elim_a univ_vars univ_conds e in
 
-      Rewriter.return (e, wtns_specs_exprs @ wtns_specs)
+      Rewriter.return (e, wtns_specs_exprs @ wtns_specs, notes @ inner_notes)
   | _ ->
       (* No existentials found *)
-      Rewriter.return (expr, [])
+      Rewriter.return (expr, [], [])
 
 and elim_a0 ?(fraction_fallback = false) (univ_vars : universal_quants)
     (exist_vars : var_decl list) ((univ_conds, exist_conds) : conditions * conditions)
@@ -1171,13 +1183,24 @@ and core_witness_comp ?(ra_hint : qual_ident option = None) ?(fraction_fallback 
           Rewriter.return witness_map
       | _ -> Rewriter.return (Map.empty (module Ident)))
 
+(* Adds the notes on existentials without a witness to the errors [spec] reports if it
+   fails. A [spec] that reports no error of its own gets them as warnings instead. *)
+let with_witness_notes (notes : Error.t list) (spec : Stmt.spec) : Stmt.spec =
+  match spec.spec_error with
+  | [] ->
+      List.iter notes ~f:(fun (_, loc, msg) ->
+          Logs.warn (fun m -> m "%s%s" (Loc.to_string loc) msg));
+      spec
+  | spec_error ->
+      { spec with spec_error = spec_error @ List.map notes ~f:Stmt.mk_const_spec_error }
+
 let rec rewrite_stmt (stmt : Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
   let loc = Stmt.to_loc stmt in
   match stmt.stmt_desc with
   | Basic (Spec (Exhale, spec)) ->
       let exhale_expr = spec.spec_form in
-      let* elim_expr, wtns_specs = find_witnesses_elim_exists exhale_expr in
+      let* elim_expr, wtns_specs, notes = find_witnesses_elim_exists exhale_expr in
 
       let* () =
         Rewriter.Logs.debug (fun printers m ->
@@ -1189,7 +1212,7 @@ let rec rewrite_stmt (stmt : Stmt.t) : Stmt.t Rewriter.t =
               printers.pr_expr exhale_expr printers.pr_expr elim_expr)
       in
 
-      let spec = { spec with spec_form = elim_expr } in
+      let spec = with_witness_notes notes { spec with spec_form = elim_expr } in
       let exhale_stmt = { stmt with stmt_desc = Basic (Spec (Exhale, spec)) } in
 
       let wtns_specs_stmts =
@@ -1201,9 +1224,9 @@ let rec rewrite_stmt (stmt : Stmt.t) : Stmt.t Rewriter.t =
       Rewriter.return (Stmt.mk_block_stmt ~loc (wtns_specs_stmts @ [ exhale_stmt ]))
   | Basic (Spec (Assert, spec)) ->
       let assert_expr = spec.spec_form in
-      let* elim_expr, wtns_specs = find_witnesses_elim_exists assert_expr in
+      let* elim_expr, wtns_specs, notes = find_witnesses_elim_exists assert_expr in
 
-      let spec = { spec with spec_form = elim_expr } in
+      let spec = with_witness_notes notes { spec with spec_form = elim_expr } in
       let assert_stmt = { stmt with stmt_desc = Basic (Spec (Assert, spec)) } in
 
       let wtns_specs_stmts =

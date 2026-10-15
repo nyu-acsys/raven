@@ -27,6 +27,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Report an existential without a computable witness only when the assertion it belongs to fails, as a related location of that error.
 - Avoid redundant symbol lookups and reification in elaboration and lowering.
 - Limit witness-function arguments to their individual dependencies.
 - Infer resource witnesses through addition, subtraction and negation.
