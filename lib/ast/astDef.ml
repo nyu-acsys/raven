@@ -3046,6 +3046,20 @@ module Module = struct
       mod_decl_status = NotFree;
     }
 
+  (** A module instance, with the fields not given [None], [false] or empty. *)
+  let mk_mod_inst ~(name : ident) ~(typ : QualIdent.t) ?def ?(is_interface = false)
+      ?(is_sealed = false) ~(loc : location) () : module_inst =
+    {
+      mod_inst_name = name;
+      mod_inst_type = typ;
+      mod_inst_def = def;
+      mod_inst_is_interface = is_interface;
+      mod_inst_is_free = false;
+      mod_inst_is_sealed = is_sealed;
+      mod_inst_shared = [];
+      mod_inst_loc = loc;
+    }
+
   (** Auxiliary functions *)
 
   let to_ident m = m.mod_decl.mod_decl_name

@@ -970,17 +970,11 @@ let rewrite_add_pred_utils (c : Callable.t) : Callable.t Rewriter.t =
              that always agrees with itself. Nat takes no type argument. *)
           let instantiated_pred_heap_ra =
             Module.ModInst
-              {
-                mod_inst_name =
-                  ProgUtils.pred_to_ra_mod_ident ~loc c.call_decl.call_decl_name;
-                mod_inst_type = Predefs.lib_cancellative_ra_mod_qual_ident;
-                mod_inst_def = Some (Predefs.lib_nat_mod_qual_ident, []);
-                mod_inst_is_interface = false;
-                mod_inst_is_sealed = false;
-                mod_inst_is_free = false;
-                mod_inst_shared = [];
-                mod_inst_loc = loc;
-              }
+              (Module.mk_mod_inst
+                 ~name:(ProgUtils.pred_to_ra_mod_ident ~loc c.call_decl.call_decl_name)
+                 ~typ:Predefs.lib_cancellative_ra_mod_qual_ident
+                 ~def:(Predefs.lib_nat_mod_qual_ident, [])
+                 ~loc ())
           in
           Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.check_symbol
             instantiated_pred_heap_ra
@@ -1008,18 +1002,11 @@ let rewrite_add_pred_utils (c : Callable.t) : Callable.t Rewriter.t =
 
           let instantiated_pred_heap_ra =
             Module.ModInst
-              {
-                mod_inst_name =
-                  ProgUtils.pred_to_ra_mod_ident ~loc c.call_decl.call_decl_name;
-                mod_inst_type;
-                mod_inst_def =
-                  Some (mod_inst_def_ra, [ Module.ModArg pred_ret_type_module ]);
-                mod_inst_is_interface = false;
-                mod_inst_is_sealed = false;
-                mod_inst_is_free = false;
-                mod_inst_shared = [];
-                mod_inst_loc = loc;
-              }
+              (Module.mk_mod_inst
+                 ~name:(ProgUtils.pred_to_ra_mod_ident ~loc c.call_decl.call_decl_name)
+                 ~typ:mod_inst_type
+                 ~def:(mod_inst_def_ra, [ Module.ModArg pred_ret_type_module ])
+                 ~loc ())
           in
 
           Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.check_symbol
@@ -1079,22 +1066,16 @@ let rewrite_add_atomics_utils (c : Callable.t) : Callable.t Rewriter.t =
 
         let instantiated_au_proc_heap_ra =
           Module.ModInst
-            {
-              mod_inst_name = ProgUtils.au_to_ra_mod_ident ~loc c.call_decl.call_decl_name;
-              mod_inst_type = Predefs.lib_ra_mod_qual_ident;
-              mod_inst_def =
-                Some
-                  ( Predefs.lib_atomic_token_ra_mod_qual_ident,
-                    [
-                      Module.ModArg proc_conrete_args_type_module;
-                      Module.ModArg proc_ret_type_module;
-                    ] );
-              mod_inst_is_interface = false;
-              mod_inst_is_sealed = false;
-              mod_inst_is_free = false;
-              mod_inst_shared = [];
-              mod_inst_loc = loc;
-            }
+            (Module.mk_mod_inst
+               ~name:(ProgUtils.au_to_ra_mod_ident ~loc c.call_decl.call_decl_name)
+               ~typ:Predefs.lib_ra_mod_qual_ident
+               ~def:
+                 ( Predefs.lib_atomic_token_ra_mod_qual_ident,
+                   [
+                     Module.ModArg proc_conrete_args_type_module;
+                     Module.ModArg proc_ret_type_module;
+                   ] )
+               ~loc ())
         in
 
         let* au_proc_heap_ra =

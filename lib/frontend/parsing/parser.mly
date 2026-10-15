@@ -89,13 +89,9 @@ let expand_sealed_module (member : Module.module_instr) : Module.module_instr li
                      mod_decl = { decl with mod_decl_name = impl_name; mod_decl_is_sealed = false } }
           in
           let view =
-            ModInst { mod_inst_name = decl.mod_decl_name;
-                      mod_inst_type = iface;
-                      mod_inst_def = Some (QualIdent.from_ident impl_name, []);
-                      mod_inst_is_interface = false;
-                      mod_inst_is_free = false; mod_inst_shared = [];
-                      mod_inst_is_sealed = true;
-                      mod_inst_loc = loc }
+            ModInst (mk_mod_inst ~name:decl.mod_decl_name ~typ:iface
+                       ~def:(QualIdent.from_ident impl_name, [])
+                       ~is_sealed:true ~loc ())
           in
           [ SymbolDef impl; SymbolDef view ]
       | _ -> [ member ])
@@ -228,13 +224,9 @@ module_def:
               (Printf.sprintf !"Module %{Ident} has no body and no interface: write 'module %{Ident} : I' naming the interface it stands for"
                  decl.mod_decl_name decl.mod_decl_name)
         in
-        ModInst { ma with
-                  mod_inst_type;
-                  mod_inst_name = decl.mod_decl_name;
-                  mod_inst_is_interface = is_interface;
-                  mod_inst_is_free = false; mod_inst_shared = [];
-                  mod_inst_is_sealed = decl.mod_decl_is_sealed;
-                  mod_inst_loc = decl.mod_decl_loc }
+        ModInst (mk_mod_inst ~name:decl.mod_decl_name ~typ:mod_inst_type
+                   ?def:ma.mod_inst_def ~is_interface
+                   ~is_sealed:decl.mod_decl_is_sealed ~loc:decl.mod_decl_loc ())
   | symbol -> symbol
 }
   
@@ -273,22 +265,14 @@ module_inst_or_impl_or_decl:
                   } )
 }
 | EQ; mod_name = mod_ident; args = mod_inst_args {
-  Module.( ModInst { mod_inst_name = Ident.make Loc.dummy "" 0; (* dummy *)
-                     mod_inst_type = QualIdent.make [] (Ident.make Loc.dummy "" 0); (* dummy *)
-                     mod_inst_def = Some (mod_name, args);
-                     mod_inst_is_interface = false;
-                     mod_inst_is_sealed = false; mod_inst_is_free = false; mod_inst_shared = [];
-                     mod_inst_loc = Loc.dummy;
-                   } )
+  Module.( ModInst (mk_mod_inst ~name:(Ident.make Loc.dummy "" 0) (* dummy *)
+                     ~typ:(QualIdent.make [] (Ident.make Loc.dummy "" 0)) (* dummy *)
+                     ~def:(mod_name, args) ~loc:Loc.dummy ()) )
 }
 | (* empty *) {
-  Module.( ModInst { mod_inst_name = Ident.make Loc.dummy "" 0; (* dummy *)
-                     mod_inst_type = QualIdent.make [] (Ident.make Loc.dummy "" 0); (* dummy *)
-                     mod_inst_def = None;
-                     mod_inst_is_interface = false;
-                     mod_inst_is_sealed = false; mod_inst_is_free = false; mod_inst_shared = [];
-                     mod_inst_loc = Loc.dummy;
-                   } )
+  Module.( ModInst (mk_mod_inst ~name:(Ident.make Loc.dummy "" 0) (* dummy *)
+                     ~typ:(QualIdent.make [] (Ident.make Loc.dummy "" 0)) (* dummy *)
+                     ~loc:Loc.dummy ()) )
 }
 
 mod_inst_args:
@@ -436,13 +420,7 @@ module_param_list_opt:
 module_param:
 | id = MODIDENT; COLON; t = mod_ident {
   let decl =
-    Module.{ mod_inst_name = id;
-             mod_inst_type = t;
-             mod_inst_def = None;
-             mod_inst_is_interface = false;
-             mod_inst_is_sealed = false; mod_inst_is_free = false; mod_inst_shared = [];
-             mod_inst_loc = Loc.make $symbolstartpos $endpos;
-           }
+    Module.mk_mod_inst ~name:id ~typ:t ~loc:(Loc.make $symbolstartpos $endpos) ()
   in
   decl
 }

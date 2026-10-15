@@ -1201,16 +1201,8 @@ let get_or_intros_field_module ~(loc : location) ~(insert_scope : qual_ident)
         Base.List.map mod_bindings ~f:(fun (member_ident, target) ->
             AstDef.Module.SymbolDef
               (ModInst
-                 {
-                   mod_inst_name = member_ident;
-                   mod_inst_type = target;
-                   mod_inst_def = Some (target, []);
-                   mod_inst_is_interface = false;
-                   mod_inst_is_sealed = false;
-                   mod_inst_is_free = false;
-                   mod_inst_shared = [];
-                   mod_inst_loc = loc;
-                 }))
+                 (AstDef.Module.mk_mod_inst ~name:member_ident ~typ:target
+                    ~def:(target, []) ~loc ())))
         @ [
             AstDef.Module.SymbolDef
               (FieldDef
@@ -1248,19 +1240,11 @@ let instantiate_functor_at_modules ~(loc : location) ~(functor_qual_ident : qual
   | None ->
       let functor_inst =
         AstDef.Module.ModInst
-          {
-            mod_inst_name = inst_mod_ident;
-            mod_inst_type = functor_qual_ident;
-            mod_inst_def =
-              Some
-                ( functor_qual_ident,
-                  Base.List.map arg_module_qis ~f:(fun qi -> AstDef.Module.ModArg qi) );
-            mod_inst_is_interface = false;
-            mod_inst_is_sealed = false;
-            mod_inst_is_free = false;
-            mod_inst_shared = [];
-            mod_inst_loc = loc;
-          }
+          (AstDef.Module.mk_mod_inst ~name:inst_mod_ident ~typ:functor_qual_ident
+             ~def:
+               ( functor_qual_ident,
+                 Base.List.map arg_module_qis ~f:(fun qi -> AstDef.Module.ModArg qi) )
+             ~loc ())
       in
       let+ _ =
         Rewriter.introduce_typecheck_symbol_at_scope' ~loc functor_inst insert_scope

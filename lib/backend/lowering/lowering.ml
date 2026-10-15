@@ -902,19 +902,13 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) : Module.symbol Rewrit
 
         let instantiated_frac_module =
           Module.ModInst
-            {
-              mod_inst_name =
-                ProgUtils.frac_field_to_frac_mod_ident ~loc:f.field_loc f.field_name
-                  field_type;
-              mod_inst_type = Predefs.lib_cancellative_ra_mod_qual_ident;
-              mod_inst_def =
-                Some (Predefs.lib_frac_mod_qual_ident, [ Module.ModArg tp_module ]);
-              mod_inst_is_interface = false;
-              mod_inst_is_sealed = false;
-              mod_inst_is_free = false;
-              mod_inst_shared = [];
-              mod_inst_loc = f.field_loc;
-            }
+            (Module.mk_mod_inst
+               ~name:
+                 (ProgUtils.frac_field_to_frac_mod_ident ~loc:f.field_loc f.field_name
+                    field_type)
+               ~typ:Predefs.lib_cancellative_ra_mod_qual_ident
+               ~def:(Predefs.lib_frac_mod_qual_ident, [ Module.ModArg tp_module ])
+               ~loc:f.field_loc ())
         in
 
         (* let* topscope_name = ProgUtils.find_highest_valid_scope_type_expr f.field_loc field_underlying_tp in

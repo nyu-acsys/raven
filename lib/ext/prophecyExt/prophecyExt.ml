@@ -616,21 +616,13 @@ module ProphecyExt (Cont : Ext) = struct
        *)
         let proph_module_inst =
           Module.ModInst
-            {
-              mod_inst_name = proph_module_ident;
-              mod_inst_type = ProphPredefs.proph_mod_qi;
-              mod_inst_def =
-                Some
-                  ( ProphPredefs.proph_mod_qi,
-                    [
-                      Module.ModArg multi_type_module_qi; Module.ModArg one_type_module_qi;
-                    ] );
-              mod_inst_is_interface = false;
-              mod_inst_is_sealed = false;
-              mod_inst_is_free = false;
-              mod_inst_shared = [];
-              mod_inst_loc = loc;
-            }
+            (Module.mk_mod_inst ~name:proph_module_ident ~typ:ProphPredefs.proph_mod_qi
+               ~def:
+                 ( ProphPredefs.proph_mod_qi,
+                   [
+                     Module.ModArg multi_type_module_qi; Module.ModArg one_type_module_qi;
+                   ] )
+               ~loc ())
         in
 
         Logs.debug (fun m ->
