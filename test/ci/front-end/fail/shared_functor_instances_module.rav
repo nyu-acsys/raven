@@ -1,0 +1,16 @@
+// `Seq[E]` in `G[MyInt]` is `Seq[MyInt]`, not `Seq[Int]`: MyInt defines its own default.
+
+module MyInt : Library.Type {
+  rep type T = Int
+  val default: T = 0
+}
+
+module G[E: Library.Type] {
+  func identity(s: Library.Seq[E]) returns (r: Library.Seq[E]) { s }
+}
+
+module GM = G[MyInt]
+
+proc check(s: Library.Seq[Int]) {
+  assert GM.identity(s) == s;
+}

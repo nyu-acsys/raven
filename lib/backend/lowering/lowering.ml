@@ -912,6 +912,7 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) : Module.symbol Rewrit
               mod_inst_is_interface = false;
               mod_inst_is_sealed = false;
               mod_inst_is_free = false;
+              mod_inst_shared = [];
               mod_inst_loc = f.field_loc;
             }
         in

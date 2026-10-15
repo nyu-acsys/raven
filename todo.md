@@ -1,5 +1,5 @@
 15 oct, 2026:
-- [ ] Generative functor instances with type arguments: in `G[Int]`,
+- [x] Generative functor instances with type arguments: in `G[Int]`,
     `Seq[E]` does not match `Seq[Int]` (independent of interfaces).
 - [ ] Investigate expressing error messages only in source-level terms: type errors
     currently expose internally generated modules, e.g. `GI.GenInst$$Seq$$G_E_T.T`

@@ -28,6 +28,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Inferred functor instances now have applicative semantics.
 - Remove `Library.IntType`, `Library.BoolType` and `Library.RefType`; pass the type itself, as in `Library.Option[Int]`.
 - Report an existential without a computable witness only when the assertion it belongs to fails, as a related location of that error.
 - Avoid redundant symbol lookups and reification in elaboration and lowering.

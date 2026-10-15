@@ -559,20 +559,7 @@ and instantiate_mixed_functor ~(loc : location) ~(functor_qual_ident : qual_iden
               (ProgUtils.get_or_intros_rep_module ~loc ~f:!Rewriter.check_symbol_ref
                  ~insert_scope ~reference_scope ~interface_qual_ident ~rep_ident tp))
   in
-  let inst_key =
-    String.concat ~sep:","
-      (List.map functor_mod_decl.mod_decl_formals ~f:(fun formal ->
-           match
-             List.Assoc.find field_bindings formal.mod_inst_name ~equal:Ident.equal
-           with
-           | Some field_qi -> QualIdent.to_string field_qi
-           | None ->
-               Type.to_string
-                 (List.Assoc.find_exn bindings formal.mod_inst_name ~equal:Ident.equal)))
-  in
-  lift
-    (ProgUtils.instantiate_functor_at_modules ~loc ~functor_qual_ident ~functor_mod_decl
-       ~insert_scope ~reference_scope ~inst_key arg_module_qis)
+  lift (ProgUtils.instantiate_functor_at_modules ~loc ~functor_qual_ident arg_module_qis)
 
 (** [try_resolve_implicit_instantiation] for a destructor read `e.M.value`: without
     arguments, it succeeds only if [arg_typ], the type of `e`, names an existing instance

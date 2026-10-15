@@ -628,6 +628,7 @@ module ProphecyExt (Cont : Ext) = struct
               mod_inst_is_interface = false;
               mod_inst_is_sealed = false;
               mod_inst_is_free = false;
+              mod_inst_shared = [];
               mod_inst_loc = loc;
             }
         in

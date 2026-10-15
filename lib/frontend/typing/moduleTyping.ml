@@ -311,6 +311,43 @@ let check_function_signatures (instrs : Module.module_instr list) =
   in
   ()
 
+(** The instances generated inside the functor [functor_def] and inside the interfaces it
+    implements that an instance at [arg_qis] shares with the rest of the program (see
+    [ProgUtils.shared_instances]); the interfaces' ones are those of its sealed views. *)
+let shared_instances ~loc ~(functor_qual_ident : qual_ident) ~(functor_def : Module.t)
+    (arg_qis : qual_ident list) : (qual_ident * qual_ident) list t =
+  let open Rewriter.Syntax in
+  let* functor_shared =
+    lift (ProgUtils.shared_instances ~loc ~functor_qual_ident ~functor_def arg_qis)
+  in
+  let formals_subst =
+    List.map2_exn functor_def.mod_decl.mod_decl_formals arg_qis ~f:(fun formal arg ->
+        (QualIdent.append functor_qual_ident formal.mod_inst_name, QualIdent.to_list arg))
+  in
+  let+ iface_shared =
+    Rewriter.List.map functor_def.mod_decl.mod_decl_returns ~f:(fun (iface, iface_args) ->
+        let* iface_qual_ident, iface_symbol = Rewriter.resolve_and_find iface in
+        let iface_def =
+          Rewriter.Symbol.extract iface_symbol ~f:(fun is_instance _ -> function
+            | Module.ModDef iface_def when not is_instance -> Some iface_def
+            | _ -> None)
+        in
+        let iface_arg_qis =
+          List.filter_map iface_args ~f:(function
+            | Module.ModArg qi -> Some (QualIdent.requalify formals_subst qi)
+            | TypeArg _ -> None)
+        in
+        match iface_def with
+        | Some iface_def
+          when List.length iface_arg_qis = List.length iface_def.mod_decl.mod_decl_formals
+               && not (List.is_empty iface_arg_qis) ->
+            lift
+              (ProgUtils.shared_instances ~loc ~functor_qual_ident:iface_qual_ident
+                 ~functor_def:iface_def iface_arg_qis)
+        | _ -> Rewriter.return [])
+  in
+  functor_shared @ List.concat iface_shared
+
 let rec check (m : Module.t) : Module.t t =
   let open Rewriter.Syntax in
   let m = { m with mod_def = assign_function_identities m.mod_def } in
@@ -583,9 +620,9 @@ and check_instr (m : Module.t) (instr : Module.module_instr) : Module.module_ins
                  bare type argument (e.g. `M[Int]`) into a rep module (see
                  [ProgUtils.intros_rep_module]). This precedes [declare_symbol], as
                  [SymbolTbl.add_symbol] needs the argument modules. *)
-            let* mod_inst_def, to_check =
+            let* mod_inst_def, mod_inst_shared, to_check =
               match mod_inst.mod_inst_def with
-              | None -> Rewriter.return (None, [])
+              | None -> Rewriter.return (None, [], [])
               | Some (mod_inst_func, mod_inst_args) ->
                   (* Get qualified name of F and its symbol *)
                   let* qual_functor_ident, functor_symbol =
@@ -609,7 +646,7 @@ and check_instr (m : Module.t) (instr : Module.module_instr) : Module.module_ins
                           (QualIdent.to_loc mod_inst_func)
                           (Type.Var mod_inst_func) (List.length formals)
                   in
-                  let+ resolved_args =
+                  let* resolved_args =
                     Rewriter.List.map args_and_formals
                       ~f:(fun (arg, (formal, formal_iface)) ->
                         match arg with
@@ -620,12 +657,33 @@ and check_instr (m : Module.t) (instr : Module.module_instr) : Module.module_ins
                             in
                             (qi, formal_iface))
                   in
+                  let* arg_qis =
+                    Rewriter.List.map resolved_args ~f:(fun (qi, _) ->
+                        Rewriter.resolve qi)
+                  in
+                  let functor_def =
+                    Rewriter.Symbol.extract functor_symbol
+                      ~f:(fun is_instance _ -> function
+                      | Ast.Module.ModDef mod_def when not is_instance -> Some mod_def
+                      | _ -> None)
+                  in
+                  let+ shared =
+                    match functor_def with
+                    | Some functor_def ->
+                        shared_instances ~loc:mod_inst.mod_inst_loc
+                          ~functor_qual_ident:qual_functor_ident ~functor_def arg_qis
+                    | None -> Rewriter.return []
+                  in
                   ( Some
                       ( qual_functor_ident,
                         List.map resolved_args ~f:(fun (qi, _) -> Module.ModArg qi) ),
+                    shared,
                     (qual_functor_ident, mod_inst.mod_inst_type) :: resolved_args )
             in
-            let symbol = Module.ModInst { mod_inst with mod_inst_type; mod_inst_def } in
+            let symbol =
+              Module.ModInst
+                { mod_inst with mod_inst_type; mod_inst_def; mod_inst_shared }
+            in
             (* Only instances are declared here; abstract module parameters are declared
                  by the pass above. *)
             let* _ =

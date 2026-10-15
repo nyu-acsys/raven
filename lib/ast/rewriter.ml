@@ -1943,7 +1943,11 @@ module Module = struct
               (f mod_inst_def_funct, mod_inst_def_args))
         in
         let mod_inst_type = f mod_inst.mod_inst_type in
-        ModInst { mod_inst with mod_inst_type; mod_inst_def }
+        let mod_inst_shared =
+          Base.List.map mod_inst.mod_inst_shared ~f:(fun (generated, inst) ->
+              (f generated, f inst))
+        in
+        ModInst { mod_inst with mod_inst_type; mod_inst_def; mod_inst_shared }
     | TypeDef type_def ->
         let+ type_def_expr =
           Option.map type_def.type_def_expr ~f:(Type.rewrite_qual_idents ~f)

@@ -2838,6 +2838,9 @@ module Module = struct
     mod_inst_is_free : bool;
     mod_inst_is_sealed : bool;
         (** whether the instance is a view of its interface, `module M :> I = F[A]` *)
+    mod_inst_shared : (QualIdent.t * QualIdent.t) list;
+        (** Instances generated inside the functor, each with the instance of the program
+            it stands for here (see [ProgUtils.shared_instances]). *)
     mod_inst_loc : location;
   }
 

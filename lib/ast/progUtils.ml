@@ -1208,6 +1208,7 @@ let get_or_intros_field_module ~(loc : location) ~(insert_scope : qual_ident)
                    mod_inst_is_interface = false;
                    mod_inst_is_sealed = false;
                    mod_inst_is_free = false;
+                   mod_inst_shared = [];
                    mod_inst_loc = loc;
                  }))
         @ [
@@ -1221,22 +1222,22 @@ let get_or_intros_field_module ~(loc : location) ~(insert_scope : qual_ident)
       canonical_qi
 
 (** Get or create (and typecheck) the instantiation of [functor_qual_ident] at
-    [arg_module_qis]. [inst_key] distinguishes one instantiation from another and is what
-    the derived name is built from, so it must determine the arguments: the argument types
-    for the type-argument path, the argument fields for the field path.
-
-    Split out from [instantiate_type_functor] because the two paths differ only in how
-    they arrive at the argument modules and the key. *)
+    [arg_module_qis]. Generated instances are keyed by the functor and the argument
+    modules, and placed beside the arguments, so that equal applications share one
+    instance wherever they occur. *)
 let instantiate_functor_at_modules ~(loc : location) ~(functor_qual_ident : qual_ident)
-    ~(functor_mod_decl : AstDef.Module.module_decl) ~(insert_scope : qual_ident)
-    ~(reference_scope : qual_ident) ~(inst_key : string)
     (arg_module_qis : qual_ident list) : qual_ident t =
   let open Rewriter.Syntax in
+  let* arg_module_qis = Rewriter.List.map arg_module_qis ~f:Rewriter.resolve in
+  let* insert_scope, reference_scope =
+    find_insertion_scope_for_symbols (Set.of_list (module QualIdent) arg_module_qis)
+  in
   let inst_mod_ident =
     let mod_name_string =
       inst_mod_ident_prefix
-      ^ AstDef.Ident.to_string functor_mod_decl.mod_decl_name
-      ^ "$$" ^ inst_key
+      ^ QualIdent.to_string functor_qual_ident
+      ^ "$$"
+      ^ String.concat ~sep:"," (Base.List.map arg_module_qis ~f:QualIdent.to_string)
     in
     Ident.make loc (serialize mod_name_string) 0
   in
@@ -1257,6 +1258,7 @@ let instantiate_functor_at_modules ~(loc : location) ~(functor_qual_ident : qual
             mod_inst_is_interface = false;
             mod_inst_is_sealed = false;
             mod_inst_is_free = false;
+            mod_inst_shared = [];
             mod_inst_loc = loc;
           }
       in
@@ -1264,6 +1266,60 @@ let instantiate_functor_at_modules ~(loc : location) ~(functor_qual_ident : qual
         Rewriter.introduce_typecheck_symbol_at_scope' ~loc functor_inst insert_scope
       in
       inst_qi
+
+(** For an instance of [functor_qual_ident] at [arg_module_qis], the instances generated
+    inside the functor that it shares with the rest of the program: each one whose
+    arguments mention the functor's formals, paired with the instance at the substituted
+    arguments. One whose substituted arguments are still local to the functor is not
+    shared, since each instance of the functor has its own. *)
+let shared_instances ~(loc : location) ~(functor_qual_ident : qual_ident)
+    ~(functor_def : AstDef.Module.t) (arg_module_qis : qual_ident list) :
+    (qual_ident * qual_ident) list t =
+  let open Rewriter.Syntax in
+  let formals_subst =
+    Base.List.map2_exn functor_def.mod_decl.mod_decl_formals arg_module_qis
+      ~f:(fun formal arg ->
+        (QualIdent.append functor_qual_ident formal.mod_inst_name, QualIdent.to_list arg))
+  in
+  let is_local qi =
+    Base.List.is_prefix (QualIdent.to_list qi)
+      ~prefix:(QualIdent.to_list functor_qual_ident)
+      ~equal:Ident.equal
+  in
+  let share (subst, shared) (instr : AstDef.Module.module_instr) =
+    match instr with
+    | SymbolDef
+        (ModInst
+           {
+             mod_inst_name;
+             mod_inst_def = Some (generated_functor, args);
+             mod_inst_is_interface = false;
+             _;
+           })
+      when String.is_prefix (Ident.name mod_inst_name) ~prefix:inst_mod_ident_prefix ->
+        let args =
+          Base.List.filter_map args ~f:(function
+            | AstDef.Module.ModArg qi -> Some qi
+            | TypeArg _ -> None)
+        in
+        let substituted = Base.List.map args ~f:(QualIdent.requalify subst) in
+        if
+          Base.List.equal QualIdent.equal substituted args
+          || Base.List.exists substituted ~f:is_local
+        then return (subst, shared)
+        else
+          let+ inst =
+            instantiate_functor_at_modules ~loc ~functor_qual_ident:generated_functor
+              substituted
+          in
+          let generated = QualIdent.append functor_qual_ident mod_inst_name in
+          (subst @ [ (generated, QualIdent.to_list inst) ], (generated, inst) :: shared)
+    | _ -> return (subst, shared)
+  in
+  let+ _, shared =
+    Rewriter.List.fold_left functor_def.mod_def ~init:(formals_subst, []) ~f:share
+  in
+  Base.List.rev shared
 
 (** Get or create (and typecheck) the instantiation [functor_qual_ident][arg_types...] --
     the generalized, functor-agnostic primitive behind any surface syntax that
@@ -1282,17 +1338,9 @@ let instantiate_type_functor ~(loc : location)
     Error.internal_error loc
       "wrong number of type arguments for this functor instantiation"
   else
-    (* Canonicalize via [expand_type_expr] before deriving the instantiation's name
-       below: callers can reach here with an argument type either written as a type
-       alias (e.g. a functor called directly from a type position) or already
-       expanded (e.g. inferred from a call's argument, expanded during unification
-       against the functor's formals) -- without normalizing both to the same form
-       first, the same semantic type argument would name two different, mutually
-       incompatible instantiations. *)
-    let* arg_types =
-      Rewriter.List.map arg_types ~f:(fun tp -> !Rewriter.expand_type_expr_ref tp)
-    in
-    let* insert_scope, reference_scope = find_insertion_scope_for_types arg_types in
+    (* An argument naming a module's type, as in `Seq[M]`, stands for that module.
+       Any other type is expanded first, so that an alias and its expansion, e.g. a
+       type inferred from a call's argument, stand for the same module. *)
     let* arg_module_qis =
       Rewriter.List.map2_exn functor_mod_decl.mod_decl_formals arg_types
         ~f:(fun formal tp ->
@@ -1303,15 +1351,21 @@ let instantiate_type_functor ~(loc : location)
                 (Printf.sprintf
                    !"formal %{Ident}'s constraint %{QualIdent} has no rep type"
                    formal.mod_inst_name formal.mod_inst_type)
-          | Some (interface_qual_ident, rep_ident) ->
-              get_or_intros_rep_module ~loc ~f ~insert_scope ~reference_scope
-                ~interface_qual_ident ~rep_ident tp)
+          | Some (interface_qual_ident, rep_ident) -> (
+              let* named =
+                existing_module_for_rep_type ~interface_qual_ident ~rep_ident tp
+              in
+              match named with
+              | Some mod_qi -> return mod_qi
+              | None ->
+                  let* tp = !Rewriter.expand_type_expr_ref tp in
+                  let* insert_scope, reference_scope =
+                    find_insertion_scope_for_types [ tp ]
+                  in
+                  get_or_intros_rep_module ~loc ~f ~insert_scope ~reference_scope
+                    ~interface_qual_ident ~rep_ident tp))
     in
-    let inst_key =
-      String.concat ~sep:"," (Base.List.map arg_types ~f:AstDef.Type.to_string)
-    in
-    instantiate_functor_at_modules ~loc ~functor_qual_ident ~functor_mod_decl
-      ~insert_scope ~reference_scope ~inst_key arg_module_qis
+    instantiate_functor_at_modules ~loc ~functor_qual_ident arg_module_qis
 
 (** The converse of [instantiate_type_functor] for a single-type-argument functor:
     recognizes whether [tp] is the rep type of a module instantiated from

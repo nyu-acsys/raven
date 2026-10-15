@@ -978,6 +978,7 @@ let rewrite_add_pred_utils (c : Callable.t) : Callable.t Rewriter.t =
                 mod_inst_is_interface = false;
                 mod_inst_is_sealed = false;
                 mod_inst_is_free = false;
+                mod_inst_shared = [];
                 mod_inst_loc = loc;
               }
           in
@@ -1016,6 +1017,7 @@ let rewrite_add_pred_utils (c : Callable.t) : Callable.t Rewriter.t =
                 mod_inst_is_interface = false;
                 mod_inst_is_sealed = false;
                 mod_inst_is_free = false;
+                mod_inst_shared = [];
                 mod_inst_loc = loc;
               }
           in
@@ -1090,6 +1092,7 @@ let rewrite_add_atomics_utils (c : Callable.t) : Callable.t Rewriter.t =
               mod_inst_is_interface = false;
               mod_inst_is_sealed = false;
               mod_inst_is_free = false;
+              mod_inst_shared = [];
               mod_inst_loc = loc;
             }
         in

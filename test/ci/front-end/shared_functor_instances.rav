@@ -1,0 +1,45 @@
+// An instance of a functor shares the instances generated inside it, such as the one
+// for `Seq[E]`, with the rest of the program: `Seq[E]` in `G[Int]` is `Seq[Int]`.
+
+interface I[E: Library.Type] {
+  func identity(s: Library.Seq[E]) returns (r: Library.Seq[E])
+    ensures r == s
+}
+
+module G[E: Library.Type] : I[E] {
+  func identity(s: Library.Seq[E]) returns (r: Library.Seq[E]) { s }
+  func wrap(s: Library.Seq[E]) returns (r: Library.Seq[Library.Seq[E]]) { [| s |] }
+  func keep(l: Library.List[E]) returns (r: Library.List[E]) { l }
+}
+
+module GI = G[Int]
+
+// A sealed view shares the instances generated inside its interface.
+module SI :> I = G[Int]
+
+// An instance inside another functor.
+module H[F: Library.Type] {
+  module GF = G[F]
+  func identity(s: Library.Seq[F]) returns (r: Library.Seq[F]) { GF.identity(s) }
+}
+
+module HI = H[Int]
+
+// An argument module is kept: `Seq[E]` in `G[MyInt]` is `Seq[MyInt]`.
+module MyInt : Library.Type {
+  rep type T = Int
+  val default: T = 0
+}
+
+module GM = G[MyInt]
+
+proc check(s: Library.Seq[Int], l: Library.List[Int], t: Library.Seq[MyInt]) {
+  assert GI.identity(s) == s;
+  var w: Library.Seq[Library.Seq[Int]] := GI.wrap(s);
+  assert w[0] == s;
+  assert GI.keep(l) == l;
+  assert SI.identity(s) == s;
+  assert HI.identity(s) == s;
+  assert HI.GF.identity(s) == s;
+  assert GM.identity(t) == t;
+}

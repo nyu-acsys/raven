@@ -93,7 +93,7 @@ let expand_sealed_module (member : Module.module_instr) : Module.module_instr li
                       mod_inst_type = iface;
                       mod_inst_def = Some (QualIdent.from_ident impl_name, []);
                       mod_inst_is_interface = false;
-                      mod_inst_is_free = false;
+                      mod_inst_is_free = false; mod_inst_shared = [];
                       mod_inst_is_sealed = true;
                       mod_inst_loc = loc }
           in
@@ -232,7 +232,7 @@ module_def:
                   mod_inst_type;
                   mod_inst_name = decl.mod_decl_name;
                   mod_inst_is_interface = is_interface;
-                  mod_inst_is_free = false;
+                  mod_inst_is_free = false; mod_inst_shared = [];
                   mod_inst_is_sealed = decl.mod_decl_is_sealed;
                   mod_inst_loc = decl.mod_decl_loc }
   | symbol -> symbol
@@ -277,7 +277,7 @@ module_inst_or_impl_or_decl:
                      mod_inst_type = QualIdent.make [] (Ident.make Loc.dummy "" 0); (* dummy *)
                      mod_inst_def = Some (mod_name, args);
                      mod_inst_is_interface = false;
-                     mod_inst_is_sealed = false; mod_inst_is_free = false;
+                     mod_inst_is_sealed = false; mod_inst_is_free = false; mod_inst_shared = [];
                      mod_inst_loc = Loc.dummy;
                    } )
 }
@@ -286,7 +286,7 @@ module_inst_or_impl_or_decl:
                      mod_inst_type = QualIdent.make [] (Ident.make Loc.dummy "" 0); (* dummy *)
                      mod_inst_def = None;
                      mod_inst_is_interface = false;
-                     mod_inst_is_sealed = false; mod_inst_is_free = false;
+                     mod_inst_is_sealed = false; mod_inst_is_free = false; mod_inst_shared = [];
                      mod_inst_loc = Loc.dummy;
                    } )
 }
@@ -440,7 +440,7 @@ module_param:
              mod_inst_type = t;
              mod_inst_def = None;
              mod_inst_is_interface = false;
-             mod_inst_is_sealed = false; mod_inst_is_free = false;
+             mod_inst_is_sealed = false; mod_inst_is_free = false; mod_inst_shared = [];
              mod_inst_loc = Loc.make $symbolstartpos $endpos;
            }
   in

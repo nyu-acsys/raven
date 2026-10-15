@@ -838,6 +838,10 @@ let add_symbol ?(scope : scope option = None) symbol tbl =
                     in
                     (formal_id, QualIdent.to_list arg_qi))
               in
+              let shared =
+                List.map mod_inst.mod_inst_shared ~f:(fun (generated, inst) ->
+                    (generated, QualIdent.to_list inst))
+              in
               match res with
               | Ok subst -> (
                   let inside_functor =
@@ -908,14 +912,14 @@ let add_symbol ?(scope : scope option = None) symbol tbl =
                             (QualIdent.unqualify formal_id, QualIdent.from_list arg_path))
                       in
                       ( iface_ident,
-                        iface_subst,
+                        iface_subst @ shared,
                         Some
                           {
                             sealed_functor = mod_inst_func;
                             sealed_interface = iface_ident;
                             sealed_args;
                           } )
-                  | _ -> (mod_inst_func, subst, None))
+                  | _ -> (mod_inst_func, subst @ shared, None))
               | Unequal_lengths ->
                   Error.type_error
                     (QualIdent.to_loc mod_inst_func)
