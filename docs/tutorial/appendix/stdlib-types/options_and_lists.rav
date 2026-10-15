@@ -25,7 +25,7 @@ lemma examples()
   assert empty == nil;
   assert len(l) == 2;
   assert 2 in l && 3 !in l;
-  assert IntOption.is_some(first(l)) && first(l).IntOption.value == 1;
+  assert IntOption.is_some(first(l)) && first(l).value == 1;
   assert !IntOption.is_some(first(nil));
   assert sum(l) == 3;
 }

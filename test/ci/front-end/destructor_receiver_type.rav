@@ -1,0 +1,23 @@
+// An unqualified destructor is looked up in the data type of the value it is applied
+// to, not in the current scope.
+module M {
+  rep type T = data { case ok(value: Int) case capped }
+}
+
+module N {
+  rep type T = data { case box(value: Bool) }
+}
+
+import M._
+
+func unbox(r: N.T) returns (x: Bool) { r.value }
+
+func first(l: List[Int]) returns (r: Int) { l == List.nil ? 0 : l.hd }
+
+func get(o: Option[Int]) returns (r: Int) { o == Option.none ? 0 : o.value }
+
+module G[E: Library.Type] {
+  module L = Library.List[E]
+
+  func first(l: L.T, d: E.T) returns (r: E.T) { l == L.nil ? d : l.hd }
+}

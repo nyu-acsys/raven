@@ -862,24 +862,66 @@ and check_data_constr (constr_ident : qual_ident) (args_list : expr list)
 and check_read (expr1 : expr) (field_ident : qual_ident) (expr_attr : Expr.expr_attr)
     (expr : expr) (expected_typ : type_expr) : expr t =
   let open Rewriter.Syntax in
+  let* own_destr =
+    if QualIdent.is_qualified field_ident then Rewriter.return None
+    else
+      let* expr1 = check expr1 (Type.any |> Type.set_ghost_to expected_typ) in
+      destr_of_data_type (Expr.to_type expr1) (QualIdent.unqualify field_ident)
+  in
   let* qual_ident, symbol =
-    (* `e.M.value` for an uninstantiated functor `M`: inferred from the
-                       type of `e` (see
-                       [ImplicitInstantiation.try_resolve_implicit_instantiation_destr]).
-                       An unqualified destructor imported from one is recovered from the
-                       import first, as in the [Var] case. *)
-    ImplicitInstantiation.resolve_or_implicit field_ident ~on_miss:(fun () ->
-        let* imported = Rewriter.find_import_target field_ident in
-        let candidate = Base.Option.value imported ~default:field_ident in
-        let* peeked_expr1 = check expr1 (Type.any |> Type.set_ghost_to expected_typ) in
-        ImplicitInstantiation.try_resolve_implicit_instantiation_destr
-          ~field_ident:candidate ~arg_typ:(Expr.to_type peeked_expr1))
+    match own_destr with
+    | Some destr -> Rewriter.return destr
+    | None -> resolve_read_ident expr1 field_ident expected_typ
   in
   let* symbol = Rewriter.Symbol.reify symbol in
   match symbol with
   | DestrDef _ -> check (App (DataDestr qual_ident, [ expr1 ], expr_attr)) expected_typ
   | FieldDef _ -> field_read_context_error (Expr.to_loc expr) field_ident
   | _ -> expected_destructor_error (Expr.to_loc expr) (Symbol.kind symbol) qual_ident
+
+(** The destructor [destr_ident] of the data type that [tp] stands for, if it has one. *)
+and destr_of_data_type (tp : type_expr) (destr_ident : ident) =
+  let open Rewriter.Syntax in
+  let rec find visited (tp : type_expr) =
+    match tp with
+    | App (Var qi, [], _) when not (Set.mem visited qi) -> begin
+        let* resolved = Rewriter.resolve_and_find_opt qi in
+        match resolved with
+        | None -> Rewriter.return None
+        | Some (qi, symbol) -> begin
+            let* type_def = Rewriter.Symbol.reify_type_def (QualIdent.to_loc qi) symbol in
+            match type_def with
+            | Some (App (Data (_, variants), [], _)) ->
+                let is_destr (v : Type.variant_decl) =
+                  List.exists v.variant_args ~f:(fun arg ->
+                      Ident.equal arg.var_name destr_ident)
+                in
+                if not (List.exists variants ~f:is_destr) then Rewriter.return None
+                else
+                  let destr_qi = QualIdent.append (QualIdent.pop qi) destr_ident in
+                  Rewriter.resolve_and_find_opt destr_qi
+            | Some tp -> find (Set.add visited qi) tp
+            | None -> Rewriter.return None
+          end
+      end
+    | _ -> Rewriter.return None
+  in
+  find (Set.empty (module QualIdent)) tp
+
+(** [field_ident] in a read of [expr1], resolved in the current scope. *)
+and resolve_read_ident (expr1 : expr) (field_ident : qual_ident)
+    (expected_typ : type_expr) =
+  let open Rewriter.Syntax in
+  (* `e.M.value` for an uninstantiated functor `M`: inferred from the type of `e` (see
+     [ImplicitInstantiation.try_resolve_implicit_instantiation_destr]). An unqualified
+     destructor imported from one is recovered from the import first, as in the [Var]
+     case. *)
+  ImplicitInstantiation.resolve_or_implicit field_ident ~on_miss:(fun () ->
+      let* imported = Rewriter.find_import_target field_ident in
+      let candidate = Base.Option.value imported ~default:field_ident in
+      let* peeked_expr1 = check expr1 (Type.any |> Type.set_ghost_to expected_typ) in
+      ImplicitInstantiation.try_resolve_implicit_instantiation_destr
+        ~field_ident:candidate ~arg_typ:(Expr.to_type peeked_expr1))
 
 (** A quantifier or a comprehension. *)
 and check_binder (binder : Expr.binder) (var_decl_list : var_decl list)

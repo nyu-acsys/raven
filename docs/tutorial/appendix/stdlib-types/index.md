@@ -40,9 +40,8 @@ func first(l: List[Int]) returns (r: IntOption.T) {
 }
 ```
 
-To get at the value, write `first(l).IntOption.value`. A destructor is a member of its module
-like any other, so it needs the module's name unless the module is imported, as `List` is for
-`l.hd` here.
+To get at the value, write `first(l).value`. A destructor is looked up in the data type of the
+value it is applied to, so it needs no module name, as for `l.hd` here.
 
 ## Lists {#sec:stdlib-list}
 
