@@ -74,6 +74,7 @@ let termination_calls ~ext_hooks (tbl : SymbolTbl.t) (mdef : Module.t) : Graph.t
       |> List.map ~f:(fun var -> QualIdent.from_ident var.Type.var_name)
       |> Set.of_list (module QualIdent)
     in
+    (* A ref, as [Rewriter.Stmt.rewrite_expressions_top] is fixed at unit user state. *)
     let calls = ref (Set.empty (module QualIdent)) in
     let scan_expr expr =
       calls := expr_calls bound !calls expr;

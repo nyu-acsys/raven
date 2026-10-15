@@ -27,18 +27,18 @@ let renamed_clause_text ~(content : string) ~(span_start : int) ~(span_end : int
   if List.is_empty renaming then text
   else
     (* Occurrences of variables, and bound variables with their declarations. *)
-    let occurrences = ref [] and bound = ref [] in
-    let rec walk (e : expr) =
+    let rec walk (occurrences, bound) (e : expr) =
       match e with
       | App (Var qi, [], attr) when List.is_empty (QualIdent.path qi) ->
-          occurrences := (QualIdent.unqualify qi, attr.expr_loc) :: !occurrences
-      | App (_, args, _) -> List.iter args ~f:walk
+          ((QualIdent.unqualify qi, attr.expr_loc) :: occurrences, bound)
+      | App (_, args, _) -> List.fold args ~init:(occurrences, bound) ~f:walk
       | Binder (_, vars, trigs, body, _) ->
-          bound := vars @ !bound;
-          List.iter (List.concat trigs) ~f:walk;
-          walk body
+          let found =
+            List.fold (List.concat trigs) ~init:(occurrences, vars @ bound) ~f:walk
+          in
+          walk found body
     in
-    List.iter exprs ~f:walk;
+    let occurrences, bound = List.fold exprs ~init:([], []) ~f:walk in
     let new_names =
       List.map renaming ~f:(fun (_, (v : var_decl)) -> Ident.name v.var_name)
     in
@@ -51,17 +51,17 @@ let renamed_clause_text ~(content : string) ~(span_start : int) ~(span_end : int
     let renamed : (Ident.t * string) list =
       List.map renaming ~f:(fun ((o : var_decl), (v : var_decl)) ->
           (o.var_name, Ident.name v.var_name))
-      @ List.filter_map !bound ~f:(fun (b : var_decl) ->
+      @ List.filter_map bound ~f:(fun (b : var_decl) ->
           let name = Ident.name b.var_name in
           if List.mem new_names name ~equal:String.equal then Some (b.var_name, fresh name)
           else None)
     in
     let new_name id = List.Assoc.find renamed id ~equal:Ident.equal in
     let edits =
-      List.filter_map !occurrences ~f:(fun (id, loc) ->
+      List.filter_map occurrences ~f:(fun (id, loc) ->
           Option.map (new_name id) ~f:(fun name ->
               (id, Loc.start_index loc, Loc.end_index loc, name)))
-      @ List.filter_map !bound ~f:(fun (b : var_decl) ->
+      @ List.filter_map bound ~f:(fun (b : var_decl) ->
           Option.map (new_name b.var_name) ~f:(fun name ->
               let start = Loc.start_index b.var_loc in
               (b.var_name, start, start + String.length (Ident.name b.var_name), name)))
