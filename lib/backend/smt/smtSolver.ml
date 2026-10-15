@@ -195,8 +195,7 @@ module SmtSession = struct
     in
     read_line ()
 
-  let read session =
-    match read_response session with
+  let response_line = function
     | Ok line -> line
     | Error End_of_stream ->
         Error.internal_error Loc.dummy
@@ -214,14 +213,22 @@ module SmtSession = struct
 
   let check_sat session : sat_result =
     write_command session (mk_check_sat ());
-    match parse_sat_result (read session) with
-    | Ok result -> result
-    | Error str ->
-        Error.fail ~lbl:Internal Loc.dummy
-          (Printf.sprintf
-             "Z3 returned unexpected output while checking this proof obligation: %s \
-              (re-run with --verbosity=debug to inspect log.smt2)"
-             str)
+    match read_response session with
+    | Error Response_timeout ->
+        (* A query that runs past the timeout is unknown, whether or not Z3 has noticed
+           yet. Its late answer would put the session out of step, so it is closed. *)
+        Logs.info (fun m -> m "Z3 did not respond in time; stopping it");
+        stop_solver session;
+        Unknown
+    | response -> (
+        match parse_sat_result (response_line response) with
+        | Ok result -> result
+        | Error str ->
+            Error.fail ~lbl:Internal Loc.dummy
+              (Printf.sprintf
+                 "Z3 returned unexpected output while checking this proof obligation: %s \
+                  (re-run with --verbosity=debug to inspect log.smt2)"
+                 str))
 
   let push session =
     write_command session (mk_push 1);

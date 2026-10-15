@@ -54,6 +54,16 @@ let test_fragmented_reply () =
       assert (
         Result.equal String.equal (fun _ _ -> false) (read_response session) (Ok "sat")))
 
+(* A solver that does not respond in time makes the query inconclusive and closes the
+   session. *)
+let test_unresponsive_solver () =
+  with_session (fun session _ _ _ ->
+      assert (
+        match check_valid session (Ast.Expr.mk_bool true) with
+        | Inconclusive -> true
+        | _ -> false);
+      assert (match read_response session with Error Session_closed -> true | _ -> false))
+
 let test_partial_eof () =
   with_session (fun session response_write _ _ ->
       write_all response_write "sa" 0;
@@ -148,6 +158,7 @@ let () =
   else begin
     test_buffered_replies ();
     test_fragmented_reply ();
+    test_unresponsive_solver ();
     test_partial_eof ();
     test_idempotent_stop ();
     test_forced_stop_and_reap ();

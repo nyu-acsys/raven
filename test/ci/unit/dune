@@ -26,7 +26,7 @@
 (test
  (name smt_lifecycle)
  (modules smt_lifecycle)
- (libraries smt base unix))
+ (libraries smt ast base unix))
 
 (executable
  (name smt_stub)
