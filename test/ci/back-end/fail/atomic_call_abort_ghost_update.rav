@@ -1,0 +1,85 @@
+// A logically atomic call may abort and hand back its atomic precondition, so an
+// invariant open around it must be closable from that state too. Here the writer
+// advances the ghost authority past the physical counter before the call: only the
+// committed postcondition closes counterInv, the atomic precondition does not. If
+// this were accepted, the observer could read the bound published by incr before
+// its increment and reach `assert false`.
+
+import Library.Auth
+import Library.MaxNat
+import Library.IntAtomics._
+
+module AuthMaxNat = Auth[MaxNat]
+import AuthMaxNat._
+
+field count: Int
+field bound: Int
+ghost field g: AuthMaxNat
+
+// The counter and its authority agree.
+inv counterInv(x: Ref) {
+  exists n: Int :: n >= 0 && own(x.count, n, 1.0) && own(x.g, auth_frag(n, n))
+}
+
+// The mailbox holds a lower bound of the counter's authority.
+inv mailboxInv(y: Ref, x: Ref) {
+  exists k: Int :: k >= 0 && own(y.bound, k, 1.0) && own(x.g, frag(k))
+}
+
+// Publishes the lower bound 1 before its linearization point, then increments.
+proc incr(x: Ref, y: Ref, implicit ghost n: Int)
+  requires mailboxInv(y, x) && own(x.g, frag(1))
+  ensures mailboxInv(y, x)
+  atomic requires own(x.count, n, 1.0) && own(x.g, auth_frag(n + 1, n + 1))
+  atomic ensures own(x.count, n + 1, 1.0) && own(x.g, auth_frag(n + 1, n + 1))
+{
+  ghost var phi := bindAU();
+
+  // Publication, before the AU is opened.
+  unfold mailboxInv(y, x);
+  y.bound := 1;
+  fold mailboxInv(y, x);
+
+  // Linearization point.
+  ghost var n0: Int := openAU(phi);
+  var old_val: Int := faa(x.count, 1);
+  commitAU(phi, ());
+}
+
+// Opens counterInv, advances the ghost authority past the counter, and calls incr.
+proc writer(x: Ref, y: Ref)
+  requires counterInv(x) && mailboxInv(y, x)
+{
+  unfold counterInv(x);
+  ghost var n: Int;
+  n :| own(x.count, n, 1.0) && own(x.g, auth_frag(n, n));
+  fpu(x.g, auth_frag(n, n), auth_frag(n + 1, n + 1));
+  incr(x, y);
+  fold counterInv(x);
+}
+
+// Reads the mailbox, then the counter: the bound never exceeds the counter.
+proc observer(x: Ref, y: Ref)
+  requires counterInv(x) && mailboxInv(y, x)
+{
+  unfold mailboxInv(y, x);
+  var k: Int := y.bound;
+  fold mailboxInv(y, x);
+
+  unfold counterInv(x);
+  var v: Int := x.count;
+  fold counterInv(x);
+
+  if (v < k) {
+    assert false;
+  }
+}
+
+proc main() {
+  var x: Ref := new(count: 0, g: auth_frag(0, 0));
+  var y: Ref := new(bound: 0);
+  fold counterInv(x);
+  fold mailboxInv(y, x);
+  spawn writer(x, y);
+  observer(x, y);
+}

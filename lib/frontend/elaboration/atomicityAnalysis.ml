@@ -28,6 +28,13 @@ type invs = {
      instance (see [open_inv]); restored verbatim on the matching close (see
      [close_inv]). *)
   inv_consumed_mask_entry : Callable.mask_entry;
+  (* Whether a ghost update -- an [fpu], a ghost field write, or a call that may
+     contain one -- happened since the instance was opened. Only then can the
+     state on abort of an atomic call fail to close it (see [abort_check]). *)
+  inv_updated : bool;
+  (* A ghost [Bool] local, false at the [unfold] and set by every ghost update, so that
+     the check at an atomic call runs only on paths that performed one. *)
+  inv_updated_flag : Expr.t;
 }
 
 type atomicity_check = {
@@ -109,16 +116,19 @@ let snapshot_sync_stmts ~loc ~(from : invs list) ~(into : invs list) : Stmt.t li
     List.sort l ~compare:(fun i1 i2 ->
         Callable.compare_mask_entry (i1.inv_name, i1.inv_args) (i2.inv_name, i2.inv_args))
   in
-  List.filter_map
+  let copy ~src ~dst =
+    if Expr.alpha_equal src dst then None
+    else Some (Stmt.mk_assign ~loc ~is_init:true [ Expr.to_qual_ident dst ] src)
+  in
+  List.concat_map
     (List.zip_exn (sorted from) (sorted into))
     ~f:(fun (src, dst) ->
-      if List.is_empty dst.inv_args || Expr.alpha_equal src.inv_snapshot dst.inv_snapshot
-      then None
-      else
-        Some
-          (Stmt.mk_assign ~loc ~is_init:true
-             [ Expr.to_qual_ident dst.inv_snapshot ]
-             src.inv_snapshot))
+      let snapshot =
+        if List.is_empty dst.inv_args then None
+        else copy ~src:src.inv_snapshot ~dst:dst.inv_snapshot
+      in
+      List.filter_opt
+        [ snapshot; copy ~src:src.inv_updated_flag ~dst:dst.inv_updated_flag ])
 
 (* A tracked mask entry's argument expressions are plain references to
    whatever program variables were in scope when the entry was established
@@ -345,10 +355,145 @@ let take_ext_step ~loc (atomicity : Stmt.stmt_atomicity) (state : atomicity_chec
   | AtomicStep -> take_atomic_step ~loc state
   | NonAtomicStep -> take_non_atomic_step ~loc state
 
+(* Records a ghost update for every open instance, with the assignments that set their
+   flags. *)
+let mark_ghost_update ~loc (state : atomicity_check) : atomicity_check * Stmt.t list =
+  ( {
+      state with
+      invs_opened =
+        List.map state.invs_opened ~f:(fun inv -> { inv with inv_updated = true });
+    },
+    List.map state.invs_opened ~f:(fun inv ->
+        Stmt.mk_assign ~loc
+          [ Expr.to_qual_ident inv.inv_updated_flag ]
+          (Expr.mk_bool ~loc true)) )
+
+(* [into]'s open instances, each marked updated if it was updated in [from] too. *)
+let join_ghost_updates ~(from : invs list) (into : invs list) : invs list =
+  List.map into ~f:(fun inv ->
+      let updated_in_from =
+        List.exists from ~f:(fun other ->
+            other.inv_updated
+            && QualIdent.equal other.inv_name inv.inv_name
+            && List.equal Expr.alpha_equal other.inv_args inv.inv_args)
+      in
+      { inv with inv_updated = inv.inv_updated || updated_in_from })
+
+(* A logically atomic callee may abort, handing back its atomic precondition but
+   keeping its ordinary one. Every instance open around the call must then still be
+   closable, which a branch before the call checks: it gives up the ordinary
+   precondition, folds the instances, and ends in [assume false]. Only instances updated
+   since they were opened are checked; any other is as closable as at its [unfold].
+   Implicit arguments the call omits are bound first, as the call itself would bind them,
+   and passed explicitly, so that the branch and the call agree on them. *)
+let abort_check ~loc (call_decl : Callable.call_decl) (call_desc : Stmt.call_desc)
+    (state : atomicity_check) :
+    (Stmt.t list * Stmt.call_desc, atomicity_check) Rewriter.t_ext =
+  let open Rewriter.Syntax in
+  let updated = List.filter state.invs_opened ~f:(fun inv -> inv.inv_updated) in
+  if List.is_empty updated || call_desc.call_is_spawn then Rewriter.return ([], call_desc)
+  else
+    let fresh_ghost_var name typ =
+      let var_decl = Type.mk_var_decl ~ghost:true ~loc (Ident.fresh loc name) typ in
+      let+ () =
+        Rewriter.introduce_symbol
+          (Module.VarDef { var_decl; var_init = None; var_is_free = NotFree })
+      in
+      var_decl
+    in
+    let omitted =
+      List.drop call_decl.call_decl_formals (List.length call_desc.call_args)
+    in
+    let* omitted_vars =
+      Rewriter.List.map omitted ~f:(fun formal ->
+          fresh_ghost_var formal.Type.var_name.ident_name formal.var_type)
+    in
+    let call_args = call_desc.call_args @ List.map omitted_vars ~f:Expr.from_var_decl in
+    let renaming =
+      List.fold2_exn call_decl.call_decl_formals call_args
+        ~init:(Map.empty (module QualIdent))
+        ~f:(fun renaming formal arg ->
+          Map.set renaming ~key:(QualIdent.from_ident formal.Type.var_name) ~data:arg)
+    in
+    let instantiate (spec : Stmt.spec) = Expr.alpha_renaming spec.spec_form renaming in
+    let bind_stmts =
+      match omitted_vars with
+      | [] -> []
+      | _ :: _ ->
+          let spec_error =
+            match call_decl.call_decl_precond with
+            | spec :: _ -> spec.spec_error
+            | [] -> []
+          in
+          [
+            Stmt.mk_bind ~loc
+              (List.map omitted_vars ~f:(fun var -> QualIdent.from_ident var.var_name))
+              (Stmt.mk_spec ~spec_error
+                 (Expr.mk_and (List.map call_decl.call_decl_precond ~f:instantiate)));
+          ]
+    in
+    let exhale_stmts =
+      List.filter_map call_decl.call_decl_precond ~f:(fun spec ->
+          if spec.spec_atomic then None
+          else
+            Some (Stmt.mk_exhale_expr ~loc ~spec_error:spec.spec_error (instantiate spec)))
+    in
+    let* fold_stmts =
+      Rewriter.List.map updated ~f:(fun inv ->
+          let* symbol = Rewriter.find inv.inv_name in
+          let+ decl = Rewriter.Symbol.reify_callable_decl symbol in
+          let arity =
+            List.length decl.call_decl_formals + List.length decl.call_decl_returns
+          in
+          let use_args =
+            List.init arity ~f:(fun i -> Expr.mk_tuple_lookup ~loc inv.inv_snapshot i)
+          in
+          let fold =
+            Stmt.
+              {
+                stmt_desc =
+                  Basic
+                    (Use
+                       {
+                         use_kind = Fold;
+                         use_name = inv.inv_name;
+                         use_args;
+                         use_witnesses_or_binds = [];
+                         use_spec_error =
+                           [
+                             Stmt.mk_const_spec_error
+                               ( Error.Verification,
+                                 loc,
+                                 "An invariant open around this atomic call may not be \
+                                  closable if the call aborts" );
+                             Stmt.mk_const_spec_error
+                               ( Error.RelatedLoc,
+                                 inv.inv_loc,
+                                 "This invariant may not be closable again if the call \
+                                  aborts" );
+                           ];
+                       });
+                stmt_loc = loc;
+              }
+          in
+          Stmt.mk_cond ~loc (Some inv.inv_updated_flag) fold (Stmt.mk_block_stmt ~loc []))
+    in
+    let+ abort = fresh_ghost_var "$abort" Type.bool in
+    let abort_qi = QualIdent.from_ident abort.var_name in
+    let branch =
+      Stmt.mk_cond ~loc ~cond_if_assumes_false:true
+        (Some (Expr.from_var_decl abort))
+        (Stmt.mk_block_stmt ~loc
+           (exhale_stmts @ fold_stmts @ [ Stmt.mk_assume_expr ~loc (Expr.mk_bool false) ]))
+        (Stmt.mk_block_stmt ~loc [])
+    in
+    ( bind_stmts @ [ Stmt.mk_havoc ~loc ~is_init:true abort_qi; branch ],
+      { call_desc with call_args } )
+
 (* Returns the extra assert statements (reentrancy guard + membership proof)
    the caller must splice in immediately before the [Unfold] statement,
    together with the updated state. *)
-let open_inv ~loc (inv_name, inv_args, inv_snapshot) atomicity_state :
+let open_inv ~loc (inv_name, inv_args, inv_snapshot, inv_updated_flag) atomicity_state :
     atomicity_check * Stmt.t list =
   (* Reentrancy guard: this instance must be disjoint from every instance of
      the same declaration already open -- not decidable by name alone, since
@@ -436,6 +581,8 @@ let open_inv ~loc (inv_name, inv_args, inv_snapshot) atomicity_state :
           inv_loc = loc;
           inv_snapshot;
           inv_consumed_mask_entry = chosen;
+          inv_updated = false;
+          inv_updated_flag;
         }
         :: atomicity_state.invs_opened;
       mask;
@@ -663,12 +810,19 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
         let* symbol = Rewriter.find field_write_desc.field_write_field in
         match Rewriter.Symbol.orig_symbol symbol with
         | FieldDef fld ->
-            if fld.field_is_ghost then Rewriter.return stmt
+            if fld.field_is_ghost then
+              let atomicity_state, flag_stmts = mark_ghost_update ~loc atomicity_state in
+              let* _ = Rewriter.set_user_state atomicity_state in
+              Rewriter.return (Stmt.mk_block_stmt ~loc (stmt :: flag_stmts))
             else
               let atomicity_state = take_atomic_step ~loc atomicity_state in
               let* _ = Rewriter.set_user_state atomicity_state in
               Rewriter.return stmt
         | _ -> Error.internal_error stmt.stmt_loc "expected a field_def")
+    | Basic (Fpu _) ->
+        let atomicity_state, flag_stmts = mark_ghost_update ~loc atomicity_state in
+        let* _ = Rewriter.set_user_state atomicity_state in
+        Rewriter.return (Stmt.mk_block_stmt ~loc (stmt :: flag_stmts))
     | Basic (Havoc hvc) ->
         let atomicity_state = drop_stale ~qis:[ hvc.havoc_var ] atomicity_state in
         let* _ = Rewriter.set_user_state atomicity_state in
@@ -839,16 +993,21 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
           (is_call_lhs_ghost && not (List.is_empty call_desc.call_lhs))
           || Poly.(call_decl.call_decl_kind = Lemma)
         then
+          let atomicity_state, flag_stmts = mark_ghost_update ~loc atomicity_state in
           let* _ = Rewriter.set_user_state atomicity_state in
           Rewriter.return
             (Stmt.mk_block_stmt ~loc
-               (availability_asserts @ reentrancy_asserts @ [ stmt ]))
+               (availability_asserts @ reentrancy_asserts @ [ stmt ] @ flag_stmts))
         else if Callable.is_atomic call_decl then
+          let* abort_stmts, call_desc =
+            abort_check ~loc call_decl call_desc atomicity_state
+          in
+          let stmt = { stmt with stmt_desc = Basic (Call call_desc) } in
           let atomicity_state = take_atomic_step ~loc atomicity_state in
           let* _ = Rewriter.set_user_state atomicity_state in
           Rewriter.return
             (Stmt.mk_block_stmt ~loc
-               (availability_asserts @ reentrancy_asserts @ [ stmt ]))
+               (availability_asserts @ reentrancy_asserts @ abort_stmts @ [ stmt ]))
         else
           let atomicity_state = take_non_atomic_step ~loc atomicity_state in
           let* _ = Rewriter.set_user_state atomicity_state in
@@ -862,11 +1021,12 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
             ~idents:(ext_hooks.basic_stmt_ext_local_vars_modified stmt_ext args)
             atomicity_state
         in
-        let atomicity_state =
+        let atomicity_state, flag_stmts =
           take_ext_step ~loc (ext_hooks.stmt_ext_atomicity stmt_ext) atomicity_state
+          |> mark_ghost_update ~loc
         in
         let* _ = Rewriter.set_user_state atomicity_state in
-        Rewriter.return stmt
+        Rewriter.return (Stmt.mk_block_stmt ~loc (stmt :: flag_stmts))
     | Basic (Return return_expr) ->
         let atomicity_state = take_atomic_step ~loc atomicity_state in
         let* _ = Rewriter.set_user_state atomicity_state in
@@ -961,9 +1121,33 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
                           in
                           (snap_expr, [ snap_assign_stmt ])
                     in
+                    let flag_decl =
+                      Type.mk_var_decl ~ghost:true ~loc
+                        (Ident.fresh loc
+                           ("$inv_updated_"
+                           ^ Ident.to_string (QualIdent.unqualify use_desc.use_name)))
+                        Type.bool
+                    in
+                    let* () =
+                      Rewriter.introduce_symbol
+                        (Module.VarDef
+                           {
+                             var_decl = flag_decl;
+                             var_init = None;
+                             var_is_free = NotFree;
+                           })
+                    in
+                    let flag = Expr.from_var_decl flag_decl in
+                    let flag_stmts =
+                      [
+                        Stmt.mk_assign ~loc ~is_init:true
+                          [ Expr.to_qual_ident flag ]
+                          (Expr.mk_bool ~loc false);
+                      ]
+                    in
                     let atomicity_state, open_asserts =
                       open_inv ~loc
-                        (use_desc.use_name, use_desc.use_args, snap_expr)
+                        (use_desc.use_name, use_desc.use_args, snap_expr, flag)
                         atomicity_state
                     in
                     let* _ = Rewriter.set_user_state atomicity_state in
@@ -975,7 +1159,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
                     in
                     Rewriter.return
                       (Stmt.mk_block_stmt ~loc
-                         (bind_stmts @ open_asserts @ snap_stmts @ [ stmt ]))
+                         (bind_stmts @ open_asserts @ snap_stmts @ flag_stmts @ [ stmt ]))
                 | Fold -> (
                     (* Multiple instances of the same declaration can be open
                        at once, so this needs to identify which one; see
@@ -1275,11 +1459,12 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
             ~idents:(ext_hooks.stmt_ext_local_vars_modified stmt_ext)
             atomicity_state
         in
-        let atomicity_state =
+        let atomicity_state, flag_stmts =
           take_ext_step ~loc (ext_hooks.stmt_ext_atomicity stmt_ext) atomicity_state
+          |> mark_ghost_update ~loc
         in
         let* _ = Rewriter.set_user_state atomicity_state in
-        Rewriter.return stmt
+        Rewriter.return (Stmt.mk_block_stmt ~loc (stmt :: flag_stmts))
     | Block { block_kind = Atomic; _ } ->
         (* `--strict`: the block is the one construct whose claim the verifier takes on
            trust rather than checking -- there is no model of the target machine, and no
@@ -1350,6 +1535,15 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
         in
 
         if if_else_atomicity_states_equal then
+          let else_atomicity_state =
+            {
+              else_atomicity_state with
+              invs_opened =
+                join_ghost_updates ~from:then_atomicity_state.invs_opened
+                  else_atomicity_state.invs_opened;
+            }
+          in
+          let* _ = Rewriter.set_user_state else_atomicity_state in
           let then_stmt =
             match
               snapshot_sync_stmts ~loc ~from:then_atomicity_state.invs_opened

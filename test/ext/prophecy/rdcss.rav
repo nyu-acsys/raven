@@ -247,18 +247,12 @@ proc complete(l_descr_ref: Ref, l_n: Ref,
         assert false;
 
       } else if (notDone && !isPending) {
-        // descr_inv in `accepted`
-        // descr_inv `accepted` to `done`
+        // descr_inv in `accepted`; it moves to `done` after the cas
         if (s is quiescentState) {
           assert false;
 
         } else {
           unfold accepted_state(token, l_n, l_descr, rdcss_ret, proph_extract_winner(vs), tid_ghost_winner);
-
-          fpu(l_descr_ref.one_shot, public );
-
-          assert own(l_descr_ref.Descr.descr_fld, l_descr, 0.5);
-          fold done_state(token, l_n, l_descr_ref, l_descr, rdcss_ret, tid_ghost_winner)[auRetrieved := false];
         }
 
       } else {
@@ -288,6 +282,16 @@ proc complete(l_descr_ref: Ref, l_n: Ref,
   !}
 
   var succ: Bool := cas(l_n.n_loc, pending(l_descr_ref), quiescent(n_new));
+
+  {!
+    // descr_inv `accepted` to `done`, after the cas: an invariant open around an
+    // atomic call must still be closable should the call abort
+    if (tid_ghost_winner == tid_ghost && notDone && !isPending && !(s is quiescentState)) {
+      fpu(l_descr_ref.one_shot, public );
+      assert own(l_descr_ref.Descr.descr_fld, l_descr, 0.5);
+      fold done_state(token, l_n, l_descr_ref, l_descr, rdcss_ret, tid_ghost_winner)[auRetrieved := false];
+    }
+  !}
 
   ghost var newState: AbstractState := succ ? quiescentState(n_new) : s;
 

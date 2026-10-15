@@ -1543,6 +1543,8 @@ module Stmt = struct
     use_name : qual_ident;
     use_args : expr list;
     use_witnesses_or_binds : (ident * expr) list;
+    use_spec_error : (qual_ident -> Loc.t -> Error.t) list;
+        (** What a [fold] reports if the body does not hold; empty for the default. *)
   }
 
   type auaction_kind =

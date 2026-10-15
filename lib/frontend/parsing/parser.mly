@@ -785,7 +785,8 @@ stmt_wo_trailing_substmt:
     use_kind = use_kind; 
     use_name = Expr.to_qual_ident id; 
     use_args = es;
-    use_witnesses_or_binds = []
+        use_witnesses_or_binds = [];
+    use_spec_error = []
   }))]
 }
 | use_kind = USE; id = qual_ident; LPAREN; es = separated_list(COMMA, expr); RPAREN;
@@ -794,7 +795,8 @@ stmt_wo_trailing_substmt:
     use_kind = use_kind; 
     use_name = Expr.to_qual_ident id; 
     use_args = es;
-    use_witnesses_or_binds = wtns
+        use_witnesses_or_binds = wtns;
+    use_spec_error = []
   }))]
 }
 | f = stmt_ext { f }

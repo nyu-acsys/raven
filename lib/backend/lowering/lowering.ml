@@ -393,13 +393,16 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
             match use_desc.use_kind with
             | Fold -> (
                 let spec_error =
-                  let error =
-                    ( Error.Verification,
-                      stmt.stmt_loc,
-                      "Failed to fold predicate. The body of the predicate may not hold \
-                       at this point" )
-                  in
-                  [ Stmt.mk_const_spec_error error ]
+                  match use_desc.use_spec_error with
+                  | _ :: _ as spec_error -> spec_error
+                  | [] ->
+                      let error =
+                        ( Error.Verification,
+                          stmt.stmt_loc,
+                          "Failed to fold predicate. The body of the predicate may not \
+                           hold at this point" )
+                      in
+                      [ Stmt.mk_const_spec_error error ]
                 in
                 let spec_form = Stmt.mk_spec ~spec_error body_fold_expr in
                 let bind_stmt =
