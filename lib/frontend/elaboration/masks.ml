@@ -437,7 +437,7 @@ let compute_masks (m : Module.t) : Module.t Rewriter.t =
 
     Scoped to modules declared as [module N : M { ... }] (i.e.
     [mod_decl_returns = Some M]). Functor instantiation doesn't go through this code path
-    (see [Typing.merge_defs]) and isn't at risk the same way, since it only ever
+    (see [Interfaces.merge_defs]) and isn't at risk the same way, since it only ever
     substitutes formals -- it never gives a fresh body to one of [M]'s own abstract
     members. *)
 

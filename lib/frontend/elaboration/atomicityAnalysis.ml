@@ -158,8 +158,8 @@ let membership_conditions ~loc ~(candidate : Expr.t list) ~(target : Expr.t list
 
 (* Builds the formal -> actual-argument substitution for a call, accounting for
    trailing implicit ghost formals that a caller may omit at the call site
-   (see [Typing.try_resolve_implicit_instantiation]'s "trailing implicit ghost
-   formals may be omitted" handling): if [call_args] has one entry per
+   (see [ImplicitInstantiation.infer_single_instantiation], where trailing
+   implicit ghost formals may be omitted): if [call_args] has one entry per
    [formals] (including any implicit ones the caller chose to supply
    explicitly -- e.g. `acquire(l, r, b1)` in test/concurrent/lock/spin-lock.rav),
    zip directly against [formals]; if it has one entry per *non-implicit*

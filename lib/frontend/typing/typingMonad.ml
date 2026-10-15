@@ -25,7 +25,7 @@ let lift (m : 'a Rewriter.t) : 'a t =
   ({ s' with Rewriter.state_user_data = s.Rewriter.state_user_data }, a)
 
 (** True while inside a [speculatively]-wrapped computation -- see
-    [ImplicitInstantiation.peek_arg]. *)
+    [ImplicitInstantiation.infer_single_instantiation]. *)
 let is_speculative : bool t = fun s -> (s, s.Rewriter.state_user_data > 0)
 
 let speculative_depth : int t = fun s -> (s, s.Rewriter.state_user_data)

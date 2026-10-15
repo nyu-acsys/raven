@@ -299,7 +299,8 @@ let parse_and_check_all ~extension_mode config file_names =
                [MachineFree] means -- as opposed to [UserFree], a `free` the user wrote.
                The two must stay distinguishable: a member inherited from here into a
                user module still owes a definition and a proof, whereas one inherited
-               from a user's own `free` declaration does not (see [Typing.merge_defs]). *)
+               from a user's own `free` declaration does not (see
+               [Interfaces.un_free_inherited]). *)
             let md = Ast.Module.set_unit_free md in
             merge_prog md lib_prog)
       in

@@ -667,7 +667,7 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
           Rewriter.return new_stmt
       | FuncDef _ ->
           (* No exhale here: func/pred/invariant contracts can't carry a `requires`
-             (see [Typing.check_no_requires_on_pure_callables]), so there is nothing to
+             (see [CallableTyping.check]), so there is nothing to
              check at this call site. *)
           let ret_typ =
             Type.mk_prod stmt.stmt_loc

@@ -1423,8 +1423,8 @@ type expr = Expr.t
     own `free` keyword, or established free by the compiler (e.g. an interface member
     inherited unchanged, or a whole included file). The latter two aren't interchangeable:
     see [Rewriter.is_relaxed_lookup] for a case that must trust only [MachineFree], and
-    [Module.set_unit_free] / [Typing.merge_defs] for why a force-freed file must not look
-    like a user-written `free`.
+    [Module.set_unit_free] / [Interfaces.un_free_inherited] for why a force-freed file
+    must not look like a user-written `free`.
 
     Declared here, above [Stmt], because [Stmt.var_def] already needs it. *)
 type free_status = NotFree | UserFree | MachineFree
@@ -1470,7 +1470,7 @@ module Stmt = struct
      kinds of free must stay distinguishable here: `free val default: E` written by a
      user is [UserFree] and means the value is deliberately left uninterpreted, whereas
      a whole included file being force-freed is [MachineFree] and must not excuse an
-     implementing module from defining the value (see [Typing.merge_defs]). *)
+     implementing module from defining the value (see [Interfaces.un_free_inherited]). *)
   type var_def = {
     var_decl : var_decl;
     var_init : expr option;
@@ -2862,7 +2862,7 @@ module Module = struct
 
             Only *direct* parents live here; [mod_decl_interfaces] holds the transitive
             closure. Parents are required to have pairwise disjoint ancestor sets -- see
-            [Typing.check_parents_disjoint]. *)
+            [Interfaces.check_parents_disjoint]. *)
     mod_decl_returns : (QualIdent.t * module_inst_arg list) list;
         (** Declared with `:>`: outside the module, its instances expose only its single
             parent interface. *)
@@ -3109,7 +3109,7 @@ module Module = struct
       [set_machine_free] this only *raises* [NotFree] to [MachineFree]: a `free` the user
       wrote inside the unit keeps its [UserFree] status, which matters because the two are
       not interchangeable when a member is inherited into an implementing module (see
-      [Typing.merge_defs]). *)
+      [Interfaces.un_free_inherited]). *)
   let rec set_symbol_unit_free = function
     | ModDef md -> ModDef (set_unit_free md)
     | CallDef cdef ->
