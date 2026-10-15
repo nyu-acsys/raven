@@ -408,24 +408,6 @@ let virtual_formals generic tp =
   in
   virtualize tp
 
-let existing_instance generic qi =
-  let open Rewriter.Syntax in
-  let* found = CandidateTypes.lookup qi in
-  match found with
-  | None -> Rewriter.return None
-  | Some (target, symbol) ->
-      let+ view = Rewriter.find_sealed_view target in
-      begin match view with
-      | Some view when QualIdent.equal view.sealed_functor generic.functor_name ->
-          Some
-            (fun formal -> List.Assoc.find_exn view.sealed_args formal ~equal:Ident.equal)
-      | _
-        when QualIdent.equal (Rewriter.Symbol.orig_qid symbol) generic.functor_name
-             && Rewriter.Symbol.is_instance symbol ->
-          Some (QualIdent.append qi)
-      | _ -> None
-      end
-
 let virtual_arguments generic ~templates evidence =
   let open Rewriter.Syntax in
   let head =
@@ -437,22 +419,13 @@ let virtual_arguments generic ~templates evidence =
     match (template, constr, args) with
     | Type.App (Var template_head, _ :: _, _), Type.Var qi, []
       when QualIdent.equal template_head head ->
-        let candidates =
-          List.filter_map generic.signature.rep_suffixes ~f:(fun suffix ->
-              let path = QualIdent.to_list qi in
-              let n = List.length path - List.length suffix in
-              if n > 0 && List.equal Ident.equal (List.drop path n) suffix then
-                Some (QualIdent.from_list (List.take path n))
-              else None)
+        let* found =
+          ImplicitInstantiation.instance_of_rep ~functor_qual_ident:generic.functor_name
+            ~rep_suffixes:generic.signature.rep_suffixes qi
         in
-        let* paths =
-          Rewriter.List.map candidates ~f:(fun instance ->
-              let+ modules = existing_instance generic instance in
-              Option.map modules ~f:(fun modules -> (instance, modules)))
-        in
-        begin match List.filter_opt paths with
-        | [] -> Rewriter.return (tp, [])
-        | (instance, modules) :: _ ->
+        begin match found with
+        | None -> Rewriter.return (tp, [])
+        | Some (instance, modules) ->
             let+ args =
               Rewriter.List.map generic.signature.formal_reps ~f:(fun (_, formal, rep) ->
                   normalized ~loc:(Type.to_loc tp)

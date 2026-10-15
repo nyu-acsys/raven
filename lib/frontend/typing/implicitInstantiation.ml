@@ -92,7 +92,7 @@ and resolves_to_instantiation_of ~(functor_qual_ident : qual_ident) (qi : qual_i
 and instantiation_formal_module ~(functor_qual_ident : qual_ident) (qi : qual_ident) :
     (ident -> qual_ident) option t =
   let open Rewriter.Syntax in
-  let* resolved = Rewriter.resolve_and_find_opt qi in
+  let* resolved = Rewriter.resolve_and_find_opt ~read_only:true qi in
   match resolved with
   | None -> Rewriter.return None
   | Some (target, symbol) ->
@@ -101,10 +101,33 @@ and instantiation_formal_module ~(functor_qual_ident : qual_ident) (qi : qual_id
       | Some view when QualIdent.equal view.sealed_functor functor_qual_ident ->
           Some
             (fun formal -> List.Assoc.find_exn view.sealed_args formal ~equal:Ident.equal)
-      | _ when QualIdent.equal (Rewriter.Symbol.orig_qid symbol) functor_qual_ident ->
+      | _
+        when QualIdent.equal (Rewriter.Symbol.orig_qid symbol) functor_qual_ident
+             && Rewriter.Symbol.is_instance symbol ->
           Some (QualIdent.append qi)
       | _ -> None
       end
+
+(** The existing instance of [functor_qual_ident] whose rep the type name [qi] names, with
+    the modules that instantiate the functor's formals. The rep is the instance followed
+    by one of [rep_suffixes], depending on how far it has been expanded. *)
+and instance_of_rep ~(functor_qual_ident : qual_ident) ~(rep_suffixes : ident list list)
+    (qi : qual_ident) : (qual_ident * (ident -> qual_ident)) option t =
+  let open Rewriter.Syntax in
+  let path = QualIdent.to_list qi in
+  let candidates =
+    List.filter_map rep_suffixes ~f:(fun suffix ->
+        let n = List.length path - List.length suffix in
+        if n > 0 && List.equal Ident.equal (List.drop path n) suffix then
+          Some (QualIdent.from_list (List.take path n))
+        else None)
+  in
+  Rewriter.List.fold_left candidates ~init:None ~f:(fun found instance ->
+      match found with
+      | Some _ -> Rewriter.return found
+      | None ->
+          let+ modules = instantiation_formal_module ~functor_qual_ident instance in
+          Option.map modules ~f:(fun modules -> (instance, modules)))
 
 (** The existing instance of the functor [m] that [typ] names, if any. *)
 and resolve_existing_instantiation ~(functor_qual_ident : qual_ident) (m : Module.t)
@@ -202,25 +225,12 @@ and unify_type_list ~(loc : location) ~(functor_qual_ident : qual_ident)
           | App (Var qi, [], _) when is_rep_type qi -> (
               match t2 with
               | App (Var qi2, [], _) -> (
-                  (* An instantiation's rep is the instance followed by one of the
-                       rep's suffixes, depending on how far it has been expanded. *)
-                  let qi2 = QualIdent.to_list qi2 in
-                  let candidates =
-                    List.filter_map m_rep_suffixes ~f:(fun suffix ->
-                        let n = List.length qi2 - List.length suffix in
-                        if n > 0 && List.equal Ident.equal (List.drop qi2 n) suffix then
-                          Some (QualIdent.from_list (List.take qi2 n))
-                        else None)
+                  let* instance =
+                    instance_of_rep ~functor_qual_ident ~rep_suffixes:m_rep_suffixes qi2
                   in
-                  let* formal_module =
-                    Rewriter.List.fold_left candidates ~init:None ~f:(fun found inst_qi ->
-                        match found with
-                        | Some _ -> Rewriter.return found
-                        | None -> instantiation_formal_module ~functor_qual_ident inst_qi)
-                  in
-                  match formal_module with
+                  match instance with
                   | None -> Rewriter.return u
-                  | Some formal_module ->
+                  | Some (_, formal_module) ->
                       Rewriter.List.fold_left formal_reps ~init:u
                         ~f:(fun u (_, formal_ident, rep_ident) ->
                           combine u formal_ident
