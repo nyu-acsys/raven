@@ -65,6 +65,11 @@ nearer binding has no applicable signature. A qualified call such as
 `Measures.measure(true)` restricts lookup to that module and still resolves any overloads
 within it. Local and bound variables have a single binding; they are not overloaded.
 
+An import of a single member, like `import IntegerMeasure.measure`, has no effect when a
+declaration in the same module hides it, so Raven warns about it. An import of all members of a
+module, like `import IntegerMeasure._`, is meant to be overridden selectively, so its hidden
+members aren't reported.
+
 ## Symbolic infix functions {#sec:overload-symbols}
 
 A symbolic name such as `+?` can be declared with `func` and used infix:

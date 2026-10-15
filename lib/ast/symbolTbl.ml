@@ -53,12 +53,17 @@ type scope = {
   (* Cache that maps names (partially) qualified names to fully qualified names, relative to this scope. *)
   scope_cache : (int * (QualIdent.t * QualIdent.t * subst) list) QualIdentHashtbl.t;
       [@hash.ignore]
+  (* The imports of a single member that no declaration hides yet, with their locations,
+     names and targets. *)
+  scope_named_imports : (Loc.t * QualIdent.t * QualIdent.t list) IdentHashtbl.t;
+      [@hash.ignore]
 }
 [@@deriving hash]
 
 let get_scope_entries { scope_entries; _ } = scope_entries
 let get_scope_children { scope_children; _ } = scope_children
 let get_scope_cache { scope_cache; _ } = scope_cache
+let get_scope_named_imports { scope_named_imports; _ } = scope_named_imports
 let get_scope_id { scope_id; _ } = scope_id
 
 (*let is_local = function
@@ -152,6 +157,7 @@ let create_scope qual_ident is_abstract is_local =
     scope_entries = Hashtbl.create (module Ident);
     scope_children = Hashtbl.create (module Ident);
     scope_cache = Hashtbl.create (module QualIdent);
+    scope_named_imports = Hashtbl.create (module Ident);
   }
 
 let create () =
@@ -596,6 +602,57 @@ let same_import_kind left right =
       Poly.(Callable.kind left = Callable.kind right)
   | _ -> String.equal (Symbol.kind left) (Symbol.kind right)
 
+(** The symbol that [target] denotes, through aliases. *)
+let identity target tbl =
+  match resolve_candidates ~canonical_aliases:true target tbl with
+  | Some [ (_, identity, _) ] -> identity
+  | _ -> target
+
+(** Whether one of [targets] and one of [declared] denote the same symbol. *)
+let denote_same targets declared tbl =
+  let identities qis = List.map qis ~f:(fun qi -> identity qi tbl) in
+  List.exists (identities declared)
+    ~f:(List.mem (identities targets) ~equal:QualIdent.equal)
+
+let warn_hidden_import ~import_loc ~import_name ~decl_loc =
+  Error.warning import_loc
+    (Printf.sprintf
+       !"This import of %{QualIdent} is hidden by the declaration of %{Ident} on line %d"
+       import_name
+       (QualIdent.unqualify import_name)
+       (Loc.start_line decl_loc))
+
+(** Warns if the import [import_name] of a single member, with [targets], is hidden by a
+    declaration in the current scope, or else records it in case one follows. An import of
+    the declared symbol itself is merely redundant. *)
+let check_named_import ~import_loc ~import_name ~targets tbl =
+  let name = QualIdent.unqualify import_name in
+  let declared =
+    match Hashtbl.find (get_scope_entries tbl.tbl_curr) name with
+    | Some (Symbol qi | Alias (_, qi, _) | Transparent qi) -> [ qi ]
+    | Some (Functions { imported = false; targets }) -> targets
+    | Some (Import _ | Functions { imported = true; _ }) | None -> []
+  in
+  match declared with
+  | [] ->
+      Hashtbl.set
+        (get_scope_named_imports tbl.tbl_curr)
+        ~key:name
+        ~data:(import_loc, import_name, targets)
+  | decl :: _ ->
+      if not (denote_same targets declared tbl) then
+        warn_hidden_import ~import_loc ~import_name ~decl_loc:(QualIdent.to_loc decl)
+
+(** Warns if a recorded import of a single member named [name] into [scope] is hidden by
+    the declaration [symbol_qual_ident] at [decl_loc]. *)
+let check_hidden_by_declaration scope name symbol_qual_ident decl_loc tbl =
+  let named_imports = get_scope_named_imports scope in
+  Option.iter (Hashtbl.find named_imports name)
+    ~f:(fun (import_loc, import_name, targets) ->
+      Hashtbl.remove named_imports name;
+      if not (denote_same targets [ symbol_qual_ident ] tbl) then
+        warn_hidden_import ~import_loc ~import_name ~decl_loc)
+
 let import_binding ~loc ~name ~target ~symbol tbl =
   let function_ = is_function symbol in
   let entries = get_scope_entries tbl.tbl_curr in
@@ -611,17 +668,12 @@ let import_binding ~loc ~name ~target ~symbol tbl =
       in
       set_entry entry
   | Some (Functions { imported = true; targets }) when function_ ->
-      let identity target =
-        match resolve_candidates ~canonical_aliases:true target tbl with
-        | Some [ (_, identity, _) ] -> identity
-        | _ -> target
-      in
       let already_imported =
         List.exists targets ~f:(fun existing -> QualIdent.equal existing target)
         || begin
-          let target_identity = identity target in
+          let target_identity = identity target tbl in
           List.exists targets ~f:(fun existing ->
-              QualIdent.equal (identity existing) target_identity)
+              QualIdent.equal (identity existing tbl) target_identity)
         end
       in
       if not already_imported then
@@ -683,6 +735,10 @@ let import import_instr (tbl : t) : t =
       if List.is_empty generic_members then [ resolve_and_find_exn unresolved tbl ]
       else generic_members
   in
+  if not (import_instr.import_all || import_instr.import_prelude) then
+    check_named_import ~import_loc ~import_name:unresolved
+      ~targets:(List.map imported ~f:(fun (_, target, _, _) -> target))
+      tbl;
   List.iter imported ~f:(fun (_, imported_ident, symbol, _) ->
       match (symbol, import_instr.import_all) with
       | ModDef mdef, true ->
@@ -767,7 +823,10 @@ let add_symbol ?(scope : scope option = None) symbol tbl =
           symbol_qual_ident);*)
     let duplicate (map : entry IdentHashtbl.t) (key : Ident.t) data =
       match Hashtbl.find_exn map key with
-      | Import _ | Functions { imported = true; _ } -> Hashtbl.set map ~key ~data
+      | Import _ | Functions { imported = true; _ } ->
+          check_hidden_by_declaration appropriate_scope key symbol_qual_ident symbol_loc
+            tbl;
+          Hashtbl.set map ~key ~data
       | _ -> Error.redeclaration_error symbol_loc (Ident.to_string key)
     in
 
@@ -777,7 +836,11 @@ let add_symbol ?(scope : scope option = None) symbol tbl =
         let entries = get_scope_entries appropriate_scope in
         let targets =
           match Hashtbl.find entries source with
-          | None | Some (Import _) | Some (Functions { imported = true; _ }) -> []
+          | None -> []
+          | Some (Import _) | Some (Functions { imported = true; _ }) ->
+              check_hidden_by_declaration appropriate_scope source symbol_qual_ident
+                symbol_loc tbl;
+              []
           | Some (Functions { imported = false; targets }) -> targets
           | Some _ -> Error.redeclaration_error symbol_loc (Ident.to_string source)
         in

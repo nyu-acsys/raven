@@ -2883,6 +2883,7 @@ module Module = struct
   type import_directive = {
     import_name : qual_ident;
     import_all : bool; (* indicate whether all members of the module should be imported *)
+    import_prelude : bool;  (** an import of the prelude, added by the verifier *)
     import_loc : location;
   }
 

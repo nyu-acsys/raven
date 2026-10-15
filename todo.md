@@ -17,7 +17,7 @@
     `l: Library.List[E]` fails with "Unknown identifier hd" unless `hd` is in scope.
 
 30 jul, 2026:
-- [ ] Consider warning when an explicitly named import (`import M.x`) is
+- [x] Consider warning when an explicitly named import (`import M.x`) is
     hidden by a declaration of `x` in the importing module. Local declarations
     intentionally take precedence regardless of declaration order, hiding the
     entire imported overload group. Keep this behavior; exclude wildcard

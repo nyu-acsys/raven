@@ -18,6 +18,7 @@ All notable changes to this project will be documented in this file.
 - Add `inline func` for SMT macros; ignored on recursive functions.
 - Indexing syntax for `Library.Array` reads, writes and locations, including `own` and atomic operations.
 - Bare types as arguments of an interface a module implements, as in `module M : I[Int]`.
+- Warn when a declaration hides an import of a single member into the same module.
 - Indexed assignment to local maps, including nested updates such as `m[i][j] := v`.
 - Extension hooks `claim_expr`, `claim_basic_stmt` and `claim_location` for handling core syntax rejected by core typing.
 - Add `Library.Array[E]`, with indexed heap cells, an ownership predicate and allocation.

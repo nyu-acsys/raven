@@ -427,7 +427,7 @@ module_param:
 
 import_dir:
 | IMPORT; m = mod_ident; DOT; name = mixfix_name {
-  { import_name = QualIdent.append m name; import_all = false;
+  { import_name = QualIdent.append m name; import_all = false; import_prelude = false;
     import_loc = Loc.make $symbolstartpos $endpos }
 }
 | IMPORT; id = qual_ident {
@@ -438,9 +438,11 @@ import_dir:
   let import_name =
     if import_all then QualIdent.pop ident else ident
   in
-  { import_name; import_all; import_loc = Loc.make $symbolstartpos $endpos }
+  { import_name; import_all; import_prelude = false;
+    import_loc = Loc.make $symbolstartpos $endpos }
 }
-| IMPORT; id = mod_ident { { import_name = id; import_all = false; import_loc = Loc.make $symbolstartpos $endpos } }
+| IMPORT; id = mod_ident { { import_name = id; import_all = false; import_prelude = false;
+                              import_loc = Loc.make $symbolstartpos $endpos } }
     
 type_decl:
 | m = type_mod; TYPE; id = MODIDENT {

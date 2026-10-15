@@ -37,7 +37,12 @@ let rec register symbol tbl =
 
 let import ?(all = true) name tbl =
   SymbolTbl.import
-    { Module.import_name = qi name; import_all = all; import_loc = Util.Loc.dummy }
+    {
+      Module.import_name = qi name;
+      import_all = all;
+      import_prelude = false;
+      import_loc = Util.Loc.dummy;
+    }
     tbl
 
 let candidates name tbl = SymbolTbl.resolve_and_find_candidates (qi name) tbl

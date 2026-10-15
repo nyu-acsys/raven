@@ -1,0 +1,25 @@
+// An explicitly named import hidden by a declaration of the same name is reported,
+// whether the declaration comes before or after it. Wildcard imports and imports of
+// the declared symbol itself are not.
+module A {
+  func f(x: Int) returns (r: Int) { x }
+  func g(x: Int) returns (r: Int) { x }
+  func h(x: Int) returns (r: Int) { x }
+}
+
+module B {
+  import A.f
+  import A._
+
+  func f(x: Bool) returns (r: Bool) { x }
+  func g(x: Bool) returns (r: Bool) { x }
+  func h(x: Bool) returns (r: Bool) { x }
+
+  import A.h
+}
+
+module C[E: Library.Type] {
+  module O = Library.Option[E]
+
+  import O.E
+}

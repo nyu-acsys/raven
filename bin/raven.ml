@@ -319,6 +319,7 @@ let parse_and_check_all ~extension_mode config file_names =
                 (Predefs.lib_ident
                 :: List.map name ~f:(fun name -> Ident.make Loc.dummy name 0));
             import_all = false;
+            import_prelude = true;
             import_loc = Loc.dummy;
           }
       in
