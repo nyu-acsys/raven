@@ -1,0 +1,5 @@
+// Types of inferred instances appear in errors as written, not by the names of the
+// modules generated for them.
+proc p(s: Seq[Seq[Int]]) {
+  var t: Seq[Seq[Bool]] := s;
+}

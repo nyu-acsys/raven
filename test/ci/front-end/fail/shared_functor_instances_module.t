@@ -3,7 +3,7 @@
   15 |   assert GM.identity(s) == s;
                             ^
   Type Error: Expected an expression of type
-    GenInst$$Library_Seq$$MyInt.T
+    Library.Seq[MyInt]
   but found an expression of type
-    GenInst$$Library_Seq$$TypeMod$$Library_Type$$Int.T.
+    Library.Seq[Int].
   [1]

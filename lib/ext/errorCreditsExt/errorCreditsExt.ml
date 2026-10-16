@@ -417,7 +417,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
             | _typ ->
                 Error.type_error (Expr.to_loc ls_expr)
                   ("Expected a integer list type for ECList; found: "
-                 ^ Type.to_string _typ)
+                 ^ Type.to_string_user _typ)
           in
 
           Rewriter.return

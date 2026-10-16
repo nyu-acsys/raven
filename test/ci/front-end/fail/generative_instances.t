@@ -7,5 +7,5 @@
   but found an expression of type
     A.U.
   
-  B.U and A.U come from two separate instantiations of F with the same arguments. Module instantiation is generative: each instantiation site produces its own distinct type, even when the arguments are identical. Bind a single instantiation explicitly and reuse it from both places, e.g. `module Shared = F[...]`.
+  B.U and A.U come from two separately declared instances of F with the same arguments. A declared instance has its own types, even when its arguments are those of another instance. Declare the instance once and use it in both places.
   [1]

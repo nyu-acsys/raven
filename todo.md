@@ -1,7 +1,7 @@
 15 oct, 2026:
 - [x] Generative functor instances with type arguments: in `G[Int]`,
     `Seq[E]` does not match `Seq[Int]` (independent of interfaces).
-- [ ] Investigate expressing error messages only in source-level terms: type errors
+- [x] Investigate expressing error messages only in source-level terms: type errors
     currently expose internally generated modules, e.g. `GI.GenInst$$Seq$$G_E_T.T`
     instead of `Seq[E]`/`Seq[Int]`, and `TypeMod$$...` rep modules.
 - [x] Support `==` on `Seq`.
@@ -19,6 +19,8 @@
     `G[E]` taking a `Box[E]`, `G.first(b)` for `b: Box[Int]` fails with
     "Cannot unify type G.GenInst$$Box$$G_E.S with type ...", while an explicit
     `module GI = G[Int]` works.
+- [ ] Don't record editor annotations for generated modules: hovering over `Seq[Int]`
+    shows the inherited member `free val default: T` of the module that wraps `Int`.
 
 30 jul, 2026:
 - [x] Consider warning when an explicitly named import (`import M.x`) is

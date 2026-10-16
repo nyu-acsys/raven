@@ -9,10 +9,16 @@ type location = Loc.t
 
 module Ident = struct
   module T = struct
+    type display = { display_text : string; display_rep : string option }
+    [@@deriving sexp]
+    (** How a generated module is written in the program: [display_text], such as
+        `Library.Seq[Int]`, which as a type stands for its rep type [display_rep]. *)
+
     type t = {
       ident_name : string;
       ident_num : int;
       ident_loc : Loc.t; [@compare.ignore] [@hash.ignore]
+      ident_display : display option; [@compare.ignore] [@hash.ignore]
     }
     [@@deriving compare, hash, sexp]
 
@@ -51,12 +57,16 @@ module Ident = struct
   let make loc name num =
     let name = sanitized_name name in
 
-    { ident_name = name; ident_num = num; ident_loc = loc }
+    { ident_name = name; ident_num = num; ident_loc = loc; ident_display = None }
 
   let name id = id.ident_name
 
   (** The name as written in the program, without the index that distinguishes it. *)
-  let to_string_user = name
+  let to_string_user id =
+    match id.ident_display with Some d -> d.display_text | None -> id.ident_name
+
+  let with_display ~text ?rep id =
+    { id with ident_display = Some { display_text = text; display_rep = rep } }
 
   let used_names = Hashtbl.create (module String)
 
@@ -127,9 +137,24 @@ module QualIdent = struct
   let pr_list ppf qids = Print.pr_list_comma pr ppf qids
   let to_string qid = Print.string_of_format pr qid
 
-  (** The name as written in the program, without the indices of its parts. *)
+  (** The name as written in the program, without the indices of its parts. A generated
+      module stands for the path up to it, and for its rep type when that follows. *)
   let to_string_user qid =
-    String.concat ~sep:"." (List.map (shown_path qid) ~f:Ident.to_string_user)
+    let shown = shown_path qid in
+    (* Walks [shown] backwards; [after] is what follows the current part. *)
+    let rec from_display after = function
+      | [] -> after
+      | ({ Ident.ident_display = Some d; _ } as id) :: _ ->
+          begin match after with
+          | [ member ]
+            when Option.equal String.equal d.display_rep (Some (Ident.name member)) ->
+              [ id ]
+          | _ -> id :: after
+          end
+      | id :: before -> from_display (id :: after) before
+    in
+    let shown = from_display [] (List.rev shown) in
+    String.concat ~sep:"." (List.map shown ~f:Ident.to_string_user)
 
   let to_ident qid =
     match qid.qual_path with
@@ -317,7 +342,8 @@ module Type = struct
   let atomic_token_type_string = "AtomicToken"
   let prod_type_string = "Unit"
 
-  let make_to_name ~type_ext_to_name = function
+  let make_to_name ?(qual_ident_to_string = QualIdent.to_string) ~type_ext_to_name =
+    function
     | Int -> int_type_string
     | Real -> real_type_string
     | Num -> num_type_string
@@ -329,8 +355,8 @@ module Type = struct
     | FinSet -> finset_type_string
     | Fld -> fld_type_string
     | Perm -> perm_type_string
-    | Data (id, _) -> QualIdent.to_string id
-    | Var id -> QualIdent.to_string id
+    | Data (id, _) -> qual_ident_to_string id
+    | Var id -> qual_ident_to_string id
     | AtomicToken id -> Printf.sprintf !"%s<%{QualIdent}>" atomic_token_type_string id
     | Prod -> prod_type_string
     | TypeExt type_ext -> type_ext_to_name type_ext
@@ -341,8 +367,8 @@ module Type = struct
       [TypeExt] leaves. [make_printers ~type_ext_to_name:default_type_ext_to_name] below
       is what every caller gets by default; an extension-aware set is built the same way
       from the extension's own [type_ext_to_name]. *)
-  let make_printers ~type_ext_to_name =
-    let to_name = make_to_name ~type_ext_to_name in
+  let make_printers_with ~qual_ident_to_string ~type_ext_to_name =
+    let to_name = make_to_name ~qual_ident_to_string ~type_ext_to_name in
     let rec pr_constr ppf t =
       match t with
       | Int | Real | Num | Bool | Any | Bot | Ref | Perm | Var _ | AtomicToken _ | Map
@@ -393,6 +419,9 @@ module Type = struct
       pr_list,
       to_string )
 
+  let make_printers ~type_ext_to_name =
+    make_printers_with ~qual_ident_to_string:QualIdent.to_string ~type_ext_to_name
+
   let ( pr_constr,
         pr,
         pr_var_decl,
@@ -404,6 +433,14 @@ module Type = struct
         pr_list,
         to_string ) =
     make_printers ~type_ext_to_name:default_type_ext_to_name
+
+  (** [t] as written in the program, with generated modules shown in their source form. *)
+  let to_string_user t =
+    let _, _, _, _, _, _, _, _, _, to_string =
+      make_printers_with ~qual_ident_to_string:QualIdent.to_string_user
+        ~type_ext_to_name:default_type_ext_to_name
+    in
+    to_string t
 
   (** Constructors *)
 

@@ -83,7 +83,7 @@ let rec coerce_expanded expr target =
       | _ ->
           Error.internal_error loc
             (Printf.sprintf
-               !"Unsupported value coercion from %{Type} to %{Type}"
+               !"Unsupported value coercion from %{Type#user} to %{Type#user}"
                source target)
 
 let coerce expr target =

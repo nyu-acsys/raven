@@ -10,9 +10,9 @@ let type_mismatch_error loc exp_ty fnd_ty =
   Error.type_error loc
     (Printf.sprintf
        !"Expected an expression of type\n\
-        \  %{Type}\n\
+        \  %{Type#user}\n\
          but found an expression of type\n\
-        \  %{Type}"
+        \  %{Type#user}"
        exp_ty fnd_ty)
 
 (** Why two different type names may stand for the same type: they name the same module
@@ -35,12 +35,11 @@ let module_identity_explanation = function
         expected found owner
   | Same_instantiation { expected; found; owner } ->
       Printf.sprintf
-        !"%{QualIdent#user} and %{QualIdent#user} come from two separate instantiations \
-          of %{QualIdent#user} with the same arguments. Module instantiation is \
-          generative: each instantiation site produces its own distinct type, even when \
-          the arguments are identical. Bind a single instantiation explicitly and reuse \
-          it from both places, e.g. `module Shared = %{QualIdent#user}[...]`"
-        expected found owner owner
+        !"%{QualIdent#user} and %{QualIdent#user} come from two separately declared \
+          instances of %{QualIdent#user} with the same arguments. A declared instance \
+          has its own types, even when its arguments are those of another instance. \
+          Declare the instance once and use it in both places"
+        expected found owner
 
 (** Like [type_mismatch_error], with the explanation of [identity], if any, appended. *)
 let type_mismatch_error_diagnosed loc exp_ty fnd_ty identity =
@@ -50,9 +49,9 @@ let type_mismatch_error_diagnosed loc exp_ty fnd_ty identity =
       Error.type_error loc
         (Printf.sprintf
            !"Expected an expression of type\n\
-            \  %{Type}\n\
+            \  %{Type#user}\n\
              but found an expression of type\n\
-            \  %{Type}.\n\n\
+            \  %{Type#user}.\n\n\
              %s"
            exp_ty fnd_ty
            (module_identity_explanation identity))
@@ -153,7 +152,7 @@ let expected_data_constructor_error loc = Error.type_error loc "Expected data co
 let tuple_index_error loc idx typ components =
   Error.type_error loc
     (Printf.sprintf
-       !"Tuple index %d is out of bounds; %{Type} has %d component(s)"
+       !"Tuple index %d is out of bounds; %{Type#user} has %d component(s)"
        idx typ components)
 
 let location_field_mismatch_error loc callable declared_field field =
@@ -182,7 +181,8 @@ let not_callable_error loc ident =
     (Printf.sprintf !"Identifier %{QualIdent#user} cannot be called" ident)
 
 let expected_product_type_error loc typ =
-  Error.type_error loc (Printf.sprintf !"Expected product type, but found %{Type}" typ)
+  Error.type_error loc
+    (Printf.sprintf !"Expected product type, but found %{Type#user}" typ)
 
 let field_read_context_error loc field =
   Error.type_error loc
@@ -360,12 +360,12 @@ let conflicting_inferred_types_error loc formal_ident functor_qual_ident prior t
   Error.type_error loc
     (Printf.sprintf
        !"Cannot infer a single type for parameter %{Ident#user} of %{QualIdent#user}: \
-         found both %{Type} and %{Type}"
+         found both %{Type#user} and %{Type#user}"
        formal_ident functor_qual_ident prior t2)
 
 let unify_types_error loc t1 t2 =
   Error.type_error loc
-    (Printf.sprintf !"Cannot unify type %{Type} with type %{Type}" t1 t2)
+    (Printf.sprintf !"Cannot unify type %{Type#user} with type %{Type#user}" t1 t2)
 
 let field_argument_from_arg_error loc formal_ident functor_qual_ident =
   Error.type_error loc
@@ -497,7 +497,8 @@ let data_type_without_constructors_error loc =
 
 let duplicate_constructor_error loc tp_expr =
   Error.error loc
-  @@ Printf.sprintf "Duplicate constructor found in data type %s" (Type.to_string tp_expr)
+  @@ Printf.sprintf "Duplicate constructor found in data type %s"
+       (Type.to_string_user tp_expr)
 
 let data_type_arguments_error loc = Error.error loc "Data types don't take arguments"
 
@@ -606,7 +607,8 @@ let redeclared_as_non_ghost_error loc kind ident interface_ident =
 let interface_type_mismatch_error loc kind ident typ interface_ident =
   Error.type_error loc
     (Printf.sprintf
-       !"%s %{Ident#user} must have type %{Type} according to interface %{QualIdent#user}"
+       !"%s %{Ident#user} must have type %{Type#user} according to interface \
+         %{QualIdent#user}"
        (String.capitalize kind) ident typ interface_ident)
 
 let redefined_error loc kind ident interface_ident =
@@ -681,8 +683,8 @@ let module_parameters_error loc kind ident =
 let manifest_field_type_error loc ident target target_type interface_ident orig_type =
   Error.type_error loc
     (Printf.sprintf
-       !"Field %{Ident#user} stands for %{QualIdent#user}, of type %{Type}, but \
-         interface %{QualIdent#user} declares it with type %{Type}"
+       !"Field %{Ident#user} stands for %{QualIdent#user}, of type %{Type#user}, but \
+         interface %{QualIdent#user} declares it with type %{Type#user}"
        ident target target_type interface_ident orig_type)
 
 let interface_field_ghost_error loc ident ~ghost interface_ident ~orig_ghost =
@@ -738,7 +740,7 @@ let shared_ancestor_error loc first second ancestor =
 let overloaded_interface_type_error loc typ =
   Error.type_error loc
     (Printf.sprintf
-       !"Cannot determine type %{Type} while matching overloaded interface function"
+       !"Cannot determine type %{Type#user} while matching overloaded interface function"
        typ)
 
 let no_overload_implementation_error loc source parent =

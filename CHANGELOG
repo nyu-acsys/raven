@@ -68,7 +68,7 @@ All notable changes to this project will be documented in this file.
 - Infer functor arguments when the rep type aliases a nested module's type.
 - Use expected element types for set literals, including nested empty sets.
 - Fix equality between finite and general sets with either operand order.
-- Show identifiers in type errors as written, without internal indices such as `f^2`.
+- Show identifiers and types in type errors as written, such as `Library.Seq[Int]`, without internal indices or generated module names.
 - Fix `--extension auto` misclassifying shared extension syntax as a mix of prophecy and error-credit extensions.
 - Reject cyclic witness computations in existential resource assertions.
 - Avoid repeated substitution in inhales and substitute existential variables in quantifier triggers.

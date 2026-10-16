@@ -336,7 +336,7 @@ module ProphecyExt (Cont : Ext) = struct
           | tp ->
               Error.type_error loc
                 ("Proph.proph(...) expects its first argument to be a Proph[...] value; \
-                  found: " ^ Type.to_string tp)
+                  found: " ^ Type.to_string_user tp)
         in
 
         let* expected_value_typ =
@@ -450,7 +450,7 @@ module ProphecyExt (Cont : Ext) = struct
           | tp ->
               Error.type_error stmt_loc
                 ("Proph.resolve(...) expects its first argument to be a Proph[...] \
-                  value; found: " ^ Type.to_string tp)
+                  value; found: " ^ Type.to_string_user tp)
         in
 
         let* resolve_value =

@@ -188,6 +188,11 @@ let find_highest_valid_scope_type_expr loc (tp : type_expr) : qual_ident option 
 
 let tp_mod_ident_prefix = "TypeMod$$"
 
+(** [id], named for a module wrapping [tp], shown as [tp], which it stands for as a type
+    through its rep type [rep]. *)
+let with_type_display ~(rep : ident) (tp : AstDef.type_expr) (id : ident) : ident =
+  Ident.with_display ~text:(AstDef.Type.to_string_user tp) ~rep:(Ident.name rep) id
+
 (** Takes a type expression `tp` and introduces a module that implements Library.Type
     whose rep type T is `tp`. ~f here is expected to be Typing.check_symbol, but it's not
     hardcoded to prevent recursive dependencies *)
@@ -199,6 +204,7 @@ let intros_type_module ~(loc : location) ?scope
     let mod_name =
       let mod_name_string = tp_mod_ident_prefix ^ AstDef.Type.to_string tp in
       Ident.fresh loc (serialize mod_name_string)
+      |> with_type_display ~rep:Predefs.lib_type_rep_type_ident tp
     in
 
     {
@@ -910,6 +916,7 @@ let intros_rep_module ~(loc : location) ?scope
   let mod_decl =
     let mod_name =
       Ident.fresh loc (serialize (rep_module_name_string ~interface_qual_ident tp))
+      |> with_type_display ~rep:rep_ident tp
     in
     {
       AstDef.Module.mod_decl_name = mod_name;
@@ -1126,7 +1133,8 @@ let get_or_intros_rep_module ~(loc : location)
   | None -> (
       let canonical_qi =
         QualIdent.append reference_scope
-          (Ident.make loc (serialize (rep_module_name_string ~interface_qual_ident tp)) 0)
+          (Ident.make loc (serialize (rep_module_name_string ~interface_qual_ident tp)) 0
+          |> with_type_display ~rep:rep_ident tp)
       in
       let* resolve_result = Rewriter.resolve_opt canonical_qi in
       match resolve_result with
@@ -1224,6 +1232,12 @@ let instantiate_functor_at_modules ~(loc : location) ~(functor_qual_ident : qual
   let* insert_scope, reference_scope =
     find_insertion_scope_for_symbols (Set.of_list (module QualIdent) arg_module_qis)
   in
+  let* functor_rep =
+    let+ symbol = Rewriter.find functor_qual_ident in
+    match Rewriter.Symbol.orig_symbol symbol with
+    | AstDef.Module.ModDef m -> Base.Option.map m.mod_decl.mod_decl_rep ~f:Ident.name
+    | _ -> None
+  in
   let inst_mod_ident =
     let mod_name_string =
       inst_mod_ident_prefix
@@ -1231,7 +1245,14 @@ let instantiate_functor_at_modules ~(loc : location) ~(functor_qual_ident : qual
       ^ "$$"
       ^ String.concat ~sep:"," (Base.List.map arg_module_qis ~f:QualIdent.to_string)
     in
+    let text =
+      QualIdent.to_string_user functor_qual_ident
+      ^ "["
+      ^ String.concat ~sep:", " (Base.List.map arg_module_qis ~f:QualIdent.to_string_user)
+      ^ "]"
+    in
     Ident.make loc (serialize mod_name_string) 0
+    |> Ident.with_display ~text ?rep:functor_rep
   in
   let inst_qi = QualIdent.append reference_scope inst_mod_ident in
   let* resolve_result = Rewriter.resolve_opt inst_qi in
