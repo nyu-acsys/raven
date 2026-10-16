@@ -428,9 +428,11 @@ let rec check (m : Module.t) : Module.t t =
   let merged_symbols =
     List.map merged_symbols ~f:(Interfaces.inherit_contract symbols_to_check)
   in
+  (* A module the verifier generated, which has a display name, was not written. *)
   let () =
-    EditorAnnotations.record_inherited_members ~module_ident:mod_qual_ident
-      ~module_loc:m.mod_decl.mod_decl_loc inherited_members
+    if Option.is_none m.mod_decl.mod_decl_name.ident_display then
+      EditorAnnotations.record_inherited_members ~module_ident:mod_qual_ident
+        ~module_loc:m.mod_decl.mod_decl_loc inherited_members
   in
   let mod_def = mod_def_formals @ merged_symbols in
   let _ = Logs.info (fun mm -> mm !"Merged in %{Ident}" (Symbol.to_name (ModDef m))) in

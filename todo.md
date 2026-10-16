@@ -19,7 +19,7 @@
     `G[E]` taking a `Box[E]`, `G.first(b)` for `b: Box[Int]` fails with
     "Cannot unify type G.GenInst$$Box$$G_E.S with type ...", while an explicit
     `module GI = G[Int]` works.
-- [ ] Don't record editor annotations for generated modules: hovering over `Seq[Int]`
+- [x] Don't record editor annotations for generated modules: hovering over `Seq[Int]`
     shows the inherited member `free val default: T` of the module that wraps `Int`.
 
 30 jul, 2026:

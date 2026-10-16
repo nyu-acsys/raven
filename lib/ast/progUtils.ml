@@ -1185,6 +1185,7 @@ let get_or_intros_field_module ~(loc : location) ~(insert_scope : qual_ident)
   let open Rewriter.Syntax in
   let mod_ident =
     Ident.make loc (serialize (field_module_name_string ~interface_qual_ident field_qi)) 0
+    |> Ident.with_display ~text:(QualIdent.to_string_user field_qi)
   in
   let canonical_qi = QualIdent.append reference_scope mod_ident in
   let* resolve_result = Rewriter.resolve_opt canonical_qi in

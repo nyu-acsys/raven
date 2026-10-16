@@ -1,0 +1,6 @@
+module MyInt : Library.Type {
+  rep type T = Int
+}
+
+proc p(s: Seq[Int], x: MyInt) {
+}
