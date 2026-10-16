@@ -1,0 +1,42 @@
+// DELIBERATELY BROKEN: `writer` calls the atomically specified `p` while
+// `dInv` is open. Folding `dInv` after the call succeeds, but `p` keeps its
+// ordinary precondition `own(x.d, 0, 1.0)` for its whole run, so `dInv` could
+// not be closed if `p` aborted. Raven rejects the call with:
+//
+//   [Verification Error] An invariant open around this atomic call may not be
+//   closable if the call aborts
+//
+// with the `unfold` of `dInv` as a Related Location.
+
+import Library.IntAtomics._
+
+field d: Int
+field c: Int
+
+// x.d is always 0.
+inv dInv(x: Ref) {
+  exists n: Int :: own(x.d, 0, 1.0) && own(x.c, n, 1.0)
+}
+
+// Increments x.c atomically. Before that, it writes 1 to x.d and restores 0.
+proc p(x: Ref, implicit ghost n: Int)
+  requires own(x.d, 0, 1.0)
+  ensures own(x.d, 0, 1.0)
+  atomic requires own(x.c, n, 1.0)
+  atomic ensures own(x.c, n + 1, 1.0)
+{
+  ghost var phi := bindAU();
+  x.d := 1;
+  x.d := 0;
+  ghost var n0: Int := openAU(phi);
+  var old_val: Int := faa(x.c, 1);
+  commitAU(phi, ());
+}
+
+proc writer(x: Ref)
+  requires dInv(x)
+{
+  unfold dInv(x);
+  p(x);
+  fold dInv(x);
+}

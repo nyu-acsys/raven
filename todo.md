@@ -15,6 +15,10 @@
     second `try ... with` in `ExprTyping.set_checked_type`.
 - [x] Look up unqualified destructors in the receiver's data type: `l.hd` on
     `l: Library.List[E]` fails with "Unknown identifier hd" unless `hd` is in scope.
+- [ ] Infer a functor argument that occurs only inside another instance: with
+    `G[E]` taking a `Box[E]`, `G.first(b)` for `b: Box[Int]` fails with
+    "Cannot unify type G.GenInst$$Box$$G_E.S with type ...", while an explicit
+    `module GI = G[Int]` works.
 
 30 jul, 2026:
 - [x] Consider warning when an explicitly named import (`import M.x`) is

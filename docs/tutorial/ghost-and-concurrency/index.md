@@ -88,10 +88,10 @@ before any SMT solving even starts:
 
 **Masks, in a nutshell.** How does Raven know, at any given point in a proof, which invariants
 can legally be opened? It tracks a *mask*, the set of invariant instances available to unfold at
-that specific point. You never write a mask by hand in anything this tutorial covers. Raven
-infers a callable's mask automatically from the invariants its `requires` clause mentions,
-together with the invariants mentioned inside those invariants' own definitions. The mask
-catches two concrete mistakes, both purely structural (no solver call is needed to catch either):
+that specific point. Usually you don't write a mask by hand: Raven infers a callable's mask
+automatically from the invariants its `requires` clause mentions, together with the invariants
+mentioned inside those invariants' own definitions. The mask catches two concrete mistakes, both
+purely structural (no solver call is needed to catch either):
 
 - **Re-entrant unfolding.** Unfolding the same instance twice without folding in between gets
   `[Verification Error] Invariant evenCount is already open`. This can be a literal

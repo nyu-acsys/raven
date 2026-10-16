@@ -223,6 +223,50 @@ a contract like the one above, and more generally how any procedure stands in fo
 target machine does indivisibly. {{ref sec:atomic-block-standalone}} covers it. Strict mode
 flags this assumption; see {{ref sec:strict-mode}} for how to enable it in VS Code.
 
+## Calling an atomic procedure during invariant accesses {#sec:atomic-call-during-invariant-access}
+
+Since a client can treat an atomically specified call as one step, it can make the call while
+an invariant is open, just as it would use `cas`: unfold the invariant, let the call take its
+atomic precondition from the invariant's contents, and fold the invariant again from the atomic
+postcondition.
+
+The call is one step only logically, though. While the callee runs its other steps, the
+invariant is in fact closed, and other threads can open it. The callee may also abort and retry,
+as `acquire` does above, which hands its atomic precondition back. So the invariant has to be
+closable not only after the call commits, but also if it aborts: from what the caller still
+holds, together with the atomic precondition, but without what the ordinary precondition handed
+to the callee for the whole call. Raven checks this for the invariants open around the call.
+
+[`broken/abort_unclosable.rav`](./broken/abort_unclosable.rav) shows a call that this check
+rejects, although folding the invariant after the call succeeds:
+
+```raven
+inv dInv(x: Ref) {
+  exists n: Int :: own(x.d, 0, 1.0) && own(x.c, n, 1.0)
+}
+
+proc p(x: Ref, implicit ghost n: Int)
+  requires own(x.d, 0, 1.0)
+  ensures own(x.d, 0, 1.0)
+  atomic requires own(x.c, n, 1.0)
+  atomic ensures own(x.c, n + 1, 1.0)
+
+proc writer(x: Ref)
+  requires dInv(x)
+{
+  unfold dInv(x);
+  p(x);
+  fold dInv(x);
+}
+```
+
+`p` holds `own(x.d, 0, 1.0)` for its whole run, and its body writes `1` to `x.d` before its
+linearization point, while `dInv` is closed and other threads rely on `x.d` being `0`. Raven
+reports `An invariant open around this atomic call may not be closable if the call aborts` at
+the call, with the `unfold` of `dInv` as a Related Location. To fix such a call, give it the
+resources of its ordinary precondition from outside the invariant, or move them into its atomic
+precondition, so that the callee uses them only at its linearization point.
+
 ## Debugging Corner
 
 The atomicity-analysis messages from Part 4 reappear here almost verbatim, now guarding
@@ -233,6 +277,10 @@ for open atomic update phi`. The last one is reported at the closing brace with 
 opened the token as a Related Location, exactly like Part 4's never-folded invariant. The main
 thing is to recognize these as *the same family* of errors as in Part 4. There's nothing new to
 learn here, just new statements to which the same one-step discipline applies.
+
+One message is specific to calling an atomically specified procedure while an invariant is open:
+`An invariant open around this atomic call may not be closable if the call aborts`, explained in
+{{ref sec:atomic-call-during-invariant-access}}.
 
 ## What's next
 

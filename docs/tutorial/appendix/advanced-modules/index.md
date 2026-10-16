@@ -62,6 +62,10 @@ shape, write an explicit instantiation.
 Repeated inferred instantiations with the same arguments share a canonical instance. Thus two
 calls to `Box.mk(3)` produce values of the same type, while `Box.mk(true)` uses a different
 instance. The type notation `Box[Int]` shares the canonical instance used by type-based inference.
+This extends to instances written inside a functor. If a functor `G[E: Library.Type]` uses
+`Box[E]`, then in an instance `module GI = G[Int]` that is the same instance as `Box[Int]`, so a
+value of type `Box[Int]` can be passed where a member of `GI` expects a `Box[E]`, as in
+[`inference.rav`](./inference.rav).
 
 Separately declared instances can introduce distinct nominal types. For example, `BoxTag.S`
 and the canonical `Box[Int]` are distinct, despite both using `Int`. An annotation does not
@@ -86,6 +90,24 @@ have to define it and simply inherits it. A module that wants a specific value c
 `val default: T = ...` itself. Leaving it
 undefined is sound because every Raven type is backed by a non-empty SMT sort, so some value of
 `T` always exists.
+
+## Types as interface arguments {#sec:module-type-arguments}
+
+A module can implement an instance of a parameterized interface for a particular type. The
+argument can be the type itself, as in [`type_arguments.rav`](./type_arguments.rav):
+
+```raven
+module CountingStack : Stack[Int] {
+  rep type T = Int
+  val empty: T = 0
+  func push(s: T, e: Int) returns (ret: T) { s + 1 }
+  func size(s: T) returns (ret: Int) { s }
+}
+```
+
+`Stack`'s parameter `E` is constrained by `Library.Type`, and Raven supplies the module that
+implements `Library.Type` for `Int`, the same one that `Box[Int]` uses. Inside the interface's
+members, `E` then stands for `Int`, which is why `push` takes an `Int`.
 
 ## Sealing modules and individual instances {#sec:module-sealed-views}
 

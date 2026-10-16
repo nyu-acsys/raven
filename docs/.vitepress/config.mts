@@ -65,6 +65,7 @@ const SIDEBAR_LABELS: Record<string, string> = {
   'sec:au-mechanics': 'The mechanics: bindAU/openAU/abortAU/commitAU',
   'sec:token-direct': 'Threading a token through a retry loop directly',
   'sec:composing-atomic-contracts': 'Composing atomic contracts',
+  'sec:atomic-call-during-invariant-access': 'Atomic calls during invariant accesses',
 
   'sec:the-isc': 'The ISC',
   'sec:addressing': 'Addressing',
@@ -105,6 +106,7 @@ const SIDEBAR_LABELS: Record<string, string> = {
   'sec:module-inference-details': 'Eligibility and inference',
   'sec:module-instance-identity': 'Instance identity',
   'sec:module-default-values': 'Generic default values',
+  'sec:module-type-arguments': 'Types as interface arguments',
   'sec:module-sealed-views': 'Sealing modules and individual instances',
   'sec:overload-resolution': 'Choosing a definition',
   'sec:overload-imports': 'Imports and shadowing',
@@ -115,6 +117,7 @@ const SIDEBAR_LABELS: Record<string, string> = {
   'sec:ackermann-termination': "Ackermann's lexicographic measure",
   'sec:well-founded-order': 'Defining a custom order',
   'sec:ghost-termination': 'Termination of ghost code',
+  'sec:predicate-termination-measure': 'Structural predicate measures',
   'sec:trust-boundary': 'Where the trust boundary is',
   'sec:when-extension-api': 'When you need the Extension API',
 

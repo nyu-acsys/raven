@@ -22,3 +22,14 @@ lemma expected_instances() {
   val explicit := BoxTag.mkTag();
   assert named == explicit;
 }
+
+module G[E: Library.Type] {
+  func flag(b: Box[E]) returns (res: Bool) { Box.getTag(b) }
+}
+
+module GI = G[Int]
+
+lemma shared_instance() {
+  val b: Box[Int] := Box.mkTag();
+  assert GI.flag(b);
+}

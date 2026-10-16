@@ -1,0 +1,22 @@
+interface Stack[E: Library.Type] : Library.Type {
+  rep type T
+  val empty: T
+  func push(s: T, e: E) returns (ret: T)
+  func size(s: T) returns (ret: Int)
+
+  auto lemma size_push()
+    ensures forall s: T, e: E :: {size(push(s, e))} size(push(s, e)) == size(s) + 1
+}
+
+// A stack of integers that keeps only their number.
+module CountingStack : Stack[Int] {
+  rep type T = Int
+  val empty: T = 0
+  func push(s: T, e: Int) returns (ret: T) { s + 1 }
+  func size(s: T) returns (ret: Int) { s }
+}
+
+lemma two_pushes() {
+  val s := CountingStack.push(CountingStack.push(CountingStack.empty, 1), 2);
+  assert CountingStack.size(s) == 2;
+}
