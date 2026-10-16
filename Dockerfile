@@ -20,7 +20,7 @@ RUN mkdir -p /home/opam/z3-stub \
  && printf '%s\n' \
       'opam-version: "2.0"' \
       'name: "z3"' \
-      'version: "4.13.0"' \
+      'version: "5.1.0"' \
       'synopsis: "Stand-in for z3: the build only needs the opam dependency satisfied"' \
       'build: []' \
       'install: []' \

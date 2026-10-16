@@ -233,24 +233,23 @@ export default defineConfig({
   // The second entry works around a real bug in VitePress 1.6.4's own dead-link
   // checker (independent of the vite/esbuild overrides above -- reproduced with
   // vite reverted to the version VitePress declares support for): for a
-  // directory-style link (this tutorial's normal cross-chapter convention, e.g.
-  // `[Part 3](../modules/)`), the already `base`-prefixed, rendered href (e.g.
-  // `/raven/tutorial/modules/`) gets `index` appended and then only its leading
-  // `/` stripped before being checked against `pages`, which are `base`-agnostic
+  // `base`-prefixed link (a directory-style link such as `[Part 3](../modules/)`,
+  // or one `{{ref ...}}` renders), the rendered href (e.g.
+  // `/raven/tutorial/modules/`, with `index` appended) has only its leading `/`
+  // stripped before being checked against `pages`, which are `base`-agnostic
   // -- so the `base` segment (`raven`) is still in there, `pages` never
   // contains it, and every such link is misreported as dead, but only on a
   // `base: '/raven/'` build (`GITHUB_PAGES=true`), which local `npm run build`
-  // doesn't exercise. Re-verifies the link itself (strips `base` and the
-  // trailing `/index` back to a real directory under `tutorial/`) rather than
-  // ignoring anything of this shape, so a genuinely dead folder link still
-  // fails the build. Worth removing on the next VitePress upgrade, once fixed
-  // upstream.
+  // doesn't exercise. Re-verifies the link itself (strips `base` back to a real
+  // page under `tutorial/`) rather than ignoring anything of this shape, so a
+  // genuinely dead link still fails the build. Worth removing on the next
+  // VitePress upgrade, once fixed upstream.
   ignoreDeadLinks: [
     /\.rav$/,
     (url: string) => {
-      if (!url.startsWith(base) || !url.endsWith('/index')) return false
-      const dir = url.slice(base.length, -'/index'.length)
-      return existsSync(fileURLToPath(new URL(`../${dir}/index.md`, import.meta.url)))
+      if (base === '/' || !url.startsWith(base)) return false
+      const page = url.slice(base.length).replace(/[?#].*$/, '')
+      return existsSync(fileURLToPath(new URL(`../${page}.md`, import.meta.url)))
     }
   ],
 
