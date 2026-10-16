@@ -5,7 +5,7 @@ open AstDef
 open Util
 
 let unknown_ident_error loc id =
-  Error.error (QualIdent.to_loc id) ("Unknown identifier " ^ QualIdent.to_string id)
+  Error.error (QualIdent.to_loc id) ("Unknown identifier " ^ QualIdent.to_string_user id)
 
 (* Substitutions for reifying aliased symbols.
    The first Boolean indicates whether the derived symbol is the result of a functor instantiation.

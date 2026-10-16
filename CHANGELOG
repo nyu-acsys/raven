@@ -66,6 +66,8 @@ All notable changes to this project will be documented in this file.
 - Infer instances of generic-functor values such as `Seq.empty` from the expected type.
 - Accept explicitly supplied implicit arguments in generic predicates and instantiate at `fold`/`unfold`.
 - Infer functor arguments when the rep type aliases a nested module's type.
+- Infer functor arguments that occur only as arguments of another instance, as `E` in a parameter of type `Box[E]`.
+- Fix functor applications to instances of user-defined functors, such as `Box[Box[Int]]`.
 - Use expected element types for set literals, including nested empty sets.
 - Fix equality between finite and general sets with either operand order.
 - Show identifiers and types in type errors as written, such as `Library.Seq[Int]`, without internal indices or generated module names.

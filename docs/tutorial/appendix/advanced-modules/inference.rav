@@ -32,4 +32,5 @@ module GI = G[Int]
 lemma shared_instance() {
   val b: Box[Int] := Box.mkTag();
   assert GI.flag(b);
+  assert G.flag(b);
 }

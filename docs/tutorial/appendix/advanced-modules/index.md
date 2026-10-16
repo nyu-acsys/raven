@@ -65,7 +65,8 @@ instance. The type notation `Box[Int]` shares the canonical instance used by typ
 This extends to instances written inside a functor. If a functor `G[E: Library.Type]` uses
 `Box[E]`, then in an instance `module GI = G[Int]` that is the same instance as `Box[Int]`, so a
 value of type `Box[Int]` can be passed where a member of `GI` expects a `Box[E]`, as in
-[`inference.rav`](./inference.rav).
+[`inference.rav`](./inference.rav). The call `G.flag(b)` infers that instance from the argument
+alone, as `E` occurs in `b`'s type `Box[Int]`.
 
 Separately declared instances can introduce distinct nominal types. For example, `BoxTag.S`
 and the canonical `Box[Int]` are distinct, despite both using `Int`. An annotation does not

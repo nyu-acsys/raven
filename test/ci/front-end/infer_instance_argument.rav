@@ -1,0 +1,30 @@
+// A functor argument that occurs only as the argument of another instance is inferred.
+module Box[T: Library.Type] {
+  rep type S = data { case box(unwrap: T) }
+}
+
+module G[E: Library.Type] {
+  func first(b: Box[E]) returns (res: E) { b.unwrap }
+  func nested(b: Box[Box[E]]) returns (res: E) { b.unwrap.unwrap }
+}
+
+module GI = G[Int]
+
+module H[E: Library.Type] {
+  func size(s: Library.Seq[E]) returns (res: Int) { Library.Seq.length(s) }
+}
+
+module P[K: Library.Type, V: Library.Type] {
+  func key(b: Box[K], v: V) returns (res: K) { b.unwrap }
+}
+
+lemma infer() {
+  val b: Box[Int] := Box.box(1);
+  assert G.first(b) == 1;
+  val bb: Box[Box[Int]] := Box.box(b);
+  assert G.nested(bb) == 1;
+  assert GI.nested(bb) == 1;
+  assert P.key(b, true) == 1;
+  val s: Library.Seq[Int] := [|1, 2|];
+  assert H.size(s) == 2;
+}

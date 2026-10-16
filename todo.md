@@ -15,10 +15,13 @@
     second `try ... with` in `ExprTyping.set_checked_type`.
 - [x] Look up unqualified destructors in the receiver's data type: `l.hd` on
     `l: Library.List[E]` fails with "Unknown identifier hd" unless `hd` is in scope.
-- [ ] Infer a functor argument that occurs only inside another instance: with
+- [x] Infer a functor argument that occurs only inside another instance: with
     `G[E]` taking a `Box[E]`, `G.first(b)` for `b: Box[Int]` fails with
-    "Cannot unify type G.GenInst$$Box$$G_E.S with type ...", while an explicit
+    "Cannot unify type Box[G.E] with type Box[Int]", while an explicit
     `module GI = G[Int]` works.
+- [x] Applying a user-defined functor to one of its own instances, as in
+    `Box[Box[Int]]`, fails with "Unknown identifier Box.TypeMod$$...". Inside a functor
+    `G[E]`, `Box[Box[E]]` is then not shared by `G[Int]` with `Box[Box[Int]]`.
 - [x] Don't record editor annotations for generated modules: hovering over `Seq[Int]`
     shows the inherited member `free val default: T` of the module that wraps `Int`.
 

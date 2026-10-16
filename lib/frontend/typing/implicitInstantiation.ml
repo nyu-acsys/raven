@@ -250,12 +250,106 @@ and unify_type_list ~(loc : location) ~(functor_qual_ident : qual_ident)
                   else incompatible ()
               | _ -> incompatible ())
           | App (c1, args1, _) -> (
-              match t2 with
-              | App (c2, args2, _)
+              match (t1, t2) with
+              | _, App (c2, args2, _)
                 when Int.equal (List.length args1) (List.length args2) && same_head c1 c2
                 ->
                   go u (List.zip_exn args1 args2)
+              | App (Var qi1, [], _), App (Var qi2, [], _) -> (
+                  let* arg_pairs = instance_arg_pairs qi1 qi2 in
+                  match arg_pairs with
+                  | Some arg_pairs -> go u arg_pairs
+                  | None -> unify_types_error loc t1 t2)
               | _ -> unify_types_error loc t1 t2))
+  (* [qi1] names a member of an instance generated in the functor's body, e.g. the rep of
+     `Box[E]`, and [qi2] the same member of an instance of the same functor: pairs the
+     reps of their arguments. *)
+  and instance_arg_pairs qi1 qi2 =
+    let* local_inst = local_instance qi1 in
+    match local_inst with
+    | Some (inner_qi, inner_formals, args)
+      when Ident.equal (QualIdent.unqualify qi1) (QualIdent.unqualify qi2)
+           && not (List.is_empty (QualIdent.path qi2)) -> (
+        let* formal_module =
+          instantiation_formal_module ~functor_qual_ident:inner_qi (QualIdent.pop qi2)
+        in
+        match (formal_module, List.zip inner_formals args) with
+        | Some formal_module, Ok formal_args ->
+            let+ pairs =
+              Rewriter.List.map formal_args ~f:(fun (formal, arg) ->
+                  let* rep =
+                    lift (ProgUtils.resolve_rep_ident formal.Module.mod_inst_type)
+                  in
+                  match rep with
+                  | None -> Rewriter.return None
+                  | Some (_, rep_ident) ->
+                      let actual =
+                        Type.mk_var
+                          (QualIdent.append
+                             (formal_module formal.mod_inst_name)
+                             rep_ident)
+                      in
+                      let+ written =
+                        match arg with
+                        | Module.ModArg arg_qi -> arg_rep_type arg_qi rep_ident
+                        | TypeArg tp -> Rewriter.return tp
+                      in
+                      Some (written, actual))
+            in
+            Some (List.filter_opt pairs)
+        | _ -> Rewriter.return None)
+    | _ -> Rewriter.return None
+  (* The rep of the argument module [arg_qi], or the type that a module generated in the
+     functor's body wraps, as `Box[E]` in `Box[Box[E]]`. *)
+  and arg_rep_type arg_qi rep_ident =
+    let+ member = generated_member arg_qi in
+    let wrapped =
+      match member with
+      | Some (Module.ModDef { mod_def; _ }) ->
+          List.find_map mod_def ~f:(function
+            | Module.SymbolDef (TypeDef { type_def_name; type_def_expr = Some tp; _ })
+              when Ident.equal type_def_name rep_ident ->
+                Some tp
+            | _ -> None)
+      | _ -> None
+    in
+    Option.value wrapped ~default:(Type.mk_var (QualIdent.append arg_qi rep_ident))
+  (* The functor, formals and arguments of the instance generated in the functor's body
+     whose member [qi] names. Only these are shared by the functor's instances. *)
+  and local_instance qi =
+    let* member = generated_member (QualIdent.pop qi) in
+    match member with
+    | Some (Module.ModInst { mod_inst_def = Some (inner_qi, args); _ }) ->
+        let+ inner = Rewriter.resolve_and_find_opt ~read_only:true inner_qi in
+        begin match inner with
+        | Some (inner_qi, symbol) when not (Rewriter.Symbol.is_instance symbol) ->
+            begin match Rewriter.Symbol.orig_symbol symbol with
+            | Module.ModDef inner_mod ->
+                Some (inner_qi, inner_mod.mod_decl.mod_decl_formals, args)
+            | _ -> None
+            end
+        | _ -> None
+        end
+    | _ -> Rewriter.return None
+  (* The module that [qi] names among those generated in the functor's body. *)
+  and generated_member qi =
+    match List.rev (QualIdent.to_list qi) with
+    | member_ident :: rev_scope
+      when List.equal Ident.equal (List.rev rev_scope)
+             (QualIdent.to_list functor_qual_ident)
+           && List.exists
+                [ ProgUtils.inst_mod_ident_prefix; ProgUtils.tp_mod_ident_prefix ]
+                ~f:(fun prefix -> String.is_prefix (Ident.name member_ident) ~prefix) ->
+        let+ functor_resolved =
+          lift (ProgUtils.resolve_generic_functor functor_qual_ident)
+        in
+        Option.bind functor_resolved ~f:(fun (_, m) ->
+            List.find_map m.mod_def ~f:(function
+              | Module.SymbolDef symbol
+                when Ident.equal (Symbol.to_name symbol) member_ident ->
+                  Some symbol
+              | _ -> None))
+    | _ -> Rewriter.return None
   in
   go u pairs
 

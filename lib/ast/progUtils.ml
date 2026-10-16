@@ -1000,7 +1000,7 @@ let find_insertion_scope_for_symbols (symbols : (qual_ident, _) Set.t) :
     | None ->
         Error.internal_error Loc.dummy
           "could not find a concrete scope for these type arguments"
-    | Some (qi, (name, symbol, _)) ->
+    | Some (qi, ((name, symbol, _) as resolved)) ->
         let resolves_through_abstract_param =
           match symbol with
           | AstDef.Module.ModDef md ->
@@ -1008,9 +1008,12 @@ let find_insertion_scope_for_symbols (symbols : (qual_ident, _) Set.t) :
           | _ -> false
         in
         if resolves_through_abstract_param then find_concrete_scope (QualIdent.pop qi)
-          (* An instance of a library functor, used by the program: synthesized modules
-           belong to the program, since the library has already been processed. *)
-        else if is_library name && not (is_library qi) then
+          (* A member of a functor instance: synthesized modules belong beside the
+             instance, since the functor has already been checked. Likewise for a library
+             module used by the program. *)
+        else if
+          Rewriter.Symbol.is_instance resolved || (is_library name && not (is_library qi))
+        then
           let+ scope = own_scope qi in
           (scope, scope)
         else Rewriter.return (name, qi)
@@ -1226,18 +1229,22 @@ let get_or_intros_field_module ~(loc : location) ~(insert_scope : qual_ident)
     [arg_module_qis]. Generated instances are keyed by the functor and the argument
     modules, and placed beside the arguments, so that equal applications share one
     instance wherever they occur. *)
-let instantiate_functor_at_modules ~(loc : location) ~(functor_qual_ident : qual_ident)
-    (arg_module_qis : qual_ident list) : qual_ident t =
+let rec instantiate_functor_at_modules ~(loc : location)
+    ~(functor_qual_ident : qual_ident) (arg_module_qis : qual_ident list) : qual_ident t =
   let open Rewriter.Syntax in
   let* arg_module_qis = Rewriter.List.map arg_module_qis ~f:Rewriter.resolve in
   let* insert_scope, reference_scope =
     find_insertion_scope_for_symbols (Set.of_list (module QualIdent) arg_module_qis)
   in
-  let* functor_rep =
+  let* functor_def =
     let+ symbol = Rewriter.find functor_qual_ident in
     match Rewriter.Symbol.orig_symbol symbol with
-    | AstDef.Module.ModDef m -> Base.Option.map m.mod_decl.mod_decl_rep ~f:Ident.name
+    | AstDef.Module.ModDef m -> Some m
     | _ -> None
+  in
+  let functor_rep =
+    Base.Option.bind functor_def ~f:(fun m ->
+        Base.Option.map m.mod_decl.mod_decl_rep ~f:Ident.name)
   in
   let inst_mod_ident =
     let mod_name_string =
@@ -1260,13 +1267,23 @@ let instantiate_functor_at_modules ~(loc : location) ~(functor_qual_ident : qual
   match resolve_result with
   | Some _ -> return inst_qi
   | None ->
+      let* mod_inst_shared =
+        match functor_def with
+        | Some functor_def ->
+            shared_instances ~loc ~functor_qual_ident ~functor_def arg_module_qis
+        | None -> return []
+      in
       let functor_inst =
         AstDef.Module.ModInst
-          (AstDef.Module.mk_mod_inst ~name:inst_mod_ident ~typ:functor_qual_ident
-             ~def:
-               ( functor_qual_ident,
-                 Base.List.map arg_module_qis ~f:(fun qi -> AstDef.Module.ModArg qi) )
-             ~loc ())
+          {
+            (AstDef.Module.mk_mod_inst ~name:inst_mod_ident ~typ:functor_qual_ident
+               ~def:
+                 ( functor_qual_ident,
+                   Base.List.map arg_module_qis ~f:(fun qi -> AstDef.Module.ModArg qi) )
+               ~loc ())
+            with
+            mod_inst_shared;
+          }
       in
       let+ _ =
         Rewriter.introduce_typecheck_symbol_at_scope' ~loc functor_inst insert_scope
@@ -1278,7 +1295,7 @@ let instantiate_functor_at_modules ~(loc : location) ~(functor_qual_ident : qual
     arguments mention the functor's formals, paired with the instance at the substituted
     arguments. One whose substituted arguments are still local to the functor is not
     shared, since each instance of the functor has its own. *)
-let shared_instances ~(loc : location) ~(functor_qual_ident : qual_ident)
+and shared_instances ~(loc : location) ~(functor_qual_ident : qual_ident)
     ~(functor_def : AstDef.Module.t) (arg_module_qis : qual_ident list) :
     (qual_ident * qual_ident) list t =
   let open Rewriter.Syntax in
@@ -1320,6 +1337,48 @@ let shared_instances ~(loc : location) ~(functor_qual_ident : qual_ident)
           in
           let generated = QualIdent.append functor_qual_ident mod_inst_name in
           (subst @ [ (generated, QualIdent.to_list inst) ], (generated, inst) :: shared)
+    (* A module wrapping a type as an argument, as `Box[E]` in `Box[Box[E]]`, stands for
+       the one wrapping the substituted type. *)
+    | SymbolDef
+        (ModDef
+           {
+             mod_decl =
+               {
+                 mod_decl_name;
+                 mod_decl_returns = [ (interface_qual_ident, []) ];
+                 mod_decl_rep = Some rep_ident;
+                 _;
+               };
+             mod_def;
+           })
+      when String.is_prefix (Ident.name mod_decl_name) ~prefix:tp_mod_ident_prefix -> (
+        let rep_type =
+          Base.List.find_map mod_def ~f:(function
+            | SymbolDef (TypeDef { type_def_name; type_def_expr = Some tp; _ })
+              when Ident.equal type_def_name rep_ident ->
+                Some tp
+            | _ -> None)
+        in
+        match rep_type with
+        | None -> return (subst, shared)
+        | Some tp ->
+            let* substituted =
+              Rewriter.Type.rewrite_qual_idents ~f:(QualIdent.requalify subst) tp
+            in
+            if
+              AstDef.Type.equal substituted tp
+              || Set.exists (AstDef.Type.symbols substituted) ~f:is_local
+            then return (subst, shared)
+            else
+              let* insert_scope, reference_scope =
+                find_insertion_scope_for_types [ substituted ]
+              in
+              let+ wrapper =
+                get_or_intros_rep_module ~loc ~f:!Rewriter.check_symbol_ref ~insert_scope
+                  ~reference_scope ~interface_qual_ident ~rep_ident substituted
+              in
+              let generated = QualIdent.append functor_qual_ident mod_decl_name in
+              (subst @ [ (generated, QualIdent.to_list wrapper) ], shared))
     | _ -> return (subst, shared)
   in
   let+ _, shared =
