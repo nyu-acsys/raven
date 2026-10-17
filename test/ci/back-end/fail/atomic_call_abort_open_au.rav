@@ -1,0 +1,39 @@
+// A logically atomic call may abort and keep its ordinary precondition, so the atomic
+// update open around it must then still be abortable, together with closing every
+// open invariant. Here dInv and w's atomic precondition each hold half of x.d, and p
+// keeps one half if it aborts: dInv could be closed, or w's update aborted, but not
+// both.
+
+import Library.IntAtomics._
+
+field d: Int
+field c: Int
+
+inv dInv(x: Ref) {
+  exists n: Int :: own(x.d, 0, 0.5) && own(x.c, n, 1.0)
+}
+
+proc p(x: Ref, implicit ghost n: Int)
+  requires own(x.d, 0, 0.5)
+  ensures own(x.d, 0, 0.5)
+  atomic requires own(x.c, n, 1.0)
+  atomic ensures own(x.c, n + 1, 1.0)
+{
+  ghost var phi := bindAU();
+  ghost var n0: Int := openAU(phi);
+  var old_val: Int := faa(x.c, 1);
+  commitAU(phi, ());
+}
+
+proc w(x: Ref)
+  requires dInv(x)
+  atomic requires own(x.d, 0, 0.5)
+  atomic ensures own(x.d, 0, 0.5)
+{
+  ghost var phi := bindAU();
+  unfold dInv(x);
+  openAU(phi);
+  p(x);
+  commitAU(phi, ());
+  fold dInv(x);
+}

@@ -11,6 +11,9 @@ type au_token = {
   implicit_bound_vars : expr list;
   (* Where the [openAU] was, so a never-committed update can point back at it. *)
   au_loc : location;
+  (* As [inv_updated]/[inv_updated_flag] of [invs], since the [openAU]. *)
+  au_updated : bool;
+  au_updated_flag : Expr.t;
 }
 
 type invs = {
@@ -37,9 +40,22 @@ type invs = {
   inv_updated_flag : Expr.t;
 }
 
+(* A predicate instance unfolded while an atomic update or invariant is open, with the
+   witnesses that refold it: the variables the [unfold] bound its existentials to. *)
+type unfolded_pred = {
+  pred_name : QualIdent.t;
+  pred_args : Expr.t list;
+  pred_witnesses : (Ident.t * Expr.t) list;
+  pred_loc : location;
+}
+
 type atomicity_check = {
   au_opened : au_token list;
   invs_opened : invs list;
+  (* Predicate instances unfolded since an update or instance was opened, most recent
+     first, without those folded or whose arguments were reassigned since. If a call
+     aborts, they are refolded (see [abort_check]). *)
+  preds_unfolded : unfolded_pred list;
   atomic_step_taken : bool;
   mask : Callable.mask;
   (* Set while analysing the body of a physically atomic block. The block as a
@@ -129,6 +145,17 @@ let snapshot_sync_stmts ~loc ~(from : invs list) ~(into : invs list) : Stmt.t li
       in
       List.filter_opt
         [ snapshot; copy ~src:src.inv_updated_flag ~dst:dst.inv_updated_flag ])
+
+(* As [snapshot_sync_stmts], for the update flag of the open atomic update. *)
+let au_flag_sync_stmts ~loc ~(from : au_token list) ~(into : au_token list) : Stmt.t list
+    =
+  List.filter_map (List.zip_exn from into) ~f:(fun (src, dst) ->
+      if Expr.alpha_equal src.au_updated_flag dst.au_updated_flag then None
+      else
+        Some
+          (Stmt.mk_assign ~loc ~is_init:true
+             [ Expr.to_qual_ident dst.au_updated_flag ]
+             src.au_updated_flag))
 
 (* A tracked mask entry's argument expressions are plain references to
    whatever program variables were in scope when the entry was established
@@ -358,15 +385,17 @@ let take_ext_step ~loc (atomicity : Stmt.stmt_atomicity) (state : atomicity_chec
 (* Records a ghost update for every open instance, with the assignments that set their
    flags. *)
 let mark_ghost_update ~loc (state : atomicity_check) : atomicity_check * Stmt.t list =
+  let set_flag flag =
+    Stmt.mk_assign ~loc [ Expr.to_qual_ident flag ] (Expr.mk_bool ~loc true)
+  in
   ( {
       state with
       invs_opened =
         List.map state.invs_opened ~f:(fun inv -> { inv with inv_updated = true });
+      au_opened = List.map state.au_opened ~f:(fun au -> { au with au_updated = true });
     },
-    List.map state.invs_opened ~f:(fun inv ->
-        Stmt.mk_assign ~loc
-          [ Expr.to_qual_ident inv.inv_updated_flag ]
-          (Expr.mk_bool ~loc true)) )
+    List.map state.invs_opened ~f:(fun inv -> set_flag inv.inv_updated_flag)
+    @ List.map state.au_opened ~f:(fun au -> set_flag au.au_updated_flag) )
 
 (* [into]'s open instances, each marked updated if it was updated in [from] too. *)
 let join_ghost_updates ~(from : invs list) (into : invs list) : invs list =
@@ -379,12 +408,54 @@ let join_ghost_updates ~(from : invs list) (into : invs list) : invs list =
       in
       { inv with inv_updated = inv.inv_updated || updated_in_from })
 
+(* As [join_ghost_updates], for the open atomic update. *)
+let join_au_updates ~(from : au_token list) (into : au_token list) : au_token list =
+  List.map2_exn from into ~f:(fun src dst ->
+      { dst with au_updated = dst.au_updated || src.au_updated })
+
+(* A fresh ghost flag recording ghost updates, with its initialization to false. *)
+let fresh_updated_flag ~loc (name : string) : (Expr.t * Stmt.t, 'a) Rewriter.t_ext =
+  let open Rewriter.Syntax in
+  let flag_decl = Type.mk_var_decl ~ghost:true ~loc (Ident.fresh loc name) Type.bool in
+  let+ () =
+    Rewriter.introduce_symbol
+      (Module.VarDef { var_decl = flag_decl; var_init = None; var_is_free = NotFree })
+  in
+  let flag = Expr.from_var_decl flag_decl in
+  ( flag,
+    Stmt.mk_assign ~loc ~is_init:true
+      [ Expr.to_qual_ident flag ]
+      (Expr.mk_bool ~loc false) )
+
+(* The common oldest part of two paths' unfolded instances. *)
+let common_preds_unfolded (l1 : unfolded_pred list) (l2 : unfolded_pred list) :
+    unfolded_pred list =
+  let same p1 p2 =
+    QualIdent.equal p1.pred_name p2.pred_name
+    && List.equal Expr.alpha_equal p1.pred_args p2.pred_args
+  in
+  let rec common acc = function
+    | p1 :: l1, p2 :: l2 when same p1 p2 -> common (p1 :: acc) (l1, l2)
+    | _ -> acc
+  in
+  common [] (List.rev l1, List.rev l2)
+
+(* Maps the formals of [au]'s callable to the arguments it was opened with. *)
+let au_renaming (callable_decl : Callable.call_decl) (au : au_token) :
+    Expr.t Map.M(QualIdent).t =
+  List.fold2_exn callable_decl.call_decl_formals
+    (au.callable_args @ au.implicit_bound_vars)
+    ~init:(Map.empty (module QualIdent))
+    ~f:(fun acc_map formal_arg actual_arg ->
+      Map.add_exn acc_map ~key:(QualIdent.from_ident formal_arg.var_name) ~data:actual_arg)
+
 (* A logically atomic callee may abort, handing back its atomic precondition but
-   keeping its ordinary one. Every instance open around the call must then still be
-   closable, which a branch before the call checks: it gives up the ordinary
-   precondition, folds the instances, and ends in [assume false]. If the ordinary
-   precondition is pure, only instances updated since they were opened are checked; any
-   other is as closable as at its [unfold].
+   keeping its ordinary one. The open atomic update must then still be abortable and
+   every instance open around the call closable, which a branch before the call checks:
+   it gives up the ordinary precondition, aborts the update, folds the instances, and
+   ends in [assume false]. If the ordinary precondition is pure, only an update or
+   instance with a ghost update since it was opened is checked; any other is as
+   closable as at its [openAU] or [unfold].
    Implicit arguments the call omits are bound first, as the call itself would bind them,
    and passed explicitly, so that the branch and the call agree on them. *)
 let abort_check ~loc (call_decl : Callable.call_decl) (call_desc : Stmt.call_desc)
@@ -402,7 +473,12 @@ let abort_check ~loc (call_decl : Callable.call_decl) (call_desc : Stmt.call_des
     if takes then state.invs_opened
     else List.filter state.invs_opened ~f:(fun inv -> inv.inv_updated)
   in
-  if List.is_empty checked then Rewriter.return ([], call_desc)
+  let checked_aus =
+    if takes then state.au_opened
+    else List.filter state.au_opened ~f:(fun au -> au.au_updated)
+  in
+  if List.is_empty checked && List.is_empty checked_aus then
+    Rewriter.return ([], call_desc)
   else
     let fresh_ghost_var name typ =
       let var_decl = Type.mk_var_decl ~ghost:true ~loc (Ident.fresh loc name) typ in
@@ -446,6 +522,82 @@ let abort_check ~loc (call_decl : Callable.call_decl) (call_desc : Stmt.call_des
     let exhale_stmts =
       List.map ordinary_precond ~f:(fun spec ->
           Stmt.mk_exhale_expr ~loc ~spec_error:spec.spec_error (instantiate spec))
+    in
+    (* Each refolded instance is asserted, which lets a later refold find witnesses in
+       it. *)
+    let refold_stmts =
+      List.concat_map state.preds_unfolded ~f:(fun pred ->
+          let fold =
+            Stmt.
+              {
+                stmt_desc =
+                  Basic
+                    (Use
+                       {
+                         use_kind = Fold;
+                         use_name = pred.pred_name;
+                         use_args = pred.pred_args;
+                         use_witnesses_or_binds = pred.pred_witnesses;
+                         use_spec_error =
+                           [
+                             Stmt.mk_const_spec_error
+                               ( Error.Verification,
+                                 loc,
+                                 "A predicate unfolded around this atomic call may not \
+                                  be refoldable if the call aborts" );
+                             Stmt.mk_const_spec_error
+                               ( Error.RelatedLoc,
+                                 pred.pred_loc,
+                                 "This predicate may not be refoldable if the call aborts"
+                               );
+                           ];
+                       });
+                stmt_loc = loc;
+              }
+          in
+          [
+            fold;
+            Stmt.mk_assert_expr ~loc
+              (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var pred.pred_name) pred.pred_args);
+          ])
+    in
+    let* abort_au_stmts =
+      let+ stmts =
+        Rewriter.List.map checked_aus ~f:(fun au ->
+            let* symbol = Rewriter.find au.callable in
+            let+ decl = Rewriter.Symbol.reify_callable_decl symbol in
+            let renaming = au_renaming decl au in
+            let exhales =
+              List.filter_map decl.call_decl_precond ~f:(fun spec ->
+                  if not spec.spec_atomic then None
+                  else
+                    let spec_error =
+                      [
+                        Stmt.mk_const_spec_error
+                          ( Error.Verification,
+                            loc,
+                            "The atomic update open around this atomic call may not be \
+                             abortable if the call aborts" );
+                        Stmt.mk_const_spec_error
+                          ( Error.RelatedLoc,
+                            au.au_loc,
+                            "This atomic update may not be abortable if the call aborts"
+                          );
+                      ]
+                    in
+                    Some
+                      (Stmt.mk_exhale_expr ~loc ~spec_error
+                         (Expr.alpha_renaming spec.spec_form renaming)))
+            in
+            if takes then exhales
+            else
+              [
+                Stmt.mk_cond ~loc (Some au.au_updated_flag)
+                  (Stmt.mk_block_stmt ~loc exhales)
+                  (Stmt.mk_block_stmt ~loc []);
+              ])
+      in
+      List.concat stmts
     in
     let* fold_stmts =
       Rewriter.List.map checked ~f:(fun inv ->
@@ -496,7 +648,8 @@ let abort_check ~loc (call_decl : Callable.call_decl) (call_desc : Stmt.call_des
       Stmt.mk_cond ~loc ~cond_if_assumes_false:true
         (Some (Expr.from_var_decl abort))
         (Stmt.mk_block_stmt ~loc
-           (exhale_stmts @ fold_stmts @ [ Stmt.mk_assume_expr ~loc (Expr.mk_bool false) ]))
+           (exhale_stmts @ refold_stmts @ abort_au_stmts @ fold_stmts
+           @ [ Stmt.mk_assume_expr ~loc (Expr.mk_bool false) ]))
         (Stmt.mk_block_stmt ~loc [])
     in
     ( bind_stmts @ [ Stmt.mk_havoc ~loc ~is_init:true abort_qi; branch ],
@@ -680,11 +833,17 @@ let close_inv ~(inv_name : QualIdent.t) ~(inv_args : Expr.t list)
         Callable.mask_union atomicity_state.mask [ inv.inv_consumed_mask_entry ]
       in
       if List.is_empty invs_opened && List.is_empty atomicity_state.au_opened then
-        { atomicity_state with invs_opened; mask; atomic_step_taken = false }
+        {
+          atomicity_state with
+          invs_opened;
+          mask;
+          atomic_step_taken = false;
+          preds_unfolded = [];
+        }
       else { atomicity_state with invs_opened; mask }
 
-let open_au ~loc (token, callable, callable_args, implicit_bound_vars) atomicity_state :
-    atomicity_check =
+let open_au ~loc (token, callable, callable_args, implicit_bound_vars, au_updated_flag)
+    atomicity_state : atomicity_check =
   if List.exists atomicity_state.au_opened ~f:(fun au -> Expr.alpha_equal au.token token)
   then
     Error.verification_error loc
@@ -712,7 +871,15 @@ let open_au ~loc (token, callable, callable_args, implicit_bound_vars) atomicity
     {
       atomicity_state with
       au_opened =
-        { token; callable; callable_args; implicit_bound_vars; au_loc = loc }
+        {
+          token;
+          callable;
+          callable_args;
+          implicit_bound_vars;
+          au_loc = loc;
+          au_updated = false;
+          au_updated_flag;
+        }
         :: atomicity_state.au_opened;
     }
 
@@ -733,7 +900,7 @@ let close_au ~loc token atomicity_state : atomicity_check =
     in
 
     if List.is_empty au_opened && List.is_empty atomicity_state.invs_opened then
-      { atomicity_state with au_opened; atomic_step_taken = false }
+      { atomicity_state with au_opened; atomic_step_taken = false; preds_unfolded = [] }
     else { atomicity_state with au_opened }
 
 (* Whether [stmt] cannot take a resource that closing an open invariant needs, nor
@@ -767,7 +934,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
     let+ stmt = rewrite_au_cmnd stmt in
     match update_flag_stmts with
     | [] -> stmt
-    | _ :: _ -> Stmt.mk_block_stmt ~loc (update_flag_stmts @ [ stmt ])
+    | _ :: _ -> Stmt.mk_block_stmt ~loc (stmt :: update_flag_stmts)
   and rewrite_au_cmnd (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext =
     let* is_ghost_scope = Rewriter.is_ghost_scope in
     let* curr_callable_name = Rewriter.current_scope_id in
@@ -802,7 +969,17 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
     let drop_stale_idents ~(idents : Ident.t list) (state : atomicity_check) :
         atomicity_check =
       let assigned = Set.of_list (module Ident) idents in
-      { state with mask = drop_mask_entries_mentioning assigned state.mask }
+      let mentions_assigned pred =
+        List.exists
+          (pred.pred_args @ List.map pred.pred_witnesses ~f:snd)
+          ~f:(fun arg -> not (Set.is_empty (Set.inter (Expr.local_vars arg) assigned)))
+      in
+      {
+        state with
+        mask = drop_mask_entries_mentioning assigned state.mask;
+        preds_unfolded =
+          List.filter state.preds_unfolded ~f:(fun pred -> not (mentions_assigned pred));
+      }
     in
     let drop_stale ~(qis : QualIdent.t list) (state : atomicity_check) : atomicity_check =
       drop_stale_idents ~idents:(List.map qis ~f:QualIdent.unqualify) state
@@ -1076,7 +1253,50 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
         | CallDef _ -> (
             let* decl = Rewriter.Symbol.reify_callable_decl symbol in
             match decl.call_decl_kind with
-            | Pred -> Rewriter.return stmt
+            | Pred -> (
+                let tracking =
+                  not
+                    (List.is_empty atomicity_state.au_opened
+                    && List.is_empty atomicity_state.invs_opened)
+                in
+                match use_desc.use_kind with
+                | Unfold when tracking ->
+                    let* pred_witnesses =
+                      Rewriter.List.map use_desc.use_witnesses_or_binds
+                        ~f:(fun (local, exist) ->
+                          let+ local_decl =
+                            let* symbol = Rewriter.find (QualIdent.from_ident local) in
+                            Rewriter.Symbol.reify_var_decl symbol
+                          in
+                          (Expr.to_ident exist, Expr.from_var_decl local_decl))
+                    in
+                    let unfolded =
+                      {
+                        pred_name = use_desc.use_name;
+                        pred_args = use_desc.use_args;
+                        pred_witnesses;
+                        pred_loc = loc;
+                      }
+                    in
+                    let* _ =
+                      Rewriter.set_user_state
+                        {
+                          atomicity_state with
+                          preds_unfolded = unfolded :: atomicity_state.preds_unfolded;
+                        }
+                    in
+                    Rewriter.return stmt
+                | Fold ->
+                    let preds_unfolded =
+                      list_remove_first atomicity_state.preds_unfolded ~f:(fun pred ->
+                          QualIdent.equal pred.pred_name use_desc.use_name
+                          && List.equal Expr.alpha_equal pred.pred_args use_desc.use_args)
+                    in
+                    let* _ =
+                      Rewriter.set_user_state { atomicity_state with preds_unfolded }
+                    in
+                    Rewriter.return stmt
+                | Unfold -> Rewriter.return stmt)
             | Invariant -> (
                 let all_params = decl.call_decl_formals @ decl.call_decl_returns in
                 match use_desc.use_kind with
@@ -1160,30 +1380,12 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
                           in
                           (snap_expr, [ snap_assign_stmt ])
                     in
-                    let flag_decl =
-                      Type.mk_var_decl ~ghost:true ~loc
-                        (Ident.fresh loc
-                           ("$inv_updated_"
-                           ^ Ident.to_string (QualIdent.unqualify use_desc.use_name)))
-                        Type.bool
+                    let* flag, flag_init =
+                      fresh_updated_flag ~loc
+                        ("$inv_updated_"
+                        ^ Ident.to_string (QualIdent.unqualify use_desc.use_name))
                     in
-                    let* () =
-                      Rewriter.introduce_symbol
-                        (Module.VarDef
-                           {
-                             var_decl = flag_decl;
-                             var_init = None;
-                             var_is_free = NotFree;
-                           })
-                    in
-                    let flag = Expr.from_var_decl flag_decl in
-                    let flag_stmts =
-                      [
-                        Stmt.mk_assign ~loc ~is_init:true
-                          [ Expr.to_qual_ident flag ]
-                          (Expr.mk_bool ~loc false);
-                      ]
-                    in
+                    let flag_stmts = [ flag_init ] in
                     let atomicity_state, open_asserts =
                       open_inv ~loc
                         (use_desc.use_name, use_desc.use_args, snap_expr, flag)
@@ -1332,17 +1534,21 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
                          (Expr.alpha_renaming spec.spec_form alpha_renaming_map)))
             in
 
+            let* flag, flag_init = fresh_updated_flag ~loc "$au_updated" in
             let atomicity_state =
               open_au ~loc
                 ( open_au_desc.token,
                   open_au_desc.proc_qi,
                   open_au_desc.proc_args,
-                  open_au_desc.lhs )
+                  open_au_desc.lhs,
+                  flag )
                 atomicity_state
             in
             let* _ = Rewriter.set_user_state atomicity_state in
 
-            let new_stmt = Stmt.mk_block_stmt ~loc (exhale_stmt :: inhale_stmts) in
+            let new_stmt =
+              Stmt.mk_block_stmt ~loc ((exhale_stmt :: inhale_stmts) @ [ flag_init ])
+            in
 
             Rewriter.return new_stmt
         | AbortAU _ | CommitAU _ ->
@@ -1385,15 +1591,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
                     (opened_au_token.callable_args @ opened_au_token.implicit_bound_vars))
             in
 
-            let alpha_renaming_map =
-              List.fold2_exn callable_decl.call_decl_formals
-                (opened_au_token.callable_args @ opened_au_token.implicit_bound_vars)
-                ~init:(Map.empty (module QualIdent))
-                ~f:(fun acc_map formal_arg actual_arg ->
-                  Map.add_exn acc_map
-                    ~key:(QualIdent.from_ident formal_arg.var_name)
-                    ~data:actual_arg)
-            in
+            let alpha_renaming_map = au_renaming callable_decl opened_au_token in
 
             let exhale_stmts, inhale_stmt, atomicity_state =
               match auaction_desc.auaction_kind with
@@ -1579,6 +1777,12 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
               invs_opened =
                 join_ghost_updates ~from:then_atomicity_state.invs_opened
                   else_atomicity_state.invs_opened;
+              au_opened =
+                join_au_updates ~from:then_atomicity_state.au_opened
+                  else_atomicity_state.au_opened;
+              preds_unfolded =
+                common_preds_unfolded then_atomicity_state.preds_unfolded
+                  else_atomicity_state.preds_unfolded;
             }
           in
           let* _ = Rewriter.set_user_state else_atomicity_state in
@@ -1586,6 +1790,8 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
             match
               snapshot_sync_stmts ~loc ~from:then_atomicity_state.invs_opened
                 ~into:else_atomicity_state.invs_opened
+              @ au_flag_sync_stmts ~loc ~from:then_atomicity_state.au_opened
+                  ~into:else_atomicity_state.au_opened
             with
             | [] -> then_stmt
             | sync -> Stmt.mk_block_stmt ~loc (then_stmt :: sync)
@@ -1657,6 +1863,7 @@ let rewrite_atomicity_analysis (c : Callable.t) : Callable.t Rewriter.t =
         {
           au_opened = [];
           invs_opened = [];
+          preds_unfolded = [];
           atomic_step_taken = false;
           in_atomic_block = false;
           mask = Option.value c.call_decl.call_decl_needs_mask ~default:[];

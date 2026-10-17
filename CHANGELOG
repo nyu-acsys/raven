@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- Atomic calls inside an open atomic update now check that the update stays abortable if the call aborts.
+
 ## [1.5.0] - 2026-10-16
 
 ### Added

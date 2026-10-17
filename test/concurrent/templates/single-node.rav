@@ -173,9 +173,8 @@ interface SingleNodeTemplate[Node: NodeImpl] {
     ghost var b2: Bool;
     ghost var c2: Set[K] := openAU(phi);
     unfold cssR(r, c2)[b2 := b];
-    fpu(r.frac, c2, c1);
-
     unlockNode(r);
+    fpu(r.frac, c2, c1);
 
     fold cssR(r, c1);    
     commitAU(phi, (res1, c1));

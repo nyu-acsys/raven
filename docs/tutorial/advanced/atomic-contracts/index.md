@@ -267,6 +267,15 @@ the call, with the `unfold` of `dInv` as a Related Location. To fix such a call,
 resources of its ordinary precondition from outside the invariant, or move them into its atomic
 precondition, so that the callee uses them only at its linearization point.
 
+The same holds for an atomic update that is open around the call: if the callee aborts, the
+caller must still be able to abort its own update, giving back its atomic precondition, while
+also closing every open invariant. Before checking this, Raven refolds the predicates unfolded
+since the update or invariant was opened, using the variables an `unfold` bound its
+existentials to as witnesses. A ghost update that cannot be undone this way, such as an `fpu`,
+belongs after the call. Otherwise Raven reports `The atomic update open around this atomic call
+may not be abortable if the call aborts`, or `A predicate unfolded around this atomic call may
+not be refoldable if the call aborts`.
+
 ## Debugging Corner
 
 The atomicity-analysis messages from Part 4 reappear here almost verbatim, now guarding
@@ -280,7 +289,8 @@ learn here, just new statements to which the same one-step discipline applies.
 
 One message is specific to calling an atomically specified procedure while an invariant is open:
 `An invariant open around this atomic call may not be closable if the call aborts`, explained in
-{{ref sec:atomic-call-during-invariant-access}}.
+{{ref sec:atomic-call-during-invariant-access}}, together with its counterparts for an open
+atomic update and for predicates unfolded since.
 
 ## What's next
 

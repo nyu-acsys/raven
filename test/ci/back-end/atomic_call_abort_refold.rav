@@ -1,0 +1,30 @@
+// A ghost update after openAU, before a logically atomic call: if the call aborts,
+// the update must still be abortable. The lemma keeps the counter's resources, so
+// refolding the counter predicate unfolded after openAU restores the atomic
+// precondition.
+
+import Library.IntAtomics._
+
+field c: Int
+
+pred counter(x: Ref; v: Int) {
+  exists n: Int :: own(x.c, n, 1.0) && v == n
+}
+
+lemma touch(x: Ref, n: Int)
+  requires own(x.c, n, 1.0)
+  ensures own(x.c, n, 1.0)
+{}
+
+proc incr(x: Ref, implicit ghost v: Int)
+  atomic requires counter(x, v)
+  atomic ensures counter(x, v + 1)
+{
+  ghost var phi := bindAU();
+  ghost var v0: Int := openAU(phi);
+  unfold counter(x, v0);
+  touch(x, v0);
+  var old_val: Int := faa(x.c, 1);
+  fold counter(x, v0 + 1);
+  commitAU(phi, ());
+}
