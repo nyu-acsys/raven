@@ -128,7 +128,7 @@ let record_inherited_members ~diagnostics ~(module_ident : qual_ident)
               | CallDef { call_decl; _ } -> Ident.to_loc call_decl.call_decl_name
               | symbol -> Symbol.to_loc symbol
             in
-            { Annotations.origin; text; member_loc }))
+            { Diagnostics.Annotations.origin; text; member_loc }))
   in
   if not (List.is_empty members) then
     Diagnostics.record_annotation diagnostics (InheritedMembers { module_loc; members })
@@ -160,7 +160,7 @@ let record_inherited_contract ~diagnostics ~(member : ident) ~(source : qual_ide
                 renamed_clause_text ~content ~span_start ~span_end ~renaming
                   (spec.spec_form :: List.concat spec.spec_trigs)
               in
-              Some { Annotations.keyword; text; clause_loc = form_loc }))
+              Some { Diagnostics.Annotations.keyword; text; clause_loc = form_loc }))
   in
   let opens_clause =
     Option.bind orig_decl.call_decl_opens ~f:(fun clause ->
@@ -175,7 +175,7 @@ let record_inherited_contract ~diagnostics ~(member : ident) ~(source : qual_ide
                 ~span_end:(Loc.end_index clause_loc) ~renaming exprs
               |> String.strip
             in
-            { Annotations.keyword = "opens"; text; clause_loc }))
+            { Diagnostics.Annotations.keyword = "opens"; text; clause_loc }))
   in
   let clauses =
     List.filter_map orig_decl.call_decl_precond ~f:(clause "requires")

@@ -201,7 +201,7 @@ let backend_check_cu tbl context processed =
     The text of a callable is the union of the locations of its name, contract and body
     that lie in the file it is declared in. *)
 let source_members (md : Ast.Module.t) :
-    MemberStatus.member list * MemberStatus.group list =
+    Diagnostics.MemberStatus.member list * Diagnostics.MemberStatus.group list =
   let member path (callable : Ast.Callable.t) =
     let decl = callable.call_decl in
     let name_loc = decl.call_decl_loc in
@@ -236,7 +236,7 @@ let source_members (md : Ast.Module.t) :
       | _ -> false
     in
     {
-      MemberStatus.name =
+      Diagnostics.MemberStatus.name =
         String.concat ~sep:"." (List.rev (Ident.name decl.call_decl_name :: path));
       kind;
       name_loc;
@@ -254,7 +254,8 @@ let source_members (md : Ast.Module.t) :
           let sub_path = Ident.name sub.mod_decl.mod_decl_name :: path in
           let group =
             {
-              MemberStatus.group_name = String.concat ~sep:"." (List.rev sub_path);
+              Diagnostics.MemberStatus.group_name =
+                String.concat ~sep:"." (List.rev sub_path);
               group_kind =
                 (if sub.mod_decl.mod_decl_is_interface then "interface" else "module");
               group_loc = sub.mod_decl.mod_decl_loc;

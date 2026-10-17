@@ -117,7 +117,7 @@ let rec check_stmt ~proc curr_callable (stmt : Stmt.t) : unit t =
                     let diag =
                       Stmt.spec_error_msg spec curr_callable (Stmt.to_loc stmt)
                     in
-                    let (outcome : MemberStatus.outcome), diag =
+                    let (outcome : Diagnostics.MemberStatus.outcome), diag =
                       match (result, diag) with
                       | Timeout, (kind, loc, msg) :: related ->
                           ( Timeout,
@@ -294,7 +294,7 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) : 
                   (mk_declare_const (QualIdent.from_ident local.var_name) local.var_type))
           in
 
-          let proc : MemberStatus.procedure =
+          let proc : Diagnostics.MemberStatus.procedure =
             {
               proc_loc = call_decl.call_decl_loc;
               proc_name = Stdlib.Format.asprintf "%a" QualIdent.pr fully_qual_name;

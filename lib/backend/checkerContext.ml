@@ -31,8 +31,8 @@ let record_error (diag : Error.t list) : unit t =
   else (context, ())
 
 (** Records the [outcome] of checking the procedure [proc]. *)
-let record_result (proc : MemberStatus.procedure) (outcome : MemberStatus.outcome) :
-    unit t =
+let record_result (proc : Diagnostics.MemberStatus.procedure)
+    (outcome : Diagnostics.MemberStatus.outcome) : unit t =
  fun context ->
   Diagnostics.record_result context.diagnostics proc outcome;
   (context, ())

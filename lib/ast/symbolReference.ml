@@ -63,7 +63,7 @@ let declaration_text (symbol : Module.symbol) : string option =
 (** The use of [name], as written, of [symbol], which it resolves to as [target]. A local
     variable is shown with its type, as the type checker inferred it. *)
 let reference ~(name : qual_ident) ~(target : qual_ident) (symbol : Module.symbol) :
-    References.t =
+    Diagnostics.References.t =
   let local = List.is_empty (QualIdent.path target) in
   let detail =
     lazy begin match symbol with
