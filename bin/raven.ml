@@ -125,7 +125,8 @@ let elaborate_cu ~ext_hooks config tbl (md : Ast.Module.t) front_end_out_chan =
   if config.typecheck_only then (tbl, None)
   else if
     config.prog_stats
-    && not String.(Ident.to_string md.mod_decl.mod_decl_name = "Library")
+    && not
+         (Predefs.is_library_qual_ident (QualIdent.from_ident md.mod_decl.mod_decl_name))
   then (
     let _ =
       Logs.debug (fun m ->
@@ -272,40 +273,52 @@ let parse_and_check_all ~extension_mode config file_names =
   let (module ChosenExt) = Ext.module_map chosen_ext in
   let ext_hooks = Ext.to_ext_hooks (module ChosenExt : ExtApi.Ext) in
   let lib_sources = ChosenExt.lib_sources in
+  let unit_sources lib_unit =
+    List.filter_map lib_sources ~f:(fun (src_unit, src) ->
+        Option.some_if (Poly.equal src_unit lib_unit) src)
+  in
 
   (* Locations inside extension library sources (e.g. well_founded_order.rav) are
      virtual -- there's no real file on disk for Loc.context to fall back to reading.
      Register them so it can find the text the same way it already does for the core
      standard library ([Library.sources]). *)
-  Loc.register_sources lib_sources;
+  Loc.register_sources (List.map lib_sources ~f:snd);
 
   (* Parse and check standard library *)
   let tbl = SymbolTbl.create () in
   let tbl, lib_typed =
-    if config.no_library then (tbl, None)
+    if config.no_library then (tbl, [])
     else
-      let lib_prog =
-        List.fold_right (Library.sources @ lib_sources) ~init:empty_prog
-          ~f:(fun (lib_file_name, lib_source) lib_prog ->
-            let lib_source_lexbuf = Lexing.from_string lib_source in
-            let _ = Lexer.set_file_name lib_source_lexbuf lib_file_name in
-            let _includes, md =
-              parse_cu
-                (Stdlib.Filename.dirname lib_file_name)
-                Predefs.lib_ident lib_source_lexbuf
-            in
-            (* [set_unit_free], not [set_free]: the standard library is trusted by the
-               compiler so it isn't re-verified for every program, which is exactly what
-               [MachineFree] means -- as opposed to [UserFree], a `free` the user wrote.
-               The two must stay distinguishable: a member inherited from here into a
-               user module still owes a definition and a proof, whereas one inherited
-               from a user's own `free` declaration does not (see
-               [Interfaces.un_free_inherited]). *)
-            let md = Ast.Module.set_unit_free md in
-            merge_prog md lib_prog)
+      let parse_lib_source cu_ident (lib_file_name, lib_source) =
+        let lib_source_lexbuf = Lexing.from_string lib_source in
+        let _ = Lexer.set_file_name lib_source_lexbuf lib_file_name in
+        let _includes, md =
+          parse_cu (Stdlib.Filename.dirname lib_file_name) cu_ident lib_source_lexbuf
+        in
+        (* [set_unit_free], not [set_free]: the standard library is trusted by the
+           compiler so it isn't re-verified for every program, which is exactly what
+           [MachineFree] means -- as opposed to [UserFree], a `free` the user wrote.
+           The two must stay distinguishable: a member inherited from here into a
+           user module still owes a definition and a proof, whereas one inherited
+           from a user's own `free` declaration does not (see
+           [Interfaces.un_free_inherited]). *)
+        Ast.Module.set_unit_free md
       in
-      let tbl, lib_typed = type_cu ~ext_hooks config tbl lib_prog in
-      (tbl, Some lib_typed)
+      let parse_unit cu_ident sources =
+        List.fold_right sources ~init:empty_prog ~f:(fun lib_file unit_prog ->
+            merge_prog (parse_lib_source cu_ident lib_file) unit_prog)
+      in
+      (* The modules elaboration and lowering instantiate are units of their own, which
+         programs cannot name, after the library they build on. *)
+      let units =
+        [
+          (Predefs.lib_ident, Library.library_sources @ unit_sources ExtApi.Library_unit);
+          (Predefs.elaboration_ident, unit_sources ExtApi.Elaboration_unit);
+          (Predefs.lowering_ident, [ Library.lowering_source ]);
+        ]
+      in
+      List.fold_map units ~init:tbl ~f:(fun tbl (cu_ident, sources) ->
+          type_cu ~ext_hooks config tbl (parse_unit cu_ident sources))
   in
 
   let md =
@@ -327,11 +340,11 @@ let parse_and_check_all ~extension_mode config file_names =
   in
   let tbl, prog_typed = type_cu ~ext_hooks config tbl md in
 
-  (* Both units are type-checked before either is rewritten -- see [type_cu] -- and
-     elaborated before either is lowered -- see [elaborate_cu]. The library goes first
+  (* All units are type-checked before any is rewritten -- see [type_cu] -- and
+     elaborated before any is lowered -- see [elaborate_cu]. The library goes first
      each time, since processing the program needs the artifacts the library's own
      processing generates. *)
-  let typed = List.filter_opt [ lib_typed; Some prog_typed ] in
+  let typed = lib_typed @ [ prog_typed ] in
   let tbl, elaborated =
     List.fold_map typed ~init:tbl ~f:(fun tbl md ->
         elaborate_cu ~ext_hooks config tbl md front_end_out_chan)
@@ -647,8 +660,9 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annot
     Ext.module_map (Option.value explicit_extension_mode ~default:Ext.ProphecyExt)
   in
   if
-    serve_library_sources ~lib_sources:LibraryExt.lib_sources ~dump_library
-      ~print_library_source
+    serve_library_sources
+      ~lib_sources:(List.map LibraryExt.lib_sources ~f:snd)
+      ~dump_library ~print_library_source
   then `Ok ()
   else
     let extension_mode : [ `Explicit of Ext.supported_extensions | `Auto ] =

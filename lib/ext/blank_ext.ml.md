@@ -9,7 +9,8 @@ module ExtName (Cont : Ext) = struct
   include Cont
 
   let lib_source = _
-  (* let lib_source = Some ("extName_lib.rav", [%blob "extName_lib.rav"]) *)
+  (* let lib_source =
+       Some (ExtApi.Library_unit, ("extName_lib.rav", [%blob "extName_lib.rav"])) *)
 
   (* Declare whichever of these your extension actually needs -- delete the rest.
      See docs/ext/README.md's Overview and "Statement-bodied extensions" sections for

@@ -2,6 +2,7 @@ let base_types = [%blob "base_types.rav"]
 let resource_algebra = [%blob "resource_algebra.rav"]
 let atomics = [%blob "atomics.rav"]
 let array = [%blob "array.rav"]
+let lowering = [%blob "lowering.rav"]
 
 (* Each source is named by its path relative to the repository root, not by its bare
    basename. That path is the source's identity everywhere downstream: it is what
@@ -22,10 +23,15 @@ let prelude =
       [ "++"; "_[_.._]"; "_[.._]"; "_[_..]"; "_[_:=_]"; "_[_]"; "in"; "[||]"; "[|_|]" ]
   @ List.map (fun name -> [ "List"; name ]) [ "in"; "++"; "<||>"; "<|_|>" ]
 
-let sources =
+let library_sources =
   [
     ("lib/library/base_types.rav", base_types);
     ("lib/library/resource_algebra.rav", resource_algebra);
     ("lib/library/atomics.rav", atomics);
     ("lib/library/array.rav", array);
   ]
+
+(* The source of the modules lowering instantiates, a compilation unit of its own (see
+   [Predefs.lowering_ident]). *)
+let lowering_source = ("lib/library/lowering.rav", lowering)
+let sources = library_sources @ [ lowering_source ]

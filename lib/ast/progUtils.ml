@@ -981,9 +981,6 @@ let find_insertion_scope_for_symbols (symbols : (qual_ident, _) Set.t) :
     (qual_ident * qual_ident) t =
   let open Rewriter.Syntax in
   let largest_prefix = largest_common_prefix_qi symbols in
-  let is_library qi =
-    String.equal (Ident.name (QualIdent.first_ident qi)) (Ident.name Predefs.lib_ident)
-  in
   (* The nearest enclosing scope of [qi] that is a scope of its own rather than an
      instance of a functor. *)
   let rec own_scope (qi : qual_ident) : qual_ident t =
@@ -1012,7 +1009,9 @@ let find_insertion_scope_for_symbols (symbols : (qual_ident, _) Set.t) :
              instance, since the functor has already been checked. Likewise for a library
              module used by the program. *)
         else if
-          Rewriter.Symbol.is_instance resolved || (is_library name && not (is_library qi))
+          Rewriter.Symbol.is_instance resolved
+          || AstDef.Predefs.is_library_qual_ident name
+             && not (AstDef.Predefs.is_library_qual_ident qi)
         then
           let+ scope = own_scope qi in
           (scope, scope)

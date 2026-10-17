@@ -9,7 +9,9 @@ module SampleExt (Cont : Ext) = struct
   include Cont
 
   let lib_source =
-    Some ("lib/ext/sampleExt/sampleExt_lib.rav", [%blob "sampleExt_lib.rav"])
+    Some
+      ( ExtApi.Library_unit,
+        ("lib/ext/sampleExt/sampleExt_lib.rav", [%blob "sampleExt_lib.rav"]) )
 
   type Stmt.stmt_ext += RandEven
 

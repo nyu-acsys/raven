@@ -27,16 +27,18 @@ module ErrorCreditsExt (Cont : Ext) = struct
      definition. *)
   include Cont
 
-  (* Custom library to be included as part of this extension. The contents of this file are appended to Raven's `Library` module. *)
+  (* This extension's library, which programs cannot name. *)
   let lib_source =
-    Some ("lib/ext/errorCreditsExt/errorCreditsLib.rav", [%blob "errorCreditsLib.rav"])
+    Some
+      ( ExtApi.Elaboration_unit,
+        ("lib/ext/errorCreditsExt/errorCreditsLib.rav", [%blob "errorCreditsLib.rav"]) )
 
   (* Hard-coding ident constants from `errorCreditsLib.rav` *)
   module EC_Predefs = struct
     let ec_lib_module_ident = Ident.make Loc.dummy "ErrorCreds" 0
     let ec_lib_field = Ident.make Loc.dummy "error_cred" 0
     let ec_loc_ident = Ident.make Loc.dummy "error_loc" 0
-    let error_module_qi = QualIdent.make [ Predefs.lib_ident ] ec_lib_module_ident
+    let error_module_qi = QualIdent.make [ Predefs.elaboration_ident ] ec_lib_module_ident
     let error_field_qi = QualIdent.append error_module_qi ec_lib_field
     let error_loc_qi = QualIdent.append error_module_qi ec_loc_ident
   end
@@ -444,7 +446,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
   (* Rewrite expressions. We rewrite the resource
       `EC.error(ec)` to ~~>
       
-      `own(Library.ErrorCreds.error_loc, Library.ErrorCreds.error_cred, Library.Fraction.frac(ec))` *)
+      `own($Elaboration.ErrorCreds.error_loc, $Elaboration.ErrorCreds.error_cred, Library.Fraction.frac(ec))` *)
   let rewrite_expr_ext (expr_ext : Expr.expr_ext) (expr_list : expr list)
       (expr_attr : Expr.expr_attr) =
     let open Rewriter.Syntax in
@@ -452,7 +454,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
 
     match (expr_ext, expr_list) with
     | ErrorCreds, [ ec ] ->
-        (* Getting the `Library.ErrorCreds.error_loc` variable. *)
+        (* Getting the `$Elaboration.ErrorCreds.error_loc` variable. *)
         let* ec_ref_var_def = Rewriter.find_and_reify_var EC_Predefs.error_loc_qi in
         let ec_ref_expr =
           Expr.mk_var ~typ:ec_ref_var_def.var_decl.var_type EC_Predefs.error_loc_qi
@@ -475,7 +477,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
           | _ -> Error.type_error loc "Expected Library.Fraction.frac data constructor"
         in
 
-        (* ```own(Library.ErrorCreds.error_loc, Library.ErrorCreds.error_cred, Library.Fraction.frac(ec))``` *)
+        (* ```own($Elaboration.ErrorCreds.error_loc, $Elaboration.ErrorCreds.error_cred, Library.Fraction.frac(ec))``` *)
         let own_expr =
           Expr.mk_app ~loc ~typ:Type.perm Own
             [

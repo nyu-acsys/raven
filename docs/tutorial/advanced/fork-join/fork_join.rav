@@ -8,7 +8,7 @@
 // A resource algebra for a single non-duplicable token: `excl` and `excl`
 // don't compose (composing them gives the invalid `top`), so holding one is
 // proof nobody else can be holding another. This is worth writing out by
-// hand once, even though `Library.Excl[Library.UnitRA]` already gives you
+// hand once, even though `Library.Excl[Library.Unit]` already gives you
 // exactly this -- so you've seen what a resource algebra actually *is*
 // before treating one as a black box. Compare this to Appendix A's `RA`
 // axioms: every one of them is either immediate from the `top`/`id` case

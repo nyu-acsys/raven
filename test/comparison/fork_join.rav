@@ -9,7 +9,7 @@ interface ForkJoinResource : Library.Type {
 
 module ForkJoin[R: ForkJoinResource] {
 
-    module Excl = Library.Excl[Library.UnitRA]
+    module Excl = Library.Excl[Library.Unit]
 
     import Library.Option
 

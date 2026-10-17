@@ -45,10 +45,15 @@ type type_check_stmt_functs = Rewriter.type_check_stmt_functs = {
 }
 (** Set of functions of the type checker available for type checking `Stmt.stmt_ext` *)
 
+(** The compilation unit an extension's library source is merged into: [Library_unit],
+    which programs can use, or [Elaboration_unit] ([Predefs.elaboration_ident]), for
+    modules only the extension itself instantiates. *)
+type lib_unit = Library_unit | Elaboration_unit
+
 (* Main Extension API *)
 module type Ext = sig
   (* Config *)
-  val lib_source : (string * string) option
+  val lib_source : (lib_unit * (string * string)) option
 
   (* AstDef *)
   val type_ext_to_name : Type.type_ext -> string
@@ -327,7 +332,7 @@ module type Ext = sig
       and total: default (no active contract extension, or a tag the extension doesn't
       recognize) is the identity. *)
 
-  val lib_sources : (string * string) list
+  val lib_sources : (lib_unit * (string * string)) list
 end
 
 (** Combines an extension's own answer to [claim_expr] or [claim_basic_stmt] with that of

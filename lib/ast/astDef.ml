@@ -3310,6 +3310,18 @@ module Predefs = struct
   let lib_ident = Ident.make Loc.dummy "Library" 0
   let prog_ident = Ident.make Loc.dummy "$Program" 0
   let prog_qual_ident = QualIdent.from_ident prog_ident
+
+  (* The compilation units of the library modules that elaboration and lowering
+     instantiate. Programs cannot name them. *)
+  let elaboration_ident = Ident.make Loc.dummy "$Elaboration" 0
+  let lowering_ident = Ident.make Loc.dummy "$Lowering" 0
+
+  (* Whether [qi] lies in the standard library, including the units programs cannot name. *)
+  let is_library_qual_ident (qi : QualIdent.t) : bool =
+    let first = Ident.name (QualIdent.first_ident qi) in
+    List.exists [ lib_ident; elaboration_ident; lowering_ident ] ~f:(fun unit_ident ->
+        String.equal first (Ident.name unit_ident))
+
   let lib_type_mod_ident = Ident.make Loc.dummy "Type" 0
   let lib_type_mod_qual_ident = QualIdent.from_list [ lib_ident; lib_type_mod_ident ]
   let lib_type_rep_type_ident = Ident.make Loc.dummy "T" 0
@@ -3373,8 +3385,17 @@ module Predefs = struct
   let lib_nat_mod_qual_ident =
     QualIdent.from_list [ lib_ident; Ident.make Loc.dummy "Nat" 0 ]
 
-  let lib_atomic_token_ra_mod_qual_ident =
-    QualIdent.from_list [ lib_ident; Ident.make Loc.dummy "AtomicTokenRA" 0 ]
+  let lowering_atomic_token_ra_mod_qual_ident =
+    QualIdent.from_list [ lowering_ident; Ident.make Loc.dummy "AtomicTokenRA" 0 ]
+
+  let lowering_heap_utils_mod_qual_ident =
+    QualIdent.from_list [ lowering_ident; Ident.make Loc.dummy "HeapUtils" 0 ]
+
+  let lowering_unit_inv_ra_mod_qual_ident =
+    QualIdent.from_list [ lowering_ident; Ident.make Loc.dummy "UnitInvRA" 0 ]
+
+  let lowering_frac_heap_utils_mod_qual_ident =
+    QualIdent.from_list [ lowering_ident; Ident.make Loc.dummy "FracHeapUtils" 0 ]
 
   let lib_atomic_token_uncommitted_constr_ident = Ident.make Loc.dummy "au_uncommitted" 0
 

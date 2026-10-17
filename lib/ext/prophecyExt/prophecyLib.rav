@@ -1,4 +1,5 @@
-// Custom library to be included as part of this extension. The contents of this file are appended to Raven's `Library` module.
+// This extension's library. It is part of the unit `$Elaboration`, which programs cannot
+// name.
 
 // One functor, instantiated once per predicted type T, backing both prophecy
 // flavors: `prophecyValue` (bound to `MultiTyp`, instantiated with a `List[T]`

@@ -40,9 +40,8 @@ let unsupported_expr_error (expr : Expr.t) : 'a =
 (* The chunk value stored in a predicate/invariant's heap for one occurrence.
 
    For an `inv` with no return (out) args, rewrite_add_pred_utils backs PredHeapRA$P
-   with the trivial one-element RA (see generate_unit_pred_ra below) instead of
-   Agree, so there's no RA-level constructor to apply here: the chunk is just the
-   (empty) out-args tuple itself. Unfolding an `inv` never consumes it (Agree's frame
+   with `UnitInvRA` instead of Agree, so there's no RA-level constructor to apply
+   here: the chunk is just the (empty) out-args tuple itself. Unfolding an `inv` never consumes it (Agree's frame
    doesn't decrement), so this changes nothing observable.
 
    For a `pred` with no return args, rewrite_add_pred_utils backs PredHeapRA$P with
@@ -556,271 +555,27 @@ let empty_heap (heap : var_decl) (v : var_decl) (id : expr) : expr =
   let entry = Expr.mk_maplookup (Expr.from_var_decl heap) (Expr.from_var_decl v) in
   Expr.mk_binder Forall [ v ] (Expr.mk_eq entry id)
 
-(* This function generates a module which roughly looks like the following:
- *     module f$utils {
- *       type T = f.field_type.T;
- *   
- *       var id : T = f.field_type.id;
- *   
- *       func f$heapValid(h: Map[Ref, T]) returns (ret:Bool) {
- *         forall l: Ref :: T.valid(h[l])
- *       }
- *   
- *       func f$heapChunkComp(x1: T, x2: T) returns (ret: T) {
- *         T.comp(x1, x2)
- *       }
- *   
- *       func f$heapChunkFrame(x1: T, x2: T) returns (ret: T) {
- *         T.frame(x1, x2)
- *       }
- *   
- *       func f$heapchunk_compare(x1: T, x2: T) returns (ret: Bool) {
- *         T.valid(f$heapSubChunk(x1, x2))
- *       }
- *     }
- *)
+(* The utils module of a heap of [ra] chunks indexed by [in_arg_typ]: an instance of
+   [Library.HeapUtils], or of [Library.FracHeapUtils] for a fractional field. *)
 let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident : ident)
     (ra_qual_ident : qual_ident) ?(in_arg_typ = Type.ref) (loc : location) :
     Module.symbol Rewriter.t =
   assert ((not is_field) || (is_field && Type.equal in_arg_typ Type.ref));
-
   let open Rewriter.Syntax in
-  let fld_elem_type = ProgUtils.get_ra_rep_type ra_qual_ident in
-
-  let mod_decl =
-    {
-      Module.mod_decl_name = mod_ident;
-      mod_decl_formals = [];
-      mod_decl_returns = [];
-      mod_decl_is_sealed = false;
-      mod_decl_interfaces = Set.empty (module QualIdent);
-      mod_decl_rep = None;
-      mod_decl_is_ra = false;
-      mod_decl_is_interface = false;
-      mod_decl_status = NotFree;
-      mod_decl_loc = loc;
-    }
-  in
-
-  let* mod_def =
-    let type_ident = ProgUtils.heap_utils_rep_type_ident loc in
-    let type_tp_expr = Type.mk_var (QualIdent.from_ident type_ident) in
-
-    let type_def =
-      {
-        Module.type_def_name = type_ident;
-        type_def_expr = Some fld_elem_type;
-        type_def_rep = true;
-        type_def_is_free = false;
-        type_def_loc = loc;
-      }
-    in
-
-    let var_def =
-      {
-        Stmt.var_decl =
-          Type.mk_var_decl ~loc ~const:true ~ghost:true
-            (ProgUtils.heap_utils_id_ident loc)
-            type_tp_expr;
-        var_init =
-          Some (Expr.mk_var ~typ:fld_elem_type (ProgUtils.get_ra_id ra_qual_ident));
-        var_is_free = NotFree;
-      }
-    in
-
-    let heap_formal_arg =
-      Type.mk_var_decl ~loc ~const:true
-        (*~ghost:true*) (Ident.fresh loc "h")
-        (Type.mk_map loc in_arg_typ type_tp_expr)
-    in
-    let heap_valid_fn_decl =
-      Callable.mk_call_decl ~kind:Func
-        ~name:(ProgUtils.heap_utils_valid_ident loc)
-        ~loc ~formals:[ heap_formal_arg ]
-        ~returns:[ Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "ret") Type.bool ]
-        ~status:MachineFree ~needs_mask:[] ~grants_mask:[] ()
-    in
-
-    let l_var_decl = Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "l") in_arg_typ in
-
-    let ra_valid_fn_qual_ident = ProgUtils.get_ra_valid_fn_qual_ident ra_qual_ident in
-
-    let heap_valid_fn_body =
-      let heap_map_lookup_l =
-        Expr.mk_maplookup ~loc
-          (Expr.from_var_decl heap_formal_arg)
-          (Expr.from_var_decl l_var_decl)
+  let+ utils_functor, args =
+    if is_frac_field then
+      Rewriter.return
+        (Predefs.lowering_frac_heap_utils_mod_qual_ident, [ Module.ModArg ra_qual_ident ])
+    else
+      let+ in_arg_type_module =
+        ProgUtils.intros_type_module ~loc ~f:Typing.check_symbol in_arg_typ
       in
-
-      Expr.mk_binder ~loc ~typ:Type.bool Forall [ l_var_decl ]
-        ~trigs:[ [ heap_map_lookup_l ] ]
-        (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var ra_valid_fn_qual_ident)
-           [ heap_map_lookup_l ])
-    in
-
-    let heap_valid_fn =
-      {
-        Callable.call_decl = heap_valid_fn_decl;
-        call_def = FuncDef { func_body = Some heap_valid_fn_body };
-      }
-    in
-
-    let heap_valid_inhale_fn_decl =
-      {
-        heap_valid_fn_decl with
-        (* Callable.call_decl_kind = Func; *)
-        call_decl_name = ProgUtils.heap_utils_valid_inhale_ident loc;
-      }
-    in
-
-    let heap_valid_fn_expr =
-      Expr.mk_app ~loc ~typ:Type.bool
-        (Var (QualIdent.from_ident heap_valid_fn_decl.call_decl_name))
-        [ Expr.from_var_decl heap_formal_arg ]
-    in
-
-    let heap_valid_inhale_fn =
-      {
-        Callable.call_decl = heap_valid_inhale_fn_decl;
-        call_def =
-          FuncDef
-            {
-              func_body =
-                Some
-                  (if is_frac_field then
-                     let null_id_check =
-                       Expr.mk_eq ~loc
-                         (Expr.mk_maplookup ~loc
-                            (Expr.from_var_decl heap_formal_arg)
-                            (Expr.mk_null ()))
-                         (Expr.mk_var ~typ:type_tp_expr
-                            (ProgUtils.get_ra_id ra_qual_ident))
-                     in
-
-                     Expr.mk_and [ heap_valid_fn_expr; null_id_check ]
-                   else heap_valid_fn_expr);
-            };
-      }
-    in
-
-    let heap_add_chunk_fn_decl =
-      Callable.mk_call_decl ~kind:Func
-        ~name:(ProgUtils.heap_utils_comp_chunk_ident loc)
-        ~loc
-        ~formals:
-          [
-            Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "x1") type_tp_expr;
-            Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "x2") type_tp_expr;
-          ]
-        ~returns:
-          [ Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "ret") type_tp_expr ]
-        ~status:MachineFree ~needs_mask:[] ~grants_mask:[] ()
-    in
-
-    let heap_add_chunk_fn =
-      {
-        Callable.call_decl = heap_add_chunk_fn_decl;
-        call_def =
-          FuncDef
-            {
-              func_body =
-                Some
-                  (Expr.mk_app ~loc ~typ:type_tp_expr
-                     (Expr.Var (ProgUtils.get_ra_comp_fn_qual_ident ra_qual_ident))
-                     [
-                       Expr.from_var_decl
-                         (List.hd_exn heap_add_chunk_fn_decl.call_decl_formals);
-                       Expr.from_var_decl
-                         (List.nth_exn heap_add_chunk_fn_decl.call_decl_formals 1);
-                     ]);
-            };
-      }
-    in
-
-    let heap_sub_chunk_fn_decl =
-      Callable.mk_call_decl ~kind:Func
-        ~name:(ProgUtils.heap_utils_frame_chunk_ident loc)
-        ~loc
-        ~formals:
-          [
-            Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "x1") type_tp_expr;
-            Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "x2") type_tp_expr;
-          ]
-        ~returns:
-          [ Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "ret") type_tp_expr ]
-        ~status:MachineFree ~needs_mask:[] ~grants_mask:[] ()
-    in
-
-    let heap_sub_chunk_fn =
-      {
-        Callable.call_decl = heap_sub_chunk_fn_decl;
-        call_def =
-          FuncDef
-            {
-              func_body =
-                Some
-                  (Expr.mk_app ~loc ~typ:type_tp_expr
-                     (Expr.Var (ProgUtils.get_ra_frame_fn_qual_ident ra_qual_ident))
-                     [
-                       Expr.from_var_decl
-                         (List.hd_exn heap_sub_chunk_fn_decl.call_decl_formals);
-                       Expr.from_var_decl
-                         (List.nth_exn heap_sub_chunk_fn_decl.call_decl_formals 1);
-                     ]);
-            };
-      }
-    in
-
-    let heapchunk_compare_fn_decl =
-      Callable.mk_call_decl ~kind:Func
-        ~name:(ProgUtils.heap_utils_heapchunk_compare_ident loc)
-        ~loc
-        ~formals:
-          [
-            Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "x1") type_tp_expr;
-            Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "x2") type_tp_expr;
-          ]
-        ~returns:[ Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "ret") Type.bool ]
-        ~status:MachineFree ~needs_mask:[] ~grants_mask:[] ()
-    in
-
-    let heapchunk_compare_fn =
-      {
-        Callable.call_decl = heapchunk_compare_fn_decl;
-        call_def =
-          FuncDef
-            {
-              func_body =
-                Some
-                  (Expr.mk_app ~loc ~typ:type_tp_expr (Expr.Var ra_valid_fn_qual_ident)
-                     [
-                       Expr.mk_app ~loc ~typ:type_tp_expr
-                         (Expr.Var
-                            (QualIdent.from_ident heap_sub_chunk_fn_decl.call_decl_name))
-                         [
-                           Expr.from_var_decl
-                             (List.hd_exn heapchunk_compare_fn_decl.call_decl_formals);
-                           Expr.from_var_decl
-                             (List.nth_exn heapchunk_compare_fn_decl.call_decl_formals 1);
-                         ];
-                     ]);
-            };
-      }
-    in
-
-    Rewriter.return
-      [
-        Module.SymbolDef (Module.TypeDef type_def);
-        SymbolDef (Module.VarDef var_def);
-        SymbolDef (Module.CallDef heap_valid_fn);
-        SymbolDef (Module.CallDef heap_valid_inhale_fn);
-        SymbolDef (Module.CallDef heap_add_chunk_fn);
-        SymbolDef (Module.CallDef heap_sub_chunk_fn);
-        SymbolDef (Module.CallDef heapchunk_compare_fn);
-      ]
+      ( Predefs.lowering_heap_utils_mod_qual_ident,
+        [ Module.ModArg ra_qual_ident; Module.ModArg in_arg_type_module ] )
   in
-
-  Rewriter.return (Module.ModDef { mod_decl; mod_def })
+  Module.ModInst
+    (Module.mk_mod_inst ~name:mod_ident ~typ:utils_functor ~def:(utils_functor, args) ~loc
+       ())
 
 let rewrite_add_field_utils (symbol : Module.symbol) : Module.symbol Rewriter.t =
   let open Rewriter.Syntax in
@@ -846,101 +601,6 @@ let rewrite_add_field_utils (symbol : Module.symbol) : Module.symbol Rewriter.t 
       Rewriter.return symbol
   | _ -> Rewriter.return symbol
 
-(* An `inv` with no return (out) args owns nothing but the bare fact that it currently
-   holds -- there's no data for two copies to agree or disagree on, so agreement is
-   trivially satisfied. (Not done for `pred`: see mk_pred_new_chunk above for why that
-   would be unsound, not just a missed optimization.) Rather than instantiate Agree
-   (whose rep type is a 3-constructor datatype, and whose defining/auto-lemma axioms
-   cost real datatype case-splitting in the backend once an ISC accumulates a few
-   fold/unfold occurrences of the same invariant -- each occurrence mints fresh
-   ground terms of that datatype that Z3 has to re-derive those facts against), build
-   PredHeapRA$P directly as the one-element resource algebra: `T = ()`, with `valid`,
-   `comp`, `frame`, `fpuAllowed` all constant. Nothing downstream needs it to come
-   from a generic-functor instantiation -- `generate_utils_module` below only ever
-   references it by qual_ident-based naming convention (`<ra>.valid`, `<ra>.T`, ...),
-   so a hand-built concrete module works exactly the same way a `ModInst` would. *)
-let generate_unit_pred_ra ~loc (mod_ident : ident) : Module.symbol Rewriter.t =
-  let t_ident = ProgUtils.heap_utils_rep_type_ident loc in
-  let t_type_expr = Type.mk_var (QualIdent.from_ident t_ident) in
-  let unit_expr = Expr.set_type (Expr.mk_tuple ~loc []) t_type_expr in
-
-  let type_def =
-    {
-      Module.type_def_name = t_ident;
-      type_def_expr = Some (Type.mk_prod loc []);
-      type_def_rep = true;
-      type_def_is_free = false;
-      type_def_loc = loc;
-    }
-  in
-
-  let id_def =
-    {
-      Stmt.var_decl =
-        Type.mk_var_decl ~loc ~const:true ~ghost:true
-          (ProgUtils.heap_utils_id_ident loc)
-          t_type_expr;
-      var_init = Some unit_expr;
-      var_is_free = NotFree;
-    }
-  in
-
-  let mk_fn ~name ~num_formals ~ret_type ~body =
-    let formals =
-      List.init num_formals ~f:(fun i ->
-          Type.mk_var_decl ~loc ~const:true
-            (Ident.fresh loc (Printf.sprintf "x%d" i))
-            t_type_expr)
-    in
-    {
-      Callable.call_decl =
-        Callable.mk_call_decl ~kind:Func ~name:(Ident.make loc name 0) ~loc ~formals
-          ~returns:[ Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "ret") ret_type ]
-          ~status:MachineFree ~needs_mask:[] ~grants_mask:[] ();
-      call_def = FuncDef { func_body = Some body };
-    }
-  in
-
-  let valid_fn =
-    mk_fn ~name:"valid" ~num_formals:1 ~ret_type:Type.bool ~body:(Expr.mk_bool ~loc true)
-  in
-  let comp_fn = mk_fn ~name:"comp" ~num_formals:2 ~ret_type:t_type_expr ~body:unit_expr in
-  let frame_fn =
-    mk_fn ~name:"frame" ~num_formals:2 ~ret_type:t_type_expr ~body:unit_expr
-  in
-  let fpu_allowed_fn =
-    mk_fn ~name:"fpuAllowed" ~num_formals:2 ~ret_type:Type.bool
-      ~body:(Expr.mk_bool ~loc true)
-  in
-
-  let mod_decl =
-    {
-      Module.mod_decl_name = mod_ident;
-      mod_decl_formals = [];
-      mod_decl_returns = [];
-      mod_decl_is_sealed = false;
-      mod_decl_interfaces = Set.empty (module QualIdent);
-      mod_decl_rep = None;
-      mod_decl_is_ra = false;
-      mod_decl_is_interface = false;
-      mod_decl_status = NotFree;
-      mod_decl_loc = loc;
-    }
-  in
-
-  let mod_def =
-    [
-      Module.SymbolDef (Module.TypeDef type_def);
-      Module.SymbolDef (Module.VarDef id_def);
-      Module.SymbolDef (Module.CallDef valid_fn);
-      Module.SymbolDef (Module.CallDef comp_fn);
-      Module.SymbolDef (Module.CallDef frame_fn);
-      Module.SymbolDef (Module.CallDef fpu_allowed_fn);
-    ]
-  in
-
-  Rewriter.return (Module.ModDef { mod_decl; mod_def })
-
 let rewrite_add_pred_utils (c : Callable.t) : Callable.t Rewriter.t =
   let open Rewriter.Syntax in
   match c.call_decl.call_decl_kind with
@@ -952,9 +612,17 @@ let rewrite_add_pred_utils (c : Callable.t) : Callable.t Rewriter.t =
           Poly.(c.call_decl.call_decl_kind = Invariant)
           && List.is_empty c.call_decl.call_decl_returns
         then
-          let* unit_pred_ra =
-            generate_unit_pred_ra ~loc
-              (ProgUtils.pred_to_ra_mod_ident ~loc c.call_decl.call_decl_name)
+          (* An `inv` with no return args owns only the fact that it holds, so there is
+             nothing for two copies to disagree on: `UnitInvRA` rather than Agree,
+             whose datatype rep costs case splits in the backend. Not sound for `pred`:
+             see mk_pred_new_chunk. *)
+          let unit_pred_ra =
+            Module.ModInst
+              (Module.mk_mod_inst
+                 ~name:(ProgUtils.pred_to_ra_mod_ident ~loc c.call_decl.call_decl_name)
+                 ~typ:Predefs.lowering_unit_inv_ra_mod_qual_ident
+                 ~def:(Predefs.lowering_unit_inv_ra_mod_qual_ident, [])
+                 ~loc ())
           in
           Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.check_symbol unit_pred_ra
         else if
@@ -1070,7 +738,7 @@ let rewrite_add_atomics_utils (c : Callable.t) : Callable.t Rewriter.t =
                ~name:(ProgUtils.au_to_ra_mod_ident ~loc c.call_decl.call_decl_name)
                ~typ:Predefs.lib_ra_mod_qual_ident
                ~def:
-                 ( Predefs.lib_atomic_token_ra_mod_qual_ident,
+                 ( Predefs.lowering_atomic_token_ra_mod_qual_ident,
                    [
                      Module.ModArg proc_conrete_args_type_module;
                      Module.ModArg proc_ret_type_module;

@@ -37,13 +37,16 @@ module ProphecyExt (Cont : Ext) = struct
      definition. *)
   include Cont
 
-  (* Custom library to be included as part of this extension. The contents of `prophecyLib.rav` are appended to Raven's `Library` module. *)
-  let lib_source = Some ("lib/ext/prophecyExt/prophecyLib.rav", [%blob "prophecyLib.rav"])
+  (* This extension's library, which programs cannot name. *)
+  let lib_source =
+    Some
+      ( ExtApi.Elaboration_unit,
+        ("lib/ext/prophecyExt/prophecyLib.rav", [%blob "prophecyLib.rav"]) )
 
-  (* Defining pre-fixed idents from the `Prophecy` module defined in prophecyLib.rav. This module gets added to Raven's `Library`, and thus can be accessed as `Library.Prophecy`. We instantiate this module once for each type T used in the program -- both prophecy flavors for a given T share that single instantiation, each backed by its own field on its own bare type parameter (see the module-level doc comment in prophecyLib.rav for why it's shaped this way, and `field_ident` below). *)
+  (* Defining pre-fixed idents from the `Prophecy` module defined in prophecyLib.rav. This module is part of the unit [Predefs.elaboration_ident], which programs cannot name. We instantiate this module once for each type T used in the program -- both prophecy flavors for a given T share that single instantiation, each backed by its own field on its own bare type parameter (see the module-level doc comment in prophecyLib.rav for why it's shaped this way, and `field_ident` below). *)
   module ProphPredefs = struct
     let proph_mod_ident = Ident.make Loc.dummy "Prophecy" 0
-    let proph_mod_qi = QualIdent.from_list [ Predefs.lib_ident; proph_mod_ident ]
+    let proph_mod_qi = QualIdent.from_list [ Predefs.elaboration_ident; proph_mod_ident ]
 
     let field_ident one_shot =
       if one_shot then Ident.make Loc.dummy "prophecyValue1" 0
@@ -514,7 +517,7 @@ module ProphecyExt (Cont : Ext) = struct
         (* Proph module not found. Initializing... *)
 
         (* `proph_module_insert_scope`, and `proph_module_reference_scope` refer to two different scope.
-        - The first is the location where the instantiation of `Library.Prophecy` module must be inserted.
+        - The first is the location where the instantiation of the `Prophecy` module must be inserted.
         - The second is part of the fully qualified ident from which to reference the aforementioned module.
 
         The reason these might be different, is if we have for instance:

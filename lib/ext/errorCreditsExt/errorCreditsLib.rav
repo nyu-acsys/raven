@@ -1,4 +1,5 @@
-// Custom library to be included as part of this extension. The contents of this file are appended to Raven's `Library` module.
+// This extension's library. It is part of the unit `$Elaboration`, which programs cannot
+// name.
 
 // This module is used to define a unique field and Ref location for use by this extension. Here we also see the use of the `free` keyword.
 module ErrorCreds {

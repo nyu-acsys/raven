@@ -1,6 +1,12 @@
   $ dune exec -- raven --shh --nostdlib base_types.rav resource_algebra.rav
   Verification successful.
 
+The modules lowering instantiates refer to the library by name, so they are checked
+against it, as an ordinary program.
+
+  $ dune exec -- raven --shh lowering.rav
+  Verification successful.
+
 A library file that declares a field cannot be checked with --nostdlib: the
 resource algebra and type wrapper generated for a field are named relative to
 Library, which is exactly what --nostdlib leaves out. So atomics.rav is checked

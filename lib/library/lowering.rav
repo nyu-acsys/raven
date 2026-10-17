@@ -1,0 +1,154 @@
+// Modules instantiated by lowering. They live in a compilation unit of their own that
+// programs cannot name.
+
+module AtomicTokenRA[InArg: Library.Type, RetArg: Library.Type] : Library.ResourceAlgebra {
+    rep type T = data {
+        case au_null
+        case au_uncommitted(au_uncommit_proj1: InArg)
+        case au_committed(au_commit_proj1: InArg, au_commit_proj2: RetArg)
+        case au_top
+    }
+
+    val id: T = au_null
+
+    func comp(a:T, b:T) returns (ret:T) {
+        a == id ? b :
+        (b == id ? a :
+            (a is au_uncommitted ? au_top :
+                (b is au_uncommitted ? au_top :
+                    (a is au_committed && b == a ? a : au_top)
+                        // a == b ? a : au_top()
+                )
+            )
+        )
+    }
+    
+
+    func frame(a:T, b:T) returns (ret:T) {
+        b == id ? a :
+        (a is au_uncommitted && b is au_uncommitted ? 
+            (a.au_uncommit_proj1 == b.au_uncommit_proj1 ? id : au_top) :
+            (a == b ? a : au_top)
+        )
+    }
+
+    func valid(a:T) returns (ret: Bool) {
+        a != au_top
+    }
+
+
+    func fpuAllowed(a:T, b:T) returns (ret: Bool) {
+        (a is au_uncommitted && b is au_committed ? 
+            a.au_uncommit_proj1 == b.au_commit_proj1 : 
+            false
+        )
+    }
+
+    auto lemma compCommute()
+    {
+        assert forall a:T, b:T :: {comp(a, b)} a == au_null || b == au_null ==> comp(a, b) == comp(b, a);
+
+        assert forall a:T, b:T :: {comp(a, b)} a != au_null ==> b != au_null ==> comp(a, b) == comp(b, a) with {
+            if (a is au_committed) {
+                assert comp(a,b) == comp(b,a);
+            }
+        }
+    }
+    
+    auto lemma compFrameInv()
+    {
+        assert forall a:T, b:T :: {comp(frame(a, b), b)} b == au_null ==> valid(frame(a, b)) ==> comp(frame(a, b), b) == a;
+        assert forall a:T, b:T :: {comp(frame(a, b), b)} a == au_null ==> valid(frame(a, b)) ==> comp(frame(a, b), b) == a;
+
+        assert forall a:T, b:T :: {comp(frame(a, b), b)} a != au_null ==> b != au_null ==> valid(frame(a, b)) ==> comp(frame(a, b), b) == a with {
+            if (valid(frame(a,b)) && a != au_null && b != au_null) { 
+              assert a != au_top && b != au_top;
+              if (a is au_uncommitted) {
+                assert frame(a,b) == au_null;
+              } else {
+                assert frame(a,b) == b;
+              }
+            }
+        }
+    }
+    
+}
+
+// The chunk operations of a heap of RA chunks indexed by K, used by the encoding of
+// heaps.
+module HeapUtils[RA: Library.ResourceAlgebra, K: Library.Type] {
+  rep type T = RA.T
+
+  ghost val id: T = RA.id
+
+  func valid(h: Map[K, T]) returns (ret: Bool) {
+    forall l: K :: {h[l]} RA.valid(h[l])
+  }
+
+  func validInhale(h: Map[K, T]) returns (ret: Bool) {
+    valid(h)
+  }
+
+  func heapChunkComp(x1: T, x2: T) returns (ret: T) {
+    RA.comp(x1, x2)
+  }
+
+  func heapChunkFrame(x1: T, x2: T) returns (ret: T) {
+    RA.frame(x1, x2)
+  }
+
+  func heapChunkCompare(x1: T, x2: T) returns (ret: Bool) {
+    RA.valid(heapChunkFrame(x1, x2))
+  }
+}
+
+// HeapUtils for the heap of a fractional field, whose null entry is the identity.
+module FracHeapUtils[RA: Library.ResourceAlgebra] {
+  rep type T = RA.T
+
+  ghost val id: T = RA.id
+
+  func valid(h: Map[Ref, T]) returns (ret: Bool) {
+    forall l: Ref :: {h[l]} RA.valid(h[l])
+  }
+
+  func validInhale(h: Map[Ref, T]) returns (ret: Bool) {
+    valid(h) && h[null] == RA.id
+  }
+
+  func heapChunkComp(x1: T, x2: T) returns (ret: T) {
+    RA.comp(x1, x2)
+  }
+
+  func heapChunkFrame(x1: T, x2: T) returns (ret: T) {
+    RA.frame(x1, x2)
+  }
+
+  func heapChunkCompare(x1: T, x2: T) returns (ret: Bool) {
+    RA.valid(heapChunkFrame(x1, x2))
+  }
+}
+
+// The resource algebra of an invariant without return values: a single element. It does
+// not implement ResourceAlgebra, whose lemmas would only add axioms about constants.
+module UnitInvRA {
+  rep type T = ()
+
+  ghost val id: T = ()
+
+  func valid(x: T) returns (ret: Bool) {
+    true
+  }
+
+  func comp(x1: T, x2: T) returns (ret: T) {
+    ()
+  }
+
+  func frame(x1: T, x2: T) returns (ret: T) {
+    ()
+  }
+
+  func fpuAllowed(x1: T, x2: T) returns (ret: Bool) {
+    true
+  }
+}

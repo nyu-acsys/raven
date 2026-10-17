@@ -306,14 +306,6 @@ let rewrite_compr_modules (tbl : SymbolTbl.t) (m : Module.t) =
       }
     ]} *)
 
-(** `--strict` diagnostics never fire inside the standard library (core or
-    extension-supplied): it's not the user's code to annotate, and its declarations don't
-    even have a real path on disk to print a source excerpt from ([Loc.context] only
-    special-cases the core [Library.sources] strings, not extension [lib_sources] files
-    like `well_founded_order.rav`). *)
-let is_library_qual_ident (qid : QualIdent.t) : bool =
-  String.(Ident.name (QualIdent.first_ident qid) = Ident.name Predefs.lib_ident)
-
 let rec rewrite_loops (enclosing : Callable.call_decl) (stmt : Stmt.t) : Stmt.t Rewriter.t
     =
   let open Rewriter.Syntax in
@@ -738,7 +730,8 @@ let check_contract_ext_group_compatibility (tbl : SymbolTbl.t) (sm : scc_map) :
   let open Rewriter.Syntax in
   let resolve_call_decls members =
     List.filter_map members ~f:(fun qid ->
-        if is_library_qual_ident qid then None
+        (* `--strict` diagnostics never fire inside the standard library. *)
+        if Predefs.is_library_qual_ident qid then None
         else
           let tbl1 = SymbolTbl.goto qid tbl in
           let lookup =

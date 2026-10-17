@@ -52,7 +52,10 @@ module DecreasesExt (Cont : Ext) = struct
   include Cont
 
   let lib_source =
-    Some ("lib/ext/decreasesExt/well_founded_order.rav", [%blob "well_founded_order.rav"])
+    Some
+      ( ExtApi.Library_unit,
+        ("lib/ext/decreasesExt/well_founded_order.rav", [%blob "well_founded_order.rav"])
+      )
 
   (** ExtApi/core has no notion of [WellFoundedOrder] -- this is entirely DecreasesExt's
       own vocabulary, resolved on demand here rather than cached in a core-AST field the

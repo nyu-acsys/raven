@@ -291,10 +291,10 @@ The API comprises of the following sections.
 
 These values are used to configure certain options for your extension.
 
-- `val lib_source : (string * string) option`
-This value can optionally contain a Raven library file, such as `sampleExt_lib.rav` to be included as part of the current extension. If no such library is required, the programmer can set this to `None`. In order to include `sampleExt_lib.rav` for instance, set it as follows:
+- `val lib_source : (lib_unit * (string * string)) option`
+This value can optionally contain a Raven library file, such as `sampleExt_lib.rav` to be included as part of the current extension. If no such library is required, the programmer can set this to `None`. The `lib_unit` says where the file goes: `Library_unit` merges it into `Library`, where programs can use its modules; `Elaboration_unit` puts it in a unit that programs cannot name, for modules only the extension itself instantiates (as `Prophecy` and `ErrorCreds` are). In order to include `sampleExt_lib.rav` for instance, set it as follows:
 
-`let lib_source = Some ("sampleExt_lib.rav", [%blob "sampleExt_lib.rav"])`, and make the following modifications to the `dune` file located in the extension:
+`let lib_source = Some (ExtApi.Library_unit, ("sampleExt_lib.rav", [%blob "sampleExt_lib.rav"]))`, and make the following modifications to the `dune` file located in the extension:
 a. add `ppx_blob` in the `pps` list in the `preprocess` option of the `library` stanza.
 b. add `(preprocessor_deps (file sampleExt_lib.rav))` to the `library` stanza. 
 
@@ -649,7 +649,7 @@ Because these two functions (and `rewrite_callable_entry`) instrument callable b
 This contains a value that properly propagates and accumulates the configuration from successive extensions. There is usually no need to modify it, which is why this section carries a warning in the comments.
 
 ```ocaml
-  val lib_sources : (string * string) list
+  val lib_sources : (lib_unit * (string * string)) list
 ```
 
 This is read directly off the `(module ExtApi.Ext)` value chosen by `--extension`, once in `bin/raven.ml`, before type-checking even starts, to assemble the standard library source (see `parse_and_check_all`).

@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- `Library.UnitRA` is renamed to `Library.Unit`.
+- The library modules that only the verifier instantiates (`AtomicTokenRA`, `Prophecy`, `ErrorCreds`) are no longer accessible from programs.
+
 ### Fixed
 
 - Atomic calls inside an open atomic update now check that the update stays abortable if the call aborts.
