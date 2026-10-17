@@ -6,16 +6,16 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- Raven reports the errors of every member and every failed assertion instead of stopping at the first, up to the limit set by the new `--max-errors` option (default 20).
+- Report all errors instead of only the first, up to `--max-errors` (default 20).
 
 ### Changed
 
 - `Library.UnitRA` is renamed to `Library.Unit`.
-- The library modules that only the verifier instantiates (`AtomicTokenRA`, `Prophecy`, `ErrorCreds`) are no longer accessible from programs.
+- Hide the library modules that only the verifier uses (`AtomicTokenRA`, `Prophecy`, `ErrorCreds`).
 
 ### Fixed
 
-- Atomic calls inside an open atomic update now check that the update stays abortable if the call aborts.
+- Atomic calls inside an open atomic update now check that it stays abortable.
 
 ## [1.5.0] - 2026-10-16
 

@@ -9,8 +9,9 @@ let version = "1.5.0"
     raven it was not shipped with needs to know whether it can still understand that
     binary, and most releases change nothing here. Bump it only when an existing client
     would notice the difference. 2: a client may pass [--extension auto]. 3: a client may
-    pass [--lsp-annotations], and strict-mode warnings are structured diagnostics. *)
-let lsp_protocol_version = 3
+    pass [--lsp-annotations], and strict-mode warnings are structured diagnostics. 4: a
+    client may pass [--max-errors], which otherwise has no limit under [--lsp-mode]. *)
+let lsp_protocol_version = 4
 
 (** Oldest Z3 raven is known to work against. A client that supplies its own z3 alongside
     a raven it downloaded needs this to tell whether the pair is viable. *)

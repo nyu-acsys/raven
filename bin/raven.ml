@@ -12,7 +12,7 @@ type config = {
   prog_stats : bool;
   smt_timeout : int;
   smt_diagnostics : bool;
-  max_errors : int;
+  max_errors : int option;  (** As given on the command line, if at all. *)
   log_level : Logs.level option;
   strict : bool;
 }
@@ -96,10 +96,12 @@ let rec warn_free_usage ~diagnostics (md : Ast.Module.t) =
         | _ -> ())
     | Ast.Module.Import _ -> ())
 
-(** The limit on the errors a run reports. An editor shows every error, so `--lsp-mode`
-    has none. *)
+(** The limit on the errors a run reports, [None] for none. Without `--max-errors`, it is
+    20, but `--lsp-mode` has none, since an editor can show every error. *)
 let max_errors_of config =
-  if config.lsp_mode || config.max_errors <= 0 then None else Some config.max_errors
+  match config.max_errors with
+  | Some limit -> if limit <= 0 then None else Some limit
+  | None -> if config.lsp_mode then None else Some 20
 
 let cli_config_of config : Rewriter.cli_config = { cli_strict = config.strict }
 
@@ -479,9 +481,10 @@ let smt_timeout =
 
 let max_errors =
   let doc =
-    "Stop after reporting this many errors; 0 means no limit. Ignored with --lsp-mode."
+    "Stop after reporting this many errors; 0 means no limit. Default: 20, but no limit \
+     with --lsp-mode."
   in
-  Arg.(value & opt int 20 & info [ "max-errors" ] ~doc)
+  Arg.(value & opt (some int) None & info [ "max-errors" ] ~doc)
 
 let extension_mode =
   let doc =
