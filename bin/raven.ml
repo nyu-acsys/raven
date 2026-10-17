@@ -82,16 +82,18 @@ let parse_cu file_dir top_level_md_ident lexbuf =
     modules). Must run before [Ast.Module.set_free] force-marks a whole file free (e.g.
     for stdlib/includes below) -- once applied, that override is indistinguishable from a
     literal `free` written by the user. *)
-let rec warn_free_usage (md : Ast.Module.t) =
+let rec warn_free_usage ~diagnostics (md : Ast.Module.t) =
   List.iter md.mod_def ~f:(function
     | Ast.Module.SymbolDef symbol -> (
         if Ast.Symbol.is_free symbol then
-          Error.warning (Ast.Symbol.to_loc symbol)
+          Diagnostics.warning diagnostics (Ast.Symbol.to_loc symbol)
             (Printf.sprintf
                !"%s %{Ident} is declared `free`; its contract will be assumed for \
                  verification purposes, not checked"
                (Ast.Symbol.kind symbol) (Ast.Symbol.to_name symbol));
-        match symbol with Ast.Module.ModDef mod_def -> warn_free_usage mod_def | _ -> ())
+        match symbol with
+        | Ast.Module.ModDef mod_def -> warn_free_usage ~diagnostics mod_def
+        | _ -> ())
     | Ast.Module.Import _ -> ())
 
 (** The limit on the errors a run reports. An editor shows every error, so `--lsp-mode`
@@ -99,8 +101,7 @@ let rec warn_free_usage (md : Ast.Module.t) =
 let max_errors_of config =
   if config.lsp_mode || config.max_errors <= 0 then None else Some config.max_errors
 
-let cli_config_of config : Rewriter.cli_config =
-  { cli_strict = config.strict; cli_max_errors = max_errors_of config }
+let cli_config_of config : Rewriter.cli_config = { cli_strict = config.strict }
 
 (** Type-checks a single compilation unit.
 
@@ -114,11 +115,13 @@ let cli_config_of config : Rewriter.cli_config =
     against `Frac$f.T` rather than against the type the source wrote. Since the standard
     library is a unit of its own, that ruled out a library interface declaring a field at
     all. *)
-let type_cu ~ext_hooks config tbl md =
+let type_cu ~ext_hooks ~diagnostics config tbl md =
   let cli_config = cli_config_of config in
   let printers = Rewriter.printers_of_ext_hooks ext_hooks in
-  let tbl = SymbolTbl.add_symbol (ModDef md) tbl in
-  let tbl, processed_md = Typing.check_module ~tbl ~ext_hooks ~cli_config md in
+  let tbl = SymbolTbl.add_symbol ~diagnostics (ModDef md) tbl in
+  let tbl, processed_md =
+    Typing.check_module ~tbl ~ext_hooks ~cli_config ~diagnostics md
+  in
   Logs.debug (fun m -> m "%a" printers.pr_module processed_md);
   Logs.info (fun m -> m "Type-checking successful.");
   (tbl, processed_md)
@@ -127,7 +130,8 @@ let type_cu ~ext_hooks config tbl md =
     [Elaboration.elaborate_module]). Every unit goes through [elaborate_cu] before any
     goes through [lower_cu]. Returns [None] when there is nothing to backend-check
     (`--typeonly`); the `--stats` short-circuit below exits the process directly. *)
-let elaborate_cu ~ext_hooks config tbl (md : Ast.Module.t) front_end_out_chan =
+let elaborate_cu ~ext_hooks ~diagnostics config tbl (md : Ast.Module.t) front_end_out_chan
+    =
   let cli_config = cli_config_of config in
   let printers = Rewriter.printers_of_ext_hooks ext_hooks in
 
@@ -146,7 +150,9 @@ let elaborate_cu ~ext_hooks config tbl (md : Ast.Module.t) front_end_out_chan =
     Logs.app (fun m -> m "\nPROGRAM STATISTICS: \n%a" Elaboration.ProgStats.pr prog_stats);
     Stdlib.exit 0)
   else
-    let tbl, md = Elaboration.elaborate_module ~tbl ~ext_hooks ~cli_config md in
+    let tbl, md =
+      Elaboration.elaborate_module ~tbl ~ext_hooks ~cli_config ~diagnostics md
+    in
     Option.iter front_end_out_chan ~f:(fun out_chan ->
         Stdlib.Format.fprintf
           (Stdlib.Format.formatter_of_out_channel out_chan)
@@ -159,10 +165,12 @@ let elaborate_cu ~ext_hooks config tbl (md : Ast.Module.t) front_end_out_chan =
     needs (see [Smt.TupleArities]) can be computed from the fully lowered symbol table --
     of both the library and the main program -- before any backend checking (and hence any
     tuple-sort declaration) begins. *)
-let lower_cu ~ext_hooks tbl md lowered_out_chan =
+let lower_cu ~ext_hooks ~diagnostics tbl md lowered_out_chan =
   let printers = Rewriter.printers_of_ext_hooks ext_hooks in
 
-  let tbl, processed_md, lemma_calls = Lowering.lower_module ~tbl ~ext_hooks md in
+  let tbl, processed_md, lemma_calls =
+    Lowering.lower_module ~tbl ~ext_hooks ~diagnostics md
+  in
 
   Logs.debug (fun m -> m "%a" printers.pr_module processed_md);
   Logs.info (fun m -> m "Front-end processing successful.");
@@ -193,7 +201,7 @@ let backend_check_cu tbl context processed =
     parsed here ahead of the library, the reverse of the order *type-checking* needs (see
     [type_cu]'s doc comment): parsing has no dependency on the library's symbol table,
     only type-checking does. *)
-let parse_and_check_all ~extension_mode config file_names =
+let parse_and_check_all ~extension_mode ~diagnostics config file_names =
   (* Variable which controls whether the
     - `front_end_output.log` (the elaborated program)
     - `lowered_output.log` (the lowered program)
@@ -232,7 +240,7 @@ let parse_and_check_all ~extension_mode config file_names =
           in
           let includes, md = parse_cu file_dir Predefs.prog_ident lexbuf in
 
-          if config.strict then warn_free_usage md;
+          if config.strict then warn_free_usage ~diagnostics md;
 
           Stdio.In_channel.close inchan;
 
@@ -327,7 +335,7 @@ let parse_and_check_all ~extension_mode config file_names =
         ]
       in
       List.fold_map units ~init:tbl ~f:(fun tbl (cu_ident, sources) ->
-          type_cu ~ext_hooks config tbl (parse_unit cu_ident sources))
+          type_cu ~ext_hooks ~diagnostics config tbl (parse_unit cu_ident sources))
   in
 
   let md =
@@ -347,7 +355,7 @@ let parse_and_check_all ~extension_mode config file_names =
       in
       { md with mod_def = List.map Library.prelude ~f:import @ md.mod_def }
   in
-  let tbl, prog_typed = type_cu ~ext_hooks config tbl md in
+  let tbl, prog_typed = type_cu ~ext_hooks ~diagnostics config tbl md in
 
   (* All units are type-checked before any is rewritten -- see [type_cu] -- and
      elaborated before any is lowered -- see [elaborate_cu]. The library goes first
@@ -356,11 +364,11 @@ let parse_and_check_all ~extension_mode config file_names =
   let typed = lib_typed @ [ prog_typed ] in
   let tbl, elaborated =
     List.fold_map typed ~init:tbl ~f:(fun tbl md ->
-        elaborate_cu ~ext_hooks config tbl md front_end_out_chan)
+        elaborate_cu ~ext_hooks ~diagnostics config tbl md front_end_out_chan)
   in
   let tbl, processed =
     List.fold_map (List.filter_opt elaborated) ~init:tbl ~f:(fun tbl md ->
-        lower_cu ~ext_hooks tbl md lowered_out_chan)
+        lower_cu ~ext_hooks ~diagnostics tbl md lowered_out_chan)
   in
 
   begin
@@ -381,9 +389,7 @@ let parse_and_check_all ~extension_mode config file_names =
         Backend.SmtPreamble.initialize solver_session ~diagnostics:config.smt_diagnostics
           ~timeout:config.smt_timeout;
         Backend.SmtPreamble.declare_tuple_sorts solver_session arities;
-        let context =
-          Backend.CheckerContext.create ?max_errors:(max_errors_of config) solver_session
-        in
+        let context = Backend.CheckerContext.create ~diagnostics solver_session in
         let (_ : Backend.CheckerContext.context) =
           backend_check_cu tbl context processed
         in
@@ -570,15 +576,17 @@ let anchor_lsp_diagnostic err =
   anchor err
 
 (** With `--lsp-annotations`, include editor annotations and dependency filenames. *)
-let print_lsp_output config errs =
-  let errs = List.map (Error.warnings () @ errs) ~f:anchor_lsp_diagnostic in
+let print_lsp_output config ~diagnostics errs =
+  let errs =
+    List.map (Diagnostics.warnings diagnostics @ errs) ~f:anchor_lsp_diagnostic
+  in
   if config.lsp_annotations then
     Stdlib.print_endline
       (Yojson.Safe.to_string
          (`Assoc
             [
               ("errors", `List (List.map errs ~f:Error.to_lsp_json));
-              ("annotations", Annotations.all_to_json ());
+              ("annotations", Diagnostics.annotations_to_json diagnostics);
               ( "dependencies",
                 `List
                   (Hashtbl.keys include_map
@@ -587,9 +595,9 @@ let print_lsp_output config errs =
             ]))
   else Stdlib.print_endline (Error.errors_to_lsp_string errs)
 
-let print_errors config errs =
+let print_errors config ~diagnostics errs =
   if config.lsp_mode then begin
-    print_lsp_output config errs;
+    print_lsp_output config ~diagnostics errs;
     Stdlib.exit 0
   end
   else begin
@@ -686,13 +694,17 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annot
     let extension_mode : [ `Explicit of Ext.supported_extensions | `Auto ] =
       match explicit_extension_mode with Some ext -> `Explicit ext | None -> `Auto
     in
+    let diagnostics =
+      Diagnostics.create ?max_errors:(max_errors_of config)
+        ~collect_warnings:config.lsp_mode ()
+    in
     try
-      Error.configure_warnings ~collect:config.lsp_mode;
-      let result = parse_and_check_all ~extension_mode config input_files in
+      let result = parse_and_check_all ~extension_mode ~diagnostics config input_files in
       if
         config.lsp_mode
-        && (config.lsp_annotations || not (List.is_empty (Error.warnings ())))
-      then print_lsp_output config [];
+        && (config.lsp_annotations
+           || not (List.is_empty (Diagnostics.warnings diagnostics)))
+      then print_lsp_output config ~diagnostics [];
       `Ok result
     with
     | Unix.Unix_error (err, _, prog) ->
@@ -702,7 +714,7 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annot
              your PATH."
             prog (Unix.error_message err) Config.min_z3_version
         in
-        print_errors config [ (Generic, Loc.dummy, msg) ]
+        print_errors config ~diagnostics [ (Generic, Loc.dummy, msg) ]
     | (Sys_error _ | Failure _ | Invalid_argument _ | Assert_failure _) as exn ->
         let msg = String.map ~f:(function '"' -> '\'' | c -> c) (Exn.to_string exn) in
         let pos =
@@ -713,8 +725,8 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annot
                 Lexing.{ pos_fname = file; pos_bol = 0; pos_cnum = 0; pos_lnum = 1 }
           | _ -> Loc.dummy
         in
-        print_errors config [ (Internal, pos, msg) ]
-    | Error.Msg es -> print_errors config es
+        print_errors config ~diagnostics [ (Internal, pos, msg) ]
+    | Error.Msg es -> print_errors config ~diagnostics es
 
 let main_cmd =
   let info = Cmd.info "raven" ~version:Config.version in

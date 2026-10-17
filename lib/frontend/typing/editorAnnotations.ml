@@ -158,17 +158,17 @@ let declaration_text (symbol : Module.symbol) : string option =
 (** Records for the editor the members that the module or interface [module_ident]
     declared at [module_loc] inherits from the interfaces it implements, rather than
     declaring them itself, each with the interface it originates from. *)
-let record_inherited_members ~(module_ident : qual_ident) ~(module_loc : Loc.t)
-    (inherited : (qual_ident * Module.symbol) list) =
+let record_inherited_members ~diagnostics ~(module_ident : qual_ident)
+    ~(module_loc : Loc.t) (inherited : (qual_ident * Module.symbol) list) =
   let members =
     List.filter_map inherited ~f:(fun (interface_ident, symbol) ->
         let name = Ident.name (Symbol.to_name symbol) in
         let origin =
-          Annotations.origin
+          Diagnostics.origin diagnostics
             ~member:(QualIdent.to_string interface_ident ^ "." ^ name)
             ~default:(QualIdent.to_string interface_ident)
         in
-        Annotations.set_origin
+        Diagnostics.set_origin diagnostics
           ~member:(QualIdent.to_string module_ident ^ "." ^ name)
           origin;
         Option.map (declaration_text symbol) ~f:(fun text ->
@@ -180,13 +180,14 @@ let record_inherited_members ~(module_ident : qual_ident) ~(module_loc : Loc.t)
             { Annotations.origin; text; member_loc }))
   in
   if not (List.is_empty members) then
-    Annotations.record (InheritedMembers { module_loc; members })
+    Diagnostics.record_annotation diagnostics (InheritedMembers { module_loc; members })
 
 (** Records for the editor that [member] inherits the contract of [orig_decl], the member
     of interface [source], with the clauses as written there and the interface's
     parameters renamed to the member's, see [renamed_clause_text]. *)
-let record_inherited_contract ~(member : ident) ~(source : qual_ident) ~source_loc
-    ~(renaming : (var_decl * var_decl) list) (orig_decl : Callable.call_decl) =
+let record_inherited_contract ~diagnostics ~(member : ident) ~(source : qual_ident)
+    ~source_loc ~(renaming : (var_decl * var_decl) list) (orig_decl : Callable.call_decl)
+    =
   let clause keyword (spec : Stmt.spec) =
     let form_loc = Expr.to_loc spec.spec_form in
     Option.bind
@@ -231,7 +232,7 @@ let record_inherited_contract ~(member : ident) ~(source : qual_ident) ~source_l
     @ Option.to_list opens_clause
   in
   if not (List.is_empty clauses) then
-    Annotations.record
+    Diagnostics.record_annotation diagnostics
       (InheritedContract
          {
            member_loc = Ident.to_loc member;

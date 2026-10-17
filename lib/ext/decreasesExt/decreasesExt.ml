@@ -554,16 +554,15 @@ module DecreasesExt (Cont : Ext) = struct
       let* cli_config = Rewriter.current_cli_config in
       if not cli_config.cli_strict then Rewriter.return ()
       else begin
-        List.iter without_measure ~f:(fun call_decl ->
+        Rewriter.List.iter without_measure ~f:(fun call_decl ->
             match call_decl.Callable.call_decl_kind with
             | Lemma | Func ->
-                Error.warning call_decl.call_decl_loc
+                Rewriter.warning call_decl.call_decl_loc
                   (Printf.sprintf
                      "%s is recursive but declares no `decreases` clause; its \
                       termination will be assumed for verification purposes, not checked"
                      (Ident.to_string call_decl.call_decl_name))
-            | Proc | Pred | Invariant -> ());
-        Rewriter.return ()
+            | Proc | Pred | Invariant -> Rewriter.return ())
       end
     in
     let* () =

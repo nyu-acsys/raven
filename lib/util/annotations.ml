@@ -23,16 +23,6 @@ type t =
       clauses : clause list;
     }
 
-let recorded : t list ref = ref []
-
-(** The interface each inherited member originates from, by the qualified name of the
-    member in the module that inherits it. *)
-let origins : (string, string) Hashtbl.t = Hashtbl.create (module String)
-
-let set_origin ~member origin = Hashtbl.set origins ~key:member ~data:origin
-let origin ~member ~default = Option.value (Hashtbl.find origins member) ~default
-let record (annotation : t) = recorded := annotation :: !recorded
-
 let to_json (annotation : t) : Yojson.Safe.t =
   match annotation with
   | InheritedMembers { module_loc; members } ->
@@ -62,14 +52,14 @@ let to_json (annotation : t) : Yojson.Safe.t =
                        @ Err.loc_to_lsp_fields clause_loc))) );
           ])
 
-(** The annotations recorded so far for the program's own members, not those of the
-    library, each once, in the order of their locations. *)
-let all_to_json () : Yojson.Safe.t =
+(** The [annotations] of the program's own members, not those of the library, each once,
+    in the order of their locations. *)
+let all_to_json (annotations : t list) : Yojson.Safe.t =
   let key = function
     | InheritedContract { member_loc; _ } -> member_loc
     | InheritedMembers { module_loc; _ } -> module_loc
   in
   `List
-    (List.dedup_and_sort !recorded ~compare:(fun a b -> Loc.compare (key a) (key b))
+    (List.dedup_and_sort annotations ~compare:(fun a b -> Loc.compare (key a) (key b))
     |> List.filter ~f:(fun a -> not (Loc.is_library_source (Loc.file_name (key a))))
     |> List.map ~f:to_json)

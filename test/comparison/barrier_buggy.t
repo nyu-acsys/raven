@@ -1,4 +1,4 @@
-  $ dune exec -- raven --shh ./barrier_buggy.rav
+  $ dune exec -- raven --shh --smt-timeout=30000 ./barrier_buggy.rav
   [Error] File "./barrier_buggy.rav", line 286, columns 12-34:
   286 |             fold is_barrier(l, r);
                     ^^^^^^^^^^^^^^^^^^^^^^
@@ -6,5 +6,9 @@
   [Error] File "./barrier_buggy.rav", line 111, columns 12-25:
   111 |             own(l.ctr, z)
                     ^^^^^^^^^^^^^
+  Related Location: This own predicate may not hold.
+  [Error] File "./barrier_buggy.rav", line 113, columns 11-30:
+  113 |         && own(l.frac, z, 0.5)
+                   ^^^^^^^^^^^^^^^^^^^
   Related Location: This own predicate may not hold.
   [1]

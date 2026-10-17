@@ -1280,33 +1280,54 @@ let rewrites_stmt_ext (m : Module.t) : Module.t Rewriter.t =
     [Lowering.lower_module]): lowering rewrites the types of fields, while the front end
     of a later unit still type-checks code that uses an earlier unit's fields, e.g. when
     it turns loops into procedures. *)
-let elaborate_module ?(tbl = SymbolTbl.create ()) ?ext_hooks ?cli_config (m : Module.t) =
+let elaborate_module ?(tbl = SymbolTbl.create ()) ?ext_hooks ?cli_config ?diagnostics
+    (m : Module.t) =
   assert (SymbolTbl.curr_is_root tbl);
 
   (* assert Ident.(m.mod_decl.mod_decl_name = QualIdent.to_ident (SymbolTbl.root_ident tbl)); *)
   let tbl, (m, scc_map) =
-    Rewriter.eval ?ext_hooks ?cli_config (elaborate_phase_1 m) tbl
+    Rewriter.eval ?ext_hooks ?cli_config ?diagnostics (elaborate_phase_1 m) tbl
   in
-
-  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (Masks.compute_masks m) tbl in
 
   let tbl, m =
-    Rewriter.eval ?ext_hooks ?cli_config (Masks.check_no_interface_reach_back m) tbl
+    Rewriter.eval ?ext_hooks ?cli_config ?diagnostics (Masks.compute_masks m) tbl
   in
 
-  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (elaborate_phase_2 m) tbl in
+  let tbl, m =
+    Rewriter.eval ?ext_hooks ?cli_config ?diagnostics
+      (Masks.check_no_interface_reach_back m)
+      tbl
+  in
 
-  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_type_ext m) tbl in
-  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_expr_ext m) tbl in
-  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_stmt_ext m) tbl in
+  let tbl, m =
+    Rewriter.eval ?ext_hooks ?cli_config ?diagnostics (elaborate_phase_2 m) tbl
+  in
+
+  let tbl, m =
+    Rewriter.eval ?ext_hooks ?cli_config ?diagnostics (rewrites_type_ext m) tbl
+  in
+  let tbl, m =
+    Rewriter.eval ?ext_hooks ?cli_config ?diagnostics (rewrites_expr_ext m) tbl
+  in
+  let tbl, m =
+    Rewriter.eval ?ext_hooks ?cli_config ?diagnostics (rewrites_stmt_ext m) tbl
+  in
 
   (* Logs.debug (fun m -> m "Elaboration.process_module: whoop-di-doo, here we go again"); *)
-  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_type_ext m) tbl in
-  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_expr_ext m) tbl in
-  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_stmt_ext m) tbl in
+  let tbl, m =
+    Rewriter.eval ?ext_hooks ?cli_config ?diagnostics (rewrites_type_ext m) tbl
+  in
+  let tbl, m =
+    Rewriter.eval ?ext_hooks ?cli_config ?diagnostics (rewrites_expr_ext m) tbl
+  in
+  let tbl, m =
+    Rewriter.eval ?ext_hooks ?cli_config ?diagnostics (rewrites_stmt_ext m) tbl
+  in
 
   let tbl, m =
-    Rewriter.eval ?ext_hooks ?cli_config (rewrite_add_func_contract_lemmas scc_map m) tbl
+    Rewriter.eval ?ext_hooks ?cli_config ?diagnostics
+      (rewrite_add_func_contract_lemmas scc_map m)
+      tbl
   in
 
   (tbl, m)

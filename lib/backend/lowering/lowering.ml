@@ -1831,7 +1831,7 @@ let lower (m : Module.t) : (Module.t * CallGraph.Graph.t) Rewriter.t =
     explicit, and assignments SSA. Returns the module together with its lemma call graph
     (see [CallGraph.lemma_calls]). Every compilation unit goes through the front end
     before any is lowered (see [Elaboration.elaborate_module]). *)
-let lower_module ?(tbl = SymbolTbl.create ()) ?ext_hooks (m : Module.t) =
+let lower_module ?(tbl = SymbolTbl.create ()) ?ext_hooks ?diagnostics (m : Module.t) =
   assert (SymbolTbl.curr_is_root tbl);
-  let tbl, (m, lemma_calls) = Rewriter.eval ?ext_hooks (lower m) tbl in
+  let tbl, (m, lemma_calls) = Rewriter.eval ?ext_hooks ?diagnostics (lower m) tbl in
   (tbl, m, lemma_calls)

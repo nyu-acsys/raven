@@ -2,6 +2,7 @@ open Base
 open Ast
 
 let id name = Ident.make Util.Loc.dummy name 0
+let diagnostics = Util.Diagnostics.create ()
 let qi names = QualIdent.from_list (List.map names ~f:id)
 
 let func internal source =
@@ -22,7 +23,7 @@ let module_ ?(decl = Module.empty_decl) name symbols =
     }
 
 let rec register symbol tbl =
-  let tbl = SymbolTbl.add_symbol symbol tbl in
+  let tbl = SymbolTbl.add_symbol ~diagnostics symbol tbl in
   match symbol with
   | Module.ModDef m ->
       let tbl = SymbolTbl.enter_exn m.mod_decl.mod_decl_name tbl in
@@ -30,13 +31,13 @@ let rec register symbol tbl =
         List.fold m.mod_def ~init:tbl ~f:(fun tbl instr ->
             match instr with
             | Module.SymbolDef symbol -> register symbol tbl
-            | Module.Import directive -> SymbolTbl.import directive tbl)
+            | Module.Import directive -> SymbolTbl.import ~diagnostics directive tbl)
       in
       SymbolTbl.exit tbl
   | _ -> tbl
 
 let import ?(all = true) name tbl =
-  SymbolTbl.import
+  SymbolTbl.import ~diagnostics
     {
       Module.import_name = qi name;
       import_all = all;
@@ -259,12 +260,12 @@ let test_unchanged_bindings () =
   expect_targets [ "f" ] [ [ "Use"; "$local" ] ] tbl;
   let tbl = preserving_cache (import [ "A" ]) tbl in
   expect_targets [ "f" ] [ [ "Use"; "$local" ] ] tbl;
-  let tbl = preserving_cache (SymbolTbl.add_local_vars []) tbl in
+  let tbl = preserving_cache (SymbolTbl.add_local_vars ~diagnostics []) tbl in
   let variable = Type.mk_var_decl (id "x") Type.int in
-  let tbl = SymbolTbl.add_local_vars [ variable ] tbl in
+  let tbl = SymbolTbl.add_local_vars ~diagnostics [ variable ] tbl in
   assert (Option.is_some (SymbolTbl.resolve_and_find (qi [ "x" ]) tbl));
   let variable = { variable with var_type = Type.bool } in
-  let tbl = preserving_cache (SymbolTbl.add_local_vars [ variable ]) tbl in
+  let tbl = preserving_cache (SymbolTbl.add_local_vars ~diagnostics [ variable ]) tbl in
   let () =
     match SymbolTbl.resolve_and_find (qi [ "x" ]) tbl with
     | Some (_, _, Module.VarDef { var_decl; _ }, _) ->
@@ -307,7 +308,9 @@ let test_local_name_filter () =
   let tbl = base () |> enter_callable "B" "$b" in
   expect_targets [ "f" ] [ [ "B"; "$b" ] ] tbl;
   let tbl =
-    preserving_cache (SymbolTbl.add_local_vars [ Type.mk_var_decl (id "x") Type.int ]) tbl
+    preserving_cache
+      (SymbolTbl.add_local_vars ~diagnostics [ Type.mk_var_decl (id "x") Type.int ])
+      tbl
   in
   expect_targets [ "f" ] [ [ "B"; "$b" ] ] tbl;
   expect_variable [ "x" ] [ "B"; "$b"; "x" ] tbl;

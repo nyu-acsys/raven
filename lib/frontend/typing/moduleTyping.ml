@@ -425,13 +425,14 @@ let rec check (m : Module.t) : Module.t t =
   in
 
   (* Members without a contract inherit the one of the interface member they implement. *)
+  let* diagnostics = Rewriter.current_diagnostics in
   let merged_symbols =
-    List.map merged_symbols ~f:(Interfaces.inherit_contract symbols_to_check)
+    List.map merged_symbols ~f:(Interfaces.inherit_contract ~diagnostics symbols_to_check)
   in
   (* A module the verifier generated, which has a display name, was not written. *)
   let () =
     if Option.is_none m.mod_decl.mod_decl_name.ident_display then
-      EditorAnnotations.record_inherited_members ~module_ident:mod_qual_ident
+      EditorAnnotations.record_inherited_members ~diagnostics ~module_ident:mod_qual_ident
         ~module_loc:m.mod_decl.mod_decl_loc inherited_members
   in
   let mod_def = mod_def_formals @ merged_symbols in

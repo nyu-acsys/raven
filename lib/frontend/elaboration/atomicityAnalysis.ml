@@ -1717,12 +1717,10 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
         let* () =
           let* cli_config = Rewriter.current_cli_config in
           if not cli_config.cli_strict then Rewriter.return ()
-          else begin
-            Error.warning loc
+          else
+            Rewriter.warning loc
               "this `atomic` block's body is assumed to be a single machine step, not \
-               checked; Raven has no model of the target machine to verify that against";
-            Rewriter.return ()
-          end
+               checked; Raven has no model of the target machine to verify that against"
         in
         (* One step to the enclosing context, however many statements inside. *)
         let outer = take_atomic_step ~loc atomicity_state in

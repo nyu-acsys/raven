@@ -830,8 +830,8 @@ let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_iden
 (** A callable that omits its contract -- no `requires`, `ensures` or `opens` -- inherits
     the contract of the interface member it implements, with the interface's parameters
     renamed to its own. *)
-let inherit_contract (symbols_to_check : (qual_ident * Module.symbol) Map.M(Ident).t) =
-  function
+let inherit_contract ~diagnostics
+    (symbols_to_check : (qual_ident * Module.symbol) Map.M(Ident).t) = function
   | Module.SymbolDef (CallDef ({ call_decl; _ } as call)) as instr
     when List.is_empty call_decl.call_decl_precond
          && List.is_empty call_decl.call_decl_postcond
@@ -888,7 +888,7 @@ let inherit_contract (symbols_to_check : (qual_ident * Module.symbol) Map.M(Iden
                 }
               in
               let () =
-                EditorAnnotations.record_inherited_contract
+                EditorAnnotations.record_inherited_contract ~diagnostics
                   ~member:call_decl.call_decl_name ~source:interface_ident
                   ~source_loc:(Symbol.to_loc orig_symbol) ~renaming:pairs orig_decl
               in

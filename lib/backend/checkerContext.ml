@@ -8,26 +8,26 @@ type context = {
   session : SmtSolver.session;
   path_conditions : expr list;
   auto_dependencies : Dependencies.Graph.t;
-  diagnostics : Error.Diagnostics.t;  (** The verification errors found so far. *)
+  diagnostics : Diagnostics.t;  (** The run's, for the verification errors. *)
 }
 
 type 'a t = context -> context * 'a
 
-let create ?max_errors session =
+let create ~diagnostics session =
   {
     session;
     path_conditions = [];
     auto_dependencies = Dependencies.Graph.empty;
-    diagnostics = Error.Diagnostics.create ?max_errors ();
+    diagnostics;
   }
 
 (** Records the verification error [diag]. Aborts when it is one more than the limit, or
     when the solver was stopped, since nothing more can be checked. *)
 let record_error (diag : Error.t list) : unit t =
  fun context ->
-  Error.Diagnostics.record context.diagnostics diag;
+  Diagnostics.record_error context.diagnostics diag;
   if context.diagnostics.aborted || Session.is_closed context.session then
-    Error.fail_with (Error.Diagnostics.report context.diagnostics)
+    Error.fail_with (Diagnostics.report_errors context.diagnostics)
   else (context, ())
 
 let write cmd : unit t =

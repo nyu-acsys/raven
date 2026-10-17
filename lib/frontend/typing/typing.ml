@@ -5,10 +5,11 @@ open Ast
 open TypingMonad
 module OverloadResolution = OverloadResolution
 
-let check_module ?(tbl = SymbolTbl.create ()) ?ext_hooks ?cli_config (m : Module.t) =
+let check_module ?(tbl = SymbolTbl.create ()) ?ext_hooks ?cli_config ?diagnostics
+    (m : Module.t) =
   assert (SymbolTbl.curr_is_root tbl);
   let tbl, m =
-    Rewriter.eval ?ext_hooks ?cli_config
+    Rewriter.eval ?ext_hooks ?cli_config ?diagnostics
       (fun st ->
         let st, _ = Rewriter.enter_module m st in
         let st, m = run_typing (ModuleTyping.check m) st in

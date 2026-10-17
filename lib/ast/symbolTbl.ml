@@ -640,8 +640,8 @@ let denote_same targets declared tbl =
   List.exists (identities declared)
     ~f:(List.mem (identities targets) ~equal:QualIdent.equal)
 
-let warn_hidden_import ~import_loc ~import_name ~decl_loc =
-  Error.warning import_loc
+let warn_hidden_import ~diagnostics ~import_loc ~import_name ~decl_loc =
+  Diagnostics.warning diagnostics import_loc
     (Printf.sprintf
        !"This import of %{QualIdent} is hidden by the declaration of %{Ident} on line %d"
        import_name
@@ -651,7 +651,7 @@ let warn_hidden_import ~import_loc ~import_name ~decl_loc =
 (** Warns if the import [import_name] of a single member, with [targets], is hidden by a
     declaration in the current scope, or else records it in case one follows. An import of
     the declared symbol itself is merely redundant. *)
-let check_named_import ~import_loc ~import_name ~targets tbl =
+let check_named_import ~diagnostics ~import_loc ~import_name ~targets tbl =
   let name = QualIdent.unqualify import_name in
   let declared =
     match Hashtbl.find (get_scope_entries tbl.tbl_curr) name with
@@ -667,17 +667,18 @@ let check_named_import ~import_loc ~import_name ~targets tbl =
         ~data:(import_loc, import_name, targets)
   | decl :: _ ->
       if not (denote_same targets declared tbl) then
-        warn_hidden_import ~import_loc ~import_name ~decl_loc:(QualIdent.to_loc decl)
+        warn_hidden_import ~diagnostics ~import_loc ~import_name
+          ~decl_loc:(QualIdent.to_loc decl)
 
 (** Warns if a recorded import of a single member named [name] into [scope] is hidden by
     the declaration [symbol_qual_ident] at [decl_loc]. *)
-let check_hidden_by_declaration scope name symbol_qual_ident decl_loc tbl =
+let check_hidden_by_declaration ~diagnostics scope name symbol_qual_ident decl_loc tbl =
   let named_imports = get_scope_named_imports scope in
   Option.iter (Hashtbl.find named_imports name)
     ~f:(fun (import_loc, import_name, targets) ->
       Hashtbl.remove named_imports name;
       if not (denote_same targets [ symbol_qual_ident ] tbl) then
-        warn_hidden_import ~import_loc ~import_name ~decl_loc)
+        warn_hidden_import ~diagnostics ~import_loc ~import_name ~decl_loc)
 
 let import_binding ~loc ~name ~target ~symbol tbl =
   let function_ = is_function symbol in
@@ -730,7 +731,7 @@ let visible_members mdef tbl =
   | _ -> mdef.mod_def
 
 (** Add an alias based on the import instruction [import_instr] *)
-let import import_instr (tbl : t) : t =
+let import ~diagnostics import_instr (tbl : t) : t =
   let open Module in
   let import_loc = import_instr.import_loc in
   let unresolved = import_instr.import_name in
@@ -762,7 +763,7 @@ let import import_instr (tbl : t) : t =
       else generic_members
   in
   if not (import_instr.import_all || import_instr.import_prelude) then
-    check_named_import ~import_loc ~import_name:unresolved
+    check_named_import ~diagnostics ~import_loc ~import_name:unresolved
       ~targets:(List.map imported ~f:(fun (_, target, _, _) -> target))
       tbl;
   List.iter imported ~f:(fun (_, imported_ident, symbol, _) ->
@@ -814,7 +815,7 @@ let add_transparent ident target tbl =
     [symbol] is something other than a local variable definition and current scope is a
     callable scope (determined by scope.scope_is_local), then the parent scope is used
     instead. *)
-let add_symbol ?(scope : scope option = None) symbol tbl =
+let add_symbol ?(scope : scope option = None) ~diagnostics symbol tbl =
   let rec add symbol tbl =
     let curr_scope = tbl.tbl_curr in
     let symbol_ident = Symbol.to_name symbol in
@@ -850,8 +851,8 @@ let add_symbol ?(scope : scope option = None) symbol tbl =
     let duplicate (map : entry IdentHashtbl.t) (key : Ident.t) data =
       match Hashtbl.find_exn map key with
       | Import _ | Functions { imported = true; _ } ->
-          check_hidden_by_declaration appropriate_scope key symbol_qual_ident symbol_loc
-            tbl;
+          check_hidden_by_declaration ~diagnostics appropriate_scope key symbol_qual_ident
+            symbol_loc tbl;
           Hashtbl.set map ~key ~data
       | _ -> Error.redeclaration_error symbol_loc (Ident.to_string key)
     in
@@ -864,8 +865,8 @@ let add_symbol ?(scope : scope option = None) symbol tbl =
           match Hashtbl.find entries source with
           | None -> []
           | Some (Import _) | Some (Functions { imported = true; _ }) ->
-              check_hidden_by_declaration appropriate_scope source symbol_qual_ident
-                symbol_loc tbl;
+              check_hidden_by_declaration ~diagnostics appropriate_scope source
+                symbol_qual_ident symbol_loc tbl;
               []
           | Some (Functions { imported = false; targets }) -> targets
           | Some _ -> Error.redeclaration_error symbol_loc (Ident.to_string source)
@@ -1075,14 +1076,14 @@ let set_symbol symbol tbl : t =
 
 (** Add local variable declarations [var_decls] to the current scope in [tbl]. Updates the
     symbol definition if a variable is already present. *)
-let add_local_vars var_decls tbl =
+let add_local_vars ~diagnostics var_decls tbl =
   let curr_scope = tbl.tbl_curr in
   List.fold_left var_decls ~init:tbl ~f:(fun tbl var_decl ->
       let var_ident = var_decl.Type.var_name in
       let curr_entries = get_scope_entries curr_scope in
       let var_def = Module.VarDef { var_decl; var_init = None; var_is_free = NotFree } in
       match Hashtbl.find curr_entries var_ident with
-      | None -> add_symbol var_def tbl
+      | None -> add_symbol ~diagnostics var_def tbl
       | Some (Symbol qual_ident) ->
           let tbl_symbols = Map.set tbl.tbl_symbols ~key:qual_ident ~data:var_def in
           { tbl with tbl_symbols }

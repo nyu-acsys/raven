@@ -191,18 +191,15 @@ type 'a state = {
      [heapsExplicitTrnsl.ml], never exposed outside this module as a global/mutable
      reference. *)
   state_isc_cache : isc_template IscCacheTbl.t;
-  (* The errors recorded at recovery points (see [recover]) during this [eval]. *)
-  state_diagnostics : Error.Diagnostics.t;
+  (* The run's errors recorded at recovery points (see [recover]), warnings and editor
+     annotations. *)
+  state_diagnostics : Diagnostics.t;
 }
 
 (* CLI flags the pipeline needs deep inside rewrite/check passes (e.g. [--strict]).
    Read-only for the whole run, so -- like [ext_hooks] -- it's just re-supplied to each
    [eval] call rather than threaded back out. *)
-and cli_config = {
-  cli_strict : bool;
-  cli_max_errors : int option;  (** The limit on the errors a run reports, if any. *)
-}
-
+and cli_config = { cli_strict : bool }
 and ('a, 'b) t_ext = 'b state -> 'b state * 'a
 and 'a t = ('a, unit) t_ext
 
@@ -459,7 +456,7 @@ and ext_hooks = {
     concrete extension satisfies). Built once from the CLI-selected extension by
     [lib/ext/ext.ml] and installed by [eval]. *)
 
-let default_cli_config : cli_config = { cli_strict = false; cli_max_errors = None }
+let default_cli_config : cli_config = { cli_strict = false }
 
 (** What every [Rewriter.t] computation sees before any extension has been installed.
     [eval] below always installs the real hooks for the CLI-selected extension; this
@@ -592,8 +589,10 @@ let check_stmt_ref :
 
 include State
 
+(** Runs [m] on [tbl]. It records in [diagnostics], the run's, and fails at the end if [m]
+    recorded errors, with all of them. *)
 let eval ?(update = true) ?(ext_hooks = default_ext_hooks)
-    ?(cli_config = default_cli_config) m tbl =
+    ?(cli_config = default_cli_config) ?(diagnostics = Diagnostics.create ()) m tbl =
   let sin =
     {
       state_table = tbl;
@@ -606,21 +605,29 @@ let eval ?(update = true) ?(ext_hooks = default_ext_hooks)
       state_ext_hooks = ext_hooks;
       state_cli_config = cli_config;
       state_isc_cache = Hashtbl.create (module IscCacheKey);
-      state_diagnostics =
-        Error.Diagnostics.create ?max_errors:cli_config.cli_max_errors ();
+      state_diagnostics = diagnostics;
     }
   in
   (* Fails with every error recorded at a recovery point, together with the one [m]
      failed with, if any. *)
   let fail_with_recorded diag =
-    Error.Diagnostics.record sin.state_diagnostics diag;
-    match Error.Diagnostics.report sin.state_diagnostics with
+    Diagnostics.record_error diagnostics diag;
+    match Diagnostics.report_errors diagnostics with
     | [] -> Error.internal_error Loc.dummy "A failure was not reported"
     | errors -> Error.fail_with errors
   in
+  let recorded = Diagnostics.error_count diagnostics in
   let sout, res = try m sin with Error.Msg diag -> fail_with_recorded diag in
-  if not (Error.Diagnostics.is_empty sin.state_diagnostics) then fail_with_recorded [];
+  if Diagnostics.error_count diagnostics > recorded || diagnostics.aborted then
+    fail_with_recorded [];
   (sout.state_table, res)
+
+let current_diagnostics s = (s, s.state_diagnostics)
+
+(** Reports the warning [msg] at [loc]. *)
+let warning loc msg s =
+  Diagnostics.warning s.state_diagnostics loc msg;
+  (s, ())
 
 (* The error handling combinators. Besides the top-level handler in bin/raven.ml and
    [eval] above, they are the only places that catch [Error.Msg]. *)
@@ -644,7 +651,7 @@ let recover ?(poison : Ident.t option) ~(fallback : 'a) (m : ('a, 'b) t_ext) :
   when (not (Base.List.exists diag ~f:is_internal_error))
        && not s.state_diagnostics.aborted
   ->
-    Error.Diagnostics.record s.state_diagnostics diag;
+    Diagnostics.record_error s.state_diagnostics diag;
     if s.state_diagnostics.aborted then Error.fail_with [];
     (* The scopes are mutable, so lookups cached during [m] may be stale. *)
     SymbolTbl.invalidate_caches s.state_table;
@@ -793,6 +800,10 @@ let current_module_name s : 'a state * qual_ident =
     (s, curr_scope.scope_id)
 
 let update_table f s = ({ s with state_table = f s.state_table }, ())
+
+(* [update_table] for an [f] that reports to the run's diagnostics. *)
+let update_table_reporting f s =
+  ({ s with state_table = f ~diagnostics:s.state_diagnostics s.state_table }, ())
 
 let is_ghost_scope s =
   let _, scope_id = current_scope_id s in
@@ -998,7 +1009,7 @@ let enter_callable callable =
   (*Logs.debug (fun m -> m "Rewriter.enter_callable: callable ");*)
   enter (CallDef callable)
 
-let declare_symbol symbol : unit t = update_table (SymbolTbl.add_symbol symbol)
+let declare_symbol symbol : unit t = update_table_reporting (SymbolTbl.add_symbol symbol)
 
 (* See [SymbolTbl.add_transparent]. *)
 let add_transparent ident target : unit t =
@@ -1012,7 +1023,8 @@ let introduce_symbol symbol s =
   ( {
       s with
       state_table =
-        (if s.state_update_table then SymbolTbl.add_symbol symbol s.state_table
+        (if s.state_update_table then
+           SymbolTbl.add_symbol ~diagnostics:s.state_diagnostics symbol s.state_table
          else s.state_table);
       state_new_symbols_tree;
       (* state_new_symbols =
@@ -1167,7 +1179,7 @@ let add_locals var_decls s =
         m "Rewriter.add_locals: var_decls = %a"
           (Print.pr_list_comma AstDef.Ident.pr)
           (List.map var_decls ~f:(fun (vd : var_decl) -> vd.var_name)));*)
-    update_table (SymbolTbl.add_local_vars var_decls) s
+    update_table_reporting (SymbolTbl.add_local_vars var_decls) s
   else (s, ())
 
 let add_call_decl_locals (call_decl : Callable.call_decl) =
@@ -1184,8 +1196,7 @@ let set_symbol symbol s =
     ({ s with state_table = SymbolTbl.set_symbol symbol s.state_table }, ())
   else (s, ())
 
-let import import_instr s =
-  ({ s with state_table = SymbolTbl.import import_instr s.state_table }, ())
+let import import_instr s = update_table_reporting (SymbolTbl.import import_instr) s
 
 let wrap_user_state_rewriter (f : 'a state -> 'a state * 'b) (s : unit state) :
     'a state * 'b =
@@ -1967,9 +1978,9 @@ module Module = struct
       rewrite_symbols ~f:rewrite_symbol mdef
     in
     fun s ->
-      let recorded = Base.List.length s.state_diagnostics.recorded in
+      let recorded = Diagnostics.error_count s.state_diagnostics in
       let s, mdef = rewrite mdef s in
-      if Base.List.length s.state_diagnostics.recorded > recorded then Error.fail_with []
+      if Diagnostics.error_count s.state_diagnostics > recorded then Error.fail_with []
       else (s, mdef)
 
   let rec rewrite_qual_idents_in_symbol ~(f : QualIdent.t -> QualIdent.t) :
