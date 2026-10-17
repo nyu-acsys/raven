@@ -609,4 +609,5 @@ let check_module (module_defs : Ast.Module.t list) (lemma_calls : Dependencies.G
   let context = { context with auto_dependencies } in
 
   let context, () = State.eval (check_members dependencies deps_graph tbl) context in
-  match errors context with [] -> context | errs -> Error.fail_with errs
+  if Error.Diagnostics.is_empty context.diagnostics then context
+  else Error.fail_with (Error.Diagnostics.report context.diagnostics)

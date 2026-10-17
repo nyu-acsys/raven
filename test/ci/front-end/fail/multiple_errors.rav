@@ -1,0 +1,32 @@
+// Every member that fails to type-check is reported, but not the uses of a failed member.
+
+proc body_error(x: Int) {
+  var b: Bool := x + 1;
+}
+
+func bad_signature(x: NoSuchType) returns (r: Int)
+
+proc uses_bad_signature() {
+  var z: Int := bad_signature(1);
+}
+
+module M {
+  val c: Int = true
+  val d: Int = 1
+}
+
+proc uses_failed_member() returns (r: Int) {
+  r := M.c + M.d;
+}
+
+module N : NoSuchInterface {
+  val e: Int = 0
+}
+
+proc uses_failed_module() returns (r: Int) {
+  r := N.e;
+}
+
+proc another_body_error() {
+  assert 1;
+}

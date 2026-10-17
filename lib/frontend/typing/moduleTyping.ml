@@ -558,7 +558,20 @@ let rec check (m : Module.t) : Module.t t =
      known only once it is checked, so a module must be defined before it is used. This
      rules out mutually recursive modules, which would complicate the semantics of the
      module system. *)
-  let* mod_def = Rewriter.List.map merged_symbols ~f:(check_instr m) in
+  let* mod_def =
+    Rewriter.List.map merged_symbols ~f:(fun instr ->
+        (* A member that fails is left out, so that the checks of the whole module below do
+           not see it unchecked. *)
+        let poison =
+          match instr with
+          | Module.SymbolDef symbol -> Some (Symbol.to_name symbol)
+          | Module.Import _ -> None
+        in
+        Rewriter.recover ?poison ~fallback:None
+          (let+ instr = check_instr m instr in
+           Some instr))
+  in
+  let mod_def = List.filter_opt mod_def in
   let* () = check_function_signatures mod_def in
 
   (* Check symbols against what is specified in the interface *)

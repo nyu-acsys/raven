@@ -1,4 +1,8 @@
   $ dune exec -- raven --shh ./diamond_modules.rav
+  [Error] File "./diamond_modules.rav", line 19, columns 9-11:
+  19 |   module A2 = B1.A1
+                ^^
+  Type Error: Module A2 must implement interface A according to interface C.
   [Error] File "./diamond_modules.rav", line 23, columns 10-11:
   23 |     B1.p1(x);
                  ^

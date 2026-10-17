@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- Verification reports every failed assertion instead of stopping at the first, up to the limit set by the new `--max-errors` option (default 20).
+- Raven reports the errors of every member and every failed assertion instead of stopping at the first, up to the limit set by the new `--max-errors` option (default 20).
 
 ### Changed
 

@@ -94,6 +94,14 @@ let rec warn_free_usage (md : Ast.Module.t) =
         match symbol with Ast.Module.ModDef mod_def -> warn_free_usage mod_def | _ -> ())
     | Ast.Module.Import _ -> ())
 
+(** The limit on the errors a run reports. An editor shows every error, so `--lsp-mode`
+    has none. *)
+let max_errors_of config =
+  if config.lsp_mode || config.max_errors <= 0 then None else Some config.max_errors
+
+let cli_config_of config : Rewriter.cli_config =
+  { cli_strict = config.strict; cli_max_errors = max_errors_of config }
+
 (** Type-checks a single compilation unit.
 
     Kept separate from [rewrite_cu] so that *every* unit can be type-checked before any is
@@ -107,7 +115,7 @@ let rec warn_free_usage (md : Ast.Module.t) =
     library is a unit of its own, that ruled out a library interface declaring a field at
     all. *)
 let type_cu ~ext_hooks config tbl md =
-  let cli_config : Rewriter.cli_config = { cli_strict = config.strict } in
+  let cli_config = cli_config_of config in
   let printers = Rewriter.printers_of_ext_hooks ext_hooks in
   let tbl = SymbolTbl.add_symbol (ModDef md) tbl in
   let tbl, processed_md = Typing.check_module ~tbl ~ext_hooks ~cli_config md in
@@ -120,7 +128,7 @@ let type_cu ~ext_hooks config tbl md =
     goes through [lower_cu]. Returns [None] when there is nothing to backend-check
     (`--typeonly`); the `--stats` short-circuit below exits the process directly. *)
 let elaborate_cu ~ext_hooks config tbl (md : Ast.Module.t) front_end_out_chan =
-  let cli_config : Rewriter.cli_config = { cli_strict = config.strict } in
+  let cli_config = cli_config_of config in
   let printers = Rewriter.printers_of_ext_hooks ext_hooks in
 
   if config.typecheck_only then (tbl, None)
@@ -373,12 +381,9 @@ let parse_and_check_all ~extension_mode config file_names =
         Backend.SmtPreamble.initialize solver_session ~diagnostics:config.smt_diagnostics
           ~timeout:config.smt_timeout;
         Backend.SmtPreamble.declare_tuple_sorts solver_session arities;
-        (* An editor shows every error, so `--lsp-mode` has no limit. *)
-        let max_errors =
-          if config.lsp_mode || config.max_errors <= 0 then None
-          else Some config.max_errors
+        let context =
+          Backend.CheckerContext.create ?max_errors:(max_errors_of config) solver_session
         in
-        let context = Backend.CheckerContext.create ?max_errors solver_session in
         let (_ : Backend.CheckerContext.context) =
           backend_check_cu tbl context processed
         in
@@ -468,8 +473,7 @@ let smt_timeout =
 
 let max_errors =
   let doc =
-    "Stop after reporting this many verification errors; 0 means no limit. Ignored with \
-     --lsp-mode."
+    "Stop after reporting this many errors; 0 means no limit. Ignored with --lsp-mode."
   in
   Arg.(value & opt int 20 & info [ "max-errors" ] ~doc)
 

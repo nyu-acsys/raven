@@ -191,12 +191,18 @@ type 'a state = {
      [heapsExplicitTrnsl.ml], never exposed outside this module as a global/mutable
      reference. *)
   state_isc_cache : isc_template IscCacheTbl.t;
+  (* The errors recorded at recovery points (see [recover]) during this [eval]. *)
+  state_diagnostics : Error.Diagnostics.t;
 }
 
 (* CLI flags the pipeline needs deep inside rewrite/check passes (e.g. [--strict]).
    Read-only for the whole run, so -- like [ext_hooks] -- it's just re-supplied to each
    [eval] call rather than threaded back out. *)
-and cli_config = { cli_strict : bool }
+and cli_config = {
+  cli_strict : bool;
+  cli_max_errors : int option;  (** The limit on the errors a run reports, if any. *)
+}
+
 and ('a, 'b) t_ext = 'b state -> 'b state * 'a
 and 'a t = ('a, unit) t_ext
 
@@ -453,7 +459,7 @@ and ext_hooks = {
     concrete extension satisfies). Built once from the CLI-selected extension by
     [lib/ext/ext.ml] and installed by [eval]. *)
 
-let default_cli_config : cli_config = { cli_strict = false }
+let default_cli_config : cli_config = { cli_strict = false; cli_max_errors = None }
 
 (** What every [Rewriter.t] computation sees before any extension has been installed.
     [eval] below always installs the real hooks for the CLI-selected extension; this
@@ -600,16 +606,53 @@ let eval ?(update = true) ?(ext_hooks = default_ext_hooks)
       state_ext_hooks = ext_hooks;
       state_cli_config = cli_config;
       state_isc_cache = Hashtbl.create (module IscCacheKey);
+      state_diagnostics =
+        Error.Diagnostics.create ?max_errors:cli_config.cli_max_errors ();
     }
   in
-  let sout, res = m sin in
-
+  (* Fails with every error recorded at a recovery point, together with the one [m]
+     failed with, if any. *)
+  let fail_with_recorded diag =
+    Error.Diagnostics.record sin.state_diagnostics diag;
+    match Error.Diagnostics.report sin.state_diagnostics with
+    | [] -> Error.internal_error Loc.dummy "A failure was not reported"
+    | errors -> Error.fail_with errors
+  in
+  let sout, res = try m sin with Error.Msg diag -> fail_with_recorded diag in
+  if not (Error.Diagnostics.is_empty sin.state_diagnostics) then fail_with_recorded [];
   (sout.state_table, res)
 
-(** Runs [m], applying [f] to every error it raises. Besides the top-level handler in
-    bin/raven.ml, this is the only place that catches [Error.Msg]. *)
+(* The error handling combinators. Besides the top-level handler in bin/raven.ml and
+   [eval] above, they are the only places that catch [Error.Msg]. *)
+
+(** Runs [m], applying [f] to every error it raises. *)
 let map_errors ~(f : Error.t -> Error.t) (m : ('a, 'b) t_ext) : ('a, 'b) t_ext =
  fun s -> try m s with Error.Msg errs -> Error.fail_with (Base.List.map errs ~f)
+
+let is_internal_error (kind, _, _) = Poly.(kind = Error.Internal)
+
+(** A recovery point: runs [m], and if it fails with a user error, records the error and
+    continues from the state before [m] with [fallback]. The name [poison], declared in
+    the current scope, is marked as failed, which silences the errors of later uses of it.
+    Internal errors, and the failures once the limit on errors is exceeded, propagate. *)
+let recover ?(poison : Ident.t option) ~(fallback : 'a) (m : ('a, 'b) t_ext) :
+    ('a, 'b) t_ext =
+ fun s ->
+  try m s
+  with
+  | Error.Msg diag
+  when (not (Base.List.exists diag ~f:is_internal_error))
+       && not s.state_diagnostics.aborted
+  ->
+    Error.Diagnostics.record s.state_diagnostics diag;
+    if s.state_diagnostics.aborted then Error.fail_with [];
+    (* The scopes are mutable, so lookups cached during [m] may be stale. *)
+    SymbolTbl.invalidate_caches s.state_table;
+    let state_table =
+      Base.Option.fold poison ~init:s.state_table ~f:(fun tbl ident ->
+          SymbolTbl.poison (QualIdent.append tbl.tbl_curr.scope_id ident) tbl)
+    in
+    ({ s with state_table }, fallback)
 
 let eval_with_user_state ~init (f : 'a state -> 'a state * 'b) : 'b t =
  fun st ->
@@ -1902,26 +1945,32 @@ module Module = struct
     in
     rewrite_symbols ~f:rewrite_symbol mdef
 
-  let rec rewrite_callables ~f mdef : (Module.t, 'a) t_ext =
+  (** Applies [f] to every callable, recovering from the errors of each. Fails at the end
+      if any failed, since a later pass expects every callable rewritten. *)
+  let rewrite_callables ~f mdef : (Module.t, 'a) t_ext =
     let open Syntax in
-    let rewrite_symbol =
-      let open Module in
-      function
-      | CallDef call_def ->
-          let* _ = enter_callable call_def in
-
-          let* new_call_def = f call_def in
-          let+ new_call_def = exit_callable new_call_def in
-          (* Logs.debug (fun m -> m "Rewriter.Module.rewrite_callables: new_call_def = %a" AstDef.Callable.pr new_call_def); *)
-          CallDef new_call_def
-      | ModDef mod_def ->
-          let+ new_mod_def = rewrite_callables ~f mod_def in
-
-          (* Logs.debug (fun m -> m "Rewriter.Module.rewrite_callables: new_module_def = %a" AstDef.Module.pr new_mod_def); *)
-          ModDef new_mod_def
-      | mem_def -> return mem_def
+    let rec rewrite mdef =
+      let rewrite_symbol =
+        let open Module in
+        function
+        | CallDef call_def ->
+            recover ~fallback:(CallDef call_def)
+            @@ let* _ = enter_callable call_def in
+               let* new_call_def = f call_def in
+               let+ new_call_def = exit_callable new_call_def in
+               CallDef new_call_def
+        | ModDef mod_def ->
+            let+ new_mod_def = rewrite mod_def in
+            ModDef new_mod_def
+        | mem_def -> return mem_def
+      in
+      rewrite_symbols ~f:rewrite_symbol mdef
     in
-    rewrite_symbols ~f:rewrite_symbol mdef
+    fun s ->
+      let recorded = Base.List.length s.state_diagnostics.recorded in
+      let s, mdef = rewrite mdef s in
+      if Base.List.length s.state_diagnostics.recorded > recorded then Error.fail_with []
+      else (s, mdef)
 
   let rec rewrite_qual_idents_in_symbol ~(f : QualIdent.t -> QualIdent.t) :
       Module.symbol -> (Module.symbol, 'a) t_ext =
@@ -2190,6 +2239,9 @@ let resolve_and_find_opt ?(read_only = false) name :
   let* tbl = get_table in
 
   match SymbolTbl.resolve_and_find ~read_only name tbl with
+  | Some (_, qual_ident, _, _) when SymbolTbl.is_poisoned qual_ident tbl ->
+      (* A use of a member that failed to type-check, whose error is already reported. *)
+      Error.fail_with []
   | Some (alias_qual_ident, qual_ident, symbol, subst) ->
       return (Some (qual_ident, (alias_qual_ident, symbol, subst)))
   | None when read_only -> return None

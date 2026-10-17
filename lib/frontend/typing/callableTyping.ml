@@ -259,8 +259,10 @@ let check (callable : Callable.t) : Module.symbol t =
     match callable.call_def with
     | FuncDef func_def ->
         (* FuncDefs should not have any new call_decl_locals in body because they are expressions. That is, all call_decl_locals are the arguments it takes. These are being disambiguated in the above.*)
+        (* A body that fails keeps the checked declaration, for the uses of the callable. *)
         let+ func_body =
-          Rewriter.Option.map func_def.func_body ~f:(fun expr ->
+          Rewriter.recover ~fallback:func_def.func_body
+          @@ Rewriter.Option.map func_def.func_body ~f:(fun expr ->
               let expected_return_type = Callable.return_type call_decl in
               let* expr =
                 StmtTyping.disambiguate_and_check_expr expr expected_return_type disam_tbl
@@ -295,7 +297,8 @@ let check (callable : Callable.t) : Module.symbol t =
         func_def
     | ProcDef proc_def ->
         let+ proc_body =
-          Rewriter.Option.map proc_def.proc_body ~f:(fun stmt ->
+          Rewriter.recover ~fallback:proc_def.proc_body
+          @@ Rewriter.Option.map proc_def.proc_body ~f:(fun stmt ->
               Logs.debug (fun m ->
                   m "CallableTyping.check: Callable: %a" Ident.pr
                     callable.call_decl.call_decl_name);

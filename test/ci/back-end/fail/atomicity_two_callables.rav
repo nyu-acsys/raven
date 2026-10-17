@@ -1,0 +1,28 @@
+// The atomicity errors of every callable are reported, not just the first.
+
+import Library.IntAtomics._
+
+field fa: Int
+field fb: Int
+
+inv counter_inv(c: Ref) {
+  exists na: Int, nb: Int :: own(c.fa, na) && own(c.fb, nb)
+}
+
+proc bump_both(c: Ref)
+  requires counter_inv(c)
+{
+  unfold counter_inv(c);
+  val x := faa(c.fa, 1);
+  val y := faa(c.fb, 1);
+  fold counter_inv(c);
+}
+
+proc bump_both_again(c: Ref)
+  requires counter_inv(c)
+{
+  unfold counter_inv(c);
+  val x := faa(c.fb, 1);
+  val y := faa(c.fa, 1);
+  fold counter_inv(c);
+}

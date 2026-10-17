@@ -80,6 +80,51 @@ let sort_diagnostics (diags : t list list) : t list list =
   List.stable_sort diags ~compare:(fun d1 d2 ->
       Loc.compare (primary_loc d1) (primary_loc d2))
 
+(** The errors recorded at recovery points, so that a run can report several. Mutable, so
+    that a recovery point further out, which rolls back the state of the computation that
+    failed, keeps them. *)
+module Diagnostics = struct
+  type error = t
+
+  type t = {
+    mutable recorded : error list list;  (** Latest first. *)
+    mutable aborted : bool;  (** Whether more than [max_errors] errors were found. *)
+    max_errors : int option;
+  }
+
+  let create ?max_errors () = { recorded = []; aborted = false; max_errors }
+  let count d = List.length (merge_diagnostics d.recorded)
+
+  (** Records the diagnostic [diag], or sets [aborted] if it would exceed [max_errors]. An
+      empty [diag] is a failure whose cause was already reported. *)
+  let record d (diag : error list) =
+    if not (List.is_empty diag || d.aborted) then begin
+      let recorded = diag :: d.recorded in
+      match d.max_errors with
+      | Some limit when List.length (merge_diagnostics recorded) > limit ->
+          d.aborted <- true
+      | _ -> d.recorded <- recorded
+    end
+
+  (** The recorded errors in source order, followed by a note if checking was aborted. *)
+  let report d : error list =
+    let errors =
+      List.rev d.recorded |> merge_diagnostics |> sort_diagnostics |> List.concat
+    in
+    match d.max_errors with
+    | Some limit when d.aborted ->
+        errors
+        @ [
+            ( Generic,
+              Loc.dummy,
+              Printf.sprintf
+                "Stopped after %d errors; use --max-errors to change the limit" limit );
+          ]
+    | _ -> errors
+
+  let is_empty d = List.is_empty d.recorded && not d.aborted
+end
+
 let to_string (kind, (loc : Loc.t), msg) =
   let label =
     kind |> error_kind_to_string |> fun lbl ->

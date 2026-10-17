@@ -92,6 +92,8 @@ type t = {
   tbl_generation : int ref;
   (* Names probed in callable scopes, tagged with their cache generation. *)
   tbl_local_reads : int IdentHashtbl.t;
+  (* The fully qualified names of the members that failed to type-check. *)
+  tbl_poisoned : QualIdentSet.t;
 }
 
 let entry_to_string = function
@@ -171,9 +173,31 @@ let create () =
     tbl_sealed = Map.empty (module QualIdent);
     tbl_generation = ref 0;
     tbl_local_reads = Hashtbl.create (module Ident);
+    tbl_poisoned = Set.empty (module QualIdent);
   }
 
 let invalidate_caches tbl = Int.incr tbl.tbl_generation
+
+(** Marks the member with the fully qualified name [qual_ident] as failed. *)
+let poison qual_ident tbl =
+  { tbl with tbl_poisoned = Set.add tbl.tbl_poisoned qual_ident }
+
+(** Whether the fully qualified name [qual_ident] is that of a failed member, or of a
+    member of one. *)
+let is_poisoned qual_ident tbl =
+  (not (Set.is_empty tbl.tbl_poisoned))
+  && List.exists
+       (List.init (List.length (QualIdent.to_list qual_ident)) ~f:(fun n -> n + 1))
+       ~f:(fun n ->
+         Set.mem tbl.tbl_poisoned
+           (QualIdent.from_list (List.take (QualIdent.to_list qual_ident) n)))
+
+(** Whether the unresolved [name] may refer to a failed member: its first identifier is
+    the name of one. *)
+let may_be_poisoned name tbl =
+  let first = Ident.name (QualIdent.first_ident name) in
+  Set.exists tbl.tbl_poisoned ~f:(fun poisoned ->
+      String.equal first (Ident.name poisoned.qual_base))
 
 (** Reset table to the root scope *)
 let reset tbl = { tbl with tbl_curr = tbl.tbl_root; tbl_path = [] }
@@ -391,6 +415,8 @@ let find_sealed_view name tbl : sealed_view option =
 *)
 let unknown_member_error loc (name : QualIdent.t) (tbl : t) =
   let open Option.Syntax in
+  (* A failed member is not declared; its error is already reported. *)
+  if may_be_poisoned name tbl then Error.fail_with [];
   let () =
     match resolve_candidates name tbl with
     | Some (_ :: _ :: _ as candidates) ->

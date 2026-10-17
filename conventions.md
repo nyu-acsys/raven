@@ -2,7 +2,7 @@
 
 Here are some coding conventions that we should adhere to (in random order).
 
-* Reserve the use of exceptions for cases where program execution should be aborted. That is, `try ... with` blocks are confined to the very top-level error handling function in `bin/raven.ml` and the error combinators of the `Rewriter` monad (`Rewriter.map_errors`). Use `Option.t` and friends instead of exceptions in other cases. Learn about monads/applicatives if you want nice syntax.
+* Reserve the use of exceptions for cases where program execution should be aborted. That is, `try ... with` blocks are confined to the very top-level error handling function in `bin/raven.ml` and the error combinators of the `Rewriter` monad (`Rewriter.eval`, `Rewriter.map_errors` and the recovery point `Rewriter.recover`). Use `Option.t` and friends instead of exceptions in other cases. Learn about monads/applicatives if you want nice syntax.
 
 * Do not write directly to standard output / standard error. Use the [Logs](https://erratique.ch/software/logs) module.
 
