@@ -1,5 +1,5 @@
 17 oct, 2026:
-- [ ] Wire the VS Code plugin's `ravenServer.maxNumberOfProblems` into the protocol.
+- [x] Wire the VS Code plugin's `ravenServer.maxNumberOfProblems` into the protocol.
     The setting is unused so far, and its defaults disagree (100 in `package.json`,
     1000 in `server.ts`). Raven: honor an explicit `--max-errors` under `--lsp-mode`,
     which has no limit by default, and bump `lsp_protocol` to 4. Plugin: pass
