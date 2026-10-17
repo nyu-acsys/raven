@@ -1,3 +1,13 @@
+17 oct, 2026:
+- [ ] Wire the VS Code plugin's `ravenServer.maxNumberOfProblems` into the protocol.
+    The setting is unused so far, and its defaults disagree (100 in `package.json`,
+    1000 in `server.ts`). Raven: honor an explicit `--max-errors` under `--lsp-mode`,
+    which has no limit by default, and bump `lsp_protocol` to 4. Plugin: pass
+    `--max-errors` from protocol 4 on, and show the "Stopped after N errors" note,
+    which has no location.
+- [ ] Recover from type errors per statement inside a callable body; a body stops at
+    its first error.
+
 15 oct, 2026:
 - [x] Generative functor instances with type arguments: in `G[Int]`,
     `Seq[E]` does not match `Seq[Int]` (independent of interfaces).
@@ -10,7 +20,7 @@
 - [ ] Investigate solver flakiness under parallel `dune runtest`
     (`dist_counter`, `ticket_lock_atomic*`, `amortised_hash`); consider a solver
     option `smt.arith.nl.delay=200`.
-- [ ] Consider moving from exception-based to monadic error handling; then move
+- [x] Consider moving from exception-based to monadic error handling; then move
     the global warning/annotation refs into the monad's state and remove the
     second `try ... with` in `ExprTyping.set_checked_type`.
 - [x] Look up unqualified destructors in the receiver's data type: `l.hd` on
