@@ -7,6 +7,22 @@
     which has no location.
 - [ ] Recover from type errors per statement inside a callable body; a body stops at
     its first error.
+- [ ] Editor: report the verification status of each procedure and lemma (verified,
+    failed, timed out) and show it in the plugin; add `--only <name>` and a "Verify
+    this" code lens.
+- [ ] Editor: emit resolved symbols and their types for go to definition, hover with
+    types and a document outline; hovers should show which functor instance a name
+    resolves to.
+- [ ] Editor: inlay hints for what the verifier infers: implicit type arguments,
+    masks, and whether a call is atomic.
+- [ ] Editor: show counterexamples for failed assertions from Z3's model, mapped back
+    through lowering and SSA.
+- [ ] Incremental verification: re-check only members whose dependencies changed
+    since the last run.
+- [ ] Editor: a "Show elaborated program" command that opens the elaborated or
+    lowered program read-only; needs a flag that prints it to stdout.
+- [ ] Plugin: snippets for procedures, lemmas, loops with invariants, and module and
+    interface skeletons.
 
 15 oct, 2026:
 - [x] Generative functor instances with type arguments: in `G[Int]`,
