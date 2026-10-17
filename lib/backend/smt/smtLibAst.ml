@@ -36,6 +36,7 @@ type command =
   | Pop of int * location option
   | CheckSat of location option
   | GetModel of location option
+  | GetInfo of string * location option
   | GetUnsatCore of location option
   | Exit of location option
 
@@ -61,6 +62,7 @@ let mk_push ?loc n = Push (n, loc)
 let mk_pop ?loc n = Pop (n, loc)
 let mk_check_sat ?loc () = CheckSat loc
 let mk_get_model ?loc () = GetModel loc
+let mk_get_info ?loc flag = GetInfo (flag, loc)
 let mk_get_unsat_core ?loc () = GetUnsatCore loc
 let mk_exit ?loc () = Exit loc
 
@@ -358,6 +360,7 @@ let pr_command ppf = function
   | Pop (n, _) -> fprintf ppf "@[<5>(pop@ %d)@]@," n
   | CheckSat _ -> fprintf ppf "@[(check-sat)@]@."
   | GetModel _ -> fprintf ppf "(get-model)@."
+  | GetInfo (flag, _) -> fprintf ppf "@[(get-info %s)@]@." flag
   | GetUnsatCore _ -> fprintf ppf "(get-unsat-core)@,"
   | Exit _ -> fprintf ppf "(exit)@,"
 

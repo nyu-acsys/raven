@@ -1,4 +1,6 @@
-type validity_result = Valid | Invalid | Inconclusive
+(** [Timeout]: the solver ran out of time; [Inconclusive]: it gave up for another reason,
+    such as quantifiers. *)
+type validity_result = Valid | Invalid | Inconclusive | Timeout
 
 val parse_sat_result : string -> (SmtLibAst.sat_result, string) result
 

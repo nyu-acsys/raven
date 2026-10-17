@@ -1,0 +1,69 @@
+module M {
+  func double(x: Int) returns (y: Int)
+    ensures y == 2 * x
+  {
+    x + x
+  }
+
+  func bad(x: Int) returns (y: Int)
+    ensures y == 3 * x
+  {
+    x + x
+  }
+
+  proc sum(n: Int) returns (s: Int)
+    requires n >= 0
+    ensures s >= 0
+  {
+    var i: Int := 0;
+    s := 0;
+    while (i < n)
+      invariant s >= 0
+    {
+      s := s + i;
+      i := i + 1;
+    }
+  }
+
+  proc wrong(n: Int) returns (s: Int)
+    ensures s > 0
+  {
+    s := n;
+  }
+
+  lemma fine(x: Int)
+    ensures x + 0 == x
+  {}
+}
+
+proc loop_fails() {
+  var i: Int := 0;
+  while (i < 10)
+    invariant i >= 1
+  {
+    i := i + 1;
+  }
+}
+
+module Good {
+  module Inner {
+    lemma zero(x: Int)
+      ensures x * 0 == 0
+    {}
+  }
+
+  lemma one(x: Int)
+    ensures x * 1 == x
+  {}
+}
+
+// The lemmas for the axioms of the interface are checked against the module's
+// definitions; `comp` is not commutative.
+module Fst : Library.ResourceAlgebra {
+  rep type T = Int
+  val id: T = 0
+  func comp(a: T, b: T) returns (r: T) { a }
+  func frame(a: T, b: T) returns (r: T) { a }
+  func valid(a: T) returns (r: Bool) { true }
+  func fpuAllowed(a: T, b: T) returns (r: Bool) { false }
+}

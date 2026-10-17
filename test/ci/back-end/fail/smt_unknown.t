@@ -12,6 +12,12 @@ Only an unsatisfiable negated assertion proves the original assertion.
                       ^^^^
   Verification Error: Assertion 'known': This assertion may be violated.
   [1]
+  $ PATH="$PWD/solver:$PATH" RAVEN_TEST_RESPONSE=unknown RAVEN_TEST_REASON=timeout dune exec -- raven --shh --nostdlib ./smt_unknown.rav
+  [Error] File "./smt_unknown.rav", line 2, columns 16-20:
+  2 |   assert known: true;
+                      ^^^^
+  Verification Error: Assertion 'known': This assertion may be violated. The solver timed out (see --smt-timeout).
+  [1]
   $ PATH="$PWD/solver:$PATH" RAVEN_TEST_RESPONSE=sat dune exec -- raven --shh --nostdlib ./smt_unknown.rav
   [Error] File "./smt_unknown.rav", line 2, columns 16-20:
   2 |   assert known: true;

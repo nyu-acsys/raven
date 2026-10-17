@@ -2,7 +2,7 @@ open Base
 open Util
 open SmtLibAst
 
-type validity_result = Valid | Invalid | Inconclusive
+type validity_result = Valid | Invalid | Inconclusive | Timeout
 
 let parse_sat_result = function
   | "sat" -> Ok Sat
@@ -144,7 +144,7 @@ module SmtSession = struct
 
   let write session cmd =
     match cmd with
-    | Push _ | Pop _ | CheckSat _ | GetModel _ | GetUnsatCore _ | Exit _ ->
+    | Push _ | Pop _ | CheckSat _ | GetModel _ | GetInfo _ | GetUnsatCore _ | Exit _ ->
         Error.internal_error Loc.dummy
           "Cannot write a solver control command directly; use session operations"
     | _ -> write_command session cmd
@@ -232,6 +232,24 @@ module SmtSession = struct
                   (re-run with --verbosity=debug to inspect log.smt2)"
                  str))
 
+  (** Why the last [check_sat] returned [Unknown]. *)
+  let unknown_reason session : validity_result =
+    if session.solver_state.closed then Timeout
+    else begin
+      write_command session (mk_get_info ":reason-unknown");
+      match read_response session with
+      | Error Response_timeout ->
+          stop_solver session;
+          Timeout
+      | response ->
+          let reason = response_line response in
+          if
+            String.is_substring reason ~substring:"timeout"
+            || String.is_substring reason ~substring:"canceled"
+          then Timeout
+          else Inconclusive
+    end
+
   let push session =
     write_command session (mk_push 1);
     session.stack_height <- session.stack_height + 1
@@ -266,7 +284,7 @@ module SmtSession = struct
         match check_sat session with
         | Unsat -> Valid
         | Sat -> Invalid
-        | Unknown -> Inconclusive)
+        | Unknown -> unknown_reason session)
 
   module ForTesting = struct
     type nonrec read_error = read_error =

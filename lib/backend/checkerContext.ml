@@ -30,6 +30,13 @@ let record_error (diag : Error.t list) : unit t =
     Error.fail_with (Diagnostics.report_errors context.diagnostics)
   else (context, ())
 
+(** Records the [outcome] of checking the procedure [proc]. *)
+let record_result (proc : MemberStatus.procedure) (outcome : MemberStatus.outcome) :
+    unit t =
+ fun context ->
+  Diagnostics.record_result context.diagnostics proc outcome;
+  (context, ())
+
 let write cmd : unit t =
   let open State.Syntax in
   match cmd with

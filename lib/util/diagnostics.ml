@@ -1,7 +1,8 @@
 (** What a run reports besides its result: the errors recorded at recovery points, the
-    warnings and the annotations for an editor. The driver creates one per run and every
-    phase adds to it. It is mutable, so that a recovery point further out, which rolls
-    back the state of the computation that failed, keeps what was recorded. *)
+    warnings, and the annotations and the status of members for an editor. The driver
+    creates one per run and every phase adds to it. It is mutable, so that a recovery
+    point further out, which rolls back the state of the computation that failed, keeps
+    what was recorded. *)
 
 module Err = Error
 open Base
@@ -14,6 +15,10 @@ type t = {
       (** Whether warnings are reported with the errors, for an editor, or logged. *)
   mutable warnings : Err.t list;  (** Latest first. *)
   mutable annotations : Annotations.t list;
+  mutable members : MemberStatus.member list;  (** The program's, for their status. *)
+  mutable groups : MemberStatus.group list;  (** The program's modules. *)
+  mutable results : (MemberStatus.procedure * MemberStatus.outcome) list;
+      (** The outcomes of the checked procedures. *)
   origins : (string, string) Hashtbl.t;
       (** The interface each inherited member originates from, by the qualified name of
           the member in the module that inherits it. *)
@@ -27,6 +32,9 @@ let create ?max_errors ?(collect_warnings = false) () =
     collect_warnings;
     warnings = [];
     annotations = [];
+    members = [];
+    groups = [];
+    results = [];
     origins = Hashtbl.create (module String);
   }
 
@@ -75,3 +83,12 @@ let record_annotation d (annotation : Annotations.t) =
 let set_origin d ~member origin = Hashtbl.set d.origins ~key:member ~data:origin
 let origin d ~member ~default = Option.value (Hashtbl.find d.origins member) ~default
 let annotations_to_json d = Annotations.all_to_json d.annotations
+
+let set_members d (members, groups) =
+  d.members <- members;
+  d.groups <- groups
+
+let record_result d proc outcome = d.results <- (proc, outcome) :: d.results
+
+let members_to_json d =
+  MemberStatus.to_json ~aborted:d.aborted d.members d.groups d.results

@@ -54,13 +54,13 @@ let test_fragmented_reply () =
       assert (
         Result.equal String.equal (fun _ _ -> false) (read_response session) (Ok "sat")))
 
-(* A solver that does not respond in time makes the query inconclusive and closes the
+(* A solver that does not respond in time makes the query time out and closes the
    session. *)
 let test_unresponsive_solver () =
   with_session (fun session _ _ _ ->
       assert (
         match check_valid session (Ast.Expr.mk_bool true) with
-        | Inconclusive -> true
+        | Timeout -> true
         | _ -> false);
       assert (match read_response session with Error Session_closed -> true | _ -> false))
 

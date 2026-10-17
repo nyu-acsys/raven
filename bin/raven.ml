@@ -196,6 +196,75 @@ let backend_check_cu tbl context processed =
   in
   Backend.Checker.check_module processed_mds lemma_calls tbl context
 
+(** The callables and modules of the parsed program [md], for their verification status.
+    The text of a callable is the union of the locations of its name, contract and body
+    that lie in the file it is declared in. *)
+let source_members (md : Ast.Module.t) :
+    MemberStatus.member list * MemberStatus.group list =
+  let member path (callable : Ast.Callable.t) =
+    let decl = callable.call_decl in
+    let name_loc = decl.call_decl_loc in
+    let body_loc, has_body =
+      match callable.call_def with
+      | ProcDef { proc_body = Some body } -> ([ body.stmt_loc ], true)
+      | FuncDef { func_body = Some body } -> ([ Expr.to_loc body ], true)
+      | ProcDef { proc_body = None } | FuncDef { func_body = None } -> ([], false)
+    in
+    let clause_locs =
+      List.map (decl.call_decl_precond @ decl.call_decl_postcond) ~f:(fun spec ->
+          Expr.to_loc spec.spec_form)
+    in
+    let extent =
+      List.fold (body_loc @ clause_locs) ~init:name_loc ~f:(fun extent loc ->
+          if String.equal (Loc.file_name loc) (Loc.file_name name_loc) then
+            Loc.merge extent loc
+          else extent)
+    in
+    let kind =
+      match decl.call_decl_kind with
+      | Proc -> "proc"
+      | Lemma -> if has_body then "lemma" else "axiom"
+      | Func -> "func"
+      | Pred -> "pred"
+      | Invariant -> "inv"
+    in
+    let checked =
+      match (decl.call_decl_kind, callable.call_def) with
+      | (Proc | Lemma), ProcDef { proc_body = Some _ } ->
+          not (Ast.is_free decl.call_decl_status)
+      | _ -> false
+    in
+    {
+      MemberStatus.name =
+        String.concat ~sep:"." (List.rev (Ident.name decl.call_decl_name :: path));
+      kind;
+      name_loc;
+      extent;
+      checked;
+      inherited = false;
+    }
+  in
+  (* Accumulates in reverse order. *)
+  let rec collect path (members, groups) (md : Ast.Module.t) =
+    List.fold md.mod_def ~init:(members, groups) ~f:(fun (members, groups) -> function
+      | Ast.Module.SymbolDef (CallDef callable) ->
+          (member path callable :: members, groups)
+      | SymbolDef (ModDef sub) ->
+          let sub_path = Ident.name sub.mod_decl.mod_decl_name :: path in
+          let group =
+            {
+              MemberStatus.group_name = String.concat ~sep:"." (List.rev sub_path);
+              group_kind =
+                (if sub.mod_decl.mod_decl_is_interface then "interface" else "module");
+              group_loc = sub.mod_decl.mod_decl_loc;
+            }
+          in
+          collect sub_path (members, group :: groups) sub
+      | _ -> (members, groups))
+  in
+  let members, groups = collect [] ([], []) md in
+  (List.rev members, List.rev groups)
+
 (** Parse and check all compilation units in files [file_names]. [extension_mode] picks
     the `--extension` chain: [`Explicit ext] uses [ext] outright; [`Auto] detects it from
     the parsed program's own extension-specific syntax (see [Ext.detect_extension]) before
@@ -280,6 +349,8 @@ let parse_and_check_all ~extension_mode ~diagnostics config file_names =
          file_names)
       empty_prog
   in
+
+  Diagnostics.set_members diagnostics (source_members md);
 
   (* [EXT] Resolve which extension is activated for this run and build the hooks the
      rest of the pipeline dispatches through -- see lib/ext/ext.ml and
@@ -465,7 +536,7 @@ let lsp_annotations =
   let doc =
     "With --lsp-mode, print an object with the errors, included-file dependencies and \
      annotations for the editor, such as the contracts that members inherit from \
-     interfaces."
+     interfaces and the verification status of each member."
   in
   Arg.(value & flag & info [ "lsp-annotations" ] ~doc)
 
@@ -590,6 +661,7 @@ let print_lsp_output config ~diagnostics errs =
             [
               ("errors", `List (List.map errs ~f:Error.to_lsp_json));
               ("annotations", Diagnostics.annotations_to_json diagnostics);
+              ("members", Diagnostics.members_to_json diagnostics);
               ( "dependencies",
                 `List
                   (Hashtbl.keys include_map

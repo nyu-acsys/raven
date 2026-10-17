@@ -7,6 +7,8 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - Report all errors instead of only the first, up to `--max-errors` (default 20).
+- Report the verification status of each member and module to editors.
+- Say when an assertion fails because the solver timed out.
 
 ### Changed
 

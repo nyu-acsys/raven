@@ -22,7 +22,13 @@ let with_response response f =
 
 let () =
   List.iter
-    [ ("sat", Sat, Invalid); ("unsat", Unsat, Valid); ("unknown", Unknown, Inconclusive) ]
+    [
+      ("sat", Sat, Invalid);
+      ("unsat", Unsat, Valid);
+      ("unknown\n(:reason-unknown \"(incomplete quantifiers)\")", Unknown, Inconclusive);
+      ("unknown\n(:reason-unknown \"timeout\")", Unknown, Timeout);
+      ("unknown\n(:reason-unknown \"canceled\")", Unknown, Timeout);
+    ]
     ~f:(fun (response, expected_sat, expected_validity) ->
       with_response response (fun session ->
           let result = SmtSession.check_sat session in

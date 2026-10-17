@@ -71,19 +71,22 @@ let define_datatypes (fully_qual_names_and_typs : (qual_ident * Ast.Module.type_
 
   State.return ()
 
-let rec check_stmt curr_callable (stmt : Stmt.t) : unit t =
+(** Checks [stmt] in the body of [curr_callable], the procedure [proc]. *)
+let rec check_stmt ~proc curr_callable (stmt : Stmt.t) : unit t =
   let open State.Syntax in
   match stmt.stmt_desc with
   | Block block_desc ->
-      let* _ = State.List.iter block_desc.block_body ~f:(check_stmt curr_callable) in
+      let* _ =
+        State.List.iter block_desc.block_body ~f:(check_stmt ~proc curr_callable)
+      in
       State.return ()
   | Cond ({ cond_test = Some test; _ } as cond_desc) ->
       let* _ = push_path_condn test in
-      let* _ = check_stmt curr_callable cond_desc.cond_then in
+      let* _ = check_stmt ~proc curr_callable cond_desc.cond_then in
       let* _ = pop_path_condn in
 
       let* _ = push_path_condn (Expr.mk_not test) in
-      let* _ = check_stmt curr_callable cond_desc.cond_else in
+      let* _ = check_stmt ~proc curr_callable cond_desc.cond_else in
       let* _ = pop_path_condn in
 
       State.return ()
@@ -110,10 +113,21 @@ let rec check_stmt curr_callable (stmt : Stmt.t) : unit t =
               let* () =
                 match result with
                 | Valid -> State.return ()
-                | Invalid | Inconclusive ->
+                | Invalid | Inconclusive | Timeout ->
+                    let diag =
+                      Stmt.spec_error_msg spec curr_callable (Stmt.to_loc stmt)
+                    in
+                    let (outcome : MemberStatus.outcome), diag =
+                      match (result, diag) with
+                      | Timeout, (kind, loc, msg) :: related ->
+                          ( Timeout,
+                            (kind, loc, msg ^ ". The solver timed out (see --smt-timeout)")
+                            :: related )
+                      | _ -> (Failed, diag)
+                    in
+                    let* () = record_result proc outcome in
                     (* Assume the failed assertion, to check the rest of the callable. *)
-                    record_error
-                      (Stmt.spec_error_msg spec curr_callable (Stmt.to_loc stmt))
+                    record_error diag
               in
               assume_expr ?name:spec.spec_name spec.spec_form
           | _ ->
@@ -280,7 +294,16 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) : 
                   (mk_declare_const (QualIdent.from_ident local.var_name) local.var_type))
           in
 
-          check_stmt fully_qual_name stmt
+          let proc : MemberStatus.procedure =
+            {
+              proc_loc = call_decl.call_decl_loc;
+              proc_name = Stdlib.Format.asprintf "%a" QualIdent.pr fully_qual_name;
+              proc_kind =
+                (match call_decl.call_decl_kind with Lemma -> "lemma" | _ -> "proc");
+            }
+          in
+          let* () = check_stmt ~proc fully_qual_name stmt in
+          record_result proc Verified
       | _ ->
           Logs.debug (fun m ->
               m "Skipping %b" (is_free callable.call_decl.call_decl_status));
