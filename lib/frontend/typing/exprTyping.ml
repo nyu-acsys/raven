@@ -3,7 +3,6 @@
 open Base
 open Ast
 open Util
-open Error
 open TypingMonad
 open TypingErrors
 
@@ -90,10 +89,8 @@ let set_checked_type ?(coerce = true) (expr : expr) (given_typ_lb : type_expr)
   let open Rewriter.Syntax in
   let expected_ghost = Type.is_ghost expected_typ in
   let* given_typ_lb =
-    try TypeExpr.expand_type_expr given_typ_lb
-    with Msg msgs ->
-      Error.fail_with
-        (List.map msgs ~f:(fun (lbl, _loc, msg) -> (lbl, Expr.to_loc expr, msg)))
+    Rewriter.map_errors (TypeExpr.expand_type_expr given_typ_lb)
+      ~f:(fun (lbl, _loc, msg) -> (lbl, Expr.to_loc expr, msg))
   and+ given_typ_ub = TypeExpr.expand_type_expr given_typ_ub
   and+ expected_typ = TypeExpr.expand_type_expr expected_typ
   and+ printers = Rewriter.current_printers in

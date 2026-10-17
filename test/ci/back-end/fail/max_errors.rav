@@ -1,0 +1,9 @@
+// Each failed assertion is reported, and assumed to check the rest.
+proc p(x: Int) {
+  assert x > 0;
+  assert x > 1;
+}
+
+proc q(x: Int) {
+  assert x > 2;
+}

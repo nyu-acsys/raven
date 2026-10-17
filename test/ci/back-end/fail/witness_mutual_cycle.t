@@ -15,4 +15,8 @@
   5 |   exhale exists a: Int, b: Int :: edge(a, b) && edge(b, a);
                                         ^^^^^^^^^^
   Related Location: This predicate may not hold.
+  [Error] File "./witness_mutual_cycle.rav", line 5, columns 48-58:
+  5 |   exhale exists a: Int, b: Int :: edge(a, b) && edge(b, a);
+                                                      ^^^^^^^^^^
+  Related Location: This predicate may not hold.
   [1]

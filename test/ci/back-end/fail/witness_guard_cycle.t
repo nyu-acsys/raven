@@ -11,4 +11,8 @@
   5 |   exhale exists n: Int :: n == 0 ? edge(0, n) : edge(1, n);
                                          ^^^^^^^^^^
   Related Location: This predicate may not hold.
+  [Error] File "./witness_guard_cycle.rav", line 5, columns 48-58:
+  5 |   exhale exists n: Int :: n == 0 ? edge(0, n) : edge(1, n);
+                                                      ^^^^^^^^^^
+  Related Location: This predicate may not hold.
   [1]

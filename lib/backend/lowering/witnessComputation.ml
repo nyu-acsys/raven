@@ -782,8 +782,9 @@ and elim_a0 ?(fraction_fallback = false) (univ_vars : universal_quants)
       add_candidates right left witness_map
   | App (Own, [ loc_expr; field_expr; val_expr ], _) ->
       let field_name =
-        try Expr.to_qual_ident field_expr
-        with _ -> Error.type_error (Expr.to_loc field_expr) "Expected field identifier."
+        match field_expr with
+        | App (Var field_name, _, _) -> field_name
+        | _ -> Error.type_error (Expr.to_loc field_expr) "Expected field identifier."
       in
 
       let field_elem_type = field_expr |> Expr.to_type |> Type.field_val in

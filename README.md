@@ -180,6 +180,7 @@ Run `raven --help` for the full, authoritative option list. A few of the most co
 - `--extension=VAL` (`default`, `eris`, or `auto`) — select a front-end extension; `auto` picks it from the extension-specific syntax the program uses.
 - `--typeonly` — type-check the input without running verification.
 - `--smt-timeout=VAL` (default `10000`) — timeout per SMT query, in ms. Use `0` for no timeout.
+- `--max-errors=VAL` (default `20`) — stop after this many verification errors. Use `0` for no limit.
 - `--nostdlib` — skip loading the standard library.
 - `--stats` — output only program stats (concrete/ghost instruction steps, number of specification formulae) instead of verifying.
 - `--strict` — warn about anything assumed rather than checked: missing `decreases` clauses, explicit `free`, and `atomic { ... }` blocks.

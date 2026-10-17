@@ -13,6 +13,9 @@ module SmtSession : sig
   val check_sat : session -> SmtLibAst.sat_result
   val check_valid : ?name:string -> session -> SmtLibAst.term -> validity_result
 
+  val is_closed : session -> bool
+  (** Whether the session was stopped, e.g. after Z3 did not respond in time. *)
+
   val with_scope : session -> f:(unit -> 'a) -> 'a
   (** Restores the solver scope on return or exception. Cleanup preserves body errors. *)
 

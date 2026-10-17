@@ -7,4 +7,8 @@
   5 |   exhale exists n: Int :: n + 1 == 3 && n == 4 && own(x.f, 7);
                                 ^^^^^^^^^^
   Related Location: This assertion may not hold.
+  [Error] File "./witness_arithmetic_conflicting.rav", line 5, columns 40-46:
+  5 |   exhale exists n: Int :: n + 1 == 3 && n == 4 && own(x.f, 7);
+                                              ^^^^^^
+  Related Location: This assertion may not hold.
   [1]

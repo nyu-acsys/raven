@@ -11,4 +11,8 @@
   12 |         (f1(l) ==> own(n.lock, l, 0.5)) && 
                           ^^^^^^^^^^^^^^^^^^^
   Related Location: This own predicate may not hold.
+  [Error] File "multiple_witness_soundness_fix.rav", line 14, columns 19-45:
+  14 |         (f2(l) ==> own(n.agr, Agree.agree(l)))
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  Related Location: This own predicate may not hold.
   [1]

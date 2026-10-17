@@ -12,6 +12,7 @@ type config = {
   prog_stats : bool;
   smt_timeout : int;
   smt_diagnostics : bool;
+  max_errors : int;
   log_level : Logs.level option;
   strict : bool;
 }
@@ -372,7 +373,12 @@ let parse_and_check_all ~extension_mode config file_names =
         Backend.SmtPreamble.initialize solver_session ~diagnostics:config.smt_diagnostics
           ~timeout:config.smt_timeout;
         Backend.SmtPreamble.declare_tuple_sorts solver_session arities;
-        let context = Backend.CheckerContext.create solver_session in
+        (* An editor shows every error, so `--lsp-mode` has no limit. *)
+        let max_errors =
+          if config.lsp_mode || config.max_errors <= 0 then None
+          else Some config.max_errors
+        in
+        let context = Backend.CheckerContext.create ?max_errors solver_session in
         let (_ : Backend.CheckerContext.context) =
           backend_check_cu tbl context processed
         in
@@ -459,6 +465,13 @@ let base_dir =
 let smt_timeout =
   let doc = "Timeout for SMT solver in ms." in
   Arg.(value & opt int 10000 & info [ "smt-timeout" ] ~doc)
+
+let max_errors =
+  let doc =
+    "Stop after reporting this many verification errors; 0 means no limit. Ignored with \
+     --lsp-mode."
+  in
+  Arg.(value & opt int 20 & info [ "max-errors" ] ~doc)
 
 let extension_mode =
   let doc =
@@ -623,8 +636,8 @@ let serve_library_sources ~lib_sources ~dump_library ~print_library_source =
   Option.is_some dumped || Option.is_some printed
 
 let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annotations
-    base_dir prog_stats smt_timeout smt_diagnostics extension_mode_arg strict dump_library
-    print_library_source manifest =
+    base_dir prog_stats smt_timeout smt_diagnostics max_errors extension_mode_arg strict
+    dump_library print_library_source manifest =
   if manifest then begin
     (* Payload rather than logging, so it survives -q and needs no --shh: whoever asks
        is a program parsing this one line. *)
@@ -642,6 +655,7 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annot
       base_dir;
       smt_timeout;
       smt_diagnostics;
+      max_errors;
       log_level = Logs.level ();
       strict;
     }
@@ -705,7 +719,7 @@ let main_cmd =
       ret
         (const main $ setup_config $ input_file $ no_greeting $ no_library
        $ typecheck_only $ lsp_mode $ lsp_annotations $ base_dir $ prog_stats $ smt_timeout
-       $ smt_diagnostics $ extension_mode $ strict $ dump_library $ print_library_source
-       $ manifest))
+       $ smt_diagnostics $ max_errors $ extension_mode $ strict $ dump_library
+       $ print_library_source $ manifest))
 
 let () = Stdlib.exit (Cmd.eval main_cmd)

@@ -101,17 +101,21 @@ let rec check_stmt curr_callable (stmt : Stmt.t) : unit t =
 
           match spec_kind with
           | Assume -> assume_expr ?name:spec.spec_name spec.spec_form
-          | Assert -> (
+          | Assert ->
               let* result =
                 check_valid
                   ?name:(Option.map spec.spec_name ~f:(fun name -> name ^ "$goal"))
                   spec.spec_form
               in
-              match result with
-              | Valid -> assume_expr ?name:spec.spec_name spec.spec_form
-              | Invalid | Inconclusive ->
-                  Error.fail_with
-                    (Stmt.spec_error_msg spec curr_callable (Stmt.to_loc stmt)))
+              let* () =
+                match result with
+                | Valid -> State.return ()
+                | Invalid | Inconclusive ->
+                    (* Assume the failed assertion, to check the rest of the callable. *)
+                    record_error
+                      (Stmt.spec_error_msg spec curr_callable (Stmt.to_loc stmt))
+              in
+              assume_expr ?name:spec.spec_name spec.spec_form
           | _ ->
               Error.internal_error stmt.stmt_loc
                 (Printf.sprintf
@@ -605,4 +609,4 @@ let check_module (module_defs : Ast.Module.t list) (lemma_calls : Dependencies.G
   let context = { context with auto_dependencies } in
 
   let context, () = State.eval (check_members dependencies deps_graph tbl) context in
-  context
+  match errors context with [] -> context | errs -> Error.fail_with errs

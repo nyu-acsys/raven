@@ -7,4 +7,12 @@
   7 |   ensures r > 0 && r <= a && r <= b
                 ^^^^^
   Related Location: This assertion may not hold.
+  [Error] File "./gcd.rav", line 7, columns 19-25:
+  7 |   ensures r > 0 && r <= a && r <= b
+                         ^^^^^^
+  Related Location: This assertion may not hold.
+  [Error] File "./gcd.rav", line 7, columns 29-35:
+  7 |   ensures r > 0 && r <= a && r <= b
+                                   ^^^^^^
+  Related Location: This assertion may not hold.
   [1]

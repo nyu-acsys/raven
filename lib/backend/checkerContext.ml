@@ -8,12 +8,43 @@ type context = {
   session : SmtSolver.session;
   path_conditions : expr list;
   auto_dependencies : Dependencies.Graph.t;
+  errors : Error.t list list;  (** The verification errors found so far, latest first. *)
+  max_errors : int option;
 }
 
 type 'a t = context -> context * 'a
 
-let create session =
-  { session; path_conditions = []; auto_dependencies = Dependencies.Graph.empty }
+let create ?max_errors session =
+  {
+    session;
+    path_conditions = [];
+    auto_dependencies = Dependencies.Graph.empty;
+    errors = [];
+    max_errors;
+  }
+
+(** The verification errors found so far, in source order. *)
+let errors context =
+  List.rev context.errors |> Error.merge_diagnostics |> Error.sort_diagnostics
+  |> List.concat
+
+(** Records the verification error [diag]. Aborts when it is one more than [max_errors],
+    or when the solver was stopped, since nothing more can be checked. *)
+let record_error (diag : Error.t list) : unit t =
+ fun context ->
+  let recorded = { context with errors = diag :: context.errors } in
+  match context.max_errors with
+  | Some limit when List.length (Error.merge_diagnostics recorded.errors) > limit ->
+      Error.fail_with
+        (errors context
+        @ [
+            ( Error.Generic,
+              Loc.dummy,
+              Printf.sprintf
+                "Stopped after %d errors; use --max-errors to change the limit" limit );
+          ])
+  | _ when Session.is_closed context.session -> Error.fail_with (errors recorded)
+  | _ -> (recorded, ())
 
 let write cmd : unit t =
   let open State.Syntax in

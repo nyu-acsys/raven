@@ -55,6 +55,31 @@ exception Msg of t list
 let fail ?(lbl = Generic) loc msg = raise (Msg [ (lbl, loc, msg) ])
 let fail_with errors = raise (Msg errors)
 
+(** Merges the diagnostics in [diags] that have the same primary error, collecting their
+    related locations, e.g. those of the conjuncts of one postcondition that may not hold.
+*)
+let merge_diagnostics (diags : t list list) : t list list =
+  let add merged = function
+    | [] -> merged
+    | primary :: related -> (
+        match List.Assoc.find merged primary ~equal:Poly.equal with
+        | Some known ->
+            let fresh =
+              List.filter related ~f:(fun r -> not (List.mem known r ~equal:Poly.equal))
+            in
+            List.Assoc.add merged primary (known @ fresh) ~equal:Poly.equal
+        | None -> (primary, related) :: merged)
+  in
+  List.fold diags ~init:[] ~f:add
+  |> List.rev_map ~f:(fun (primary, related) -> primary :: related)
+
+(** Orders diagnostics by the location of their primary error. A diagnostic is a primary
+    error followed by its related locations. *)
+let sort_diagnostics (diags : t list list) : t list list =
+  let primary_loc = function (_, loc, _) :: _ -> loc | [] -> Loc.dummy in
+  List.stable_sort diags ~compare:(fun d1 d2 ->
+      Loc.compare (primary_loc d1) (primary_loc d2))
+
 let to_string (kind, (loc : Loc.t), msg) =
   let label =
     kind |> error_kind_to_string |> fun lbl ->

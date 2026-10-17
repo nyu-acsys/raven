@@ -11,4 +11,8 @@
   5 |   exhale exists n: Int :: (n == 0 ? n == 1 : n == 0) && own(x.f, 7);
                                           ^^^^^^
   Related Location: This assertion may not hold.
+  [Error] File "./witness_equality_guard_cycle.rav", line 5, columns 45-51:
+  5 |   exhale exists n: Int :: (n == 0 ? n == 1 : n == 0) && own(x.f, 7);
+                                                   ^^^^^^
+  Related Location: This assertion may not hold.
   [1]

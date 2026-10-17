@@ -606,6 +606,11 @@ let eval ?(update = true) ?(ext_hooks = default_ext_hooks)
 
   (sout.state_table, res)
 
+(** Runs [m], applying [f] to every error it raises. Besides the top-level handler in
+    bin/raven.ml, this is the only place that catches [Error.Msg]. *)
+let map_errors ~(f : Error.t -> Error.t) (m : ('a, 'b) t_ext) : ('a, 'b) t_ext =
+ fun s -> try m s with Error.Msg errs -> Error.fail_with (Base.List.map errs ~f)
+
 let eval_with_user_state ~init (f : 'a state -> 'a state * 'b) : 'b t =
  fun st ->
   let st, v = f { st with state_user_data = init } in
@@ -1010,24 +1015,18 @@ let introduce_typecheck_symbols ~loc ~(f : AstDef.Module.symbol -> AstDef.Module
         (Util.Print.pr_list_comma QualIdent.pr)
         (snd (Base.List.unzip symbol__qual_idents)));
 
-  let s, symbol__qual_idents__already_defineds =
-    Base.List.fold_map ~init:s symbol__qual_idents ~f:(fun s (symbol, qual_iden) ->
-        let (s, _), already_defined =
-          try (declare_symbol symbol s, false) with _ -> ((s, ()), true)
-        in
-        (s, (symbol, qual_iden, already_defined)))
+  let s, () =
+    Base.List.fold symbol__qual_idents ~init:(s, ()) ~f:(fun (s, ()) (symbol, _) ->
+        declare_symbol symbol s)
   in
 
   (* if symbol is getting added to parent scope (see appropriate_scope in SymbolTbl.add_symbol, then we need to go to parent scope before calling `f` on `symbol`) *)
   let s, symbol__qual_idents =
-    Base.List.fold_map ~init:s symbol__qual_idents__already_defineds
-      ~f:(fun s (symbol, qual_ident, already_defined) ->
+    Base.List.fold_map ~init:s symbol__qual_idents ~f:(fun s (symbol, qual_ident) ->
         match symbol with
         | VarDef _ ->
-            if not already_defined then
-              let s, symbol = f symbol s in
-              (s, (symbol, qual_ident))
-            else (s, (symbol, qual_ident))
+            let s, symbol = f symbol s in
+            (s, (symbol, qual_ident))
         | _ ->
             let s, () =
               Logs.debug
@@ -1042,7 +1041,7 @@ let introduce_typecheck_symbols ~loc ~(f : AstDef.Module.symbol -> AstDef.Module
 
               let s = { s with state_table = SymbolTbl.exit s.state_table } in
 
-              let s, symbol = if not already_defined then f symbol s else (s, symbol) in
+              let s, symbol = f symbol s in
 
               let qual_ident =
                 QualIdent.append s.state_table.tbl_curr.scope_id (Symbol.to_name symbol)

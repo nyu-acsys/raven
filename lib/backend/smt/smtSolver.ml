@@ -59,6 +59,8 @@ module SmtSession = struct
         Logs.warn (fun m -> m "Could not reap the Z3 process during session cleanup")
     end
 
+  let is_closed session = session.solver_state.closed
+
   let stop_solver session =
     let state = session.solver_state in
     if not state.closed then begin

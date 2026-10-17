@@ -11,4 +11,12 @@
   22 |   exists n: Int :: n >= 0 && own(x.count, n, 1.0) && own(x.g, auth_frag(n, n))
                           ^^^^^^
   Related Location: This assertion may not hold.
+  [Error] File "./atomic_call_abort_ghost_update.rav", line 22, columns 29-49:
+  22 |   exists n: Int :: n >= 0 && own(x.count, n, 1.0) && own(x.g, auth_frag(n, n))
+                                    ^^^^^^^^^^^^^^^^^^^^
+  Related Location: This own predicate may not hold.
+  [Error] File "./atomic_call_abort_ghost_update.rav", line 22, columns 53-78:
+  22 |   exists n: Int :: n >= 0 && own(x.count, n, 1.0) && own(x.g, auth_frag(n, n))
+                                                            ^^^^^^^^^^^^^^^^^^^^^^^^^
+  Related Location: This own predicate may not hold.
   [1]
