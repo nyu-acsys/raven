@@ -719,6 +719,7 @@ and check_instr (m : Module.t) (instr : Module.module_instr) : Module.module_ins
             mm "Processing module %a: symbol: %a" Ident.pr (Symbol.to_name (ModDef m))
               printers.pr_symbol symbol_def)
       in
+      let* () = Rewriter.record_declaration symbol_def in
       let+ _ = Rewriter.set_symbol symbol_def in
       Module.SymbolDef symbol_def
   | Import import ->

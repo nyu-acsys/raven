@@ -15,7 +15,6 @@ type config = {
   max_errors : int option;  (** As given on the command line, if at all. *)
   log_level : Logs.level option;
   strict : bool;
-  input_files : string list;
 }
 
 let include_map = Hashtbl.create (module String)
@@ -658,9 +657,7 @@ let print_lsp_output config ~diagnostics errs =
     List.map (Diagnostics.warnings diagnostics @ errs) ~f:anchor_lsp_diagnostic
   in
   if config.lsp_annotations then
-    let references, symbols =
-      Diagnostics.references_to_json diagnostics ~files:config.input_files
-    in
+    let references, symbols = Diagnostics.references_to_json diagnostics in
     Stdlib.print_endline
       (Yojson.Safe.to_string
          (`Assoc
@@ -753,7 +750,6 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annot
       max_errors;
       log_level = Logs.level ();
       strict;
-      input_files;
     }
   in
   (* [EXT] "auto" is resolved from the input program's own syntax once it's parsed --
@@ -781,7 +777,8 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annot
     let diagnostics =
       Diagnostics.create ?max_errors:(max_errors_of config)
         ~collect_warnings:config.lsp_mode
-        ~collect_references:(config.lsp_mode && config.lsp_annotations)
+        ~reference_files:
+          (if config.lsp_mode && config.lsp_annotations then input_files else [])
         ()
     in
     try

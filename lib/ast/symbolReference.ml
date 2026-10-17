@@ -30,6 +30,15 @@ let declaration_text (symbol : Module.symbol) : string option =
           Option.to_list (Option.map vd.var_init ~f:Expr.to_loc),
           false )
     | FieldDef fd -> (fd.field_loc, [], false)
+    | ModInst mi ->
+        let arg_loc = function
+          | Module.ModArg qi -> QualIdent.to_loc qi
+          | TypeArg tp -> Type.to_loc tp
+        in
+        ( mi.mod_inst_loc,
+          Option.value_map mi.mod_inst_def ~default:[] ~f:(fun (functor_name, args) ->
+              QualIdent.to_loc functor_name :: List.map args ~f:arg_loc),
+          false )
     | symbol -> (Symbol.to_loc symbol, [], false)
   in
   let same_file loc = String.equal (Loc.file_name loc) (Loc.file_name name_loc) in
@@ -53,11 +62,21 @@ let declaration_text (symbol : Module.symbol) : string option =
         String.concat ~sep:"\n" (List.map (String.split text ~on:'\n') ~f:dedent)
       in
       (* The header ends at its last parameter when it has neither returns nor a
-         contract. *)
-      let unclosed =
-        String.count text ~f:(Char.equal '(') - String.count text ~f:(Char.equal ')')
+         contract, and an instance at its last argument. *)
+      let unclosed opening closing =
+        String.make
+          (max 0
+             (String.count text ~f:(Char.equal opening)
+             - String.count text ~f:(Char.equal closing)))
+          closing
       in
-      let text = text ^ String.make (max 0 unclosed) ')' in
+      let text = text ^ unclosed '(' ')' ^ unclosed '[' ']' in
+      (* A callable without parameters, returns or contract ends at its name. *)
+      let text =
+        match symbol with
+        | CallDef _ when not (String.mem text '(') -> text ^ "()"
+        | _ -> text
+      in
       if has_body then text ^ " { … }" else text)
 
 (** The use of [name], as written, of [symbol], which it resolves to as [target]. A local

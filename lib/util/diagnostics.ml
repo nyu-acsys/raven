@@ -317,7 +317,7 @@ type t = {
   mutable annotations : Annotations.t list;
   mutable members : MemberStatus.member list;  (** The program's, for their status. *)
   mutable groups : MemberStatus.group list;  (** The program's modules. *)
-  collect_references : bool;  (** Whether the names the program uses are collected. *)
+  reference_files : string list;  (** The files whose names are collected, if any. *)
   mutable references : References.t list;  (** The names the program uses. *)
   mutable results : (MemberStatus.procedure * MemberStatus.outcome) list;
       (** The outcomes of the checked procedures. *)
@@ -326,7 +326,7 @@ type t = {
           the member in the module that inherits it. *)
 }
 
-let create ?max_errors ?(collect_warnings = false) ?(collect_references = false) () =
+let create ?max_errors ?(collect_warnings = false) ?(reference_files = []) () =
   {
     errors = [];
     aborted = false;
@@ -336,7 +336,7 @@ let create ?max_errors ?(collect_warnings = false) ?(collect_references = false)
     annotations = [];
     members = [];
     groups = [];
-    collect_references;
+    reference_files;
     references = [];
     results = [];
     origins = Hashtbl.create (module String);
@@ -397,7 +397,10 @@ let record_result d proc outcome = d.results <- (proc, outcome) :: d.results
 let members_to_json d =
   MemberStatus.to_json ~aborted:d.aborted d.members d.groups d.results
 
-let record_reference d reference =
-  if d.collect_references then d.references <- reference :: d.references
+let record_reference d reference = d.references <- reference :: d.references
 
-let references_to_json d ~files = References.to_json ~files d.references
+(** Whether the names used at [loc] are collected. *)
+let collects_references d loc =
+  List.mem d.reference_files (Loc.file_name loc) ~equal:String.equal
+
+let references_to_json d = References.to_json ~files:d.reference_files d.references

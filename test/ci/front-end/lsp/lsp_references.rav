@@ -34,3 +34,10 @@ module F[T: Library.Type] {
 module FI = F[Int]
 
 func use(x: FI.T) returns (y: FI.T) { FI.id(x) }
+
+func inferred() returns (r: Int) { F.id(3) }
+
+proc declared() {
+  ghost var g: Int;
+  g := 1;
+}

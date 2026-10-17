@@ -634,15 +634,66 @@ let recording_references enabled (m : ('b, 'a) t_ext) : ('b, 'a) t_ext =
   let s', a = m { s with state_record_references = enabled } in
   ({ s' with state_record_references = s.state_record_references }, a)
 
-(** Records for the editor that [name], as written, resolves to [symbol] as [target],
-    unless [target] is a name the verifier generated. *)
+(** Whether [qual_ident] names something the verifier generated: a name whose parts are
+    shown by what they stand for, such as [F[Int]], still has [$] in them. *)
+let is_generated qual_ident =
+  Base.List.exists (QualIdent.shown_path qual_ident) ~f:(fun (id : Ident.t) ->
+      String.contains id.ident_name '$')
+
+(** Records for the editor that [name], as written, resolves to [symbol] as [target], and
+    the modules on the path of [name]. A name the verifier generated is not recorded. *)
 let record_reference s ~name ~target symbol =
+  let generated = is_generated in
+  (* A symbol the verifier generated, or one without a declaration, is not shown. *)
+  let record ~name ~target symbol =
+    (* An instance of a functor resolves to the functor; its own declaration says more. *)
+    let symbol =
+      match Base.Map.find s.state_table.tbl_symbols target with
+      | Some (AstDef.Module.ModInst _ as instance) -> instance
+      | _ -> symbol
+    in
+    let declared = AstDef.Symbol.to_loc symbol in
+    if
+      (not (String.contains (Ident.to_string (AstDef.Symbol.to_name symbol)) '$'))
+      && not (String.equal (Loc.file_name declared) "")
+    then
+      Diagnostics.record_reference s.state_diagnostics
+        (SymbolReference.reference ~name ~target symbol)
+  in
   if
-    s.state_record_references && s.state_diagnostics.collect_references
-    && not (String.contains (QualIdent.to_string target) '$')
-  then
-    Diagnostics.record_reference s.state_diagnostics
-      (SymbolReference.reference ~name ~target symbol)
+    s.state_record_references
+    && Diagnostics.collects_references s.state_diagnostics (QualIdent.to_loc name)
+    && not (generated name)
+  then begin
+    (* A member of a module the verifier generated, such as an instance of a functor
+       that a call instantiates implicitly, is shown by the name as written. *)
+    record ~name ~target:(if generated target then name else target) symbol;
+    (* The modules on the path of [name], each at its own location. *)
+    Base.List.iteri (QualIdent.path name) ~f:(fun i _ ->
+        let prefix = QualIdent.from_list (Base.List.take (QualIdent.path name) (i + 1)) in
+        match SymbolTbl.resolve_and_find ~read_only:true prefix s.state_table with
+        | Some (_, module_target, module_symbol, _) when not (generated module_target) ->
+            record ~name:prefix ~target:module_target module_symbol
+        | _ -> ())
+  end
+
+(** Records the declaration of the local variable [var_decl] as a reference to itself, so
+    that it shows its type when hovered over, as a use does. *)
+let record_var_declaration s (var_decl : var_decl) =
+  let target = QualIdent.from_ident var_decl.var_name in
+  (* The declaration's location spans its type too. *)
+  let loc = Ident.to_loc var_decl.var_name in
+  let name_end =
+    {
+      loc.loc_start with
+      pos_cnum = Loc.start_index loc + String.length (Ident.name var_decl.var_name);
+    }
+  in
+  let name =
+    QualIdent.from_ident (Ident.set_loc { loc with loc_end = name_end } var_decl.var_name)
+  in
+  record_reference s ~name ~target
+    (AstDef.Module.VarDef { var_decl; var_init = None; var_is_free = NotFree })
 
 (** Reports the warning [msg] at [loc]. *)
 let warning loc msg s =
@@ -1036,6 +1087,10 @@ let add_transparent ident target : unit t =
   update_table (SymbolTbl.add_transparent ident target)
 
 let introduce_symbol symbol s =
+  begin match symbol with
+  | AstDef.Module.VarDef { var_decl; _ } -> record_var_declaration s var_decl
+  | _ -> ()
+  end;
   let _, scope_id = current_scope_id s in
   let state_new_symbols_tree =
     NewSymbolsTree.scope_add_symbols scope_id [ symbol ] s.state_new_symbols_tree
@@ -1194,6 +1249,7 @@ let introduce_typecheck_symbol_at_scope' ~loc (symbol : Module.symbol)
   (s, symbol_qual_ident)
 
 let add_locals var_decls s =
+  Base.List.iter var_decls ~f:(record_var_declaration s);
   if s.state_update_table then
     (*Logs.debug (fun m ->
         m "Rewriter.add_locals: var_decls = %a"
@@ -1208,6 +1264,17 @@ let add_call_decl_locals (call_decl : Callable.call_decl) =
   and+ _ = add_locals call_decl.call_decl_returns
   and+ _ = add_locals call_decl.call_decl_locals in
   ()
+
+(** Records the declaration of the member [symbol] of the current module, as a reference
+    to itself. *)
+let record_declaration symbol s =
+  let name = QualIdent.from_ident (AstDef.Symbol.to_name symbol) in
+  let target =
+    QualIdent.append s.state_table.tbl_curr.scope_id (AstDef.Symbol.to_name symbol)
+  in
+  (* A member of a module the verifier generated is declared in the module it copies. *)
+  if not (is_generated target) then record_reference s ~name ~target symbol;
+  (s, ())
 
 let set_symbol symbol s =
   (* Logs.debug (fun m -> m "Rewriter.set_symbol: symbol = %a" AstDef.Ident.pr (AstDef.Symbol.to_name symbol)); *)
