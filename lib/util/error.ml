@@ -12,6 +12,7 @@ type error_kind =
   | Verification
   | RelatedLoc
   | Warning
+  | Limit  (** The note that a run stopped after the maximal number of errors. *)
 
 let error_kind_to_lsp_string = function
   | Generic -> "Generic"
@@ -23,6 +24,7 @@ let error_kind_to_lsp_string = function
   | Verification -> "Verification"
   | RelatedLoc -> "RelatedLoc"
   | Warning -> "Warning"
+  | Limit -> "Limit"
 
 let error_kind_to_string = function
   | Generic -> "Error"
@@ -34,6 +36,7 @@ let error_kind_to_string = function
   | Verification -> "Verification Error"
   | RelatedLoc -> "Related Location"
   | Warning -> "Warning"
+  | Limit -> "Error"
 
 type t = error_kind * Loc.t * String.t
 

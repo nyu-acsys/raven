@@ -54,7 +54,7 @@ let report_errors d : Err.t list =
   | Some limit when d.aborted ->
       errors
       @ [
-          ( Err.Generic,
+          ( Err.Limit,
             Loc.dummy,
             Printf.sprintf "Stopped after %d errors; use --max-errors to change the limit"
               limit );
