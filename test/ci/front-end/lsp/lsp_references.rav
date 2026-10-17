@@ -1,0 +1,36 @@
+module M {
+  field value: Int
+
+  func double(x: Int) returns (y: Int)
+    ensures y == 2 * x
+  {
+    x + x
+  }
+
+  pred cell(r: Ref; v: Int) {
+    own(r.value, v)
+  }
+
+  proc inc(r: Ref, implicit ghost v: Int)
+    requires cell(r, v)
+    ensures cell(r, double(v))
+  {
+    unfold cell(r, v);
+    var w := r.value;
+    r.value := double(w);
+    fold cell(r, double(v));
+  }
+}
+
+proc client(s: Seq[Int]) returns (n: Int) {
+  n := M.double(3);
+  var t: Set[Int] := {| 1, 2 |};
+}
+
+module F[T: Library.Type] {
+  func id(t: T) returns (r: T) { t }
+}
+
+module FI = F[Int]
+
+func use(x: FI.T) returns (y: FI.T) { FI.id(x) }

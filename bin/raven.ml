@@ -15,6 +15,7 @@ type config = {
   max_errors : int option;  (** As given on the command line, if at all. *)
   log_level : Logs.level option;
   strict : bool;
+  input_files : string list;
 }
 
 let include_map = Hashtbl.create (module String)
@@ -536,7 +537,8 @@ let lsp_annotations =
   let doc =
     "With --lsp-mode, print an object with the errors, included-file dependencies and \
      annotations for the editor, such as the contracts that members inherit from \
-     interfaces and the verification status of each member."
+     interfaces, the verification status of each member, and what the names the program \
+     uses refer to."
   in
   Arg.(value & flag & info [ "lsp-annotations" ] ~doc)
 
@@ -655,6 +657,9 @@ let print_lsp_output config ~diagnostics errs =
     List.map (Diagnostics.warnings diagnostics @ errs) ~f:anchor_lsp_diagnostic
   in
   if config.lsp_annotations then
+    let references, symbols =
+      Diagnostics.references_to_json diagnostics ~files:config.input_files
+    in
     Stdlib.print_endline
       (Yojson.Safe.to_string
          (`Assoc
@@ -662,6 +667,8 @@ let print_lsp_output config ~diagnostics errs =
               ("errors", `List (List.map errs ~f:Error.to_lsp_json));
               ("annotations", Diagnostics.annotations_to_json diagnostics);
               ("members", Diagnostics.members_to_json diagnostics);
+              ("references", references);
+              ("symbols", symbols);
               ( "dependencies",
                 `List
                   (Hashtbl.keys include_map
@@ -745,6 +752,7 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annot
       max_errors;
       log_level = Logs.level ();
       strict;
+      input_files;
     }
   in
   (* [EXT] "auto" is resolved from the input program's own syntax once it's parsed --
@@ -771,7 +779,9 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annot
     in
     let diagnostics =
       Diagnostics.create ?max_errors:(max_errors_of config)
-        ~collect_warnings:config.lsp_mode ()
+        ~collect_warnings:config.lsp_mode
+        ~collect_references:(config.lsp_mode && config.lsp_annotations)
+        ()
     in
     try
       let result = parse_and_check_all ~extension_mode ~diagnostics config input_files in

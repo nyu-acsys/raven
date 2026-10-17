@@ -12,7 +12,9 @@ let check_module ?(tbl = SymbolTbl.create ()) ?ext_hooks ?cli_config ?diagnostic
     Rewriter.eval ?ext_hooks ?cli_config ?diagnostics
       (fun st ->
         let st, _ = Rewriter.enter_module m st in
-        let st, m = run_typing (ModuleTyping.check m) st in
+        let st, m =
+          Rewriter.recording_references true (run_typing (ModuleTyping.check m)) st
+        in
         let st, m = Rewriter.exit_module m st in
         (st, m))
       tbl

@@ -194,6 +194,9 @@ type 'a state = {
   (* The run's errors recorded at recovery points (see [recover]), warnings and editor
      annotations. *)
   state_diagnostics : Diagnostics.t;
+  (* Whether the names that are resolved are recorded for the editor: while type-checking
+     a module, unless speculatively. *)
+  state_record_references : bool;
 }
 
 (* CLI flags the pipeline needs deep inside rewrite/check passes (e.g. [--strict]).
@@ -606,6 +609,7 @@ let eval ?(update = true) ?(ext_hooks = default_ext_hooks)
       state_cli_config = cli_config;
       state_isc_cache = Hashtbl.create (module IscCacheKey);
       state_diagnostics = diagnostics;
+      state_record_references = false;
     }
   in
   (* Fails with every error recorded at a recovery point, together with the one [m]
@@ -623,6 +627,22 @@ let eval ?(update = true) ?(ext_hooks = default_ext_hooks)
   (sout.state_table, res)
 
 let current_diagnostics s = (s, s.state_diagnostics)
+
+(** Runs [m] recording the names that are resolved, or not, as [enabled] says. *)
+let recording_references enabled (m : ('b, 'a) t_ext) : ('b, 'a) t_ext =
+ fun s ->
+  let s', a = m { s with state_record_references = enabled } in
+  ({ s' with state_record_references = s.state_record_references }, a)
+
+(** Records for the editor that [name], as written, resolves to [symbol] as [target],
+    unless [target] is a name the verifier generated. *)
+let record_reference s ~name ~target symbol =
+  if
+    s.state_record_references && s.state_diagnostics.collect_references
+    && not (String.contains (QualIdent.to_string target) '$')
+  then
+    Diagnostics.record_reference s.state_diagnostics
+      (SymbolReference.reference ~name ~target symbol)
 
 (** Reports the warning [msg] at [loc]. *)
 let warning loc msg s =
@@ -2254,6 +2274,11 @@ let resolve_and_find_opt ?(read_only = false) name :
       (* A use of a member that failed to type-check, whose error is already reported. *)
       Error.fail_with []
   | Some (alias_qual_ident, qual_ident, symbol, subst) ->
+      let* () =
+       fun s ->
+        record_reference s ~name ~target:qual_ident symbol;
+        (s, ())
+      in
       return (Some (qual_ident, (alias_qual_ident, symbol, subst)))
   | None when read_only -> return None
   | None ->

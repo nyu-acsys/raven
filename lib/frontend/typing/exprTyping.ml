@@ -366,6 +366,7 @@ and check_var (qual_ident : qual_ident) (args_list : expr list)
     (expr_attr : Expr.expr_attr) (expr : expr) (expected_typ : type_expr)
     ~(allow_proc_call : bool) ~(contextual : bool) : expr t =
   let open Rewriter.Syntax in
+  let name = qual_ident in
   let* resolved =
     CallResolution.resolve_opt ~check_expr:check ~claimed_location ~loc:(Expr.to_loc expr)
       ~name:qual_ident ~args:args_list ~expected:expected_typ ~contextual ()
@@ -402,6 +403,7 @@ and check_var (qual_ident : qual_ident) (args_list : expr list)
       set_checked_type expr typ typ expected_typ
   | Some (Symbol (qual_ident, symbol, selected_return)) -> (
       let* symbol = Rewriter.Symbol.reify symbol in
+      let* () = record_reference ~name ~target:qual_ident symbol in
       match symbol with
       | ConstrDef _constr ->
           check (App (DataConstr qual_ident, args_list, Expr.attr_of expr)) expected_typ

@@ -10,6 +10,10 @@ module Rewriter = struct
   include Rewriter
 end
 
+module SymbolReference = struct
+  include SymbolReference
+end
+
 module ProgUtils = struct
   include ProgUtils
 end

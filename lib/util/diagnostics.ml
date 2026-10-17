@@ -1,8 +1,8 @@
 (** What a run reports besides its result: the errors recorded at recovery points, the
-    warnings, and the annotations and the status of members for an editor. The driver
-    creates one per run and every phase adds to it. It is mutable, so that a recovery
-    point further out, which rolls back the state of the computation that failed, keeps
-    what was recorded. *)
+    warnings, and for an editor the annotations, the status of members and the names the
+    program uses. The driver creates one per run and every phase adds to it. It is
+    mutable, so that a recovery point further out, which rolls back the state of the
+    computation that failed, keeps what was recorded. *)
 
 module Err = Error
 open Base
@@ -17,6 +17,8 @@ type t = {
   mutable annotations : Annotations.t list;
   mutable members : MemberStatus.member list;  (** The program's, for their status. *)
   mutable groups : MemberStatus.group list;  (** The program's modules. *)
+  collect_references : bool;  (** Whether the names the program uses are collected. *)
+  mutable references : References.t list;  (** The names the program uses. *)
   mutable results : (MemberStatus.procedure * MemberStatus.outcome) list;
       (** The outcomes of the checked procedures. *)
   origins : (string, string) Hashtbl.t;
@@ -24,7 +26,7 @@ type t = {
           the member in the module that inherits it. *)
 }
 
-let create ?max_errors ?(collect_warnings = false) () =
+let create ?max_errors ?(collect_warnings = false) ?(collect_references = false) () =
   {
     errors = [];
     aborted = false;
@@ -34,6 +36,8 @@ let create ?max_errors ?(collect_warnings = false) () =
     annotations = [];
     members = [];
     groups = [];
+    collect_references;
+    references = [];
     results = [];
     origins = Hashtbl.create (module String);
   }
@@ -92,3 +96,8 @@ let record_result d proc outcome = d.results <- (proc, outcome) :: d.results
 
 let members_to_json d =
   MemberStatus.to_json ~aborted:d.aborted d.members d.groups d.results
+
+let record_reference d reference =
+  if d.collect_references then d.references <- reference :: d.references
+
+let references_to_json d ~files = References.to_json ~files d.references

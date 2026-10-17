@@ -106,55 +106,6 @@ let renamed_clause_text ~(content : string) ~(span_start : int) ~(span_end : int
           (List.map renaming ~f:(fun ((o : var_decl), (v : var_decl)) ->
                Ident.name o.var_name ^ " is " ^ Ident.name v.var_name))
 
-(** The declaration of [symbol] as written in its source: from the beginning of the line
-    of its name to the end of its header, with [{ … }] in place of a body. *)
-let declaration_text (symbol : Module.symbol) : string option =
-  let name_loc, end_locs, has_body =
-    match symbol with
-    | CallDef ({ call_decl = d; _ } as c) ->
-        let var_locs vs = List.map vs ~f:(fun (v : var_decl) -> v.var_loc) in
-        let spec_locs specs =
-          List.map specs ~f:(fun (s : Stmt.spec) -> Expr.to_loc s.spec_form)
-        in
-        (* The name keeps its location when the member is inherited; the declaration's
-             is set to the inheriting module's for error messages. *)
-        ( Ident.to_loc d.call_decl_name,
-          var_locs d.call_decl_formals @ var_locs d.call_decl_returns
-          @ spec_locs d.call_decl_precond
-          @ spec_locs d.call_decl_postcond
-          @ Option.to_list
-              (Option.map d.call_decl_opens ~f:(fun clause -> clause.opens_loc)),
-          (not (Callable.is_abstract c)) || d.call_decl_is_sealed )
-    | TypeDef td -> (td.type_def_loc, [], false)
-    | VarDef vd ->
-        ( vd.var_decl.var_loc,
-          Option.to_list (Option.map vd.var_init ~f:Expr.to_loc),
-          false )
-    | FieldDef fd -> (fd.field_loc, [], false)
-    | symbol -> (Symbol.to_loc symbol, [], false)
-  in
-  let same_file loc = String.equal (Loc.file_name loc) (Loc.file_name name_loc) in
-  let last_end =
-    List.fold (List.filter end_locs ~f:same_file) ~init:name_loc.Loc.loc_end
-      ~f:(fun last loc ->
-        if loc.Loc.loc_end.pos_cnum > last.pos_cnum then loc.Loc.loc_end else last)
-  in
-  let line_start =
-    { name_loc.Loc.loc_start with pos_cnum = name_loc.Loc.loc_start.pos_bol }
-  in
-  Option.map
-    (Loc.source_text (Loc.make line_start last_end))
-    ~f:(fun text ->
-      let indent = String.length text - String.length (String.lstrip text) in
-      let dedent line =
-        let ws = String.length line - String.length (String.lstrip line) in
-        String.drop_prefix line (min ws indent)
-      in
-      let text =
-        String.concat ~sep:"\n" (List.map (String.split text ~on:'\n') ~f:dedent)
-      in
-      if has_body then text ^ " { … }" else text)
-
 (** Records for the editor the members that the module or interface [module_ident]
     declared at [module_loc] inherits from the interfaces it implements, rather than
     declaring them itself, each with the interface it originates from. *)
@@ -171,7 +122,7 @@ let record_inherited_members ~diagnostics ~(module_ident : qual_ident)
         Diagnostics.set_origin diagnostics
           ~member:(QualIdent.to_string module_ident ^ "." ^ name)
           origin;
-        Option.map (declaration_text symbol) ~f:(fun text ->
+        Option.map (SymbolReference.declaration_text symbol) ~f:(fun text ->
             let member_loc =
               match symbol with
               | CallDef { call_decl; _ } -> Ident.to_loc call_decl.call_decl_name

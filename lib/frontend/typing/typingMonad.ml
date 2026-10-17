@@ -34,5 +34,13 @@ let speculative_depth : int t = fun s -> (s, s.Rewriter.state_user_data)
 let speculatively (m : 'a t) : 'a t =
  fun s ->
   let s = { s with Rewriter.state_user_data = s.Rewriter.state_user_data + 1 } in
-  let s', a = m s in
+  let s', a = Rewriter.recording_references false m s in
   ({ s' with Rewriter.state_user_data = s.Rewriter.state_user_data - 1 }, a)
+
+(** Records for the editor that [name], as written, refers to [symbol] as [target]; see
+    [Rewriter.record_reference]. *)
+let record_reference ~(name : qual_ident) ~(target : qual_ident) (symbol : Module.symbol)
+    : unit t =
+ fun s ->
+  Rewriter.record_reference s ~name ~target symbol;
+  (s, ())
