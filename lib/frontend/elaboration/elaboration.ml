@@ -663,9 +663,9 @@ let rewrite_callable_entries (callable : Callable.t) : Callable.t Rewriter.t =
       match prepend_stmts with
       | [] -> callable
       | _ ->
+          (* At the body's location: its end is where the callable returns. *)
           let new_body =
-            Stmt.mk_block_stmt ~loc:callable.call_decl.call_decl_loc
-              (prepend_stmts @ [ body ])
+            Stmt.mk_block_stmt ~loc:body.stmt_loc (prepend_stmts @ [ body ])
           in
           { callable with call_def = ProcDef { proc_body = Some new_body } })
   | _ -> Rewriter.return callable

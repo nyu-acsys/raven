@@ -442,4 +442,5 @@ let rewrite_body ~same_scc ~measure_of call_decl spec body =
     | Basic _ -> Rewriter.return (stmt, occurrences)
   in
   let+ body, _ = rewrite [ root ] body in
-  Stmt.mk_block_stmt ~loc (entry_stmts @ [ body ])
+  (* At the body's location: its end is where the callable returns. *)
+  Stmt.mk_block_stmt ~loc:body.stmt_loc (entry_stmts @ [ body ])
