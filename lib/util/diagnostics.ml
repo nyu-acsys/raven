@@ -89,7 +89,8 @@ module MemberStatus = struct
     name_loc : Loc.t;
     extent : Loc.t;  (** Its name, contract and body. *)
     checked : bool;
-        (** Whether it is checked itself: a procedure or lemma with a body. *)
+        (** Whether it is known to be checked: a procedure or lemma with a body, or a
+            function with a body and a postcondition. *)
     inherited : bool;
         (** Whether a module inherits it, such as a lemma for an axiom of its interface.
         *)
@@ -239,7 +240,8 @@ module MemberStatus = struct
     `List
       (List.map statuses ~f:(fun (member, status) ->
            entry member.name_loc member.extent member.name member.kind status
-             (if member.inherited then [ ("inherited", `Bool true) ] else []))
+             ((if member.inherited then [ ("inherited", `Bool true) ] else [])
+             @ if member.checked then [ ("checked", `Bool true) ] else []))
       @ List.map groups ~f:(fun group ->
           let summary = summary statuses group in
           entry group.group_loc (group_extent members group) group.group_name

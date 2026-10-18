@@ -255,10 +255,16 @@ let source_members ~contents (md : Ast.Module.t) :
       | Pred -> "pred"
       | Invariant -> "inv"
     in
+    (* What is checked as it is written; for predicates it depends on how they are
+       lowered. *)
     let checked =
+      (not (Ast.is_free decl.call_decl_status))
+      &&
       match (decl.call_decl_kind, callable.call_def) with
-      | (Proc | Lemma), ProcDef { proc_body = Some _ } ->
-          not (Ast.is_free decl.call_decl_status)
+      | (Proc | Lemma), ProcDef { proc_body = Some _ } -> true
+      (* Without a body, a function's contract is assumed. *)
+      | Func, FuncDef { func_body = Some _ } ->
+          not (List.is_empty decl.call_decl_postcond)
       | _ -> false
     in
     let name =
