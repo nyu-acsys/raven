@@ -3150,7 +3150,10 @@ module TrnslExhale = struct
             if not all_existentials_exist then
               Error.internal_error (Expr.to_loc expr)
                 "Expected all existentials to be matched up"
-            else e
+            else
+              (* The witnesses replace the variables in the body, without the binder that
+                 hides them. *)
+              Expr.alpha_renaming (elim_exists e subst_map) subst_map
         | Binder (b, var_decls, trgs, e, expr_attr) ->
             let e = elim_exists e subst_map in
             Binder (b, var_decls, trgs, e, expr_attr)
@@ -3159,7 +3162,6 @@ module TrnslExhale = struct
             App (constr, exprs, expr_attr)
       in
 
-      let expr = Expr.alpha_renaming expr subst_map in
       elim_exists expr subst_map
     in
 

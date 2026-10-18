@@ -37,3 +37,8 @@
  (name counterexample_render)
  (modules counterexample_render)
  (libraries backend base sexplib))
+
+(test
+ (name alpha_renaming)
+ (modules alpha_renaming)
+ (libraries ast base util))

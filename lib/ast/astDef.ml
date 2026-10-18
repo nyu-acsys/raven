@@ -1231,27 +1231,89 @@ module Expr = struct
     in
     eq sm e1 e2
 
-  let rec alpha_renaming (expr : t) (map : t qual_ident_map) : t =
+  (** Adds to [acc] the variables that [expr] mentions without qualification, free or
+      bound. *)
+  let rec mentioned_vars acc (expr : t) =
     match expr with
-    | App (constr, expr_list, expr_attr) -> (
-        let expr_list = List.map expr_list ~f:(fun expr -> alpha_renaming expr map) in
-
-        match constr with
-        | Var qual_ident -> (
-            match Map.find map qual_ident with
-            | None -> App (Var qual_ident, expr_list, expr_attr)
-            | Some expr' ->
-                (* TODO: Potentially dropping expr_list here *)
-                expr')
-        | _ -> App (constr, expr_list, expr_attr))
-    | Binder (binder, var_decl_list, trgs, expr, expr_attr) ->
-        (* TODO: Rename the var_decl to avoid clashing with variables in the map *)
-        let expr = alpha_renaming expr map in
-        let trgs =
-          List.map trgs ~f:(fun exprs ->
-              List.map exprs ~f:(fun expr -> alpha_renaming expr map))
+    | App (Var qual_ident, args, _) ->
+        let acc =
+          if List.is_empty (QualIdent.path qual_ident) then
+            Set.add acc (QualIdent.unqualify qual_ident)
+          else acc
         in
-        Binder (binder, var_decl_list, trgs, expr, expr_attr)
+        List.fold args ~init:acc ~f:mentioned_vars
+    | App (_, args, _) -> List.fold args ~init:acc ~f:mentioned_vars
+    | Binder (_, _, trgs, body, _) ->
+        List.fold (List.concat trgs) ~init:(mentioned_vars acc body) ~f:mentioned_vars
+
+  (** [expr] with each variable in [map] replaced by its image. A binder that rebinds a
+      variable of [map] hides it, and a bound variable that an image mentions is renamed
+      so that it does not capture it. *)
+  let alpha_renaming (expr : t) (map : t qual_ident_map) : t =
+    (* The variables the images mention, which no binder may capture. *)
+    let mentioned =
+      lazy
+        (Map.fold map
+           ~init:(Set.empty (module Ident))
+           ~f:(fun ~key:_ ~data acc -> mentioned_vars acc data))
+    in
+    let rec rename map expr =
+      if Map.is_empty map then expr
+      else
+        match expr with
+        | App (constr, expr_list, expr_attr) -> (
+            let expr_list = List.map expr_list ~f:(rename map) in
+            match constr with
+            | Var qual_ident -> (
+                match Map.find map qual_ident with
+                | None -> App (Var qual_ident, expr_list, expr_attr)
+                | Some expr' ->
+                    (* TODO: Potentially dropping expr_list here *)
+                    expr')
+            | _ -> App (constr, expr_list, expr_attr))
+        | Binder (binder, var_decl_list, trgs, body, expr_attr) ->
+            let map =
+              List.fold var_decl_list ~init:map ~f:(fun map (var : var_decl) ->
+                  Map.remove map (QualIdent.from_ident var.var_name))
+            in
+            let map, var_decl_list =
+              List.fold_map var_decl_list ~init:map ~f:(fun map (var : var_decl) ->
+                  if Map.is_empty map || not (Set.mem (Lazy.force mentioned) var.var_name)
+                  then (map, var)
+                  else
+                    (* Numbered above every variable of the same name in sight, which
+                       [Ident.fresh] alone does not guarantee for names it did not make. *)
+                    let in_sight =
+                      mentioned_vars (Lazy.force mentioned)
+                        (Binder (binder, var_decl_list, trgs, body, expr_attr))
+                    in
+                    let above =
+                      Set.fold in_sight ~init:var.var_name.ident_num ~f:(fun n id ->
+                          if String.equal (Ident.name id) (Ident.name var.var_name) then
+                            max n id.ident_num
+                          else n)
+                    in
+                    let fresh =
+                      {
+                        var with
+                        var_name =
+                          Ident.fresh ~id:(above + 1) var.var_loc
+                            (Ident.name var.var_name);
+                      }
+                    in
+                    ( Map.set map
+                        ~key:(QualIdent.from_ident var.var_name)
+                        ~data:(from_var_decl fresh),
+                      fresh ))
+            in
+            Binder
+              ( binder,
+                var_decl_list,
+                List.map trgs ~f:(List.map ~f:(rename map)),
+                rename map body,
+                expr_attr )
+    in
+    rename map expr
 
   (** Extends [acc] with the signature of the free variables occuring in expression [e].
   *)
