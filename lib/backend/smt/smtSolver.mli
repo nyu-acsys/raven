@@ -15,6 +15,16 @@ module SmtSession : sig
   val check_sat : session -> SmtLibAst.sat_result
   val check_valid : ?name:string -> session -> SmtLibAst.term -> validity_result
 
+  val check_valid_with_model :
+    ?name:string ->
+    session ->
+    SmtLibAst.term ->
+    terms:SmtLibAst.term list ->
+    validity_result * Sexplib.Sexp.t list option
+  (** Like [check_valid], and if the check fails, the values of [terms] in the solver's
+      model, in their order, when it has one: a counterexample, which is certain only for
+      [Invalid]. *)
+
   val is_closed : session -> bool
   (** Whether the session was stopped, e.g. after Z3 did not respond in time. *)
 

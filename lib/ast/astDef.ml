@@ -1489,6 +1489,9 @@ module Stmt = struct
     spec_trigs : expr list list;
         (** The triggers of a postcondition of an auto lemma, for the lemma's parameters.
         *)
+    spec_state : var_decl list;
+        (** The current version of each variable where this assertion is checked, set when
+            assignments go to SSA, for showing a counterexample. *)
   }
 
   let mk_const_spec_error error = fun _ _ -> error
@@ -1920,6 +1923,7 @@ module Stmt = struct
         spec_error;
         spec_source;
         spec_trigs = [];
+        spec_state = [];
       }
     in
     { stmt_desc = Basic (Spec (Assume, spec)); stmt_loc = loc }
@@ -1944,6 +1948,7 @@ module Stmt = struct
         spec_error;
         spec_source;
         spec_trigs = [];
+        spec_state = [];
       }
     in
     { stmt_desc = Basic (Spec (Inhale, spec)); stmt_loc = loc }
@@ -1968,6 +1973,7 @@ module Stmt = struct
         spec_error;
         spec_source;
         spec_trigs = [];
+        spec_state = [];
       }
     in
     { stmt_desc = Basic (Spec (Exhale, spec)); stmt_loc = loc }
@@ -1992,6 +1998,7 @@ module Stmt = struct
         spec_error;
         spec_source;
         spec_trigs = [];
+        spec_state = [];
       }
     in
     { stmt_desc = Basic (Spec (Assert, spec)); stmt_loc = loc }
@@ -2083,6 +2090,7 @@ module Stmt = struct
       spec_error;
       spec_source;
       spec_trigs = [];
+      spec_state = [];
     }
 
   let to_loc s = s.stmt_loc

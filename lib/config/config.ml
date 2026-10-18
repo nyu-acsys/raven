@@ -10,11 +10,12 @@ let version = "1.5.0"
     binary, and most releases change nothing here. Bump it only when an existing client
     would notice the difference. 2: a client may pass [--extension auto]. 3: a client may
     pass [--lsp-annotations], and strict-mode warnings are structured diagnostics. 4: a
-    client may pass [--max-errors], which otherwise has no limit under [--lsp-mode], and
-    [--only]; an entry of kind ["Limit"], without a location, notes that the errors were
-    cut off; [--lsp-annotations] also reports the members, modules and named assertions
-    with their verification status, and the names the program uses with what they refer
-    to. *)
+    client may pass [--max-errors], which otherwise has no limit under [--lsp-mode],
+    [--only] and [--counterexamples]; an entry of kind ["Limit"], without a location,
+    notes that the errors were cut off, and one of kind ["Counterexample"] gives the
+    values where the preceding error occurs; [--lsp-annotations] also reports the members,
+    modules and named assertions with their verification status, and the names the program
+    uses with what they refer to. *)
 let lsp_protocol_version = 4
 
 (** Oldest Z3 raven is known to work against. A client that supplies its own z3 alongside

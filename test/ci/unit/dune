@@ -32,3 +32,8 @@
  (name smt_stub)
  (modules smt_stub)
  (libraries base stdio logs logs.fmt fmt))
+
+(test
+ (name counterexample_render)
+ (modules counterexample_render)
+ (libraries backend base sexplib))

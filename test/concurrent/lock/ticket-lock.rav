@@ -70,7 +70,7 @@ module TicketLock[R: LockResource] : Lock {
       tickets: Auth.auth(DisjSet.set({||} : Set[Int])),
       exclusive: Excl.excl(())
     )
-    fold lock_inv(l, r)[b := false]
+    //fold lock_inv(l, r)[b := false]
   }
   
   proc acquire(l: Ref, implicit ghost r: R)

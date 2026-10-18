@@ -13,6 +13,9 @@ type error_kind =
   | RelatedLoc
   | Warning
   | Limit  (** The note that a run stopped after the maximal number of errors. *)
+  | Counterexample of { certain : bool }
+      (** Values of the program's variables for which the preceding error occurs, one
+          [name = value] per line of the message; only possible unless [certain]. *)
 
 let error_kind_to_lsp_string = function
   | Generic -> "Generic"
@@ -25,6 +28,7 @@ let error_kind_to_lsp_string = function
   | RelatedLoc -> "RelatedLoc"
   | Warning -> "Warning"
   | Limit -> "Limit"
+  | Counterexample _ -> "Counterexample"
 
 let error_kind_to_string = function
   | Generic -> "Error"
@@ -37,6 +41,8 @@ let error_kind_to_string = function
   | RelatedLoc -> "Related Location"
   | Warning -> "Warning"
   | Limit -> "Error"
+  | Counterexample { certain = true } -> "Counterexample"
+  | Counterexample { certain = false } -> "Possible counterexample"
 
 type t = error_kind * Loc.t * String.t
 
@@ -77,11 +83,18 @@ let to_string (kind, (loc : Loc.t), msg) =
       (fun ppf lbl -> Fmt.pf ppf "%a: " Fmt.(styled Logs_fmt.err_style string) lbl)
       lbl
   in
-  if Loc.(loc = Loc.dummy) then Printf.sprintf !"%{String}%{String}" label msg
-  else
-    (*if !Config.flycheck_mode
+  match kind with
+  | Counterexample _ ->
+      (* One value per line, below the label. *)
+      String.rstrip label
+      ^ String.concat
+          (List.map (String.split msg ~on:'\n') ~f:(fun line -> "\n  " ^ line))
+  | _ ->
+      if Loc.(loc = Loc.dummy) then Printf.sprintf !"%{String}%{String}" label msg
+      else
+        (*if !Config.flycheck_mode
           then Printf.sprintf "%s:%s" (flycheck_string_of_src_pos pos) msg*)
-    Printf.sprintf !"%{Loc}%{String}%{String}." loc label msg
+        Printf.sprintf !"%{Loc}%{String}%{String}." loc label msg
 
 (** The fields marking a location in an embedded library source, in the JSON of
     `--lsp-mode`. A location inside an embedded library source names no file on disk, so
@@ -123,6 +136,9 @@ let to_lsp_json (kind, (loc : Loc.t), msg) =
         ("kind", `String (error_kind_to_lsp_string kind));
         ("message", `List (List.map split_msg ~f:(fun s -> `String s)));
       ]
+    @ (match kind with
+      | Counterexample { certain } -> [ ("certain", `Bool certain) ]
+      | _ -> [])
     @ library_lsp_fields loc)
 
 let errors_to_lsp_string errs =

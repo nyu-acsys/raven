@@ -609,7 +609,7 @@ contract:
            spec_comment = None;
            spec_name = None;
            spec_error = [];
-           spec_source = None; spec_trigs = [];
+           spec_source = None; spec_trigs = []; spec_state = [];
          }
   in
   ([spec], [], [], [])
@@ -623,6 +623,7 @@ contract:
            spec_error = [];
            spec_source = None;
            spec_trigs = trigs;
+           spec_state = [];
          }
   in
   ([], [spec], [], [])

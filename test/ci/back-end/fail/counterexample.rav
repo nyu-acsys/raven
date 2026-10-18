@@ -1,0 +1,26 @@
+field f: Int
+
+// The failing state is determined: x = 3, y = 6, z = 7, and r.f = 4 after the write.
+proc fixed(x: Int, r: Ref, s: Ref, implicit ghost v: Int) returns (y: Int)
+  requires x == 3 && v == 3 && r == s
+  requires own(r.f, v)
+  ensures own(r.f, 4)
+{
+  y := x * 2;
+  var z := y + 1;
+  r.f := x + 1;
+  assert z == 6;
+}
+
+// In a loop's procedure, a variable is shown once, at its current version.
+proc count(n: Int) returns (i: Int)
+  requires n == 2
+{
+  i := 0;
+  while (i < n)
+    invariant n == 2
+    invariant step: i == 0
+  {
+    i := i + 1;
+  }
+}

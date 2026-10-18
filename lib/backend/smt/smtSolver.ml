@@ -144,7 +144,8 @@ module SmtSession = struct
 
   let write session cmd =
     match cmd with
-    | Push _ | Pop _ | CheckSat _ | GetModel _ | GetInfo _ | GetUnsatCore _ | Exit _ ->
+    | Push _ | Pop _ | CheckSat _ | GetModel _ | GetInfo _ | GetValue _ | GetUnsatCore _
+    | Exit _ ->
         Error.internal_error Loc.dummy
           "Cannot write a solver control command directly; use session operations"
     | _ -> write_command session cmd
@@ -278,13 +279,60 @@ module SmtSession = struct
 
   let assert_expr ?name session expr = write session (mk_assert ?name expr)
 
-  let check_valid ?name session expr =
+  (** The response to a command whose answer is an S-expression, which may span several
+      lines. *)
+  let read_sexp_response session =
+    let rec read acc depth =
+      match read_response session with
+      | Error _ as error -> error
+      | Ok line ->
+          let depth =
+            String.fold line ~init:depth ~f:(fun depth c ->
+                match c with '(' -> depth + 1 | ')' -> depth - 1 | _ -> depth)
+          in
+          let acc = acc ^ line ^ "\n" in
+          if depth <= 0 then Ok acc else read acc depth
+    in
+    read "" 0
+
+  (** The values of [terms] in the solver's model, in their order, if it has one. *)
+  let get_values session (terms : term list) : Sexplib.Sexp.t list option =
+    write_command session (mk_get_value terms);
+    match read_sexp_response session with
+    | Error Response_timeout ->
+        (* As for [check_sat]: a late answer would put the session out of step. *)
+        stop_solver session;
+        None
+    | Error _ -> None
+    | Ok text -> (
+        match Result.try_with (fun () -> Sexplib.Sexp.of_string text) with
+        | Ok (List pairs) when List.length pairs = List.length terms ->
+            Option.all
+              (List.map pairs ~f:(function
+                | Sexplib.Sexp.List [ _; value ] -> Some value
+                | _ -> None))
+        | _ -> None)
+
+  let check_valid_with_model ?name session expr ~terms =
     with_scope session ~f:(fun () ->
         assert_expr ?name session (Ast.Expr.mk_not expr);
-        match check_sat session with
-        | Unsat -> Valid
-        | Sat -> Invalid
-        | Unknown -> unknown_reason session)
+        let result =
+          match check_sat session with
+          | Unsat -> Valid
+          | Sat -> Invalid
+          | Unknown -> unknown_reason session
+        in
+        (* A failed check's model, before the scope that has it is left. *)
+        let model =
+          match result with
+          | (Invalid | Inconclusive) when not (List.is_empty terms) ->
+              get_values session terms
+          | _ -> None
+        in
+        (result, model))
+
+  let check_valid ?name session expr =
+    fst (check_valid_with_model ?name session expr ~terms:[])
 
   module ForTesting = struct
     type nonrec read_error = read_error =

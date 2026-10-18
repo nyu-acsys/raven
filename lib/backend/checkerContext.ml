@@ -14,17 +14,22 @@ type context = {
   auto_dependencies : Dependencies.Graph.t;
   diagnostics : Diagnostics.t;  (** The run's, for the verification errors. *)
   focus : focus option;
+  counterexamples : bool;  (** Whether failed checks report a counterexample. *)
+  heap_fields : (string, string) Hashtbl.t;
+      (** The field each field's heap variable is named after, by the heap's name. *)
 }
 
 type 'a t = context -> context * 'a
 
-let create ?focus ~diagnostics session =
+let create ?focus ?(counterexamples = false) ~diagnostics session =
   {
     session;
     path_conditions = [];
     auto_dependencies = Dependencies.Graph.empty;
     diagnostics;
     focus;
+    counterexamples;
+    heap_fields = Hashtbl.create (module String);
   }
 
 (** Whether the procedure declared at [loc] is checked. *)
@@ -103,3 +108,33 @@ let check_valid ?name expr : SmtSolver.validity_result t =
   Logs.debug (fun m -> m "Checking validity of %a" Expr.pr_verbose expr);
   let expr = under_path_conditions context expr in
   Session.check_valid ?name context.session expr
+
+(** What a counterexample of a check made where the variables are at [state] asks for, if
+    counterexamples are reported. *)
+let counterexample_query (state : var_decl list) : Counterexample.query option t =
+ fun context ->
+  ( context,
+    if context.counterexamples && not (List.is_empty state) then
+      Some (Counterexample.query ~heap_field:(Hashtbl.find context.heap_fields) state)
+    else None )
+
+(** Records the fields of the program, from the symbol table [tbl], by the names of their
+    heap variables. *)
+let set_heap_fields (tbl : SymbolTbl.t) : unit t =
+ fun context ->
+  Map.iteri tbl.tbl_symbols ~f:(fun ~key ~data ->
+      match data with
+      | Module.FieldDef field when Option.is_none field.field_alias ->
+          Hashtbl.set context.heap_fields
+            ~key:(ProgUtils.serialize (QualIdent.to_string key) ^ "$Heap")
+            ~data:(Ident.name field.field_name)
+      | _ -> ());
+  (context, ())
+
+(** Like [check_valid], and the values of [terms] in the model if the check fails. *)
+let check_valid_with_model ?name ~terms expr :
+    (SmtSolver.validity_result * Sexplib.Sexp.t list option) t =
+  let open State.Syntax in
+  let+ context = get_state in
+  let expr = under_path_conditions context expr in
+  Session.check_valid_with_model ?name context.session expr ~terms

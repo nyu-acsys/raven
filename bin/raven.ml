@@ -17,6 +17,7 @@ type config = {
   strict : bool;
   only : string option;
       (** The member, module or named assertion to verify, if not all. *)
+  counterexamples : bool;
 }
 
 let include_map = Hashtbl.create (module String)
@@ -547,7 +548,10 @@ let parse_and_check_all ~extension_mode ~diagnostics config file_names =
         Backend.SmtPreamble.initialize solver_session ~diagnostics:config.smt_diagnostics
           ~timeout:config.smt_timeout;
         Backend.SmtPreamble.declare_tuple_sorts solver_session arities;
-        let context = Backend.CheckerContext.create ?focus ~diagnostics solver_session in
+        let context =
+          Backend.CheckerContext.create ?focus ~counterexamples:config.counterexamples
+            ~diagnostics solver_session
+        in
         let (_ : Backend.CheckerContext.context) =
           backend_check_cu tbl context processed
         in
@@ -650,6 +654,14 @@ let only =
      M.p, and assume the others."
   in
   Arg.(value & opt (some string) None & info [ "only" ] ~docv:"NAME" ~doc)
+
+let counterexamples =
+  let doc =
+    "For a failed check, show the values of the variables, and of the fields of the \
+     references among them, at the failure. When the solver could not decide the check, \
+     the counterexample is only possible: it may contradict quantified facts."
+  in
+  Arg.(value & flag & info [ "counterexamples" ] ~doc)
 
 let extension_mode =
   let doc =
@@ -820,8 +832,8 @@ let serve_library_sources ~lib_sources ~dump_library ~print_library_source =
   Option.is_some dumped || Option.is_some printed
 
 let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annotations
-    base_dir prog_stats smt_timeout smt_diagnostics max_errors only extension_mode_arg
-    strict dump_library print_library_source manifest =
+    base_dir prog_stats smt_timeout smt_diagnostics max_errors only counterexamples
+    extension_mode_arg strict dump_library print_library_source manifest =
   if manifest then begin
     (* Payload rather than logging, so it survives -q and needs no --shh: whoever asks
        is a program parsing this one line. *)
@@ -843,6 +855,7 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annot
       log_level = Logs.level ();
       strict;
       only;
+      counterexamples;
     }
   in
   (* [EXT] "auto" is resolved from the input program's own syntax once it's parsed --
@@ -911,7 +924,7 @@ let main_cmd =
       ret
         (const main $ setup_config $ input_file $ no_greeting $ no_library
        $ typecheck_only $ lsp_mode $ lsp_annotations $ base_dir $ prog_stats $ smt_timeout
-       $ smt_diagnostics $ max_errors $ only $ extension_mode $ strict $ dump_library
-       $ print_library_source $ manifest))
+       $ smt_diagnostics $ max_errors $ only $ counterexamples $ extension_mode $ strict
+       $ dump_library $ print_library_source $ manifest))
 
 let () = Stdlib.exit (Cmd.eval main_cmd)

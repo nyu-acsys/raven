@@ -1323,6 +1323,20 @@ let rewrite_introduce_heaps (c : Callable.t) : Callable.t Rewriter.t =
 
       Rewriter.return { c with call_def = ProcDef { proc_body = Some body } }
 
+(** The current version of each variable in [var_map], one per source name. A loop's
+    procedure has its variables twice, as parameters and as returns; the version that was
+    assigned is the current one, or, if neither was, the one declared first. *)
+let current_versions (var_map : var_decl ident_map) : var_decl list =
+  Map.to_alist var_map
+  |> List.sort_and_group ~compare:(fun (v1, _) (v2, _) ->
+      String.compare (Ident.name v1) (Ident.name v2))
+  |> List.map ~f:(fun versions ->
+      let assigned =
+        List.find versions ~f:(fun (source, (current : var_decl)) ->
+            not (Ident.equal source current.var_name))
+      in
+      snd (Option.value assigned ~default:(List.hd_exn versions)))
+
 let rec rewrite_ssa_stmts (s : Stmt.t) : (Stmt.t, var_decl ident_map) Rewriter.t_ext =
   let open Rewriter.Syntax in
   let* var_map = Rewriter.current_user_state in
@@ -1337,9 +1351,19 @@ let rec rewrite_ssa_stmts (s : Stmt.t) : (Stmt.t, var_decl ident_map) Rewriter.t
       match basic_stmt with
       | Spec (spec_kind, spec) ->
           let spec_form = Expr.alpha_renaming spec.spec_form subst_map in
-
+          (* Where an assertion is checked, the current versions of the variables, which a
+             counterexample is read from. *)
+          let spec_state =
+            match spec_kind with
+            | Assert -> current_versions var_map
+            | _ -> spec.spec_state
+          in
           Rewriter.return
-            Stmt.{ s with stmt_desc = Basic (Spec (spec_kind, { spec with spec_form })) }
+            Stmt.
+              {
+                s with
+                stmt_desc = Basic (Spec (spec_kind, { spec with spec_form; spec_state }));
+              }
       | Assign assign_stmt ->
           let assign_rhs = Expr.alpha_renaming assign_stmt.assign_rhs subst_map in
           let* assign_lhs =

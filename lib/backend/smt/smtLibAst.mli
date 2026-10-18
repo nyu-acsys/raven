@@ -33,6 +33,7 @@ type command =
   | CheckSat of location option
   | GetModel of location option
   | GetInfo of string * location option
+  | GetValue of term list * location option
   | GetUnsatCore of location option
   | Exit of location option
 
@@ -57,6 +58,7 @@ val mk_pop : ?loc:location -> int -> command
 val mk_check_sat : ?loc:location -> unit -> command
 val mk_get_model : ?loc:location -> unit -> command
 val mk_get_info : ?loc:location -> string -> command
+val mk_get_value : ?loc:location -> term list -> command
 val mk_get_unsat_core : ?loc:location -> unit -> command
 val mk_exit : ?loc:location -> unit -> command
 val pr_smt_ident : Stdlib.Format.formatter -> smt_ident -> unit
