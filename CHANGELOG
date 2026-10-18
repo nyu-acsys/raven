@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 - Report to editors what each name refers to, for hovers and going to definitions.
 - Say when an assertion fails because the solver timed out.
 - `--cache-dir DIR` skips the checks of members verified before whose dependencies are unchanged.
+- `--server` answers requested runs in one process, type-checking the library only once.
 
 ### Changed
 

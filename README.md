@@ -183,6 +183,7 @@ Run `raven --help` for the full, authoritative option list. A few of the most co
 - `--max-errors=VAL` (default `20`, no limit with `--lsp-mode`) — stop after this many errors. Use `0` for no limit.
 - `--counterexamples` — show a counterexample for each failed check.
 - `--cache-dir=DIR` — skip members verified before whose dependencies are unchanged.
+- `--server` — answer runs requested on stdin, for editors, keeping the library checked between them.
 - `--only=NAME` — verify only one member, module or interface, such as `M.p`, or one named assertion, such as `M.p.a` for `assert a: ...` in `M.p`.
 - `--nostdlib` — skip loading the standard library.
 - `--stats` — output only program stats (concrete/ghost instruction steps, number of specification formulae) instead of verifying.

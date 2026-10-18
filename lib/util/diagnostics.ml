@@ -420,6 +420,36 @@ let warnings d = List.rev d.warnings
 let record_annotation d (annotation : Annotations.t) =
   d.annotations <- annotation :: d.annotations
 
+type recorded = {
+  recorded_annotations : Annotations.t list;
+  recorded_warnings : Err.t list;
+  recorded_origins : (string * string) list;
+}
+(** What a part of a run recorded besides errors, to record again in another run that
+    skips that part (see [replay]). *)
+
+type mark = int * int * (string, string) Hashtbl.t
+
+let mark d : mark =
+  (List.length d.annotations, List.length d.warnings, Hashtbl.copy d.origins)
+
+(** What was recorded since [mark]. *)
+let recorded_since d ((annotations, warnings, origins) : mark) =
+  {
+    recorded_annotations =
+      List.take d.annotations (List.length d.annotations - annotations);
+    recorded_warnings = List.take d.warnings (List.length d.warnings - warnings);
+    recorded_origins =
+      List.filter (Hashtbl.to_alist d.origins) ~f:(fun (member, _) ->
+          not (Hashtbl.mem origins member));
+  }
+
+let replay d recorded =
+  d.annotations <- recorded.recorded_annotations @ d.annotations;
+  d.warnings <- recorded.recorded_warnings @ d.warnings;
+  List.iter recorded.recorded_origins ~f:(fun (key, data) ->
+      Hashtbl.set d.origins ~key ~data)
+
 let set_origin d ~member origin = Hashtbl.set d.origins ~key:member ~data:origin
 let origin d ~member ~default = Option.value (Hashtbl.find d.origins member) ~default
 let annotations_to_json d = Annotations.all_to_json d.annotations

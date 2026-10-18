@@ -25,6 +25,24 @@ type config = {
 
 let include_map = Hashtbl.create (module String)
 
+exception Finished of int
+(** Ends the run with this exit code, from within it. *)
+
+type library_snapshot = {
+  lib_tbl : SymbolTbl.t;
+  lib_typed : Ast.Module.t list;
+  lib_counters : Ident.saved;
+  lib_recorded : Diagnostics.recorded;
+}
+(** The state of a run once the library is type-checked, for later runs to start from. *)
+
+(** Whether runs keep and reuse the type-checked library, as a server's do. *)
+let serving = ref false
+
+(** The type-checked library of each extension and setting that changes it. *)
+let library_snapshots : (string, library_snapshot) Hashtbl.t =
+  Hashtbl.create (module String)
+
 let stream_of_file file_name =
   let inchan = Stdio.In_channel.create file_name in
   let lexbuf = Lexing.from_channel inchan in
@@ -137,7 +155,7 @@ let type_cu ~ext_hooks ~diagnostics config tbl md =
 (** Elaborates a single, already type-checked compilation unit (see
     [Elaboration.elaborate_module]). Every unit goes through [elaborate_cu] before any
     goes through [lower_cu]. Returns [None] when there is nothing to backend-check
-    (`--typeonly`); the `--stats` short-circuit below exits the process directly. *)
+    (`--typeonly`); the `--stats` short-circuit below ends the run directly. *)
 let elaborate_cu ~ext_hooks ~diagnostics config tbl (md : Ast.Module.t) front_end_out_chan
     =
   let cli_config = cli_config_of config in
@@ -156,7 +174,7 @@ let elaborate_cu ~ext_hooks ~diagnostics config tbl (md : Ast.Module.t) front_en
     let prog_stats = Elaboration.compute_stats ~ext_hooks tbl md in
 
     Logs.app (fun m -> m "\nPROGRAM STATISTICS: \n%a" Elaboration.ProgStats.pr prog_stats);
-    Stdlib.exit 0)
+    raise (Finished 0))
   else
     let tbl, md =
       Elaboration.elaborate_module ~tbl ~ext_hooks ~cli_config ~diagnostics md
@@ -382,6 +400,8 @@ let focus_of members groups (name : string) : Backend.CheckerContext.focus =
     [type_cu]'s doc comment): parsing has no dependency on the library's symbol table,
     only type-checking does. *)
 let parse_and_check_all ~extension_mode ~diagnostics config file_names =
+  Ident.restore ();
+  Hashtbl.clear include_map;
   (* Variable which controls whether the
     - `front_end_output.log` (the elaborated program)
     - `lowered_output.log` (the lowered program)
@@ -486,39 +506,66 @@ let parse_and_check_all ~extension_mode ~diagnostics config file_names =
 
   (* Parse and check standard library *)
   let tbl = SymbolTbl.create () in
+  let snapshot_key =
+    Printf.sprintf "%s %b %b"
+      (List.find_map_exn Ext.ext_map ~f:(fun (name, ext) ->
+           Option.some_if (Poly.equal ext chosen_ext) name))
+      config.strict config.lsp_mode
+  in
+  let kept = if !serving then Hashtbl.find library_snapshots snapshot_key else None in
   let tbl, lib_typed =
     if config.no_library then (tbl, [])
     else
-      let parse_lib_source cu_ident (lib_file_name, lib_source) =
-        let lib_source_lexbuf = Lexing.from_string lib_source in
-        let _ = Lexer.set_file_name lib_source_lexbuf lib_file_name in
-        let _includes, md =
-          parse_cu (Stdlib.Filename.dirname lib_file_name) cu_ident lib_source_lexbuf
-        in
-        (* [set_unit_free], not [set_free]: the standard library is trusted by the
+      match kept with
+      | Some kept ->
+          Ident.restore ~saved:kept.lib_counters ();
+          Diagnostics.replay diagnostics kept.lib_recorded;
+          (SymbolTbl.copy kept.lib_tbl, kept.lib_typed)
+      | None ->
+          let parse_lib_source cu_ident (lib_file_name, lib_source) =
+            let lib_source_lexbuf = Lexing.from_string lib_source in
+            let _ = Lexer.set_file_name lib_source_lexbuf lib_file_name in
+            let _includes, md =
+              parse_cu (Stdlib.Filename.dirname lib_file_name) cu_ident lib_source_lexbuf
+            in
+            (* [set_unit_free], not [set_free]: the standard library is trusted by the
            compiler so it isn't re-verified for every program, which is exactly what
            [MachineFree] means -- as opposed to [UserFree], a `free` the user wrote.
            The two must stay distinguishable: a member inherited from here into a
            user module still owes a definition and a proof, whereas one inherited
            from a user's own `free` declaration does not (see
            [Interfaces.un_free_inherited]). *)
-        Ast.Module.set_unit_free md
-      in
-      let parse_unit cu_ident sources =
-        List.fold_right sources ~init:empty_prog ~f:(fun lib_file unit_prog ->
-            merge_prog (parse_lib_source cu_ident lib_file) unit_prog)
-      in
-      (* The modules elaboration and lowering instantiate are units of their own, which
+            Ast.Module.set_unit_free md
+          in
+          let parse_unit cu_ident sources =
+            List.fold_right sources ~init:empty_prog ~f:(fun lib_file unit_prog ->
+                merge_prog (parse_lib_source cu_ident lib_file) unit_prog)
+          in
+          (* The modules elaboration and lowering instantiate are units of their own, which
          programs cannot name, after the library they build on. *)
-      let units =
-        [
-          (Predefs.lib_ident, Library.library_sources @ unit_sources ExtApi.Library_unit);
-          (Predefs.elaboration_ident, unit_sources ExtApi.Elaboration_unit);
-          (Predefs.lowering_ident, [ Library.lowering_source ]);
-        ]
-      in
-      List.fold_map units ~init:tbl ~f:(fun tbl (cu_ident, sources) ->
-          type_cu ~ext_hooks ~diagnostics config tbl (parse_unit cu_ident sources))
+          let units =
+            [
+              ( Predefs.lib_ident,
+                Library.library_sources @ unit_sources ExtApi.Library_unit );
+              (Predefs.elaboration_ident, unit_sources ExtApi.Elaboration_unit);
+              (Predefs.lowering_ident, [ Library.lowering_source ]);
+            ]
+          in
+          let mark = Diagnostics.mark diagnostics in
+          let tbl, lib_typed =
+            List.fold_map units ~init:tbl ~f:(fun tbl (cu_ident, sources) ->
+                type_cu ~ext_hooks ~diagnostics config tbl (parse_unit cu_ident sources))
+          in
+          if !serving then
+            Hashtbl.set library_snapshots ~key:snapshot_key
+              ~data:
+                {
+                  lib_tbl = SymbolTbl.copy tbl;
+                  lib_typed;
+                  lib_counters = Ident.save ();
+                  lib_recorded = Diagnostics.recorded_since diagnostics mark;
+                };
+          (tbl, lib_typed)
   in
 
   let md =
@@ -746,6 +793,15 @@ let print_library_source =
   in
   Arg.(value & opt (some string) None & info [ "print-library-source" ] ~docv:"PATH" ~doc)
 
+let server =
+  let doc =
+    "Answer requests for runs on stdin, one JSON object per line with the run's working \
+     directory and arguments, {\"id\", \"cwd\", \"args\"}, by one line each on stdout \
+     with its exit code and output, {\"id\", \"exit\", \"stdout\", \"stderr\"}. The \
+     library is checked once for all runs. Takes no other arguments."
+  in
+  Arg.(value & flag & info [ "server" ] ~doc)
+
 let manifest =
   let doc =
     "Print, as one line of JSON, what this binary is and what a client can expect of it \
@@ -825,16 +881,17 @@ let print_lsp_output config ~diagnostics errs =
             ]))
   else Stdlib.print_endline (Error.errors_to_lsp_string errs)
 
+(** Reports [errs], and returns the exit code of the run. *)
 let print_errors config ~diagnostics errs =
   if config.lsp_mode then begin
     print_lsp_output config ~diagnostics errs;
-    Stdlib.exit 0
+    0
   end
   else begin
     List.iter errs ~f:(fun e -> Logs.err (fun m -> m !"%{Error}" e));
     Logs.debug (fun m ->
         m "\n---------\n%s" @@ Backtrace.to_string (Backtrace.Exn.most_recent ()));
-    Stdlib.exit 1 (* duplicates error output: `Error (false, "") *)
+    1
   end
 
 (** Serves the embedded library sources to whoever needs the text of a location that has
@@ -880,91 +937,96 @@ let serve_library_sources ~lib_sources ~dump_library ~print_library_source =
 let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annotations
     base_dir prog_stats smt_timeout smt_diagnostics max_errors only counterexamples
     fingerprints cache_dir extension_mode_arg strict dump_library print_library_source
-    manifest =
-  if manifest then begin
+    manifest server =
+  (* A server is started by [--server] alone, before the arguments are parsed. *)
+  if server then `Error (true, "--server takes no other arguments")
+  else if manifest then begin
     (* Payload rather than logging, so it survives -q and needs no --shh: whoever asks
        is a program parsing this one line. *)
     Stdlib.print_endline (Yojson.Safe.to_string manifest_json);
-    Stdlib.exit 0
-  end;
-  if not no_greeting then Logs.app (fun m -> m "%s" greeting) else ();
-  let config =
-    {
-      no_library;
-      typecheck_only;
-      lsp_mode;
-      lsp_annotations;
-      prog_stats;
-      base_dir;
-      smt_timeout;
-      smt_diagnostics;
-      max_errors;
-      log_level = Logs.level ();
-      strict;
-      only;
-      counterexamples;
-      fingerprints;
-      cache_dir;
-    }
-  in
-  (* [EXT] "auto" is resolved from the input program's own syntax once it's parsed --
+    `Ok 0
+  end
+  else begin
+    if not no_greeting then Logs.app (fun m -> m "%s" greeting) else ();
+    let config =
+      {
+        no_library;
+        typecheck_only;
+        lsp_mode;
+        lsp_annotations;
+        prog_stats;
+        base_dir;
+        smt_timeout;
+        smt_diagnostics;
+        max_errors;
+        log_level = Logs.level ();
+        strict;
+        only;
+        counterexamples;
+        fingerprints;
+        cache_dir;
+      }
+    in
+    (* [EXT] "auto" is resolved from the input program's own syntax once it's parsed --
      see [parse_and_check_all] -- since the choice also picks which extension's library
      sources get parsed, and the program is parsed before the library.
      [--dump-library]/[--print-library-source] below have no program to detect from, so
      "auto" there just falls back to the plain "default" chain, same as a program using
      no extension-specific syntax would. *)
-  let explicit_extension_mode =
-    if String.(extension_mode_arg = "auto") then None
-    else Some (List.Assoc.find_exn ~equal:String.( = ) Ext.ext_map extension_mode_arg)
-  in
-  let (module LibraryExt) =
-    Ext.module_map (Option.value explicit_extension_mode ~default:Ext.ProphecyExt)
-  in
-  if
-    serve_library_sources
-      ~lib_sources:(List.map LibraryExt.lib_sources ~f:snd)
-      ~dump_library ~print_library_source
-  then `Ok ()
-  else
-    let extension_mode : [ `Explicit of Ext.supported_extensions | `Auto ] =
-      match explicit_extension_mode with Some ext -> `Explicit ext | None -> `Auto
+    let explicit_extension_mode =
+      if String.(extension_mode_arg = "auto") then None
+      else Some (List.Assoc.find_exn ~equal:String.( = ) Ext.ext_map extension_mode_arg)
     in
-    let diagnostics =
-      Diagnostics.create ?max_errors:(max_errors_of config)
-        ~collect_warnings:config.lsp_mode
-        ~reference_files:
-          (if config.lsp_mode && config.lsp_annotations then input_files else [])
-        ()
+    let (module LibraryExt) =
+      Ext.module_map (Option.value explicit_extension_mode ~default:Ext.ProphecyExt)
     in
-    try
-      let result = parse_and_check_all ~extension_mode ~diagnostics config input_files in
-      if
-        config.lsp_mode
-        && (config.lsp_annotations
-           || not (List.is_empty (Diagnostics.warnings diagnostics)))
-      then print_lsp_output config ~diagnostics [];
-      `Ok result
-    with
-    | Unix.Unix_error (err, _, prog) ->
-        let msg =
-          Printf.sprintf
-            "Could not start '%s' (%s). Raven requires Z3 (>= %s) to be installed and on \
-             your PATH."
-            prog (Unix.error_message err) Config.min_z3_version
-        in
-        print_errors config ~diagnostics [ (Generic, Loc.dummy, msg) ]
-    | (Sys_error _ | Failure _ | Invalid_argument _ | Assert_failure _) as exn ->
-        let msg = String.map ~f:(function '"' -> '\'' | c -> c) (Exn.to_string exn) in
-        let pos =
-          match input_files with
-          | file :: _ ->
-              Loc.make
-                Lexing.{ pos_fname = file; pos_bol = 0; pos_cnum = 0; pos_lnum = 1 }
-                Lexing.{ pos_fname = file; pos_bol = 0; pos_cnum = 0; pos_lnum = 1 }
-          | _ -> Loc.dummy
-        in
-        print_errors config ~diagnostics [ (Internal, pos, msg) ]
-    | Error.Msg es -> print_errors config ~diagnostics es
+    if
+      serve_library_sources
+        ~lib_sources:(List.map LibraryExt.lib_sources ~f:snd)
+        ~dump_library ~print_library_source
+    then `Ok 0
+    else
+      let extension_mode : [ `Explicit of Ext.supported_extensions | `Auto ] =
+        match explicit_extension_mode with Some ext -> `Explicit ext | None -> `Auto
+      in
+      let diagnostics =
+        Diagnostics.create ?max_errors:(max_errors_of config)
+          ~collect_warnings:config.lsp_mode
+          ~reference_files:
+            (if config.lsp_mode && config.lsp_annotations then input_files else [])
+          ()
+      in
+      try
+        parse_and_check_all ~extension_mode ~diagnostics config input_files;
+        if
+          config.lsp_mode
+          && (config.lsp_annotations
+             || not (List.is_empty (Diagnostics.warnings diagnostics)))
+        then print_lsp_output config ~diagnostics [];
+        `Ok 0
+      with
+      | Finished code -> `Ok code
+      | Unix.Unix_error (err, _, prog) ->
+          let msg =
+            Printf.sprintf
+              "Could not start '%s' (%s). Raven requires Z3 (>= %s) to be installed and \
+               on your PATH."
+              prog (Unix.error_message err) Config.min_z3_version
+          in
+          `Ok (print_errors config ~diagnostics [ (Generic, Loc.dummy, msg) ])
+      | (Sys_error _ | Failure _ | Invalid_argument _ | Assert_failure _) as exn ->
+          let msg = String.map ~f:(function '"' -> '\'' | c -> c) (Exn.to_string exn) in
+          let pos =
+            match input_files with
+            | file :: _ ->
+                Loc.make
+                  Lexing.{ pos_fname = file; pos_bol = 0; pos_cnum = 0; pos_lnum = 1 }
+                  Lexing.{ pos_fname = file; pos_bol = 0; pos_cnum = 0; pos_lnum = 1 }
+            | _ -> Loc.dummy
+          in
+          `Ok (print_errors config ~diagnostics [ (Internal, pos, msg) ])
+      | Error.Msg es -> `Ok (print_errors config ~diagnostics es)
+  end
 
 let main_cmd =
   let info = Cmd.info "raven" ~version:Config.version in
@@ -974,6 +1036,91 @@ let main_cmd =
         (const main $ setup_config $ input_file $ no_greeting $ no_library
        $ typecheck_only $ lsp_mode $ lsp_annotations $ base_dir $ prog_stats $ smt_timeout
        $ smt_diagnostics $ max_errors $ only $ counterexamples $ fingerprints $ cache_dir
-       $ extension_mode $ strict $ dump_library $ print_library_source $ manifest))
+       $ extension_mode $ strict $ dump_library $ print_library_source $ manifest $ server
+        ))
 
-let () = Stdlib.exit (Cmd.eval main_cmd)
+(** Runs [f] with stdout and stderr going to temporary files, and returns its result with
+    what it output there. *)
+let capture_output (f : unit -> int) : int * string * string =
+  let flush () =
+    Stdlib.Format.pp_print_flush Stdlib.Format.std_formatter ();
+    Stdlib.Format.pp_print_flush Stdlib.Format.err_formatter ();
+    Stdlib.flush_all ()
+  in
+  flush ();
+  let redirect fd =
+    let file = Stdlib.Filename.temp_file "raven" ".out" in
+    let saved = Unix.dup fd in
+    let target = Unix.openfile file [ O_WRONLY; O_TRUNC ] 0o600 in
+    Unix.dup2 target fd;
+    Unix.close target;
+    (file, saved)
+  in
+  let out_file, saved_out = redirect Unix.stdout in
+  let err_file, saved_err = redirect Unix.stderr in
+  let restore () =
+    flush ();
+    Unix.dup2 saved_out Unix.stdout;
+    Unix.dup2 saved_err Unix.stderr;
+    Unix.close saved_out;
+    Unix.close saved_err
+  in
+  let code = Stdlib.Fun.protect ~finally:restore f in
+  let read file =
+    let text = Stdio.In_channel.read_all file in
+    Stdlib.Sys.remove file;
+    text
+  in
+  (code, read out_file, read err_file)
+
+(** Answers requests on stdin, one JSON object per line, [{"id", "cwd", "args"}]: the
+    working directory and command-line arguments of a run. Each answer is one line on
+    stdout, [{"id", "exit", "stdout", "stderr"}]: the run's exit code and output. The
+    library is type-checked once for all runs. *)
+let serve () =
+  serving := true;
+  let answer fields =
+    Stdio.Out_channel.output_string Stdio.stdout
+      (Yojson.Safe.to_string (`Assoc fields) ^ "\n");
+    Stdio.Out_channel.flush Stdio.stdout
+  in
+  let rec loop () =
+    match Stdio.In_channel.input_line Stdio.In_channel.stdin with
+    | None -> ()
+    | Some line ->
+        let request =
+          Result.try_with (fun () ->
+              let json = Yojson.Safe.from_string line in
+              let open Yojson.Safe.Util in
+              ( member "id" json,
+                member "cwd" json |> to_string,
+                member "args" json |> to_list |> List.map ~f:to_string ))
+        in
+        begin match request with
+        | Error _ ->
+            answer [ ("id", `Null); ("error", `String ("Not a request: " ^ line)) ]
+        | Ok (id, cwd, _)
+          when not (Stdlib.Sys.file_exists cwd && Stdlib.Sys.is_directory cwd) ->
+            answer [ ("id", id); ("error", `String ("No such directory: " ^ cwd)) ]
+        | Ok (id, cwd, args) ->
+            Unix.chdir cwd;
+            let code, out, err =
+              capture_output (fun () ->
+                  Cmd.eval' ~argv:(Array.of_list ("raven" :: args)) main_cmd)
+            in
+            answer
+              [
+                ("id", id);
+                ("exit", `Int code);
+                ("stdout", `String out);
+                ("stderr", `String err);
+              ]
+        end;
+        loop ()
+  in
+  loop ()
+
+let () =
+  match Stdlib.Sys.argv with
+  | [| _; "--server" |] -> serve ()
+  | _ -> Stdlib.exit (Cmd.eval' main_cmd)

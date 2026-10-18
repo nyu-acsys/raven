@@ -202,6 +202,40 @@ let may_be_poisoned name tbl =
 (** Reset table to the root scope *)
 let reset tbl = { tbl with tbl_curr = tbl.tbl_root; tbl_path = [] }
 
+(** A copy of [tbl] that shares nothing mutable with it, so that what is added to either
+    stays out of the other. *)
+let copy tbl =
+  let copies = ref [] in
+  let rec copy_scope scope =
+    let scope_children = Hashtbl.map scope.scope_children ~f:copy_scope in
+    let copied =
+      {
+        scope with
+        scope_entries = Hashtbl.copy scope.scope_entries;
+        scope_children;
+        scope_cache = Hashtbl.copy scope.scope_cache;
+        scope_named_imports = Hashtbl.copy scope.scope_named_imports;
+      }
+    in
+    copies := (scope, copied) :: !copies;
+    copied
+  in
+  let tbl_root = copy_scope tbl.tbl_root in
+  (* A scope outside the tree, such as a callable's while it is open, is copied alone. *)
+  let copied scope =
+    match List.find !copies ~f:(fun (old, _) -> phys_equal old scope) with
+    | Some (_, copied) -> copied
+    | None -> copy_scope scope
+  in
+  {
+    tbl with
+    tbl_root;
+    tbl_curr = copied tbl.tbl_curr;
+    tbl_path = List.map tbl.tbl_path ~f:copied;
+    tbl_generation = ref !(tbl.tbl_generation);
+    tbl_local_reads = Hashtbl.copy tbl.tbl_local_reads;
+  }
+
 (** Return the name of the root scope of [tbl] *)
 let root_ident tbl = tbl.tbl_root.scope_id
 

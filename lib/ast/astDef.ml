@@ -132,6 +132,29 @@ module Ident = struct
     in
     selected := (Some name, counters) :: !selected
 
+  type saved = (string, int) Hashtbl.t * (string, counters) Hashtbl.t
+  (** The counters at some point of a run, to start another run from. *)
+
+  let copy_counters (run, callables) : saved =
+    (Hashtbl.copy run, Hashtbl.map callables ~f:Hashtbl.copy)
+
+  (** The counters now, outside any callable. *)
+  let save () : saved = copy_counters (run_counters, callable_counters)
+
+  (** Sets the counters to [saved], or, without it, to those of a run's start. *)
+  let restore ?(saved : saved option) () =
+    let run, callables =
+      match saved with
+      | Some saved -> copy_counters saved
+      | None -> (Hashtbl.create (module String), Hashtbl.create (module String))
+    in
+    Hashtbl.clear run_counters;
+    Hashtbl.iteri run ~f:(fun ~key ~data -> Hashtbl.set run_counters ~key ~data);
+    Hashtbl.clear callable_counters;
+    Hashtbl.iteri callables ~f:(fun ~key ~data ->
+        Hashtbl.set callable_counters ~key ~data);
+    selected := [ (None, run_counters) ]
+
   (** Restores the counters selected before the last [select_callable]. *)
   let deselect_callable () =
     match !selected with _ :: (_ :: _ as rest) -> selected := rest | _ -> ()
