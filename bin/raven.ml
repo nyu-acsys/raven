@@ -15,6 +15,8 @@ type config = {
   max_errors : int option;  (** As given on the command line, if at all. *)
   log_level : Logs.level option;
   strict : bool;
+  only : string option;
+      (** The member, module or named assertion to verify, if not all. *)
 }
 
 let include_map = Hashtbl.create (module String)
@@ -196,9 +198,19 @@ let backend_check_cu tbl context processed =
   in
   Backend.Checker.check_module processed_mds lemma_calls tbl context
 
-(** The callables and modules of the parsed program [md], for their verification status.
-    The text of a callable is the union of the locations of its name, contract and body
-    that lie in the file it is declared in. *)
+(** The named assertions of the statement [stmt], with their locations; those in a
+    statement an extension defines are not found. *)
+let rec named_assertions (stmt : Ast.Stmt.t) : (string * Loc.t) list =
+  match stmt.stmt_desc with
+  | Block block -> List.concat_map block.block_body ~f:named_assertions
+  | Loop loop -> named_assertions loop.loop_prebody @ named_assertions loop.loop_postbody
+  | Cond cond -> named_assertions cond.cond_then @ named_assertions cond.cond_else
+  | Basic (Spec (Assert, { spec_name = Some name; _ })) -> [ (name, stmt.stmt_loc) ]
+  | Basic _ | StmtExt _ -> []
+
+(** The callables, named assertions and modules of the parsed program [md], for their
+    verification status. The text of a callable is the union of the locations of its name,
+    contract and body that lie in the file it is declared in. *)
 let source_members (md : Ast.Module.t) :
     Diagnostics.MemberStatus.member list * Diagnostics.MemberStatus.group list =
   let member path (callable : Ast.Callable.t) =
@@ -234,21 +246,31 @@ let source_members (md : Ast.Module.t) :
           not (Ast.is_free decl.call_decl_status)
       | _ -> false
     in
-    {
-      Diagnostics.MemberStatus.name =
-        String.concat ~sep:"." (List.rev (Ident.name decl.call_decl_name :: path));
-      kind;
-      name_loc;
-      extent;
-      checked;
-      inherited = false;
-    }
+    let name =
+      String.concat ~sep:"." (List.rev (Ident.name decl.call_decl_name :: path))
+    in
+    let assertions =
+      match callable.call_def with
+      | ProcDef { proc_body = Some body } ->
+          List.map (named_assertions body) ~f:(fun (label, loc) ->
+              {
+                Diagnostics.MemberStatus.name = name ^ "." ^ label;
+                kind = "assertion";
+                name_loc = loc;
+                extent = loc;
+                checked = false;
+                inherited = false;
+              })
+      | _ -> []
+    in
+    { Diagnostics.MemberStatus.name; kind; name_loc; extent; checked; inherited = false }
+    :: assertions
   in
   (* Accumulates in reverse order. *)
   let rec collect path (members, groups) (md : Ast.Module.t) =
     List.fold md.mod_def ~init:(members, groups) ~f:(fun (members, groups) -> function
       | Ast.Module.SymbolDef (CallDef callable) ->
-          (member path callable :: members, groups)
+          (List.rev_append (member path callable) members, groups)
       | SymbolDef (ModDef sub) ->
           let sub_path = Ident.name sub.mod_decl.mod_decl_name :: path in
           let group =
@@ -265,6 +287,31 @@ let source_members (md : Ast.Module.t) :
   in
   let members, groups = collect [] ([], []) md in
   (List.rev members, List.rev groups)
+
+(** What `--only` selects by [name], among the program's [members] and [groups]. *)
+let focus_of members groups (name : string) : Backend.CheckerContext.focus =
+  let open Diagnostics.MemberStatus in
+  let named m = String.equal m.name name in
+  match
+    ( List.find members ~f:named,
+      List.find groups ~f:(fun g -> String.equal g.group_name name) )
+  with
+  | Some { kind = "assertion"; _ }, _ ->
+      (* The assertion's member is the one its name extends. *)
+      let member_name = String.rsplit2_exn name ~on:'.' |> fst in
+      let label = String.rsplit2_exn name ~on:'.' |> snd in
+      let extents =
+        List.filter_map members ~f:(fun m ->
+            Option.some_if (String.equal m.name member_name) m.extent)
+      in
+      { extents; assertion = Some label }
+  | Some member, _ -> { extents = [ member.extent ]; assertion = None }
+  | None, Some group ->
+      (* With the lemmas the module is checked for at its name. *)
+      { extents = [ group_extent members group; group.group_loc ]; assertion = None }
+  | None, None ->
+      Error.error Loc.dummy
+        (Printf.sprintf "There is no member, module or named assertion %s to verify" name)
 
 (** Parse and check all compilation units in files [file_names]. [extension_mode] picks
     the `--extension` chain: [`Explicit ext] uses [ext] outright; [`Auto] detects it from
@@ -351,7 +398,9 @@ let parse_and_check_all ~extension_mode ~diagnostics config file_names =
       empty_prog
   in
 
-  Diagnostics.set_members diagnostics (source_members md);
+  let members, groups = source_members md in
+  Diagnostics.set_members diagnostics (members, groups);
+  let focus = Option.map config.only ~f:(focus_of members groups) in
 
   (* [EXT] Resolve which extension is activated for this run and build the hooks the
      rest of the pipeline dispatches through -- see lib/ext/ext.ml and
@@ -463,7 +512,7 @@ let parse_and_check_all ~extension_mode ~diagnostics config file_names =
         Backend.SmtPreamble.initialize solver_session ~diagnostics:config.smt_diagnostics
           ~timeout:config.smt_timeout;
         Backend.SmtPreamble.declare_tuple_sorts solver_session arities;
-        let context = Backend.CheckerContext.create ~diagnostics solver_session in
+        let context = Backend.CheckerContext.create ?focus ~diagnostics solver_session in
         let (_ : Backend.CheckerContext.context) =
           backend_check_cu tbl context processed
         in
@@ -558,6 +607,14 @@ let max_errors =
      with --lsp-mode."
   in
   Arg.(value & opt (some int) None & info [ "max-errors" ] ~doc)
+
+let only =
+  let doc =
+    "Verify only the member, module or interface of this qualified name, such as M.p, or \
+     only the assertion of this name in a member, such as M.p.a for `assert a: ...` in \
+     M.p, and assume the others."
+  in
+  Arg.(value & opt (some string) None & info [ "only" ] ~docv:"NAME" ~doc)
 
 let extension_mode =
   let doc =
@@ -728,8 +785,8 @@ let serve_library_sources ~lib_sources ~dump_library ~print_library_source =
   Option.is_some dumped || Option.is_some printed
 
 let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annotations
-    base_dir prog_stats smt_timeout smt_diagnostics max_errors extension_mode_arg strict
-    dump_library print_library_source manifest =
+    base_dir prog_stats smt_timeout smt_diagnostics max_errors only extension_mode_arg
+    strict dump_library print_library_source manifest =
   if manifest then begin
     (* Payload rather than logging, so it survives -q and needs no --shh: whoever asks
        is a program parsing this one line. *)
@@ -750,6 +807,7 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annot
       max_errors;
       log_level = Logs.level ();
       strict;
+      only;
     }
   in
   (* [EXT] "auto" is resolved from the input program's own syntax once it's parsed --
@@ -818,7 +876,7 @@ let main_cmd =
       ret
         (const main $ setup_config $ input_file $ no_greeting $ no_library
        $ typecheck_only $ lsp_mode $ lsp_annotations $ base_dir $ prog_stats $ smt_timeout
-       $ smt_diagnostics $ max_errors $ extension_mode $ strict $ dump_library
+       $ smt_diagnostics $ max_errors $ only $ extension_mode $ strict $ dump_library
        $ print_library_source $ manifest))
 
 let () = Stdlib.exit (Cmd.eval main_cmd)

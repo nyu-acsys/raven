@@ -105,29 +105,60 @@ let rec check_stmt ~proc curr_callable (stmt : Stmt.t) : unit t =
           match spec_kind with
           | Assume -> assume_expr ?name:spec.spec_name spec.spec_form
           | Assert ->
-              let* result =
-                check_valid
-                  ?name:(Option.map spec.spec_name ~f:(fun name -> name ^ "$goal"))
-                  spec.spec_form
+              let* focused = focused_assertion in
+              (* With an assertion in focus, the others are assumed, and only its outcome
+                 is recorded, not that of the procedure. *)
+              let checked, record_proc =
+                match focused with
+                | None -> (true, true)
+                | Some name ->
+                    (Option.equal String.equal spec.spec_name (Some name), false)
+              in
+              let record_outcome outcome =
+                let* () =
+                  if record_proc then record_result proc outcome else State.return ()
+                in
+                match spec.spec_name with
+                | Some name ->
+                    record_result
+                      {
+                        proc_loc = Stmt.to_loc stmt;
+                        proc_name = name;
+                        proc_kind = "assertion";
+                      }
+                      outcome
+                | None -> State.return ()
               in
               let* () =
-                match result with
-                | Valid -> State.return ()
-                | Invalid | Inconclusive | Timeout ->
-                    let diag =
-                      Stmt.spec_error_msg spec curr_callable (Stmt.to_loc stmt)
-                    in
-                    let (outcome : Diagnostics.MemberStatus.outcome), diag =
-                      match (result, diag) with
-                      | Timeout, (kind, loc, msg) :: related ->
-                          ( Timeout,
-                            (kind, loc, msg ^ ". The solver timed out (see --smt-timeout)")
-                            :: related )
-                      | _ -> (Failed, diag)
-                    in
-                    let* () = record_result proc outcome in
-                    (* Assume the failed assertion, to check the rest of the callable. *)
-                    record_error diag
+                if not checked then State.return ()
+                else
+                  let* result =
+                    check_valid
+                      ?name:(Option.map spec.spec_name ~f:(fun name -> name ^ "$goal"))
+                      spec.spec_form
+                  in
+                  match result with
+                  | Valid -> (
+                      match spec.spec_name with
+                      | Some _ -> record_outcome Verified
+                      | None -> State.return ())
+                  | Invalid | Inconclusive | Timeout ->
+                      let diag =
+                        Stmt.spec_error_msg spec curr_callable (Stmt.to_loc stmt)
+                      in
+                      let (outcome : Diagnostics.MemberStatus.outcome), diag =
+                        match (result, diag) with
+                        | Timeout, (kind, loc, msg) :: related ->
+                            ( Timeout,
+                              ( kind,
+                                loc,
+                                msg ^ ". The solver timed out (see --smt-timeout)" )
+                              :: related )
+                        | _ -> (Failed, diag)
+                      in
+                      let* () = record_outcome outcome in
+                      (* Assume the failed assertion, to check the rest of the callable. *)
+                      record_error diag
               in
               assume_expr ?name:spec.spec_name spec.spec_form
           | _ ->
@@ -278,32 +309,39 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) : 
   | ProcDef proc_def -> (
       match proc_def.proc_body with
       | Some stmt when not (is_free callable.call_decl.call_decl_status) ->
-          with_scope
-          @@
-          let* _ =
-            write_comment
-              (Stdlib.Format.asprintf "Checking %a" QualIdent.pr fully_qual_name)
-          in
+          let* in_focus = in_focus call_decl.call_decl_loc in
+          if not in_focus then State.return ()
+          else
+            with_scope
+            @@
+            let* _ =
+              write_comment
+                (Stdlib.Format.asprintf "Checking %a" QualIdent.pr fully_qual_name)
+            in
 
-          let* _ =
-            State.List.iter
-              (call_decl.call_decl_formals @ call_decl.call_decl_returns
-             @ call_decl.call_decl_locals)
-              ~f:(fun local ->
-                write
-                  (mk_declare_const (QualIdent.from_ident local.var_name) local.var_type))
-          in
+            let* _ =
+              State.List.iter
+                (call_decl.call_decl_formals @ call_decl.call_decl_returns
+               @ call_decl.call_decl_locals)
+                ~f:(fun local ->
+                  write
+                    (mk_declare_const
+                       (QualIdent.from_ident local.var_name)
+                       local.var_type))
+            in
 
-          let proc : Diagnostics.MemberStatus.procedure =
-            {
-              proc_loc = call_decl.call_decl_loc;
-              proc_name = Stdlib.Format.asprintf "%a" QualIdent.pr fully_qual_name;
-              proc_kind =
-                (match call_decl.call_decl_kind with Lemma -> "lemma" | _ -> "proc");
-            }
-          in
-          let* () = check_stmt ~proc fully_qual_name stmt in
-          record_result proc Verified
+            let proc : Diagnostics.MemberStatus.procedure =
+              {
+                proc_loc = call_decl.call_decl_loc;
+                proc_name = Stdlib.Format.asprintf "%a" QualIdent.pr fully_qual_name;
+                proc_kind =
+                  (match call_decl.call_decl_kind with Lemma -> "lemma" | _ -> "proc");
+              }
+            in
+            let* () = check_stmt ~proc fully_qual_name stmt in
+            let* focused = focused_assertion in
+            if Option.is_none focused then record_result proc Verified
+            else State.return ()
       | _ ->
           Logs.debug (fun m ->
               m "Skipping %b" (is_free callable.call_decl.call_decl_status));

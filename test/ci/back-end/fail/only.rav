@@ -1,0 +1,26 @@
+proc p(x: Int) returns (y: Int)
+  requires x > 0
+  ensures y > 0
+{
+  assert positive: x > 0;
+  assert wrong: x > 5;
+  var i: Int := 0;
+  while (i < 3)
+    invariant i >= 0
+  {
+    assert in_loop: i >= 0;
+    assert loop_wrong: i >= 1;
+    i := i + 1;
+  }
+  y := x;
+}
+
+module M {
+  lemma fine(x: Int)
+    ensures x + 0 == x
+  {}
+
+  lemma bad(x: Int)
+    ensures x + 1 == x
+  {}
+}

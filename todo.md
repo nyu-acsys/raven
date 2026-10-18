@@ -7,12 +7,13 @@
     which has no location.
 - [ ] Recover from type errors per statement inside a callable body; a body stops at
     its first error.
-- [ ] Editor: report the verification status of each procedure and lemma (verified,
+- [x] Editor: report the verification status of each procedure and lemma (verified,
     failed, timed out) and show it in the plugin; add `--only <name>` and a "Verify
     this" code lens.
-- [ ] Editor: emit resolved symbols and their types for go to definition, hover with
-    types and a document outline; hovers should show which functor instance a name
-    resolves to.
+- [x] Editor: emit resolved symbols and their types for go to definition and hover
+    with types; hovers should show which functor instance a name resolves to.
+- [ ] Editor: a document outline from the members, modules and named assertions that
+    `--lsp-annotations` lists with their extents.
 - [ ] Editor: inlay hints for what the verifier infers: implicit type arguments,
     masks, and whether a call is atomic.
 - [ ] Editor: show counterexamples for failed assertions from Z3's model, mapped back

@@ -4,22 +4,43 @@ open Util
 open Smt
 module Session = SmtSolver.SmtSession
 
+type focus = { extents : Loc.t list; assertion : string option }
+(** What `--only` selects: the procedures declared within the [extents], and in them only
+    the [assertion] of that name, if any. *)
+
 type context = {
   session : SmtSolver.session;
   path_conditions : expr list;
   auto_dependencies : Dependencies.Graph.t;
   diagnostics : Diagnostics.t;  (** The run's, for the verification errors. *)
+  focus : focus option;
 }
 
 type 'a t = context -> context * 'a
 
-let create ~diagnostics session =
+let create ?focus ~diagnostics session =
   {
     session;
     path_conditions = [];
     auto_dependencies = Dependencies.Graph.empty;
     diagnostics;
+    focus;
   }
+
+(** Whether the procedure declared at [loc] is checked. *)
+let in_focus (loc : Loc.t) : bool t =
+ fun context ->
+  ( context,
+    match context.focus with
+    | None -> true
+    | Some focus ->
+        List.exists focus.extents ~f:(fun extent ->
+            Diagnostics.MemberStatus.contains extent loc) )
+
+(** Whether the assertion named [name], if it is named, is checked; [None] if every
+    assertion is. *)
+let focused_assertion : string option t =
+ fun context -> (context, Option.bind context.focus ~f:(fun focus -> focus.assertion))
 
 (** Records the verification error [diag]. Aborts when it is one more than the limit, or
     when the solver was stopped, since nothing more can be checked. *)

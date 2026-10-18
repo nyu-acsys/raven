@@ -154,44 +154,48 @@ module MemberStatus = struct
         in
         (fst (List.hd_exn same), of_outcome worst))
 
-  (** The status of each of [members], and of those that the [groups] inherit, given the
-      [results] of the checked procedures. A checked member without a result of its own
-      was skipped if the run was [aborted]. There are none if nothing was checked. *)
+  (** Each of [members] with its status, if it has one, and the members that the [groups]
+      inherit, given the [results] of the checked procedures. A checked member without a
+      result of its own was skipped if the run was [aborted]. None has a status if nothing
+      was checked. *)
   let statuses ~aborted (members : member list) groups
       (results : (procedure * outcome) list) =
-    if List.is_empty results then []
-    else
-      let attributed =
-        List.filter_map results ~f:(fun (proc, outcome) ->
-            Option.map (innermost members proc.proc_loc) ~f:(fun m ->
-                (m, proc.proc_loc, outcome)))
+    let attributed =
+      List.filter_map results ~f:(fun (proc, outcome) ->
+          Option.map (innermost members proc.proc_loc) ~f:(fun m ->
+              (m, proc.proc_loc, outcome)))
+    in
+    let status member =
+      let own = List.filter attributed ~f:(fun (m, _, _) -> phys_equal m member) in
+      let worst =
+        List.map own ~f:(fun (_, _, outcome) -> outcome)
+        |> List.max_elt ~compare:compare_outcome
       in
-      let own_statuses =
-        List.filter_map members ~f:(fun member ->
-            let own = List.filter attributed ~f:(fun (m, _, _) -> phys_equal m member) in
-            let worst =
-              List.map own ~f:(fun (_, _, outcome) -> outcome)
-              |> List.max_elt ~compare:compare_outcome
-            in
-            let checked_itself =
-              List.exists own ~f:(fun (_, loc, _) -> Loc.equal loc member.name_loc)
-            in
-            match worst with
-            | Some ((Failed | Timeout) as outcome) -> Some (member, of_outcome outcome)
-            | _ when aborted && member.checked && not checked_itself ->
-                Some (member, Skipped)
-            | Some Verified -> Some (member, Verified)
-            | None -> None)
+      let checked_itself =
+        List.exists own ~f:(fun (_, loc, _) -> Loc.equal loc member.name_loc)
       in
-      own_statuses @ inherited_statuses members groups results
+      match worst with
+      | _ when List.is_empty results -> None
+      | Some ((Failed | Timeout) as outcome) -> Some (of_outcome outcome)
+      | _ when aborted && member.checked && not checked_itself -> Some Skipped
+      | Some Verified -> Some Verified
+      | None -> None
+    in
+    List.map members ~f:(fun member -> (member, status member))
+    @ List.map (inherited_statuses members groups results) ~f:(fun (member, status) ->
+        (member, Some status))
 
-  (** The worst status of the members nested in [group], and how many have each status. *)
-  let summary (statuses : (member * status) list) (group : group) =
+  let nested_in (group : group) (member : member) =
+    String.is_prefix member.name ~prefix:(group.group_name ^ ".")
+
+  (** The worst status of the members nested in [group], and how many have each status.
+      Named assertions are counted with the members they are in. *)
+  let summary (statuses : (member * status option) list) (group : group) =
     let nested =
       List.filter_map statuses ~f:(fun (member, status) ->
-          Option.some_if
-            (String.is_prefix member.name ~prefix:(group.group_name ^ "."))
-            status)
+          if nested_in group member && not (String.equal member.kind "assertion") then
+            status
+          else None)
     in
     Option.map (List.max_elt nested ~compare:compare_status) ~f:(fun worst ->
         let counts =
@@ -201,26 +205,40 @@ module MemberStatus = struct
         in
         (worst, counts))
 
+  (** The text of [group]: its name and the members nested in it in the same file. *)
+  let group_extent members (group : group) =
+    List.fold members ~init:group.group_loc ~f:(fun extent member ->
+        if
+          nested_in group member
+          && String.equal (Loc.file_name member.extent) (Loc.file_name extent)
+        then Loc.merge extent member.extent
+        else extent)
+
+  (** Every member, module and named assertion, with its status when it has one. *)
   let to_json ~aborted members groups results : Yojson.Safe.t =
     let statuses = statuses ~aborted members groups results in
-    let entry loc name kind status extra =
+    let entry loc extent name kind status extra =
       `Assoc
         (Err.loc_to_lsp_fields loc
         @ [
             ("name", `String name);
             ("kind", `String kind);
-            ("status", `String (status_to_string status));
+            ("extent", `Assoc (Err.range_lsp_fields extent));
           ]
+        @ Option.value_map status ~default:[] ~f:(fun status ->
+            [ ("status", `String (status_to_string status)) ])
         @ extra)
     in
     `List
       (List.map statuses ~f:(fun (member, status) ->
-           entry member.name_loc member.name member.kind status
+           entry member.name_loc member.extent member.name member.kind status
              (if member.inherited then [ ("inherited", `Bool true) ] else []))
-      @ List.filter_map groups ~f:(fun group ->
-          Option.map (summary statuses group) ~f:(fun (status, counts) ->
-              entry group.group_loc group.group_name group.group_kind status
-                [ ("counts", `Assoc counts) ])))
+      @ List.map groups ~f:(fun group ->
+          let summary = summary statuses group in
+          entry group.group_loc (group_extent members group) group.group_name
+            group.group_kind (Option.map summary ~f:fst)
+            (Option.value_map summary ~default:[] ~f:(fun (_, counts) ->
+                 [ ("counts", `Assoc counts) ]))))
 end
 
 (** The names that a program uses and what they refer to, collected while type-checking it

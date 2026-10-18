@@ -12,6 +12,10 @@ for the axioms of its interface.
   39 proc loop_fails failed
   50 lemma Good.Inner.zero verified
   55 lemma Good.one verified
+  65 func Fst.comp -
+  66 func Fst.frame -
+  67 func Fst.valid -
+  68 func Fst.fpuAllowed -
   62 lemma Fst.compAssoc verified inherited
   62 lemma Fst.compCommute failed inherited
   62 lemma Fst.compFrameInv verified inherited
@@ -37,9 +41,14 @@ Members not checked after the error limit was reached are skipped.
   39 proc loop_fails failed
   50 lemma Good.Inner.zero skipped
   55 lemma Good.one skipped
+  65 func Fst.comp -
+  66 func Fst.frame -
+  67 func Fst.valid -
+  68 func Fst.fpuAllowed -
   1 module M failed verified=1 skipped=3 failed=1
   48 module Good skipped skipped=2
   49 module Good.Inner skipped skipped=1
+  62 module Fst -
 
 With type errors nothing is verified, so no member has a status.
 
@@ -47,3 +56,4 @@ With type errors nothing is verified, so no member has a status.
   > proc p() { var x: Int := true; }
   > EOF
   $ dune exec -- raven --shh --lsp-mode --lsp-annotations ./type_error.rav | python3 lsp_member_status.py
+  1 proc p -
