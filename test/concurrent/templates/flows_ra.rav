@@ -140,16 +140,8 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
 
   auto lemma compFrameInv() {}
 
-  auto lemma compAssoc()
-  {
-    assert forall i1:T, i2:T, i3:T :: {comp(comp(i1, i2), i3)} {comp(i1, comp(i2, i3))} (comp(comp(i1, i2), i3) == comp(i1, comp(i2, i3))) with {
-      if (valid(comp(i1, comp(i2, i3)))) {
-        compAssocValid(i1, i2, i3)
-      } else if (valid(comp(comp(i1, i2), i3))) {
-        compAssocValid(i3, i2, i1)
-      }
-    }
-  }
+  auto lemma compAssoc() {}
+  
     
   lemma replacement_theorem(i1: T, i2: T, j1: T)
     requires valid(comp(i1, i2))
