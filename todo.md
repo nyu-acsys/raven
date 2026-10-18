@@ -12,7 +12,7 @@
     this" code lens.
 - [x] Editor: emit resolved symbols and their types for go to definition and hover
     with types; hovers should show which functor instance a name resolves to.
-- [ ] Editor: a document outline from the members, modules and named assertions that
+- [x] Editor: a document outline from the members, modules and named assertions that
     `--lsp-annotations` lists with their extents.
 - [ ] Editor: inlay hints for what the verifier infers: implicit type arguments,
     masks, and whether a call is atomic.

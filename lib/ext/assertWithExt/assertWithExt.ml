@@ -63,6 +63,11 @@ module AssertWithExt (Cont : Ext) = struct
   let stmt_ext_is_recognized stmt_ext =
     match stmt_ext with AssertWith _ -> true | _ -> Cont.stmt_ext_is_recognized stmt_ext
 
+  let stmt_ext_contents stmt_ext =
+    match stmt_ext with
+    | AssertWith { spec; proof } -> ([ spec ], [ proof ])
+    | _ -> Cont.stmt_ext_contents stmt_ext
+
   (* An assertion and its proof block are ghost through and through. *)
   let stmt_ext_atomicity stmt_ext =
     match stmt_ext with

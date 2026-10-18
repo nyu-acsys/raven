@@ -36,6 +36,7 @@ module DefaultExt = struct
   let stmt_ext_symbols _ = Set.empty (module QualIdent)
   let stmt_ext_local_vars_modified stmt_ext = []
   let stmt_ext_fields_accessed stmt_ext = []
+  let stmt_ext_contents (_ : Stmt.stmt_ext) : Stmt.spec list * Stmt.t list = ([], [])
 
   (* Conservative rather than an error: reaching here just means no extension in the
      chain classified the statement, and barring it from atomic blocks is always

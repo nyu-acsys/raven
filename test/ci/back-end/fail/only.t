@@ -33,6 +33,10 @@
   36 |     invariant wrong_step: i <= 1
                                  ^^^^^^
   Related Location: This assertion may not hold.
+  [Error] File "./only.rav", line 48, columns 16-21:
+  48 |   assert wrong: x > 5 with {
+                       ^^^^^
+  Verification Error: Assertion 'wrong': This assertion may be violated.
   [1]
   $ dune exec -- raven --shh --only M.fine ./only.rav
   Verification successful.
@@ -82,6 +86,17 @@ when maintained.
   36 |     invariant wrong_step: i <= 1
                                  ^^^^^^
   Related Location: This assertion may not hold.
+  [1]
+
+So can an assertion with a proof block, and the assertions in its proof.
+
+  $ dune exec -- raven --shh --only q.inner ./only.rav
+  Verification successful.
+  $ dune exec -- raven --shh --only q.wrong ./only.rav
+  [Error] File "./only.rav", line 48, columns 16-21:
+  48 |   assert wrong: x > 5 with {
+                       ^^^^^
+  Verification Error: Assertion 'wrong': This assertion may be violated.
   [1]
 
 A name that names nothing is an error.

@@ -199,8 +199,10 @@ let backend_check_cu tbl context processed =
   Backend.Checker.check_module processed_mds lemma_calls tbl context
 
 (** The named assertions and loop invariants of the statement [stmt], with their kinds and
-    locations; those in a statement an extension defines are not found. *)
-let rec named_assertions (stmt : Ast.Stmt.t) : (string * string * Loc.t) list =
+    locations. [contents] gives the specs and statements of an extension's statement (see
+    [ExtApi.Ext.stmt_ext_contents]). *)
+let rec named_assertions ~contents (stmt : Ast.Stmt.t) : (string * string * Loc.t) list =
+  let named_assertions = named_assertions ~contents in
   match stmt.stmt_desc with
   | Block block -> List.concat_map block.block_body ~f:named_assertions
   | Loop loop ->
@@ -212,13 +214,18 @@ let rec named_assertions (stmt : Ast.Stmt.t) : (string * string * Loc.t) list =
   | Cond cond -> named_assertions cond.cond_then @ named_assertions cond.cond_else
   | Basic (Spec (Assert, { spec_name = Some name; _ })) ->
       [ (name, "assertion", stmt.stmt_loc) ]
-  | Basic _ | StmtExt _ -> []
+  | StmtExt stmt_ext ->
+      let specs, stmts = contents stmt_ext in
+      List.filter_map specs ~f:(fun (spec : Ast.Stmt.spec) ->
+          Option.map spec.spec_name ~f:(fun name -> (name, "assertion", stmt.stmt_loc)))
+      @ List.concat_map stmts ~f:named_assertions
+  | Basic _ -> []
 
 (** The callables, named assertions and invariants, fields, types, constants and modules
     of the parsed program [md], for their verification status and an outline. The text of
     a callable is the union of the locations of its name, contract and body that lie in
     the file it is declared in. *)
-let source_members (md : Ast.Module.t) :
+let source_members ~contents (md : Ast.Module.t) :
     Diagnostics.MemberStatus.member list * Diagnostics.MemberStatus.group list =
   let member path (callable : Ast.Callable.t) =
     let decl = callable.call_decl in
@@ -259,7 +266,7 @@ let source_members (md : Ast.Module.t) :
     let assertions =
       match callable.call_def with
       | ProcDef { proc_body = Some body } ->
-          List.map (named_assertions body) ~f:(fun (label, kind, loc) ->
+          List.map (named_assertions ~contents body) ~f:(fun (label, kind, loc) ->
               {
                 Diagnostics.MemberStatus.name = name ^ "." ^ label;
                 kind;
@@ -427,10 +434,6 @@ let parse_and_check_all ~extension_mode ~diagnostics config file_names =
       empty_prog
   in
 
-  let members, groups = source_members md in
-  Diagnostics.set_members diagnostics (members, groups);
-  let focus = Option.map config.only ~f:(focus_of members groups) in
-
   (* [EXT] Resolve which extension is activated for this run and build the hooks the
      rest of the pipeline dispatches through -- see lib/ext/ext.ml and
      Ast.Rewriter.ext_hooks. Under [`Auto], this is the earliest point the choice can be
@@ -441,6 +444,9 @@ let parse_and_check_all ~extension_mode ~diagnostics config file_names =
   in
   let (module ChosenExt) = Ext.module_map chosen_ext in
   let ext_hooks = Ext.to_ext_hooks (module ChosenExt : ExtApi.Ext) in
+  let members, groups = source_members ~contents:ChosenExt.stmt_ext_contents md in
+  Diagnostics.set_members diagnostics (members, groups);
+  let focus = Option.map config.only ~f:(focus_of members groups) in
   let lib_sources = ChosenExt.lib_sources in
   let unit_sources lib_unit =
     List.filter_map lib_sources ~f:(fun (src_unit, src) ->

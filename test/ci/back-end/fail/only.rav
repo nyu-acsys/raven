@@ -38,3 +38,13 @@ proc count(n: Int) returns (i: Int)
     i := i + 1;
   }
 }
+
+proc q(x: Int)
+  requires x > 2
+{
+  assert big: x > 1 with {
+    assert inner: x > 2;
+  }
+  assert wrong: x > 5 with {
+  }
+}
