@@ -13,9 +13,10 @@ type position = Lexing.position = {
 
 let compare_position p1 p2 =
   let open Lexing in
-  let f1 = Stdlib.Obj.magic p1.pos_fname in
-  let f2 = Stdlib.Obj.magic p2.pos_fname in
-  let c1 = compare_int f1 f2 in
+  let c1 =
+    if phys_equal p1.pos_fname p2.pos_fname then 0
+    else String.compare p1.pos_fname p2.pos_fname
+  in
   if c1 <> 0 then c1 else compare_int p1.pos_cnum p2.pos_cnum
 
 let equal_position p1 p2 =
