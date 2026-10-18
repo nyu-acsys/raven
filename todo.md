@@ -16,8 +16,12 @@
     `--lsp-annotations` lists with their extents.
 - [ ] Editor: inlay hints for what the verifier infers: implicit type arguments,
     masks, and whether a call is atomic.
-- [ ] Editor: show counterexamples for failed assertions from Z3's model, mapped back
+- [x] Editor: show counterexamples for failed assertions from Z3's model, mapped back
     through lowering and SSA.
+- [ ] Counterexamples: show which branches the failing path took, e.g. as inlay hints
+    at each `if` on the path.
+- [ ] Map literals with a default, such as `[1 := 5, else 4]`, as counterexamples show
+    maps.
 - [ ] Incremental verification: re-check only members whose dependencies changed
     since the last run.
 - [ ] Editor: a "Show elaborated program" command that opens the elaborated or
