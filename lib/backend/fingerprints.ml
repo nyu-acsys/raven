@@ -7,6 +7,12 @@ module Graph = Dependencies.Graph
 
 let digest text = Stdlib.Digest.(to_hex (string text))
 
+type t = {
+  obligation : QualIdent.t;
+  fingerprint : string;
+  covered : QualIdentSet.t;  (** The other symbols the fingerprint covers. *)
+}
+
 (** The obligations among [placed] (as [Dependencies.analyze] places them), each with its
     fingerprint. It covers the symbols the obligation uses by [deps], with the auto lemmas
     about them by [auto], and the auto lemmas in the obligation's solver scope that
@@ -18,7 +24,7 @@ let digest text = Stdlib.Digest.(to_hex (string text))
     what the run fixes. *)
 let compute ~(run_key : string) ~(symbol_text : Module.symbol -> string)
     ~(reify : QualIdent.t -> Module.symbol) ~(deps : Graph.t) ~(auto : Graph.t)
-    (placed : (Ident.t list * QualIdent.t list) list) : (QualIdent.t * string) list =
+    (placed : (Ident.t list * QualIdent.t list) list) : t list =
   let symbols = Hashtbl.create (module QualIdent) in
   let symbol q = Hashtbl.find_or_add symbols q ~default:(fun () -> reify q) in
   (* What [q] contributes when it is not the obligation. *)
@@ -83,17 +89,20 @@ let compute ~(run_key : string) ~(symbol_text : Module.symbol -> string)
     in
     let own = Set.union (Graph.succs deps q) (Graph.succs auto q) in
     let covered = Set.remove (cover (Set.add (reachable own) q) lemmas) q in
-    digest
-      (String.concat ~sep:"\n"
-         (run_key
-         :: digest (symbol_text (symbol q))
-         :: List.map (Set.to_list covered) ~f:(fun q ->
-             QualIdent.to_string q ^ " " ^ used_digest q)))
+    let fingerprint =
+      digest
+        (String.concat ~sep:"\n"
+           (run_key
+           :: digest (symbol_text (symbol q))
+           :: List.map (Set.to_list covered) ~f:(fun q ->
+               QualIdent.to_string q ^ " " ^ used_digest q)))
+    in
+    { obligation = q; fingerprint; covered }
   in
   List.concat_map placed ~f:(fun (i, path, scc) ->
       List.filter_map scc ~f:(fun q ->
           match symbol q with
           | CallDef { call_def = ProcDef { proc_body = Some _ }; call_decl }
             when not (is_free call_decl.call_decl_status) ->
-              Some (q, fingerprint ~i ~path q)
+              Some (fingerprint ~i ~path q)
           | _ -> None))

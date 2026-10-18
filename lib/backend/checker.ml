@@ -82,6 +82,16 @@ let assertion_result spec name curr_callable (stmt : Stmt.t) :
   in
   { proc_loc = loc; proc_name = name; proc_kind = "assertion" }
 
+(** The status record of the procedure or lemma [fully_qual_name] declared by [call_decl].
+*)
+let procedure fully_qual_name (call_decl : Ast.Callable.call_decl) :
+    Diagnostics.MemberStatus.procedure =
+  {
+    proc_loc = call_decl.call_decl_loc;
+    proc_name = Stdlib.Format.asprintf "%a" QualIdent.pr fully_qual_name;
+    proc_kind = (match call_decl.call_decl_kind with Lemma -> "lemma" | _ -> "proc");
+  }
+
 (** The named assertions of [stmt], with their statements. *)
 let rec named_assertions (stmt : Stmt.t) : (Stmt.spec * string * Stmt.t) list =
   match stmt.stmt_desc with
@@ -361,34 +371,15 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) : 
       match proc_def.proc_body with
       | Some stmt when not (is_free callable.call_decl.call_decl_status) ->
           let* in_focus = in_focus call_decl.call_decl_loc in
-          let proc : Diagnostics.MemberStatus.procedure =
-            {
-              proc_loc = call_decl.call_decl_loc;
-              proc_name = Stdlib.Format.asprintf "%a" QualIdent.pr fully_qual_name;
-              proc_kind =
-                (match call_decl.call_decl_kind with Lemma -> "lemma" | _ -> "proc");
-            }
-          in
+          let proc = procedure fully_qual_name call_decl in
           let* fingerprint = fingerprint fully_qual_name in
           let* focused = focused_assertion in
           if not in_focus then State.return ()
           else
             begin match fingerprint with
-            | Some (fingerprint, true) ->
-                (* Verified before, with everything its check can use as it is now. *)
-                let* () =
-                  if Option.is_none focused then record_result proc Cached
-                  else State.return ()
-                in
-                let* () =
-                  State.List.iter (named_assertions stmt) ~f:(fun (spec, name, stmt) ->
-                      if Option.for_all focused ~f:(String.equal name) then
-                        record_result
-                          (assertion_result spec name fully_qual_name stmt)
-                          Cached
-                      else State.return ())
-                in
-                use_fingerprint fingerprint
+            | Some (_, true) ->
+                (* Verified before; its statuses are recorded by [record_cached]. *)
+                State.return ()
             | _ ->
                 let* () = check_procedure fully_qual_name callable stmt proc in
                 let* context = get_state in
@@ -457,6 +448,30 @@ let is_macro (g : Dependencies.Graph.t) (qual_name : qual_ident)
 let reify (tbl : SymbolTbl.t) (qual_name : qual_ident) : Module.symbol =
   let tbl1 = SymbolTbl.goto qual_name tbl in
   snd (Rewriter.eval ~update:false (Rewriter.find_and_reify qual_name) tbl1)
+
+(** Records the statuses of the obligation [qual_name], verified before with the
+    [fingerprint], and of its named assertions, without checking it. *)
+let record_cached tbl qual_name fingerprint : unit t =
+  let open State.Syntax in
+  match reify tbl qual_name with
+  | Module.CallDef { call_def = ProcDef { proc_body = Some stmt }; call_decl } ->
+      let* in_focus = in_focus call_decl.call_decl_loc in
+      let* focused = focused_assertion in
+      if not in_focus then State.return ()
+      else
+        let* () =
+          if Option.is_none focused then
+            record_result (procedure qual_name call_decl) Cached
+          else State.return ()
+        in
+        let* () =
+          State.List.iter (named_assertions stmt) ~f:(fun (spec, name, stmt) ->
+              if Option.for_all focused ~f:(String.equal name) then
+                record_result (assertion_result spec name qual_name stmt) Cached
+              else State.return ())
+        in
+        use_fingerprint fingerprint
+  | _ -> State.return ()
 
 (** Declares and checks a single SCC ([dep], as returned by [Dependencies.analyze]) at
     whatever scope is currently open -- the caller ([check_members]) is responsible for
@@ -711,14 +726,45 @@ let check_module (module_defs : Ast.Module.t list) (lemma_calls : Dependencies.G
   if Option.exists context.fingerprinting ~f:(fun fingerprinting -> fingerprinting.report)
   then
     List.iter
-      (List.sort fingerprints ~compare:(fun (q1, _) (q2, _) -> QualIdent.compare q1 q2))
-      ~f:(fun (q, fingerprint) ->
-        Logs.app (fun m -> m "%s %a" fingerprint QualIdent.pr q));
+      (List.sort fingerprints ~compare:(fun f1 f2 ->
+           QualIdent.compare f1.Fingerprints.obligation f2.obligation))
+      ~f:(fun { obligation; fingerprint; _ } ->
+        Logs.app (fun m -> m "%s %a" fingerprint QualIdent.pr obligation));
   let context =
     {
       context with
-      fingerprints = Map.of_alist_reduce (module QualIdent) fingerprints ~f:Fn.const;
+      fingerprints =
+        Map.of_alist_reduce
+          (module QualIdent)
+          (List.map fingerprints ~f:(fun f -> (f.obligation, f.fingerprint)))
+          ~f:Fn.const;
     }
+  in
+  (* With a cache, only what the obligations left to check can use is declared: the
+     symbols their fingerprints cover, and what those depend on. *)
+  let dependencies, context =
+    match context.cache with
+    | None -> (dependencies, context)
+    | Some cache ->
+        let cached, unchecked =
+          List.partition_tf fingerprints ~f:(fun f ->
+              VerificationCache.mem cache f.fingerprint)
+        in
+        let used =
+          Dependencies.Graph.reachable
+            (Dependencies.Graph.union deps_graph auto_graph)
+            (Set.union_list
+               (module QualIdent)
+               (List.map unchecked ~f:(fun f -> Set.add f.covered f.obligation)))
+        in
+        let context, () =
+          State.eval
+            (State.List.iter cached ~f:(fun f ->
+                 record_cached tbl f.obligation f.fingerprint))
+            context
+        in
+        ( List.filter dependencies ~f:(fun (_, scc) -> List.exists scc ~f:(Set.mem used)),
+          context )
   in
 
   Logs.debug (fun m ->
