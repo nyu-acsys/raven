@@ -382,11 +382,11 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
             (exhale_expr, inhale_expr)
           in
 
+          (* The instance as written: its arguments are the caller's own expressions, to
+             which the predicate's parameters do not apply. *)
           let pred_expr =
-            Expr.alpha_renaming
-              (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var use_desc.use_name)
-                 (use_desc.use_args @ new_dropped_args_exprs))
-              new_renaming_map
+            Expr.mk_app ~loc ~typ:Type.bool (Expr.Var use_desc.use_name)
+              (use_desc.use_args @ new_dropped_args_exprs)
           in
 
           let new_stmt =
@@ -1174,7 +1174,7 @@ let rewrite_add_predicate_validity_lemmas (c : Callable.t) : Callable.t Rewriter
         | [], _ | _, FuncDef { func_body = None } -> Rewriter.return c
         | rets, FuncDef { func_body = Some body } ->
             let pred_valid_lemma_ident =
-              Ident.fresh c.call_decl.call_decl_loc
+              Ident.fresh_member ~owned:false c.call_decl.call_decl_loc
                 ("pred_valid$" ^ Ident.to_string c.call_decl.call_decl_name)
             in
 

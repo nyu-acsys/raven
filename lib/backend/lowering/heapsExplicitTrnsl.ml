@@ -328,7 +328,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants) (conds : co
   if List.is_empty universal_quants.univ_vars then Rewriter.return inv_expr
   else begin
     let inv_fn_ident =
-      Ident.fresh loc ("$inv_" ^ ProgUtils.serialize (Expr.to_string inv_expr))
+      Ident.fresh_member loc ("$inv_" ^ ProgUtils.serialize (Expr.to_string inv_expr))
     in
 
     let* env_local_var_decls =
@@ -417,7 +417,8 @@ let generate_inv_function ~loc (universal_quants : universal_quants) (conds : co
      *)
     let* inv_fn_auto_lemma_def =
       let inv_fn_lemma_ident =
-        Ident.fresh loc ("inverse_func_valid$" ^ Ident.to_string inv_fn_ident)
+        Ident.fresh_member ~owned:false loc
+          ("inverse_func_valid$" ^ Ident.to_string inv_fn_ident)
       in
 
       let preconds, postconds =
@@ -3151,9 +3152,13 @@ module TrnslExhale = struct
               Error.internal_error (Expr.to_loc expr)
                 "Expected all existentials to be matched up"
             else
-              (* The witnesses replace the variables in the body, without the binder that
-                 hides them. *)
-              Expr.alpha_renaming (elim_exists e subst_map) subst_map
+              (* Below the binders enclosing it, whose variables a witness can mention. *)
+              let own =
+                Map.filter_keys subst_map ~f:(fun qi ->
+                    List.exists var_decls ~f:(fun vd ->
+                        QualIdent.equal qi (QualIdent.from_ident vd.var_name)))
+              in
+              Expr.alpha_renaming (elim_exists e subst_map) own
         | Binder (b, var_decls, trgs, e, expr_attr) ->
             let e = elim_exists e subst_map in
             Binder (b, var_decls, trgs, e, expr_attr)

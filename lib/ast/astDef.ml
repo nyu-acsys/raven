@@ -69,18 +69,79 @@ module Ident = struct
   let with_display ~text ?rep id =
     { id with ident_display = Some { display_text = text; display_rep = rep } }
 
-  let used_names = Hashtbl.create (module String)
+  type counters = (string, int) Hashtbl.t
+  (** The highest number given to each base name. *)
 
-  let fresh loc =
-   fun ?(id = 0) (name : string) ->
+  (* Names are unique within the callable they are made for, numbered from that callable's
+     own counters, so that they do not depend on other callables. Names outside callables,
+     and those of what the whole program shares, come from the counters of the run.
+     [Rewriter.enter] selects a callable's counters, and [Rewriter.exit_callable] and the
+     recovery point [Rewriter.recover] restore the previous ones. *)
+  let run_counters : counters = Hashtbl.create (module String)
+  let callable_counters : (string, counters) Hashtbl.t = Hashtbl.create (module String)
+
+  (* The counters selected, innermost first, each with the name of its callable. *)
+  let selected : (string option * counters) list ref = ref [ (None, run_counters) ]
+  let current () = snd (List.hd_exn !selected)
+
+  let fresh_in ~first (counters : counters) loc ?(id = 0) (name : string) =
     let name = sanitized_name name in
-    let last_index = Hashtbl.find used_names name |> Option.value ~default:(-1) in
+    let last_index = Hashtbl.find counters name |> Option.value ~default:(first - 1) in
     let new_max = Int.max (last_index + 1) id in
-    (* Logs.debug (fun m -> m "Keyset: %d" (List.count (Hashtbl.keys used_names) ~f:(fun _ -> true)));
-      Logs.debug (fun m -> m "old id %s -> %d" name last_index);
-      Logs.debug (fun m -> m "fresh id %s -> %d" name new_max); *)
-    Hashtbl.set used_names ~key:name ~data:new_max;
+    Hashtbl.set counters ~key:name ~data:new_max;
     make loc name new_max
+
+  (** A name not yet given in the callable being processed. *)
+  let fresh loc =
+    match !selected with
+    (* From 1, since a callable's source names have number 0. *)
+    | (Some _, counters) :: _ -> fresh_in ~first:1 counters loc
+    | _ -> fresh_in ~first:0 run_counters loc
+
+  (** A name for a member generated from the callable being processed, suffixed with the
+      callable's name unless [owned] is false, for a name that already contains it. *)
+  let fresh_member ?(owned = true) loc ?id name =
+    match !selected with
+    | (Some owner, counters) :: _ ->
+        fresh_in ~first:0 counters loc ?id (if owned then name ^ "$" ^ owner else name)
+    | _ -> fresh_in ~first:0 run_counters loc ?id name
+
+  (** Notes that [id] is declared in the callable being processed, possibly coming from
+      another callable, as the bound variable of a predicate's body does, so that its
+      fresh names avoid it. *)
+  let declare (id : t) =
+    Hashtbl.update (current ()) id.ident_name ~f:(function
+      | Some n -> Int.max n id.ident_num
+      | None -> id.ident_num)
+
+  (** A name not yet given in the run, for what the whole program shares. *)
+  let fresh_shared loc = fresh_in ~first:0 run_counters loc
+
+  (** Selects the counters of the callable [key], named [name], starting from [seed] the
+      first time: the names it already contains, by base name with their highest number.
+  *)
+  let select_callable key ~name ~(seed : unit -> t list) =
+    let counters =
+      Hashtbl.find_or_add callable_counters key ~default:(fun () ->
+          let counters = Hashtbl.create (module String) in
+          List.iter (seed ()) ~f:(fun (id : t) ->
+              Hashtbl.update counters id.ident_name ~f:(function
+                | Some m -> Int.max m id.ident_num
+                | None -> id.ident_num));
+          counters)
+    in
+    selected := (Some name, counters) :: !selected
+
+  (** Restores the counters selected before the last [select_callable]. *)
+  let deselect_callable () =
+    match !selected with _ :: (_ :: _ as rest) -> selected := rest | _ -> ()
+
+  (** How many counters are selected, to restore after a failure (see
+      [restore_selection]). *)
+  let selection_depth () = List.length !selected
+
+  let restore_selection depth =
+    selected := List.drop !selected (List.length !selected - depth)
 
   let sanitize subst id = { id with ident_name = String.map ~f:subst id.ident_name }
 end
@@ -1464,57 +1525,32 @@ module Expr = struct
     existential_vars_type e |> Map.keys
     |> List.fold ~f:Set.add ~init:(Set.empty (module Ident))
 
+  (** [expr] with the existential variables that [wtns_renam_map] gives witnesses for
+      replaced by them and dropped from their binders. Each binder substitutes only its
+      own variables, below the binders enclosing it, whose variables a witness can
+      mention. *)
   let rec supply_witnesses wtns_renam_map (expr : t) =
-    let expr = alpha_renaming expr wtns_renam_map in
-
-    let ex_var_iden_set =
-      let ex_var_iden_list =
-        List.map (Map.keys wtns_renam_map) ~f:(fun qi -> QualIdent.to_ident qi)
-      in
-
-      Set.of_list (module Ident) ex_var_iden_list
-    in
-
     match expr with
     | App (constr, exprs, expr_attr) ->
-        let exprs = List.map exprs ~f:(fun e -> supply_witnesses wtns_renam_map e) in
-
-        App (constr, exprs, expr_attr)
-    | Binder (Exists, vds, trgs, e, expr_attr) -> (
-        let new_trgs =
-          List.map trgs ~f:(fun trgs ->
-              List.map trgs ~f:(fun e -> alpha_renaming e wtns_renam_map))
+        App (constr, List.map exprs ~f:(supply_witnesses wtns_renam_map), expr_attr)
+    | Binder (Exists, vds, trgs, e, expr_attr) ->
+        let e = supply_witnesses wtns_renam_map e in
+        let witnessed (vd : var_decl) =
+          Map.mem wtns_renam_map (QualIdent.from_ident vd.var_name)
         in
-        let new_e = supply_witnesses wtns_renam_map e in
-
-        Logs.debug (fun m ->
-            m "Expr.supply_witnesses: old_vds: %a" Ident.pr_list
-              (List.map vds ~f:(fun vd -> vd.var_name)));
-
-        Logs.debug (fun m ->
-            m "Expr.supply_witnesses: ex_var_ident_set: %a" Ident.pr_list
-              (Set.to_list ex_var_iden_set));
-
-        let vds =
-          List.filter vds ~f:(fun vd ->
-              Set.for_all ex_var_iden_set ~f:(fun ex_var_ident ->
-                  not Ident.(vd.var_name = ex_var_ident)))
+        let here =
+          Map.filter_keys wtns_renam_map ~f:(fun qi ->
+              List.exists vds ~f:(fun vd ->
+                  QualIdent.equal qi (QualIdent.from_ident vd.var_name)))
         in
-
-        Logs.debug (fun m ->
-            m "Expr.supply_witnesses: new_vds: %a" Ident.pr_list
-              (List.map vds ~f:(fun vd -> vd.var_name)));
-
-        match vds with
-        | [] -> new_e
-        | _ -> Binder (Exists, vds, new_trgs, new_e, expr_attr))
-    | Binder (_b, vds, trgs, e, expr_attr) ->
-        let new_trgs =
-          List.map trgs ~f:(fun trgs ->
-              List.map trgs ~f:(fun e -> alpha_renaming e wtns_renam_map))
+        let body =
+          match List.filter vds ~f:(Fn.non witnessed) with
+          | [] -> e
+          | vds -> Binder (Exists, vds, trgs, e, expr_attr)
         in
-        let new_e = supply_witnesses wtns_renam_map e in
-        Binder (_b, vds, new_trgs, new_e, expr_attr)
+        alpha_renaming body here
+    | Binder (b, vds, trgs, e, expr_attr) ->
+        Binder (b, vds, trgs, supply_witnesses wtns_renam_map e, expr_attr)
 end
 
 type expr = Expr.t
@@ -2906,6 +2942,81 @@ module Callable = struct
   let is_atomic c =
     List.exists (c.call_decl_precond @ c.call_decl_postcond) ~f:(fun spec ->
         spec.spec_atomic)
+
+  (** The unqualified names in [c]: its parameters, locals, bound variables and the
+      variables its statements use, those of extension statements as [stmt_ext_contents]
+      gives them. *)
+  let names ~(stmt_ext_contents : Stmt.stmt_ext -> Stmt.spec list * Stmt.t list) (c : t) :
+      Ident.t list =
+    let of_qi acc (qi : qual_ident) =
+      if QualIdent.is_qualified qi then acc else qi.qual_base :: acc
+    in
+    let of_decls acc (vds : var_decl list) =
+      List.fold vds ~init:acc ~f:(fun acc vd -> vd.var_name :: acc)
+    in
+    let rec of_expr acc (e : expr) =
+      match e with
+      | App (Var qi, es, _) -> List.fold es ~init:(of_qi acc qi) ~f:of_expr
+      | App (_, es, _) -> List.fold es ~init:acc ~f:of_expr
+      | Binder (_, vds, trgs, e, _) ->
+          let acc = List.fold (List.concat trgs) ~init:(of_decls acc vds) ~f:of_expr in
+          of_expr acc e
+    in
+    let of_exprs acc es = List.fold es ~init:acc ~f:of_expr in
+    let of_spec acc (spec : Stmt.spec) = of_expr acc spec.spec_form in
+    let rec of_stmt acc (st : Stmt.t) =
+      match st.stmt_desc with
+      | Block b -> List.fold b.block_body ~init:acc ~f:of_stmt
+      | Loop l ->
+          let acc = List.fold l.loop_contract ~init:acc ~f:of_spec in
+          of_stmt (of_expr (of_stmt acc l.loop_prebody) l.loop_test) l.loop_postbody
+      | Cond c ->
+          let acc = Option.fold c.cond_test ~init:acc ~f:of_expr in
+          of_stmt (of_stmt acc c.cond_then) c.cond_else
+      | StmtExt ext ->
+          let specs, stmts = stmt_ext_contents ext in
+          List.fold stmts ~init:(List.fold specs ~init:acc ~f:of_spec) ~f:of_stmt
+      | Basic b -> (
+          match b with
+          | VarDef vd ->
+              Option.fold vd.var_init ~init:(vd.var_decl.var_name :: acc) ~f:of_expr
+          | Spec (_, spec) -> of_spec acc spec
+          | New n ->
+              List.fold n.new_args ~init:(of_qi acc n.new_lhs) ~f:(fun acc (_, e) ->
+                  Option.fold e ~init:acc ~f:of_expr)
+          | Assign a -> of_expr (List.fold a.assign_lhs ~init:acc ~f:of_qi) a.assign_rhs
+          | Bind bd -> of_spec (List.fold bd.bind_lhs ~init:acc ~f:of_qi) bd.bind_rhs
+          | FieldRead fr -> of_expr (of_qi acc fr.field_read_lhs) fr.field_read_ref
+          | FieldWrite fw -> of_exprs acc [ fw.field_write_ref; fw.field_write_val ]
+          | Havoc h -> of_qi acc h.havoc_var
+          | Call cd -> of_exprs (List.fold cd.call_lhs ~init:acc ~f:of_qi) cd.call_args
+          | Return e -> of_expr acc e
+          | Use u ->
+              List.fold u.use_witnesses_or_binds ~init:(of_exprs acc u.use_args)
+                ~f:(fun acc (id, e) -> of_expr (id :: acc) e)
+          | AUAction { auaction_kind = BindAU _ } -> acc
+          | AUAction { auaction_kind = OpenAU { token; proc_args; lhs; _ } } ->
+              of_exprs acc ((token :: proc_args) @ lhs)
+          | AUAction { auaction_kind = AbortAU { token; proc_args } } ->
+              of_exprs acc (token :: proc_args)
+          | AUAction { auaction_kind = CommitAU { token; proc_args; proc_rets } } ->
+              of_exprs acc ((token :: proc_args) @ proc_rets)
+          | Fpu f ->
+              of_exprs acc (f.fpu_ref :: f.fpu_new_val :: Option.to_list f.fpu_old_val)
+          | BasicStmtExt (_, es) -> of_exprs acc es)
+    in
+    let d = c.call_decl in
+    let acc =
+      of_decls
+        (of_decls (of_decls [] d.call_decl_formals) d.call_decl_returns)
+        d.call_decl_locals
+    in
+    let acc =
+      List.fold (d.call_decl_precond @ d.call_decl_postcond) ~init:acc ~f:of_spec
+    in
+    match c.call_def with
+    | ProcDef { proc_body } -> Option.fold proc_body ~init:acc ~f:of_stmt
+    | FuncDef { func_body } -> Option.fold func_body ~init:acc ~f:of_expr
 end
 
 (** Modules *)

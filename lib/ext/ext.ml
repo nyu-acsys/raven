@@ -325,6 +325,7 @@ let to_ext_hooks (ext : (module ExtApi.Ext)) : Ast.Rewriter.ext_hooks =
     suggest_extension_for_expr_ext;
     suggest_extension_for_stmt_ext;
     suggest_extension_for_contract_ext;
+    stmt_ext_contents = Ext.stmt_ext_contents;
     expr_ext_rewrite_types = Ext.expr_ext_rewrite_types;
     basic_stmt_ext_rewrite_types = Ext.basic_stmt_ext_rewrite_types;
     stmt_ext_rewrite = Ext.stmt_ext_rewrite;

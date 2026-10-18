@@ -632,7 +632,8 @@ module ErrorCreditsExt (Cont : Ext) = struct
 
         let* sum_func_name =
           let+ proc_name = Rewriter.current_scope_id in
-          Ident.fresh loc (proc_name.qual_base.ident_name ^ "$errFnSumToN")
+          Ident.fresh_member ~owned:false loc
+            (proc_name.qual_base.ident_name ^ "$errFnSumToN")
         in
 
         (* Define the function declaration for the `errFnSumToN` function *)

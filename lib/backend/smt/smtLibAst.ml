@@ -56,7 +56,7 @@ let mk_define_fun ?loc id args res_srt t = DefineFun (id, args, res_srt, t, loc)
 
 let mk_assert ?loc ?name t =
   let prefix = "$hyp$" ^ Option.value ~default:"" name in
-  let id = Ident.fresh (Option.value ~default:Loc.dummy loc) prefix in
+  let id = Ident.fresh_shared (Option.value ~default:Loc.dummy loc) prefix in
   Assert (t, QualIdent.from_ident id, loc)
 
 let mk_push ?loc n = Push (n, loc)

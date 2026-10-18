@@ -289,6 +289,8 @@ and ext_hooks = {
   suggest_extension_for_expr_ext : Expr.expr_ext -> string option;
   suggest_extension_for_stmt_ext : Stmt.stmt_ext -> string option;
   suggest_extension_for_contract_ext : Stmt.contract_ext -> string option;
+  stmt_ext_contents : Stmt.stmt_ext -> Stmt.spec list * Stmt.t list;
+      (** The specifications and statements an extension statement contains. *)
   expr_ext_rewrite_types :
     f:(type_expr -> type_expr t) -> Expr.expr_ext -> Expr.expr_ext t;
   basic_stmt_ext_rewrite_types :
@@ -485,6 +487,7 @@ let default_ext_hooks : ext_hooks =
     suggest_extension_for_expr_ext = (fun _ -> None);
     suggest_extension_for_stmt_ext = (fun _ -> None);
     suggest_extension_for_contract_ext = (fun _ -> None);
+    stmt_ext_contents = (fun _ -> ([], []));
     expr_ext_rewrite_types =
       (fun ~f:_ _ ->
         Error.internal_error Loc.dummy
@@ -716,12 +719,15 @@ let is_internal_error (kind, _, _) = Poly.(kind = Error.Internal)
 let recover ?(poison : Ident.t option) ~(fallback : 'a) (m : ('a, 'b) t_ext) :
     ('a, 'b) t_ext =
  fun s ->
+  let selection = Ident.selection_depth () in
   try m s
   with
   | Error.Msg diag
   when (not (Base.List.exists diag ~f:is_internal_error))
        && not s.state_diagnostics.aborted
   ->
+    (* The callables [m] entered and did not exit. *)
+    Ident.restore_selection selection;
     Diagnostics.record_error s.state_diagnostics diag;
     if s.state_diagnostics.aborted then Error.fail_with [];
     (* The scopes are mutable, so lookups cached during [m] may be stale. *)
@@ -1027,6 +1033,7 @@ let exit_callable (call_def : Callable.t) s =
 
   let state_ghost_scope = Base.List.tl_exn s.state_ghost_scope in
   let state_relaxed_lookup = Base.List.tl_exn s.state_relaxed_lookup in
+  Ident.deselect_callable ();
   ( {
       s with
       state_table = SymbolTbl.exit tbl;
@@ -1060,6 +1067,19 @@ let enter symbol s =
   in
   let symbol_ident = Symbol.to_name symbol in
   let _, scope_id = current_scope_id s in
+  (* A callable's names come from its own counters, starting above the names it contains
+     (see [Ident.fresh]). *)
+  (match symbol with
+  | Module.CallDef callable ->
+      let key =
+        Base.String.concat ~sep:"."
+          (Base.List.map
+             (QualIdent.to_list (QualIdent.append scope_id symbol_ident))
+             ~f:Ident.to_string)
+      in
+      Ident.select_callable key ~name:(Ident.to_string symbol_ident) ~seed:(fun () ->
+          Callable.names ~stmt_ext_contents:s.state_ext_hooks.stmt_ext_contents callable)
+  | _ -> ());
   let state_new_symbols_tree =
     NewSymbolsTree.create_node ~is_ghost:is_ghost_scope
       (QualIdent.append scope_id symbol_ident)
@@ -1087,6 +1107,7 @@ let add_transparent ident target : unit t =
   update_table (SymbolTbl.add_transparent ident target)
 
 let introduce_symbol symbol s =
+  Ident.declare (AstDef.Symbol.to_name symbol);
   begin match symbol with
   | AstDef.Module.VarDef { var_decl; _ } -> record_var_declaration s var_decl
   | _ -> ()
@@ -1249,7 +1270,9 @@ let introduce_typecheck_symbol_at_scope' ~loc (symbol : Module.symbol)
   (s, symbol_qual_ident)
 
 let add_locals var_decls s =
-  Base.List.iter var_decls ~f:(record_var_declaration s);
+  Base.List.iter var_decls ~f:(fun (var_decl : var_decl) ->
+      Ident.declare var_decl.var_name;
+      record_var_declaration s var_decl);
   if s.state_update_table then
     (*Logs.debug (fun m ->
         m "Rewriter.add_locals: var_decls = %a"

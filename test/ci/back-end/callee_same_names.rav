@@ -1,0 +1,91 @@
+// A caller's variables can have the same names as those of the callees it uses, since
+// names are numbered per callable. Each `assert false` must fail, and so must exhaling
+// the swapped instance.
+
+field f: Int
+
+pred p(x: Ref) { exists v: Int :: own(x.f, v, 1.0) && v > 0 }
+
+// Unfolding brings the body's `v` along; the caller's `v` must stay apart.
+proc unfold_local(x: Ref, v: Int)
+  requires p(x) && v == 0
+{
+  unfold p(x);
+  assert false;
+}
+
+proc post(x: Ref)
+  requires own(x.f, 1, 1.0)
+  ensures exists v: Int :: own(x.f, v, 1.0) && v > 0
+{
+  x.f := 2;
+}
+
+// The callee's postcondition binds `v`, as the caller's parameter is named.
+proc call_post(x: Ref, v: Int)
+  requires own(x.f, 1, 1.0) && v == 0
+{
+  post(x);
+  assert false;
+}
+
+// A witness mentioning the caller's `v`.
+proc fold_witness(x: Ref, v: Int)
+  requires own(x.f, 5, 1.0) && v == 0
+{
+  fold p(x)[v := v + 5];
+  assert false;
+}
+
+pred q(a: Int; b: Int) { b == a + 1 }
+
+// Arguments swapped against the formals' names.
+proc fold_swapped(b: Int, a: Int)
+  requires a == b + 1
+{
+  fold q(b, a);
+  unfold q(b, a);
+  assert a == b + 1;
+  assert false;
+}
+
+// The folded instance is q(b, a), not q(a, b).
+proc fold_swapped_instance(b: Int, a: Int)
+  requires a == b + 1
+{
+  fold q(b, a);
+  exhale q(a, b);
+}
+
+func g(a: Int, b: Int) returns (r: Int) { a - b }
+
+proc func_swapped(b: Int, a: Int) {
+  assert g(b, a) == b - a;
+  assert false;
+}
+
+lemma l(a: Int) returns (b: Int)
+  ensures b == a + 1
+{
+  b := a + 1;
+}
+
+proc lemma_swapped(b: Int) {
+  ghost var a := l(b);
+  assert a == b + 1;
+  assert false;
+}
+
+pred r(x: Ref; n: Int) {
+  exists w: Int :: own(x.f, w, 1.0) && n == w
+}
+
+// An out-parameter named like the body's existential, bound to a caller local.
+proc unfold_out(x: Ref, w: Int)
+  requires r(x, w) && w > 3
+{
+  unfold r(x, w);
+  assert own(x.f, w, 1.0);
+  fold r(x, w);
+  assert false;
+}

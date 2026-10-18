@@ -216,7 +216,7 @@ module DecreasesExt (Cont : Ext) = struct
      [ensures], hence no proof obligation, so a handful of redundant copies cost
      only elaboration bookkeeping, never SMT effort. *)
   let auto_order_module_ident (data_qi : qual_ident) : ident =
-    Ident.fresh (QualIdent.to_loc data_qi)
+    Ident.fresh_shared (QualIdent.to_loc data_qi)
       ("$decreases_auto_order$" ^ QualIdent.to_string data_qi)
 
   (* Synthesizes a module containing just a `lt` function for the `data` type

@@ -179,7 +179,7 @@ let rec rewrite_compr_expr (expr : expr) : expr Rewriter.t =
   | Binder (Compr, v_l, trgs, inner_expr, _expr_attr) ->
       let* _ = Rewriter.add_locals v_l and* inner_expr = rewrite_compr_expr inner_expr in
 
-      let compr_fn_ident = Ident.fresh (Expr.to_loc expr) "compr" in
+      let compr_fn_ident = Ident.fresh_member (Expr.to_loc expr) "compr" in
 
       let free_vars = Expr.signature inner_expr in
       let free_vars =
@@ -459,7 +459,8 @@ let rec rewrite_loops (enclosing : Callable.call_decl) (stmt : Stmt.t) : Stmt.t 
       let* loop_proc_name, is_ghost_scope =
         let* proc_name = Rewriter.current_scope_id in
         let+ is_ghost_scope = Rewriter.is_ghost_scope in
-        ( Ident.fresh stmt.stmt_loc (proc_name.qual_base.ident_name ^ "_loop"),
+        ( Ident.fresh_member ~owned:false stmt.stmt_loc
+            (proc_name.qual_base.ident_name ^ "_loop"),
           is_ghost_scope )
       in
 

@@ -203,7 +203,7 @@ let intros_type_module ~(loc : location) ?scope
   let mod_decl =
     let mod_name =
       let mod_name_string = tp_mod_ident_prefix ^ AstDef.Type.to_string tp in
-      Ident.fresh loc (serialize mod_name_string)
+      Ident.fresh_shared loc (serialize mod_name_string)
       |> with_type_display ~rep:Predefs.lib_type_rep_type_ident tp
     in
 
@@ -915,7 +915,7 @@ let intros_rep_module ~(loc : location) ?scope
     qual_ident t =
   let mod_decl =
     let mod_name =
-      Ident.fresh loc (serialize (rep_module_name_string ~interface_qual_ident tp))
+      Ident.fresh_shared loc (serialize (rep_module_name_string ~interface_qual_ident tp))
       |> with_type_display ~rep:rep_ident tp
     in
     {

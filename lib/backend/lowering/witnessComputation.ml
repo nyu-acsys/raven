@@ -11,7 +11,7 @@ type conditions = Expr.t list
 type universal_quants = { univ_vars : (ident * var_decl) list; triggers : expr list list }
 
 let ident_to_skolem_fn_ident ~loc ident =
-  Ident.fresh loc ("$skolem_" ^ Ident.to_string ident)
+  Ident.fresh_member loc ("$skolem_" ^ Ident.to_string ident)
 
 type skolem_function_def = {
   universal_quants : universal_quants;
