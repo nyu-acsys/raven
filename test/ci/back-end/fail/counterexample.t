@@ -9,8 +9,8 @@ counterexample", so the two are shown alike here.
                 ^^^^^^
   Verification Error: This assertion may be violated.
   [Error] Counterexample:
-    r = ref#1
-    s = ref#1
+    r = Ref#1
+    s = Ref#1
     v = 3
     x = 3
     y = 6
@@ -28,6 +28,13 @@ counterexample", so the two are shown alike here.
   [Error] Counterexample:
     i = 1
     n = 2
+  [Error] File "./counterexample.rav", line 32, columns 9-14:
+  32 |   assert false;
+                ^^^^^
+  Verification Error: This assertion may be violated.
+  [Error] Counterexample:
+    q = [|7, 8|]
+    s = {|1, 3|}
 
 Without the flag, there are none.
 

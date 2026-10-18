@@ -136,25 +136,23 @@ let rec check_stmt ~proc curr_callable (stmt : Stmt.t) : unit t =
                 if not checked then State.return ()
                 else
                   let* query = counterexample_query spec.spec_state in
-                  let* result, model =
+                  let* result, lines =
                     check_valid_with_model
                       ?name:(Option.map spec.spec_name ~f:(fun name -> name ^ "$goal"))
-                      ~terms:(Option.value_map query ~default:[] ~f:Counterexample.terms)
+                      ~model:(fun get_values ->
+                        Option.value_map query ~default:[] ~f:(fun query ->
+                            Counterexample.collect query ~get_values))
                       spec.spec_form
                   in
                   (* The model's values where the check fails, after its error. *)
                   let counterexample =
-                    match (query, model) with
-                    | Some query, Some values ->
-                        begin match Counterexample.lines query values with
-                        | [] -> []
-                        | lines ->
-                            [
-                              Counterexample.to_error
-                                ~certain:(Poly.equal result SmtSolver.Invalid)
-                                lines;
-                            ]
-                        end
+                    match lines with
+                    | Some (_ :: _ as lines) ->
+                        [
+                          Counterexample.to_error
+                            ~certain:(Poly.equal result SmtSolver.Invalid)
+                            lines;
+                        ]
                     | _ -> []
                   in
                   match result with
@@ -689,6 +687,7 @@ let check_module (module_defs : Ast.Module.t list) (lemma_calls : Dependencies.G
 
   let context = { context with auto_dependencies } in
   let context, () = set_heap_fields tbl context in
+  let context, () = set_sequence_functions tbl context in
 
   let context, () = State.eval (check_members dependencies deps_graph tbl) context in
   if Diagnostics.has_errors context.diagnostics then

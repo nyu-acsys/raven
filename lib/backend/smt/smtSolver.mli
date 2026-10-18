@@ -19,11 +19,11 @@ module SmtSession : sig
     ?name:string ->
     session ->
     SmtLibAst.term ->
-    terms:SmtLibAst.term list ->
-    validity_result * Sexplib.Sexp.t list option
-  (** Like [check_valid], and if the check fails, the values of [terms] in the solver's
-      model, in their order, when it has one: a counterexample, which is certain only for
-      [Invalid]. *)
+    model:((SmtLibAst.term list -> Sexplib.Sexp.t list option) -> 'a) ->
+    validity_result * 'a option
+  (** Like [check_valid], and if the check fails, what [model] makes of the solver's
+      model, which it can ask for the values of terms, in their order, as often as it
+      needs: a counterexample, certain only for [Invalid]. *)
 
   val is_closed : session -> bool
   (** Whether the session was stopped, e.g. after Z3 did not respond in time. *)

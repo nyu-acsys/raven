@@ -17,6 +17,8 @@ type context = {
   counterexamples : bool;  (** Whether failed checks report a counterexample. *)
   heap_fields : (string, string) Hashtbl.t;
       (** The field each field's heap variable is named after, by the heap's name. *)
+  sequence_functions : type_expr -> (qual_ident * qual_ident) option;
+      (** The [length] and [index] functions of a type that has them, like a sequence. *)
 }
 
 type 'a t = context -> context * 'a
@@ -30,6 +32,7 @@ let create ?focus ?(counterexamples = false) ~diagnostics session =
     focus;
     counterexamples;
     heap_fields = Hashtbl.create (module String);
+    sequence_functions = (fun _ -> None);
   }
 
 (** Whether the procedure declared at [loc] is checked. *)
@@ -115,8 +118,33 @@ let counterexample_query (state : var_decl list) : Counterexample.query option t
  fun context ->
   ( context,
     if context.counterexamples && not (List.is_empty state) then
-      Some (Counterexample.query ~heap_field:(Hashtbl.find context.heap_fields) state)
+      Some
+        (Counterexample.query
+           ~heap_field:(Hashtbl.find context.heap_fields)
+           ~sequence_functions:context.sequence_functions state)
     else None )
+
+(** Records from the symbol table [tbl] which types have the [length] and [index]
+    functions of a sequence: those of the module of a type [M.T], if [M] declares both. *)
+let set_sequence_functions (tbl : SymbolTbl.t) : unit t =
+ fun context ->
+  let sequence_functions (typ : type_expr) =
+    match typ with
+    | App (Var typ_name, [], _) when not (List.is_empty (QualIdent.path typ_name)) ->
+        let member name =
+          QualIdent.append (QualIdent.pop typ_name) (Ident.make Loc.dummy name 0)
+        in
+        let length = member "length" and index = member "index" in
+        (* A member of a functor's instance is found through the instance. *)
+        let is_func qual_ident =
+          match SymbolTbl.resolve_and_find ~read_only:true qual_ident tbl with
+          | Some (_, _, Module.CallDef { call_def = FuncDef _; _ }, _) -> true
+          | _ -> false
+        in
+        Option.some_if (is_func length && is_func index) (length, index)
+    | _ -> None
+  in
+  ({ context with sequence_functions }, ())
 
 (** Records the fields of the program, from the symbol table [tbl], by the names of their
     heap variables. *)
@@ -131,10 +159,10 @@ let set_heap_fields (tbl : SymbolTbl.t) : unit t =
       | _ -> ());
   (context, ())
 
-(** Like [check_valid], and the values of [terms] in the model if the check fails. *)
-let check_valid_with_model ?name ~terms expr :
-    (SmtSolver.validity_result * Sexplib.Sexp.t list option) t =
+(** Like [check_valid], and what [model] makes of the model if the check fails (see
+    [SmtSolver.SmtSession.check_valid_with_model]). *)
+let check_valid_with_model ?name ~model expr : (SmtSolver.validity_result * 'a option) t =
   let open State.Syntax in
   let+ context = get_state in
   let expr = under_path_conditions context expr in
-  Session.check_valid_with_model ?name context.session expr ~terms
+  Session.check_valid_with_model ?name context.session expr ~model

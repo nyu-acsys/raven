@@ -313,7 +313,7 @@ module SmtSession = struct
                 | _ -> None))
         | _ -> None)
 
-  let check_valid_with_model ?name session expr ~terms =
+  let check_valid_with_model ?name session expr ~model =
     with_scope session ~f:(fun () ->
         assert_expr ?name session (Ast.Expr.mk_not expr);
         let result =
@@ -325,14 +325,13 @@ module SmtSession = struct
         (* A failed check's model, before the scope that has it is left. *)
         let model =
           match result with
-          | (Invalid | Inconclusive) when not (List.is_empty terms) ->
-              get_values session terms
-          | _ -> None
+          | Invalid | Inconclusive -> Some (model (get_values session))
+          | Valid | Timeout -> None
         in
         (result, model))
 
   let check_valid ?name session expr =
-    fst (check_valid_with_model ?name session expr ~terms:[])
+    fst (check_valid_with_model ?name session expr ~model:(fun _ -> ()))
 
   module ForTesting = struct
     type nonrec read_error = read_error =
