@@ -19,6 +19,8 @@ type config = {
       (** The member, module or named assertion to verify, if not all. *)
   counterexamples : bool;
   fingerprints : bool;  (** Whether the proof obligations' fingerprints are output. *)
+  cache_dir : string option;
+      (** Where the fingerprints of verified proof obligations are kept, if anywhere. *)
 }
 
 let include_map = Hashtbl.create (module String)
@@ -571,13 +573,14 @@ let parse_and_check_all ~extension_mode ~diagnostics config file_names =
           ~timeout:config.smt_timeout;
         Backend.SmtPreamble.declare_tuple_sorts solver_session arities;
         let fingerprinting =
-          if config.fingerprints then
-            Some (fingerprinting ~ext_hooks solver_session ~report:true)
+          if config.fingerprints || Option.is_some config.cache_dir then
+            Some (fingerprinting ~ext_hooks solver_session ~report:config.fingerprints)
           else None
         in
+        let cache = Option.map config.cache_dir ~f:Backend.VerificationCache.load in
         let context =
           Backend.CheckerContext.create ?focus ~counterexamples:config.counterexamples
-            ?fingerprinting ~diagnostics solver_session
+            ?fingerprinting ?cache ~diagnostics solver_session
         in
         let (_ : Backend.CheckerContext.context) =
           backend_check_cu tbl context processed
@@ -697,6 +700,14 @@ let fingerprints =
      use, which changes when anything does that could change the result."
   in
   Arg.(value & flag & info [ "fingerprints" ] ~doc)
+
+let cache_dir =
+  let doc =
+    "Keep the fingerprints of the verified proof obligations in this directory, and skip \
+     the obligations whose fingerprints it has: those verified before, with everything \
+     their checks can use unchanged."
+  in
+  Arg.(value & opt (some string) None & info [ "cache-dir" ] ~docv:"DIR" ~doc)
 
 let extension_mode =
   let doc =
@@ -868,7 +879,8 @@ let serve_library_sources ~lib_sources ~dump_library ~print_library_source =
 
 let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annotations
     base_dir prog_stats smt_timeout smt_diagnostics max_errors only counterexamples
-    fingerprints extension_mode_arg strict dump_library print_library_source manifest =
+    fingerprints cache_dir extension_mode_arg strict dump_library print_library_source
+    manifest =
   if manifest then begin
     (* Payload rather than logging, so it survives -q and needs no --shh: whoever asks
        is a program parsing this one line. *)
@@ -892,6 +904,7 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annot
       only;
       counterexamples;
       fingerprints;
+      cache_dir;
     }
   in
   (* [EXT] "auto" is resolved from the input program's own syntax once it's parsed --
@@ -960,7 +973,7 @@ let main_cmd =
       ret
         (const main $ setup_config $ input_file $ no_greeting $ no_library
        $ typecheck_only $ lsp_mode $ lsp_annotations $ base_dir $ prog_stats $ smt_timeout
-       $ smt_diagnostics $ max_errors $ only $ counterexamples $ fingerprints
+       $ smt_diagnostics $ max_errors $ only $ counterexamples $ fingerprints $ cache_dir
        $ extension_mode $ strict $ dump_library $ print_library_source $ manifest))
 
 let () = Stdlib.exit (Cmd.eval main_cmd)

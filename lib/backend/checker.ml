@@ -71,6 +71,26 @@ let define_datatypes (fully_qual_names_and_typs : (qual_ident * Ast.Module.type_
 
   State.return ()
 
+(** The status record of the assertion [name] of [spec], at [stmt]: where its error is
+    reported, which is the source of an invariant too, whose statement is a call. *)
+let assertion_result spec name curr_callable (stmt : Stmt.t) :
+    Diagnostics.MemberStatus.procedure =
+  let loc =
+    match Stmt.spec_error_msg spec curr_callable (Stmt.to_loc stmt) with
+    | (_, loc, _) :: _ -> loc
+    | [] -> Stmt.to_loc stmt
+  in
+  { proc_loc = loc; proc_name = name; proc_kind = "assertion" }
+
+(** The named assertions of [stmt], with their statements. *)
+let rec named_assertions (stmt : Stmt.t) : (Stmt.spec * string * Stmt.t) list =
+  match stmt.stmt_desc with
+  | Block block -> List.concat_map block.block_body ~f:named_assertions
+  | Cond cond -> named_assertions cond.cond_then @ named_assertions cond.cond_else
+  | Basic (Spec (Assert, ({ spec_name = Some name; _ } as spec))) ->
+      [ (spec, name, stmt) ]
+  | Basic _ | Loop _ | StmtExt _ -> []
+
 (** Checks [stmt] in the body of [curr_callable], the procedure [proc]. *)
 let rec check_stmt ~proc curr_callable (stmt : Stmt.t) : unit t =
   let open State.Syntax in
@@ -121,16 +141,7 @@ let rec check_stmt ~proc curr_callable (stmt : Stmt.t) : unit t =
                 in
                 match spec.spec_name with
                 | Some name ->
-                    (* Where its error is reported, which is the source of an invariant
-                       too, whose statement is a call. *)
-                    let loc =
-                      match Stmt.spec_error_msg spec curr_callable (Stmt.to_loc stmt) with
-                      | (_, loc, _) :: _ -> loc
-                      | [] -> Stmt.to_loc stmt
-                    in
-                    record_result
-                      { proc_loc = loc; proc_name = name; proc_kind = "assertion" }
-                      outcome
+                    record_result (assertion_result spec name curr_callable stmt) outcome
                 | None -> State.return ()
               in
               let* () =
@@ -197,6 +208,29 @@ let rec check_stmt ~proc curr_callable (stmt : Stmt.t) : unit t =
            "Internal error: statement %s reached the backend in an unexpected form (this \
             indicates a bug in the verifier, not a problem with your proof)"
            (Stmt.to_string stmt))
+
+(** Checks the procedure or lemma [callable] with the body [stmt]. *)
+let check_procedure fully_qual_name (callable : Ast.Callable.t) stmt proc : unit t =
+  let open State.Syntax in
+  let call_decl = callable.call_decl in
+  with_scope
+  @@
+  let* () = start_procedure in
+  let* _ =
+    write_comment (Stdlib.Format.asprintf "Checking %a" QualIdent.pr fully_qual_name)
+  in
+
+  let* _ =
+    State.List.iter
+      (call_decl.call_decl_formals @ call_decl.call_decl_returns
+     @ call_decl.call_decl_locals)
+      ~f:(fun local ->
+        write (mk_declare_const (QualIdent.from_ident local.var_name) local.var_type))
+  in
+
+  let* () = check_stmt ~proc fully_qual_name stmt in
+  let* focused = focused_assertion in
+  if Option.is_none focused then record_result proc Verified else State.return ()
 
 let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) : unit t =
   let open State.Syntax in
@@ -327,39 +361,42 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) : 
       match proc_def.proc_body with
       | Some stmt when not (is_free callable.call_decl.call_decl_status) ->
           let* in_focus = in_focus call_decl.call_decl_loc in
+          let proc : Diagnostics.MemberStatus.procedure =
+            {
+              proc_loc = call_decl.call_decl_loc;
+              proc_name = Stdlib.Format.asprintf "%a" QualIdent.pr fully_qual_name;
+              proc_kind =
+                (match call_decl.call_decl_kind with Lemma -> "lemma" | _ -> "proc");
+            }
+          in
+          let* fingerprint = fingerprint fully_qual_name in
+          let* focused = focused_assertion in
           if not in_focus then State.return ()
           else
-            with_scope
-            @@
-            let* () = start_procedure in
-            let* _ =
-              write_comment
-                (Stdlib.Format.asprintf "Checking %a" QualIdent.pr fully_qual_name)
-            in
-
-            let* _ =
-              State.List.iter
-                (call_decl.call_decl_formals @ call_decl.call_decl_returns
-               @ call_decl.call_decl_locals)
-                ~f:(fun local ->
-                  write
-                    (mk_declare_const
-                       (QualIdent.from_ident local.var_name)
-                       local.var_type))
-            in
-
-            let proc : Diagnostics.MemberStatus.procedure =
-              {
-                proc_loc = call_decl.call_decl_loc;
-                proc_name = Stdlib.Format.asprintf "%a" QualIdent.pr fully_qual_name;
-                proc_kind =
-                  (match call_decl.call_decl_kind with Lemma -> "lemma" | _ -> "proc");
-              }
-            in
-            let* () = check_stmt ~proc fully_qual_name stmt in
-            let* focused = focused_assertion in
-            if Option.is_none focused then record_result proc Verified
-            else State.return ()
+            begin match fingerprint with
+            | Some (fingerprint, true) ->
+                (* Verified before, with everything its check can use as it is now. *)
+                let* () =
+                  if Option.is_none focused then record_result proc Cached
+                  else State.return ()
+                in
+                let* () =
+                  State.List.iter (named_assertions stmt) ~f:(fun (spec, name, stmt) ->
+                      if Option.for_all focused ~f:(String.equal name) then
+                        record_result
+                          (assertion_result spec name fully_qual_name stmt)
+                          Cached
+                      else State.return ())
+                in
+                use_fingerprint fingerprint
+            | _ ->
+                let* () = check_procedure fully_qual_name callable stmt proc in
+                let* context = get_state in
+                if Option.is_none focused && not context.failed then
+                  Option.value_map fingerprint ~default:(State.return ())
+                    ~f:(fun (fingerprint, _) -> use_fingerprint fingerprint)
+                else State.return ()
+            end
       | _ ->
           Logs.debug (fun m ->
               m "Skipping %b" (is_free callable.call_decl.call_decl_status));
@@ -665,18 +702,24 @@ let check_module (module_defs : Ast.Module.t list) (lemma_calls : Dependencies.G
   let dependencies, deps_graph, auto_graph, auto_dependencies =
     Dependencies.analyze tbl module_defs lemma_calls context.auto_dependencies
   in
-  Option.iter context.fingerprinting ~f:(fun fingerprinting ->
-      let fingerprints =
+  let fingerprints =
+    Option.value_map context.fingerprinting ~default:[] ~f:(fun fingerprinting ->
         Fingerprints.compute ~run_key:fingerprinting.run_key
           ~symbol_text:fingerprinting.symbol_text ~reify:(reify tbl) ~deps:deps_graph
-          ~auto:auto_graph dependencies
-      in
-      if fingerprinting.report then
-        List.iter
-          (List.sort fingerprints ~compare:(fun (q1, _) (q2, _) ->
-               QualIdent.compare q1 q2))
-          ~f:(fun (q, fingerprint) ->
-            Logs.app (fun m -> m "%s %a" fingerprint QualIdent.pr q)));
+          ~auto:auto_graph dependencies)
+  in
+  if Option.exists context.fingerprinting ~f:(fun fingerprinting -> fingerprinting.report)
+  then
+    List.iter
+      (List.sort fingerprints ~compare:(fun (q1, _) (q2, _) -> QualIdent.compare q1 q2))
+      ~f:(fun (q, fingerprint) ->
+        Logs.app (fun m -> m "%s %a" fingerprint QualIdent.pr q));
+  let context =
+    {
+      context with
+      fingerprints = Map.of_alist_reduce (module QualIdent) fingerprints ~f:Fn.const;
+    }
+  in
 
   Logs.debug (fun m ->
       m "Dependencies: %a"
@@ -693,6 +736,8 @@ let check_module (module_defs : Ast.Module.t list) (lemma_calls : Dependencies.G
   let context, () = set_sequence_functions tbl context in
 
   let context, () = State.eval (check_members dependencies deps_graph tbl) context in
+  Option.iter context.cache ~f:(fun cache ->
+      VerificationCache.save cache ~used:context.used_fingerprints);
   if Diagnostics.has_errors context.diagnostics then
     Error.fail_with (Diagnostics.report_errors context.diagnostics)
   else context

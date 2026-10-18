@@ -77,8 +77,9 @@ end
     contract and quantifiers, which lie within its text. A module summarizes the status of
     the members nested in it. *)
 module MemberStatus = struct
-  (** The outcome of checking a procedure, from best to worst. *)
-  type outcome = Verified | Timeout | Failed [@@deriving compare]
+  (** The outcome of checking a procedure, from best to worst: [Cached] if it was verified
+      before, as the cache of fingerprints shows. *)
+  type outcome = Cached | Verified | Timeout | Failed [@@deriving compare]
 
   (** The status of a member, from best to worst. *)
   type status = Verified | Skipped | Timeout | Failed [@@deriving compare]
@@ -126,7 +127,7 @@ module MemberStatus = struct
     | Failed -> "failed"
 
   let of_outcome : outcome -> status = function
-    | Verified -> Verified
+    | Cached | Verified -> Verified
     | Timeout -> Timeout
     | Failed -> Failed
 
@@ -158,12 +159,12 @@ module MemberStatus = struct
           |> List.max_elt ~compare:compare_outcome
           |> Option.value_exn
         in
-        (fst (List.hd_exn same), of_outcome worst))
+        (fst (List.hd_exn same), worst))
 
   (** Each of [members] with its status, if it has one, and the members that the [groups]
-      inherit, given the [results] of the checked procedures. A checked member without a
-      result of its own was skipped if the run was [aborted]. None has a status if nothing
-      was checked. *)
+      inherit, given the [results] of the checked procedures, and whether the status is
+      only from the cache. A checked member without a result of its own was skipped if the
+      run was [aborted]. None has a status if nothing was checked. *)
   let statuses ~aborted (members : member list) groups
       (results : (procedure * outcome) list) =
     let attributed =
@@ -181,15 +182,18 @@ module MemberStatus = struct
         List.exists own ~f:(fun (_, loc, _) -> Loc.equal loc member.name_loc)
       in
       match worst with
-      | _ when List.is_empty results -> None
-      | Some ((Failed | Timeout) as outcome) -> Some (of_outcome outcome)
-      | _ when aborted && member.checked && not checked_itself -> Some Skipped
-      | Some Verified -> Some Verified
-      | None -> None
+      | _ when List.is_empty results -> (None, false)
+      | Some ((Failed | Timeout) as outcome) -> (Some (of_outcome outcome), false)
+      | _ when aborted && member.checked && not checked_itself -> (Some Skipped, false)
+      | Some ((Cached | Verified) as outcome) ->
+          (Some Verified, [%compare.equal: outcome] outcome Cached)
+      | None -> (None, false)
     in
-    List.map members ~f:(fun member -> (member, status member))
-    @ List.map (inherited_statuses members groups results) ~f:(fun (member, status) ->
-        (member, Some status))
+    List.map members ~f:(fun member ->
+        let status, cached = status member in
+        (member, status, cached))
+    @ List.map (inherited_statuses members groups results) ~f:(fun (member, outcome) ->
+        (member, Some (of_outcome outcome), [%compare.equal: outcome] outcome Cached))
 
   let nested_in (group : group) (member : member) =
     String.is_prefix member.name ~prefix:(group.group_name ^ ".")
@@ -237,13 +241,18 @@ module MemberStatus = struct
             [ ("status", `String (status_to_string status)) ])
         @ extra)
     in
+    let flag name b = if b then [ (name, `Bool true) ] else [] in
     `List
-      (List.map statuses ~f:(fun (member, status) ->
+      (List.map statuses ~f:(fun (member, status, cached) ->
            entry member.name_loc member.extent member.name member.kind status
-             ((if member.inherited then [ ("inherited", `Bool true) ] else [])
-             @ if member.checked then [ ("checked", `Bool true) ] else []))
+             (flag "inherited" member.inherited
+             @ flag "checked" member.checked @ flag "cached" cached))
       @ List.map groups ~f:(fun group ->
-          let summary = summary statuses group in
+          let summary =
+            summary
+              (List.map statuses ~f:(fun (member, status, _) -> (member, status)))
+              group
+          in
           entry group.group_loc (group_extent members group) group.group_name
             group.group_kind (Option.map summary ~f:fst)
             (Option.value_map summary ~default:[] ~f:(fun (_, counts) ->

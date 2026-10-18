@@ -23,6 +23,11 @@ type context = {
   focus : focus option;
   counterexamples : bool;  (** Whether failed checks report a counterexample. *)
   fingerprinting : fingerprinting option;
+  cache : VerificationCache.t option;
+  fingerprints : string qual_ident_map;  (** Those of the obligations, when computed. *)
+  used_fingerprints : string list;
+      (** The fingerprints of the obligations found in the cache or verified. *)
+  failed : bool;  (** Whether a check of the procedure being checked failed. *)
   heap_fields : (string, string) Hashtbl.t;
       (** The field each field's heap variable is named after, by the heap's name. *)
   sequence_functions : type_expr -> (qual_ident * qual_ident) option;
@@ -36,7 +41,7 @@ type context = {
 
 type 'a t = context -> context * 'a
 
-let create ?focus ?(counterexamples = false) ?fingerprinting ~diagnostics session =
+let create ?focus ?(counterexamples = false) ?fingerprinting ?cache ~diagnostics session =
   {
     session;
     path_conditions = [];
@@ -45,6 +50,10 @@ let create ?focus ?(counterexamples = false) ?fingerprinting ~diagnostics sessio
     focus;
     counterexamples;
     fingerprinting;
+    cache;
+    fingerprints = Map.empty (module QualIdent);
+    used_fingerprints = [];
+    failed = false;
     heap_fields = Hashtbl.create (module String);
     sequence_functions = (fun _ -> None);
     branches = [];
@@ -54,7 +63,7 @@ let create ?focus ?(counterexamples = false) ?fingerprinting ~diagnostics sessio
 
 (** Forgets the conditionals of the procedure checked before. *)
 let start_procedure : unit t =
- fun context -> ({ context with branches = []; arms = [] }, ())
+ fun context -> ({ context with branches = []; arms = []; failed = false }, ())
 
 (** Records entering the conditional at [loc] with the test [test], and returns its id. *)
 let enter_branch ~(loc : Loc.t) (test : expr) : int t =
@@ -98,7 +107,25 @@ let record_result (proc : Diagnostics.MemberStatus.procedure)
     (outcome : Diagnostics.MemberStatus.outcome) : unit t =
  fun context ->
   Diagnostics.record_result context.diagnostics proc outcome;
-  (context, ())
+  let failed =
+    match outcome with Failed | Timeout -> true | Cached | Verified -> context.failed
+  in
+  ({ context with failed }, ())
+
+(** The fingerprint of the obligation [qual_name], if fingerprints are computed, and
+    whether the cache has it. *)
+let fingerprint qual_name : (string * bool) option t =
+ fun context ->
+  ( context,
+    Option.map (Map.find context.fingerprints qual_name) ~f:(fun fingerprint ->
+        ( fingerprint,
+          Option.exists context.cache ~f:(fun cache ->
+              VerificationCache.mem cache fingerprint) )) )
+
+(** Notes that the obligation of [fingerprint] was found in the cache or verified. *)
+let use_fingerprint fingerprint : unit t =
+ fun context ->
+  ({ context with used_fingerprints = fingerprint :: context.used_fingerprints }, ())
 
 let write cmd : unit t =
   let open State.Syntax in
