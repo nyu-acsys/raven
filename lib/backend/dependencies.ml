@@ -50,6 +50,17 @@ let root_dependencies (tbl : SymbolTbl.t) (mdef : Module.t) (ag : Graph.t) =
   let _, ag = Rewriter.eval ~update:false (analyze_auto_deps_module ag mdef) tbl in
   (g, ag)
 
+(** Whether [callable] is an auto lemma, whose contract is assumed wherever it is in
+    scope. *)
+let is_auto_lemma (callable : Callable.t) =
+  match callable with
+  | {
+   call_def = ProcDef _;
+   call_decl = { call_decl_kind = Lemma; call_decl_is_auto = true; _ };
+  } ->
+      true
+  | _ -> false
+
 (** The longest shared prefix of two module paths -- used to find the shallowest scope
     that is an ancestor of both. *)
 let rec common_prefix (p1 : Ident.t list) (p2 : Ident.t list) : Ident.t list =
@@ -118,7 +129,8 @@ let compute_placements (symbols : QualIdent.t list list) (g : Graph.t) (full_g :
     kept. [tbl] is the symbol table shared by all of [mdefs]. [lemma_calls] adds the
     lemma-to-callee edges that call elaboration removed from the AST. *)
 let analyze (tbl : SymbolTbl.t) (mdefs : Module.t list) (lemma_calls : Graph.t)
-    (root_auto_g : Graph.t) : (Ident.t list * QualIdent.t list) list * Graph.t * Graph.t =
+    (root_auto_g : Graph.t) :
+    (Ident.t list * QualIdent.t list) list * Graph.t * Graph.t * Graph.t =
   let rec inst_dependencies todos covered g auto_g obligations root_auto_g =
     let res =
       let open Option.Syntax in
@@ -251,4 +263,4 @@ let analyze (tbl : SymbolTbl.t) (mdefs : Module.t list) (lemma_calls : Graph.t)
         (List.sort ~compare:(fun v1 v2 ->
              compare (Map.find_exn rank v1) (Map.find_exn rank v2)))
   in
-  (compute_placements symbols g full_g, g, root_auto_g1)
+  (compute_placements symbols g full_g, g, full_g, root_auto_g1)

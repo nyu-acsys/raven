@@ -8,6 +8,13 @@ type focus = { extents : Loc.t list; assertion : string option }
 (** What `--only` selects: the procedures declared within the [extents], and in them only
     the [assertion] of that name, if any. *)
 
+type fingerprinting = {
+  run_key : string;  (** What the run fixes: the build of Raven, and the solver. *)
+  symbol_text : Module.symbol -> string;
+  report : bool;  (** Whether the fingerprints are output. *)
+}
+(** How the proof obligations' fingerprints are computed (see [Fingerprints]). *)
+
 type context = {
   session : SmtSolver.session;
   path_conditions : expr list;
@@ -15,6 +22,7 @@ type context = {
   diagnostics : Diagnostics.t;  (** The run's, for the verification errors. *)
   focus : focus option;
   counterexamples : bool;  (** Whether failed checks report a counterexample. *)
+  fingerprinting : fingerprinting option;
   heap_fields : (string, string) Hashtbl.t;
       (** The field each field's heap variable is named after, by the heap's name. *)
   sequence_functions : type_expr -> (qual_ident * qual_ident) option;
@@ -28,7 +36,7 @@ type context = {
 
 type 'a t = context -> context * 'a
 
-let create ?focus ?(counterexamples = false) ~diagnostics session =
+let create ?focus ?(counterexamples = false) ?fingerprinting ~diagnostics session =
   {
     session;
     path_conditions = [];
@@ -36,6 +44,7 @@ let create ?focus ?(counterexamples = false) ~diagnostics session =
     diagnostics;
     focus;
     counterexamples;
+    fingerprinting;
     heap_fields = Hashtbl.create (module String);
     sequence_functions = (fun _ -> None);
     branches = [];

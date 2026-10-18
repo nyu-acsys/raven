@@ -18,6 +18,7 @@ type config = {
   only : string option;
       (** The member, module or named assertion to verify, if not all. *)
   counterexamples : bool;
+  fingerprints : bool;  (** Whether the proof obligations' fingerprints are output. *)
 }
 
 let include_map = Hashtbl.create (module String)
@@ -186,6 +187,21 @@ let lower_cu ~ext_hooks ~diagnostics tbl md lowered_out_chan =
         "%a\n" printers.pr_module processed_md);
 
   (tbl, (processed_md, lemma_calls))
+
+(** The fingerprints of a run with the solver [session]: this build of Raven, the solver's
+    version, and each symbol's lowered form. *)
+let fingerprinting ~ext_hooks session ~report : Backend.CheckerContext.fingerprinting =
+  let printers = Rewriter.printers_of_ext_hooks ext_hooks in
+  {
+    run_key =
+      String.concat ~sep:"\n"
+        [
+          Stdlib.Digest.(to_hex (file Stdlib.Sys.executable_name));
+          Smt.SmtSolver.SmtSession.solver_version session;
+        ];
+    symbol_text = Stdlib.Format.asprintf "%a" printers.pr_symbol;
+    report;
+  }
 
 (** Runs backend/SMT checking over every already-elaborated compilation unit together (the
     library and the program being checked are siblings sharing one symbol table, not one
@@ -554,9 +570,14 @@ let parse_and_check_all ~extension_mode ~diagnostics config file_names =
         Backend.SmtPreamble.initialize solver_session ~diagnostics:config.smt_diagnostics
           ~timeout:config.smt_timeout;
         Backend.SmtPreamble.declare_tuple_sorts solver_session arities;
+        let fingerprinting =
+          if config.fingerprints then
+            Some (fingerprinting ~ext_hooks solver_session ~report:true)
+          else None
+        in
         let context =
           Backend.CheckerContext.create ?focus ~counterexamples:config.counterexamples
-            ~diagnostics solver_session
+            ?fingerprinting ~diagnostics solver_session
         in
         let (_ : Backend.CheckerContext.context) =
           backend_check_cu tbl context processed
@@ -669,6 +690,13 @@ let counterexamples =
      counterexample is only possible: it may contradict quantified facts."
   in
   Arg.(value & flag & info [ "counterexamples" ] ~doc)
+
+let fingerprints =
+  let doc =
+    "Output a fingerprint of each proof obligation: a digest of everything its check can \
+     use, which changes when anything does that could change the result."
+  in
+  Arg.(value & flag & info [ "fingerprints" ] ~doc)
 
 let extension_mode =
   let doc =
@@ -840,7 +868,7 @@ let serve_library_sources ~lib_sources ~dump_library ~print_library_source =
 
 let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annotations
     base_dir prog_stats smt_timeout smt_diagnostics max_errors only counterexamples
-    extension_mode_arg strict dump_library print_library_source manifest =
+    fingerprints extension_mode_arg strict dump_library print_library_source manifest =
   if manifest then begin
     (* Payload rather than logging, so it survives -q and needs no --shh: whoever asks
        is a program parsing this one line. *)
@@ -863,6 +891,7 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annot
       strict;
       only;
       counterexamples;
+      fingerprints;
     }
   in
   (* [EXT] "auto" is resolved from the input program's own syntax once it's parsed --
@@ -931,7 +960,7 @@ let main_cmd =
       ret
         (const main $ setup_config $ input_file $ no_greeting $ no_library
        $ typecheck_only $ lsp_mode $ lsp_annotations $ base_dir $ prog_stats $ smt_timeout
-       $ smt_diagnostics $ max_errors $ only $ counterexamples $ extension_mode $ strict
-       $ dump_library $ print_library_source $ manifest))
+       $ smt_diagnostics $ max_errors $ only $ counterexamples $ fingerprints
+       $ extension_mode $ strict $ dump_library $ print_library_source $ manifest))
 
 let () = Stdlib.exit (Cmd.eval main_cmd)

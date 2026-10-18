@@ -8,6 +8,7 @@ let rec respond response reason =
       | "(check-sat)" -> Logs.app (fun m -> m "%s" response)
       | "(get-info :reason-unknown)" ->
           Logs.app (fun m -> m "(:reason-unknown \"%s\")" reason)
+      | "(get-info :version)" -> Logs.app (fun m -> m "(:version \"stub\")")
       | _ -> ()
       end;
       respond response reason

@@ -251,6 +251,10 @@ module SmtSession = struct
           else Inconclusive
     end
 
+  let solver_version session =
+    write_command session (mk_get_info ":version");
+    response_line (read_response session)
+
   let push session =
     write_command session (mk_push 1);
     session.stack_height <- session.stack_height + 1

@@ -1,0 +1,49 @@
+// Which fingerprints an edit changes (see fingerprints.t): a caller depends on its
+// callee's contract, not its body, and on the functions and auto lemmas the contract
+// uses, also those of another module in scope; an unrelated procedure, and moving code,
+// change nothing else.
+
+field f: Int
+
+func double(n: Int) returns (r: Int) { n + n }
+
+auto lemma double_nonneg(n: Int)
+  requires n >= 0
+  ensures double(n) >= 0
+{}
+
+proc callee(x: Ref, n: Int)
+  requires own(x.f, n, 1.0) && n >= 0
+  ensures own(x.f, double(n), 1.0)
+{
+  x.f := n + n;
+}
+
+proc caller(x: Ref)
+  requires own(x.f, 3, 1.0)
+  ensures exists v: Int :: own(x.f, v, 1.0) && v >= 0
+{
+  callee(x, 3);
+}
+
+proc unrelated(y: Int) returns (z: Int)
+  ensures z == y + 1
+{
+  z := y + 1;
+}
+
+module M {
+  func g(n: Int) returns (r: Int) { n + 1 }
+}
+
+module N {
+  auto lemma g_pos(n: Int)
+    requires n >= 0
+    ensures M.g(n) >= 1
+  {}
+
+  proc uses_g(n: Int)
+    requires n >= 0
+    ensures M.g(n) > 0
+  {}
+}

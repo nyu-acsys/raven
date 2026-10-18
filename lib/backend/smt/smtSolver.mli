@@ -25,6 +25,9 @@ module SmtSession : sig
       model, which it can ask for the values of terms, in their order, as often as it
       needs: a counterexample, certain only for [Invalid]. *)
 
+  val solver_version : session -> string
+  (** The solver's version, as it reports it. *)
+
   val is_closed : session -> bool
   (** Whether the session was stopped, e.g. after Z3 did not respond in time. *)
 

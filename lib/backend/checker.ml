@@ -365,14 +365,7 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) : 
               m "Skipping %b" (is_free callable.call_decl.call_decl_status));
           State.return ())
 
-let is_auto_lemma (callable : Ast.Callable.t) =
-  match callable with
-  | {
-   call_def = ProcDef _;
-   call_decl = { call_decl_kind = Lemma; call_decl_is_auto = true; _ };
-  } ->
-      true
-  | _ -> false
+let is_auto_lemma = Dependencies.is_auto_lemma
 
 (** Assumes the contract of the auto lemma [callable]. *)
 let assume_auto_lemma (fully_qual_name : qual_ident) (callable : Ast.Callable.t) : unit t
@@ -422,6 +415,11 @@ let is_macro (g : Dependencies.Graph.t) (qual_name : qual_ident)
            (Dependencies.Graph.reachable g (Dependencies.Graph.succs g qual_name))
            qual_name)
   | _ -> false
+
+(** The symbol [qual_name] names, as an instance's member if it is one. *)
+let reify (tbl : SymbolTbl.t) (qual_name : qual_ident) : Module.symbol =
+  let tbl1 = SymbolTbl.goto qual_name tbl in
+  snd (Rewriter.eval ~update:false (Rewriter.find_and_reify qual_name) tbl1)
 
 (** Declares and checks a single SCC ([dep], as returned by [Dependencies.analyze]) at
     whatever scope is currently open -- the caller ([check_members]) is responsible for
@@ -473,14 +471,7 @@ let declare_and_check_dep (tbl : SymbolTbl.t) (g : Dependencies.Graph.t)
           ("Unsupported symbol: " ^ Symbol.to_string symbol)
   in
 
-  let dep_sym =
-    List.map dep ~f:(fun qual_name ->
-        let tbl1 = SymbolTbl.goto qual_name tbl in
-        let _, symbol =
-          Rewriter.eval ~update:false (Rewriter.find_and_reify qual_name) tbl1
-        in
-        (qual_name, symbol))
-  in
+  let dep_sym = List.map dep ~f:(fun qual_name -> (qual_name, reify tbl qual_name)) in
 
   let macros =
     List.filter_map dep_sym ~f:(function
@@ -671,9 +662,21 @@ let check_members (placed : (Ident.t list * QualIdent.t list) list)
 
 let check_module (module_defs : Ast.Module.t list) (lemma_calls : Dependencies.Graph.t)
     (tbl : SymbolTbl.t) (context : context) : context =
-  let dependencies, deps_graph, auto_dependencies =
+  let dependencies, deps_graph, auto_graph, auto_dependencies =
     Dependencies.analyze tbl module_defs lemma_calls context.auto_dependencies
   in
+  Option.iter context.fingerprinting ~f:(fun fingerprinting ->
+      let fingerprints =
+        Fingerprints.compute ~run_key:fingerprinting.run_key
+          ~symbol_text:fingerprinting.symbol_text ~reify:(reify tbl) ~deps:deps_graph
+          ~auto:auto_graph dependencies
+      in
+      if fingerprinting.report then
+        List.iter
+          (List.sort fingerprints ~compare:(fun (q1, _) (q2, _) ->
+               QualIdent.compare q1 q2))
+          ~f:(fun (q, fingerprint) ->
+            Logs.app (fun m -> m "%s %a" fingerprint QualIdent.pr q)));
 
   Logs.debug (fun m ->
       m "Dependencies: %a"
