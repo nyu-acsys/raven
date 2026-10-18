@@ -15,7 +15,8 @@ let version = "1.5.0"
     notes that the errors were cut off, one of kind ["Counterexample"] gives the values
     where the preceding error occurs, and ones of kind ["Branch"] the arms its path takes;
     [--lsp-annotations] also reports the members, modules and named assertions with their
-    verification status, and the names the program uses with what they refer to. *)
+    verification status, and the names the program uses with what they refer to; a client
+    may pass [--cache-dir], and run raven as a server with [--server]. *)
 let lsp_protocol_version = 4
 
 (** Oldest Z3 raven is known to work against. A client that supplies its own z3 alongside
