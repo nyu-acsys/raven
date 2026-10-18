@@ -19,6 +19,11 @@ type context = {
       (** The field each field's heap variable is named after, by the heap's name. *)
   sequence_functions : type_expr -> (qual_ident * qual_ident) option;
       (** The [length] and [index] functions of a type that has them, like a sequence. *)
+  branches : Counterexample.branch list;
+      (** The conditionals entered in the procedure being checked, latest first. *)
+  arms : (int * bool) list;
+      (** The arms of the conditionals the current statement is in, innermost first. *)
+  next_branch : int;
 }
 
 type 'a t = context -> context * 'a
@@ -33,7 +38,27 @@ let create ?focus ?(counterexamples = false) ~diagnostics session =
     counterexamples;
     heap_fields = Hashtbl.create (module String);
     sequence_functions = (fun _ -> None);
+    branches = [];
+    arms = [];
+    next_branch = 0;
   }
+
+(** Forgets the conditionals of the procedure checked before. *)
+let start_procedure : unit t =
+ fun context -> ({ context with branches = []; arms = [] }, ())
+
+(** Records entering the conditional at [loc] with the test [test], and returns its id. *)
+let enter_branch ~(loc : Loc.t) (test : expr) : int t =
+ fun context ->
+  let id = context.next_branch in
+  let branch = { Counterexample.id; stmt_loc = loc; test; arm = List.hd context.arms } in
+  ({ context with branches = branch :: context.branches; next_branch = id + 1 }, id)
+
+(** Runs [m] in the arm of the conditional [id], the [then] arm if [arm]. *)
+let in_arm id arm (m : 'a t) : 'a t =
+ fun context ->
+  let context', a = m { context with arms = (id, arm) :: context.arms } in
+  ({ context' with arms = context.arms }, a)
 
 (** Whether the procedure declared at [loc] is checked. *)
 let in_focus (loc : Loc.t) : bool t =
@@ -121,7 +146,8 @@ let counterexample_query (state : var_decl list) : Counterexample.query option t
       Some
         (Counterexample.query
            ~heap_field:(Hashtbl.find context.heap_fields)
-           ~sequence_functions:context.sequence_functions state)
+           ~sequence_functions:context.sequence_functions ~branches:context.branches
+           ~arms:context.arms state)
     else None )
 
 (** Records from the symbol table [tbl] which types have the [length] and [index]

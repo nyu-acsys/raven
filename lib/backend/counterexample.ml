@@ -7,6 +7,10 @@ open Ast
 open Util
 module Sexp = Sexplib.Sexp
 
+type branch = { id : int; stmt_loc : Loc.t; test : expr; arm : (int * bool) option }
+(** A conditional the checker entered: its test, and the arm of another it is in, as the
+    conditional's [id] and whether it is the [then] arm. *)
+
 type sequence = { name : string; term : expr; length : qual_ident; index : qual_ident }
 (** A variable whose type has the functions of a sequence, whose elements are read with
     them, since the type itself is opaque to the solver. *)
@@ -16,6 +20,10 @@ type query = {
   references : (string * expr) list;  (** The variables that are references. *)
   heaps : (string * expr) list;  (** By the names of their fields. *)
   sequences : sequence list;
+  candidates : branch list;
+      (** The conditionals entered before the check whose arms have rejoined, so that the
+          model decides which arm the failing path took. *)
+  arms : (int * bool) list;  (** The arms of the conditionals the check is in. *)
 }
 (** What a counterexample asks the model for, from the current versions of the variables
     in [state] and the field heaps among them, whose fields [heap_field] names; the
@@ -24,7 +32,8 @@ type query = {
 
 let query ~(heap_field : string -> string option)
     ~(sequence_functions : type_expr -> (qual_ident * qual_ident) option)
-    (state : var_decl list) : query =
+    ~(branches : branch list) ~(arms : (int * bool) list) (state : var_decl list) : query
+    =
   let named (var : var_decl) = (Ident.name var.var_name, Expr.from_var_decl var) in
   let generated (var : var_decl) = String.contains (Ident.name var.var_name) '$' in
   let variables = List.filter state ~f:(fun var -> not (generated var)) in
@@ -47,6 +56,10 @@ let query ~(heap_field : string -> string option)
                 length;
                 index;
               }));
+    candidates =
+      List.filter (List.rev branches) ~f:(fun branch ->
+          not (List.Assoc.mem arms branch.id ~equal:Int.equal));
+    arms;
   }
 
 (** The terms of [query] in the order [render] expects their values: the variables, null,
@@ -249,14 +262,74 @@ let int_of (value : Sexp.t) =
 (** How many elements of a sequence are shown. *)
 let max_elements = 10
 
+(** Whether the source [if] statement [text] has an [else]: the word after the block of
+    its [then] arm. *)
+let has_else (text : string) : bool =
+  match String.index text '{' with
+  | None -> String.is_substring text ~substring:"else"
+  | Some start ->
+      let rec close i depth =
+        if i >= String.length text then None
+        else
+          match text.[i] with
+          | '{' -> close (i + 1) (depth + 1)
+          | '}' -> if depth = 1 then Some i else close (i + 1) (depth - 1)
+          | _ -> close (i + 1) depth
+      in
+      Option.value_map (close start 0) ~default:false ~f:(fun i ->
+          String.is_prefix
+            (String.lstrip (String.drop_prefix text (i + 1)))
+            ~prefix:"else")
+
+(** What the arm of [branch] that is taken is called, if it is a source [if] or [while]:
+    lowering generates conditionals of its own. An [if] without [else] skips its [then]
+    arm. *)
+let arm_label (branch : branch) (taken : bool) : string option =
+  Option.bind (Loc.source_text branch.stmt_loc) ~f:(fun text ->
+      let text = String.lstrip text in
+      if String.is_prefix text ~prefix:"if" then
+        Some (if taken then "then" else if has_else text then "else" else "skipped")
+      else if String.is_prefix text ~prefix:"while" then
+        Some (if taken then "iterates" else "exits")
+      else None)
+
+(** Where to show the arm taken of [branch]: at its condition, if it has a location. *)
+let branch_loc (branch : branch) : Loc.t =
+  let test_loc = Expr.to_loc branch.test in
+  if String.equal (Loc.file_name test_loc) (Loc.file_name branch.stmt_loc) then test_loc
+  else branch.stmt_loc
+
+(** The arms the failing path takes at the [candidates] of [query], given the values of
+    their tests: of those whose enclosing arm is on the path, and are in the source. *)
+let taken_branches (query : query) (test_values : Sexp.t list) : (Loc.t * string) list =
+  let taken = Hashtbl.create (module Int) in
+  List.iter query.arms ~f:(fun (id, arm) -> Hashtbl.set taken ~key:id ~data:arm);
+  List.filter_map (List.zip_exn query.candidates test_values) ~f:(fun (branch, value) ->
+      let on_path =
+        match branch.arm with
+        | None -> true
+        | Some (id, arm) -> Option.equal Bool.equal (Hashtbl.find taken id) (Some arm)
+      in
+      match expand_lets value with
+      | Atom (("true" | "false") as truth) when on_path ->
+          let truth = String.equal truth "true" in
+          Hashtbl.set taken ~key:branch.id ~data:truth;
+          Option.map (arm_label branch truth) ~f:(fun label -> (branch_loc branch, label))
+      | _ -> None)
+
+type t = { lines : string list; branches : (Loc.t * string) list }
+(** A counterexample: one line per value, and the arms its path takes. *)
+
 (** The counterexample of [query] that the model gives through [get_values]: after the
-    values of the [terms], the lengths of the sequences, then their first elements. A
-    sequence whose functions the solver does not know is shown as its value. *)
-let collect (query : query) ~(get_values : expr list -> Sexp.t list option) : string list
-    =
-  match get_values (terms query) with
-  | None -> []
+    values of the [terms] and of the tests of the conditionals, the lengths of the
+    sequences, then their first elements. A sequence whose functions the solver does not
+    know is shown as its value. *)
+let collect (query : query) ~(get_values : expr list -> Sexp.t list option) : t =
+  let base = terms query in
+  match get_values (base @ List.map query.candidates ~f:(fun branch -> branch.test)) with
+  | None -> { lines = []; branches = [] }
   | Some values ->
+      let values, test_values = List.split_n values (List.length base) in
       let call f args = Expr.mk_app ~typ:Type.any (Var f) args in
       let lengths =
         if List.is_empty query.sequences then None
@@ -287,8 +360,17 @@ let collect (query : query) ~(get_values : expr list -> Sexp.t list option) : st
                 let mine, rest = List.split_n remaining (min n max_elements) in
                 (rest, (s.name, n, mine)))
       in
-      lines ~sequences query values
+      {
+        lines = lines ~sequences query values;
+        branches = taken_branches query test_values;
+      }
 
-(** The diagnostic entry of a counterexample, for the error before it. *)
-let to_error ~certain (lines : string list) : Error.t =
-  (Counterexample { certain }, Loc.dummy, String.concat ~sep:"\n" lines)
+(** The diagnostic entries of a counterexample, for the error before them: its values, and
+    the arm taken at each conditional on its path. *)
+let to_errors ~certain (counterexample : t) : Error.t list =
+  match counterexample.lines with
+  | [] -> []
+  | lines ->
+      (Counterexample { certain }, Loc.dummy, String.concat ~sep:"\n" lines)
+      :: List.map counterexample.branches ~f:(fun (loc, label) ->
+          (Error.Branch, loc, label))

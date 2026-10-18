@@ -16,6 +16,9 @@ type error_kind =
   | Counterexample of { certain : bool }
       (** Values of the program's variables for which the preceding error occurs, one
           [name = value] per line of the message; only possible unless [certain]. *)
+  | Branch
+      (** The arm of the conditional at its location that the path of the preceding
+          counterexample takes, as the message. *)
 
 let error_kind_to_lsp_string = function
   | Generic -> "Generic"
@@ -29,6 +32,7 @@ let error_kind_to_lsp_string = function
   | Warning -> "Warning"
   | Limit -> "Limit"
   | Counterexample _ -> "Counterexample"
+  | Branch -> "Branch"
 
 let error_kind_to_string = function
   | Generic -> "Error"
@@ -43,6 +47,7 @@ let error_kind_to_string = function
   | Limit -> "Error"
   | Counterexample { certain = true } -> "Counterexample"
   | Counterexample { certain = false } -> "Possible counterexample"
+  | Branch -> "Branch"
 
 type t = error_kind * Loc.t * String.t
 
@@ -84,6 +89,8 @@ let to_string (kind, (loc : Loc.t), msg) =
       lbl
   in
   match kind with
+  | Branch ->
+      Printf.sprintf "%s %s at line %d" (String.rstrip label) msg (Loc.start_line loc)
   | Counterexample _ ->
       (* One value per line, below the label. *)
       String.rstrip label

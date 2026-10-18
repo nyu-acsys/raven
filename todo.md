@@ -18,7 +18,7 @@
     masks, and whether a call is atomic.
 - [x] Editor: show counterexamples for failed assertions from Z3's model, mapped back
     through lowering and SSA.
-- [ ] Counterexamples: show which branches the failing path took, e.g. as inlay hints
+- [x] Counterexamples: show which branches the failing path took, e.g. as inlay hints
     at each `if` on the path.
 - [ ] Map literals with a default, such as `[1 := 5, else 4]`, as counterexamples show
     maps.

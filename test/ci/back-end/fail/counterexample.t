@@ -35,6 +35,17 @@ counterexample", so the two are shown alike here.
   [Error] Counterexample:
     q = [|7, 8|]
     s = {|1, 3|}
+  [Error] File "./counterexample.rav", line 53, columns 9-15:
+  53 |   assert z != 2;
+                ^^^^^^
+  Verification Error: This assertion may be violated.
+  [Error] Counterexample:
+    x = 1
+    y = 0
+    z = 2
+  [Error] Branch: then at line 41
+  [Error] Branch: else at line 42
+  [Error] Branch: skipped at line 50
 
 Without the flag, there are none.
 

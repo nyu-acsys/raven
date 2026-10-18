@@ -31,3 +31,24 @@ proc collections(s: Set[Int], q: Seq[Int])
 {
   assert false;
 }
+
+// The arms the failing path takes at the conditionals before the failure: an else, a
+// skipped then, and a nested one; the else arm's conditional is not on the path.
+proc branches(x: Int, y: Int) returns (z: Int)
+  requires x == 1 && y == 0
+{
+  z := 0;
+  if (x > 0) {
+    if (y > 0) {
+      z := 1;
+    } else {
+      z := 2;
+    }
+  } else {
+    if (y > 5) { z := 3; }
+  }
+  if (y > 0) {
+    z := z + 1;
+  }
+  assert z != 2;
+}

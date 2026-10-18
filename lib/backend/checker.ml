@@ -81,12 +81,13 @@ let rec check_stmt ~proc curr_callable (stmt : Stmt.t) : unit t =
       in
       State.return ()
   | Cond ({ cond_test = Some test; _ } as cond_desc) ->
+      let* id = enter_branch ~loc:(Stmt.to_loc stmt) test in
       let* _ = push_path_condn test in
-      let* _ = check_stmt ~proc curr_callable cond_desc.cond_then in
+      let* _ = in_arm id true (check_stmt ~proc curr_callable cond_desc.cond_then) in
       let* _ = pop_path_condn in
 
       let* _ = push_path_condn (Expr.mk_not test) in
-      let* _ = check_stmt ~proc curr_callable cond_desc.cond_else in
+      let* _ = in_arm id false (check_stmt ~proc curr_callable cond_desc.cond_else) in
       let* _ = pop_path_condn in
 
       State.return ()
@@ -136,24 +137,22 @@ let rec check_stmt ~proc curr_callable (stmt : Stmt.t) : unit t =
                 if not checked then State.return ()
                 else
                   let* query = counterexample_query spec.spec_state in
-                  let* result, lines =
+                  let* result, counterexample =
                     check_valid_with_model
                       ?name:(Option.map spec.spec_name ~f:(fun name -> name ^ "$goal"))
                       ~model:(fun get_values ->
-                        Option.value_map query ~default:[] ~f:(fun query ->
+                        Option.map query ~f:(fun query ->
                             Counterexample.collect query ~get_values))
                       spec.spec_form
                   in
                   (* The model's values where the check fails, after its error. *)
                   let counterexample =
-                    match lines with
-                    | Some (_ :: _ as lines) ->
-                        [
-                          Counterexample.to_error
-                            ~certain:(Poly.equal result SmtSolver.Invalid)
-                            lines;
-                        ]
-                    | _ -> []
+                    match Option.join counterexample with
+                    | Some counterexample ->
+                        Counterexample.to_errors
+                          ~certain:(Poly.equal result SmtSolver.Invalid)
+                          counterexample
+                    | None -> []
                   in
                   match result with
                   | Valid -> (
@@ -332,6 +331,7 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) : 
           else
             with_scope
             @@
+            let* () = start_procedure in
             let* _ =
               write_comment
                 (Stdlib.Format.asprintf "Checking %a" QualIdent.pr fully_qual_name)

@@ -658,8 +658,9 @@ let only =
 let counterexamples =
   let doc =
     "For a failed check, show the values of the variables, and of the fields of the \
-     references among them, at the failure. When the solver could not decide the check, \
-     the counterexample is only possible: it may contradict quantified facts."
+     references among them, at the failure, and the arms the failing path takes at the \
+     conditionals before it. When the solver could not decide the check, the \
+     counterexample is only possible: it may contradict quantified facts."
   in
   Arg.(value & flag & info [ "counterexamples" ] ~doc)
 
