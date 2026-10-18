@@ -553,7 +553,10 @@ let rec rewrite_loops (enclosing : Callable.call_decl) (stmt : Stmt.t) : Stmt.t 
             List.map loop_arg_var_decls ~f:(fun var_decl -> Expr.from_var_decl var_decl)
           in
 
-          Stmt.mk_call ~loc ~lhs:lhs_list
+          (* At the end of the body, where the next iteration starts. *)
+          Stmt.mk_call
+            ~loc:(Loc.last_char loop.loop_postbody.stmt_loc)
+            ~lhs:lhs_list
             (QualIdent.from_ident loop_proc_name)
             args_list ~is_spawn:false
         in

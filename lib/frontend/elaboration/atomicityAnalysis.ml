@@ -777,25 +777,36 @@ let call_reentrancy_asserts ~loc (atomicity_state : atomicity_check)
       in
       (* [args] may be a coarse prefix (e.g. a truncated implicit); an empty
          or matching prefix is rejected as possibly the same instance. *)
+      (* The instance must be folded before the call, as before a return: report it as
+         a missing fold, pointing back at the [unfold]. *)
       List.map same_name_open ~f:(fun inv ->
+          let unfolded =
+            ( Error.RelatedLoc,
+              inv.inv_loc,
+              Printf.sprintf "%s was unfolded here" (inv_to_string inv) )
+          in
           match disjointness_condition ~loc args inv with
           | Error () ->
-              Error.verification_error loc
-                (Printf.sprintf
-                   !"Invariant %{Ident} is already open"
-                   (qi |> QualIdent.unqualify))
+              Error.fail_with
+                [
+                  ( Error.Verification,
+                    loc,
+                    Printf.sprintf "Missing fold for unfolded invariant %s"
+                      (inv_to_string inv) );
+                  unfolded;
+                ]
           | Ok cond ->
               let spec_error =
                 let error =
                   ( Error.Verification,
                     loc,
                     Printf.sprintf
-                      !"Cannot call this here: the invariant %{Ident} required by the \
-                        callee may be the same instance as one already open (arguments \
-                        identifying the two instances are not provably distinct)"
-                      (qi |> QualIdent.unqualify) )
+                      "Missing fold for unfolded invariant %s, which the callee may need \
+                       (the arguments identifying the two instances are not provably \
+                       distinct)"
+                      (inv_to_string inv) )
                 in
-                [ Stmt.mk_const_spec_error error ]
+                [ Stmt.mk_const_spec_error error; Stmt.mk_const_spec_error unfolded ]
               in
               Stmt.mk_assert_expr ~loc ~spec_error cond))
 

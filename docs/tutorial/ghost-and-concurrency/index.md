@@ -93,10 +93,12 @@ automatically from the invariants its `requires` clause mentions, together with 
 mentioned inside those invariants' own definitions. The mask catches two concrete mistakes, both
 purely structural (no solver call is needed to catch either):
 
-- **Re-entrant unfolding.** Unfolding the same instance twice without folding in between gets
-  `[Verification Error] Invariant evenCount is already open`. This can be a literal
-  `unfold evenCount(c); unfold evenCount(c);` typo or, more realistically, a call to a helper
-  procedure that *also* unfolds `evenCount` while you still have it open.
+- **Re-entrant unfolding.** Unfolding the same instance twice without folding in between, as in
+  a literal `unfold evenCount(c); unfold evenCount(c);` typo, gets
+  `[Verification Error] Invariant evenCount is already open`. More realistically, a call to a
+  helper procedure that *also* unfolds `evenCount` while you still have it open gets
+  `Missing fold for unfolded invariant evenCount(c)` at the call, pointing back at your
+  `unfold`, just as a missing fold at the end of a body does.
 - **Calling into a mask that isn't there.** If `bumpTwice` (`requires evenCount(c)`) is called
   while the caller already has `evenCount(c)` unfolded, `bumpTwice` can't get the folded resource
   its own precondition is asking for: `[Verification Error] Cannot call bumpTwice. The invariant
@@ -260,8 +262,8 @@ because they call for different fixes:
    you broke and are flagged instantly (no solver call is involved at all). The fix is always to
    restructure the control flow: add the missing `fold`, or avoid taking two atomic steps while
    the invariant is open.
-2. **Mask errors** such as `Invariant %s is already open` and `... is not available in the
-   current mask` are also syntactic, and are also fixed structurally (see
+2. **Mask errors** such as `Invariant %s is already open`, a missing fold before a call, and
+   `... is not available in the current mask` are also syntactic, and are also fixed structurally (see
    {{ref sec:shared-invariants}}). Fold back what's open before the unfold or call that's
    failing.
 3. **A verifier-checked failure at an `fpu`** (`This update may not be frame-preserving`, or, as

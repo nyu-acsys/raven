@@ -22,6 +22,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - Atomic calls inside an open atomic update now check that it stays abortable.
+- An invariant still open at a call or a loop's next iteration is reported as a missing fold.
 
 ## [1.5.0] - 2026-10-16
 

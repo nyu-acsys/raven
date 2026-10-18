@@ -2,5 +2,9 @@
   [Error] File "./mask_reentrancy_call.rav", line 32, columns 2-9:
   32 |   foo(y);
          ^^^^^^^
-  Verification Error: Cannot call this here: the invariant i required by the callee may be the same instance as one already open (arguments identifying the two instances are not provably distinct).
+  Verification Error: Missing fold for unfolded invariant i(x), which the callee may need (the arguments identifying the two instances are not provably distinct).
+  [Error] File "./mask_reentrancy_call.rav", line 31, columns 2-14:
+  31 |   unfold i(x);
+         ^^^^^^^^^^^^
+  Related Location: i(x) was unfolded here.
   [1]

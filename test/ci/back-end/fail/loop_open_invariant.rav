@@ -1,0 +1,19 @@
+field f: Int
+
+inv cell(x: Ref) {
+  own(x.f, 1)
+}
+
+// The loop body opens the invariant but does not close it, so it is still open
+// where the next iteration starts.
+proc p(x: Ref, n: Int)
+  requires cell(x)
+{
+  var i: Int := 0;
+  while (i < n)
+    invariant cell(x)
+  {
+    unfold cell(x);
+    i := i + 1;
+  }
+}
