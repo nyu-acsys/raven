@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 - Report all errors instead of only the first, up to `--max-errors` (default 20).
 - `--only NAME` verifies a single member, module or named assertion.
+- Loop invariants can be named like assertions: `invariant a: e`.
 - Report the verification status of each member and module to editors.
 - Report to editors what each name refers to, for hovers and going to definitions.
 - Say when an assertion fails because the solver timed out.

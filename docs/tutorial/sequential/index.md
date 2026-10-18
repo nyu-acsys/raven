@@ -357,7 +357,8 @@ one of each). For a loop invariant, Raven also tells you *which* half failed:
   once breaks it (often because the invariant is too weak to survive a single iteration).
 
 These are two different bugs with two different fixes, and the message tells you which one
-you're looking at.
+you're looking at. With several invariants, a label says which of them failed:
+`invariant bounds: 0 <= i <= n` is reported as "Assertion 'bounds': ...".
 
 ## Exercises
 

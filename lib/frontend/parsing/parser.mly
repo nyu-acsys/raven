@@ -999,26 +999,9 @@ loop_contract_list:
 ;
 
 loop_contract:
-| INVARIANT; e = expr {
-  (*let loc = Expr.to_loc e in
-  let msg caller =
-    Error.Verification,
-    loc,
-    if caller = proc_name then
-      "This loop invariant may not hold on loop entry"
-    else
-      "This loop invariant may not be maintained by the loop"
-  in*)
-  let spec =
-    Stmt.{ spec_form = e;
-           spec_atomic = false;
-           spec_comment = None;
-           spec_name = None;
-           spec_error = [];
-           spec_source = None; spec_trigs = [];
-         }
-  in
-  `Invariant spec
+| INVARIANT; e = expr { `Invariant (Stmt.mk_spec e) }
+| INVARIANT; name = plain_ident; COLON; e = expr {
+  `Invariant (Stmt.mk_spec ~name:name.Ident.ident_name e)
 }
 | ce = contract_ext { `Ext ce }
 ;

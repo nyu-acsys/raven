@@ -198,19 +198,26 @@ let backend_check_cu tbl context processed =
   in
   Backend.Checker.check_module processed_mds lemma_calls tbl context
 
-(** The named assertions of the statement [stmt], with their locations; those in a
-    statement an extension defines are not found. *)
-let rec named_assertions (stmt : Ast.Stmt.t) : (string * Loc.t) list =
+(** The named assertions and loop invariants of the statement [stmt], with their kinds and
+    locations; those in a statement an extension defines are not found. *)
+let rec named_assertions (stmt : Ast.Stmt.t) : (string * string * Loc.t) list =
   match stmt.stmt_desc with
   | Block block -> List.concat_map block.block_body ~f:named_assertions
-  | Loop loop -> named_assertions loop.loop_prebody @ named_assertions loop.loop_postbody
+  | Loop loop ->
+      List.filter_map loop.loop_contract ~f:(fun spec ->
+          Option.map spec.spec_name ~f:(fun name ->
+              (name, "invariant", Expr.to_loc spec.spec_form)))
+      @ named_assertions loop.loop_prebody
+      @ named_assertions loop.loop_postbody
   | Cond cond -> named_assertions cond.cond_then @ named_assertions cond.cond_else
-  | Basic (Spec (Assert, { spec_name = Some name; _ })) -> [ (name, stmt.stmt_loc) ]
+  | Basic (Spec (Assert, { spec_name = Some name; _ })) ->
+      [ (name, "assertion", stmt.stmt_loc) ]
   | Basic _ | StmtExt _ -> []
 
-(** The callables, named assertions and modules of the parsed program [md], for their
-    verification status. The text of a callable is the union of the locations of its name,
-    contract and body that lie in the file it is declared in. *)
+(** The callables, named assertions and invariants, fields, types, constants and modules
+    of the parsed program [md], for their verification status and an outline. The text of
+    a callable is the union of the locations of its name, contract and body that lie in
+    the file it is declared in. *)
 let source_members (md : Ast.Module.t) :
     Diagnostics.MemberStatus.member list * Diagnostics.MemberStatus.group list =
   let member path (callable : Ast.Callable.t) =
@@ -252,10 +259,10 @@ let source_members (md : Ast.Module.t) :
     let assertions =
       match callable.call_def with
       | ProcDef { proc_body = Some body } ->
-          List.map (named_assertions body) ~f:(fun (label, loc) ->
+          List.map (named_assertions body) ~f:(fun (label, kind, loc) ->
               {
                 Diagnostics.MemberStatus.name = name ^ "." ^ label;
-                kind = "assertion";
+                kind;
                 name_loc = loc;
                 extent = loc;
                 checked = false;
@@ -266,11 +273,33 @@ let source_members (md : Ast.Module.t) :
     { Diagnostics.MemberStatus.name; kind; name_loc; extent; checked; inherited = false }
     :: assertions
   in
+  let declaration path kind (name : Ident.t) extent =
+    {
+      Diagnostics.MemberStatus.name =
+        String.concat ~sep:"." (List.rev (Ident.name name :: path));
+      kind;
+      name_loc = Ident.to_loc name;
+      extent;
+      checked = false;
+      inherited = false;
+    }
+  in
   (* Accumulates in reverse order. *)
   let rec collect path (members, groups) (md : Ast.Module.t) =
     List.fold md.mod_def ~init:(members, groups) ~f:(fun (members, groups) -> function
       | Ast.Module.SymbolDef (CallDef callable) ->
           (List.rev_append (member path callable) members, groups)
+      | SymbolDef (FieldDef field) ->
+          (declaration path "field" field.field_name field.field_loc :: members, groups)
+      | SymbolDef (TypeDef typ) ->
+          (declaration path "type" typ.type_def_name typ.type_def_loc :: members, groups)
+      | SymbolDef (ModInst instance) when Option.is_some instance.mod_inst_def ->
+          ( declaration path "instance" instance.mod_inst_name instance.mod_inst_loc
+            :: members,
+            groups )
+      | SymbolDef (VarDef var) ->
+          ( declaration path "val" var.var_decl.var_name var.var_decl.var_loc :: members,
+            groups )
       | SymbolDef (ModDef sub) ->
           let sub_path = Ident.name sub.mod_decl.mod_decl_name :: path in
           let group =
@@ -296,7 +325,7 @@ let focus_of members groups (name : string) : Backend.CheckerContext.focus =
     ( List.find members ~f:named,
       List.find groups ~f:(fun g -> String.equal g.group_name name) )
   with
-  | Some { kind = "assertion"; _ }, _ ->
+  | Some { kind = "assertion" | "invariant"; _ }, _ ->
       (* The assertion's member is the one its name extends. *)
       let member_name = String.rsplit2_exn name ~on:'.' |> fst in
       let label = String.rsplit2_exn name ~on:'.' |> snd in

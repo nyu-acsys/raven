@@ -629,7 +629,9 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
           let exhale_stmts =
             List.mapi call_decl.call_decl_precond ~f:(fun i spec ->
                 (* Logs.debug (fun m -> m "Lowering.rewrite_call_stmts: Exhale_stmt=%a; Exhale_stmt_error_len = %i; Exhale_stmt_error=%s" Expr.pr spec.spec_form (List.length spec_error) (Error.to_string ((List.hd_exn spec_error) (QualIdent.from_ident call_decl.call_decl_name) stmt.stmt_loc)) ); *)
-                Stmt.mk_exhale_expr ~loc:stmt.stmt_loc
+                (* The name of a named loop invariant, which is the precondition of the
+                   loop's procedure, names its checks on entry and maintenance. *)
+                Stmt.mk_exhale_expr ~loc:stmt.stmt_loc ?name:spec.spec_name
                   ~cmnt:("Exhale stmt for Call: " ^ Stmt.to_string stmt)
                   ~spec_error:spec.spec_error ~spec_source:(callee_qual_ident, i)
                   (Expr.alpha_renaming spec.spec_form new_renaming_map))

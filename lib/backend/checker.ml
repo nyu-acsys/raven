@@ -120,12 +120,15 @@ let rec check_stmt ~proc curr_callable (stmt : Stmt.t) : unit t =
                 in
                 match spec.spec_name with
                 | Some name ->
+                    (* Where its error is reported, which is the source of an invariant
+                       too, whose statement is a call. *)
+                    let loc =
+                      match Stmt.spec_error_msg spec curr_callable (Stmt.to_loc stmt) with
+                      | (_, loc, _) :: _ -> loc
+                      | [] -> Stmt.to_loc stmt
+                    in
                     record_result
-                      {
-                        proc_loc = Stmt.to_loc stmt;
-                        proc_name = name;
-                        proc_kind = "assertion";
-                      }
+                      { proc_loc = loc; proc_name = name; proc_kind = "assertion" }
                       outcome
                 | None -> State.return ()
               in

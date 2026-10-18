@@ -17,6 +17,22 @@
   24 |     ensures x + 1 == x
                    ^^^^^^^^^^
   Related Location: This assertion may not hold.
+  [Error] File "./only.rav", line 35, columns 27-33:
+  35 |     invariant wrong_entry: i >= 1
+                                  ^^^^^^
+  Verification Error: Assertion 'wrong_entry': This loop invariant may not hold upon loop entry.
+  [Error] File "./only.rav", line 35, columns 27-33:
+  35 |     invariant wrong_entry: i >= 1
+                                  ^^^^^^
+  Related Location: This assertion may not hold.
+  [Error] File "./only.rav", line 36, columns 26-32:
+  36 |     invariant wrong_step: i <= 1
+                                 ^^^^^^
+  Verification Error: Assertion 'wrong_step': This loop invariant may not be maintained.
+  [Error] File "./only.rav", line 36, columns 26-32:
+  36 |     invariant wrong_step: i <= 1
+                                 ^^^^^^
+  Related Location: This assertion may not hold.
   [1]
   $ dune exec -- raven --shh --only M.fine ./only.rav
   Verification successful.
@@ -50,6 +66,22 @@ Only the named assertion is checked, including one in a loop.
   12 |     assert loop_wrong: i >= 1;
                               ^^^^^^
   Verification Error: Assertion 'loop_wrong': This assertion may be violated.
+  [1]
+
+Loop invariants can be named too; only the named one is checked, on entry and
+when maintained.
+
+  $ dune exec -- raven --shh --only count.bounded ./only.rav
+  Verification successful.
+  $ dune exec -- raven --shh --only count.wrong_step ./only.rav
+  [Error] File "./only.rav", line 36, columns 26-32:
+  36 |     invariant wrong_step: i <= 1
+                                 ^^^^^^
+  Verification Error: Assertion 'wrong_step': This loop invariant may not be maintained.
+  [Error] File "./only.rav", line 36, columns 26-32:
+  36 |     invariant wrong_step: i <= 1
+                                 ^^^^^^
+  Related Location: This assertion may not hold.
   [1]
 
 A name that names nothing is an error.

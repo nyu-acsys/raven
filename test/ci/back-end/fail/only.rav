@@ -24,3 +24,17 @@ module M {
     ensures x + 1 == x
   {}
 }
+
+proc count(n: Int) returns (i: Int)
+  requires n >= 0
+  ensures i == n
+{
+  i := 0;
+  while (i < n)
+    invariant bounded: 0 <= i <= n
+    invariant wrong_entry: i >= 1
+    invariant wrong_step: i <= 1
+  {
+    i := i + 1;
+  }
+}

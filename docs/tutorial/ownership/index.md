@@ -123,8 +123,8 @@ assert owns_cell: own(c2.count, v2);
 ```
 
 The label is just diagnostic context; it does not declare a variable or affect verification.
-Labels are allowed on ordinary assertions, assertions with a proof block, and resource
-assertions.
+Labels are allowed on ordinary assertions, assertions with a proof block, resource
+assertions, and loop invariants (`invariant bounds: 0 <= i <= n`).
 
 ## Fractional permissions {#sec:fractional-permissions}
 

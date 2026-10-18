@@ -12,6 +12,8 @@ for the axioms of its interface.
   39 proc loop_fails failed
   50 lemma Good.Inner.zero verified
   55 lemma Good.one verified
+  63 type Fst.T -
+  64 val Fst.id -
   65 func Fst.comp -
   66 func Fst.frame -
   67 func Fst.valid -
@@ -41,6 +43,8 @@ Members not checked after the error limit was reached are skipped.
   39 proc loop_fails failed
   50 lemma Good.Inner.zero skipped
   55 lemma Good.one skipped
+  63 type Fst.T -
+  64 val Fst.id -
   65 func Fst.comp -
   66 func Fst.frame -
   67 func Fst.valid -

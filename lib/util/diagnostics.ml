@@ -108,9 +108,14 @@ module MemberStatus = struct
 
   let size (loc : Loc.t) = Loc.end_index loc - Loc.start_index loc
 
+  (** Whether checked procedures can be attributed to [member]: not to a field, type,
+      constant or module instance, which are listed only for an outline. *)
+  let attributable member =
+    not (List.mem [ "field"; "type"; "val"; "instance" ] member.kind ~equal:String.equal)
+
   (** The innermost of [members] whose text contains [loc]. *)
   let innermost (members : member list) (loc : Loc.t) =
-    List.filter members ~f:(fun m -> contains m.extent loc)
+    List.filter members ~f:(fun m -> attributable m && contains m.extent loc)
     |> List.min_elt ~compare:(fun m1 m2 -> Int.compare (size m1.extent) (size m2.extent))
 
   let status_to_string = function
@@ -189,12 +194,14 @@ module MemberStatus = struct
     String.is_prefix member.name ~prefix:(group.group_name ^ ".")
 
   (** The worst status of the members nested in [group], and how many have each status.
-      Named assertions are counted with the members they are in. *)
+      Named assertions and invariants are counted with the members they are in. *)
   let summary (statuses : (member * status option) list) (group : group) =
     let nested =
       List.filter_map statuses ~f:(fun (member, status) ->
-          if nested_in group member && not (String.equal member.kind "assertion") then
-            status
+          if
+            nested_in group member
+            && not (List.mem [ "assertion"; "invariant" ] member.kind ~equal:String.equal)
+          then status
           else None)
     in
     Option.map (List.max_elt nested ~compare:compare_status) ~f:(fun worst ->
