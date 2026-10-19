@@ -39,6 +39,9 @@ type library_snapshot = {
 (** Whether runs keep and reuse the type-checked library, as a server's do. *)
 let serving = ref false
 
+(** How the run a server is answering sends a partial answer, if it is asked for one. *)
+let server_partial : (string -> unit) option ref = ref None
+
 (** How the run a server is answering learns that it is cancelled. *)
 let server_cancellation : Diagnostics.cancellation option ref = ref None
 
@@ -401,8 +404,9 @@ let focus_of members groups (name : string) : Backend.CheckerContext.focus =
     the library -- whose sources the choice picks -- is parsed. That's why the program is
     parsed here ahead of the library, the reverse of the order *type-checking* needs (see
     [type_cu]'s doc comment): parsing has no dependency on the library's symbol table,
-    only type-checking does. *)
-let parse_and_check_all ~extension_mode ~diagnostics config file_names =
+    only type-checking does. [on_typed] is called once the program is type-checked without
+    errors, if it is verified next. *)
+let parse_and_check_all ?on_typed ~extension_mode ~diagnostics config file_names =
   Ident.restore ();
   Hashtbl.clear include_map;
   (* Variable which controls whether the
@@ -589,6 +593,8 @@ let parse_and_check_all ~extension_mode ~diagnostics config file_names =
       { md with mod_def = List.map Library.prelude ~f:import @ md.mod_def }
   in
   let tbl, prog_typed = type_cu ~ext_hooks ~diagnostics config tbl md in
+  if not (config.typecheck_only || Diagnostics.has_errors diagnostics) then
+    Option.iter on_typed ~f:(fun on_typed -> on_typed ());
 
   (* All units are type-checked before any is rewritten -- see [type_cu] -- and
      elaborated before any is lowered -- see [elaborate_cu]. The library goes first
@@ -862,28 +868,30 @@ let anchor_lsp_diagnostic err =
   anchor err
 
 (** With `--lsp-annotations`, include editor annotations and dependency filenames. *)
-let print_lsp_output config ~diagnostics errs =
+let lsp_output config ~diagnostics errs =
   let errs =
     List.map (Diagnostics.warnings diagnostics @ errs) ~f:anchor_lsp_diagnostic
   in
   if config.lsp_annotations then
     let references, symbols = Diagnostics.references_to_json diagnostics in
-    Stdlib.print_endline
-      (Yojson.Safe.to_string
-         (`Assoc
-            [
-              ("errors", `List (List.map errs ~f:Error.to_lsp_json));
-              ("annotations", Diagnostics.annotations_to_json diagnostics);
-              ("members", Diagnostics.members_to_json diagnostics);
-              ("references", references);
-              ("symbols", symbols);
-              ( "dependencies",
-                `List
-                  (Hashtbl.keys include_map
-                  |> List.sort ~compare:String.compare
-                  |> List.map ~f:(fun file -> `String file)) );
-            ]))
-  else Stdlib.print_endline (Error.errors_to_lsp_string errs)
+    Yojson.Safe.to_string
+      (`Assoc
+         [
+           ("errors", `List (List.map errs ~f:Error.to_lsp_json));
+           ("annotations", Diagnostics.annotations_to_json diagnostics);
+           ("members", Diagnostics.members_to_json diagnostics);
+           ("references", references);
+           ("symbols", symbols);
+           ( "dependencies",
+             `List
+               (Hashtbl.keys include_map
+               |> List.sort ~compare:String.compare
+               |> List.map ~f:(fun file -> `String file)) );
+         ])
+  else Error.errors_to_lsp_string errs
+
+let print_lsp_output config ~diagnostics errs =
+  Stdlib.print_endline (lsp_output config ~diagnostics errs)
 
 (** Reports [errs], and returns the exit code of the run. *)
 let print_errors config ~diagnostics errs =
@@ -1001,7 +1009,12 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annot
           ?cancellation:!server_cancellation ()
       in
       try
-        parse_and_check_all ~extension_mode ~diagnostics config input_files;
+        (* A server can answer what type checking found before verification is done. *)
+        let on_typed =
+          Option.map !server_partial ~f:(fun send () ->
+              if config.lsp_mode then send (lsp_output config ~diagnostics []))
+        in
+        parse_and_check_all ?on_typed ~extension_mode ~diagnostics config input_files;
         if
           config.lsp_mode
           && (config.lsp_annotations
@@ -1044,9 +1057,17 @@ let main_cmd =
        $ extension_mode $ strict $ dump_library $ print_library_source $ manifest $ server
         ))
 
+(** Writes all of [text] to [fd]. *)
+let write_all fd text =
+  let rec write pos =
+    if pos < String.length text then
+      write (pos + Unix.write_substring fd text pos (String.length text - pos))
+  in
+  write 0
+
 (** Runs [f] with stdout and stderr going to temporary files, and returns its result with
-    what it output there. *)
-let capture_output (f : unit -> int) : int * string * string =
+    what it output there. [f] gets the descriptor of stdout itself. *)
+let capture_output (f : Unix.file_descr -> int) : int * string * string =
   let flush () =
     Stdlib.Format.pp_print_flush Stdlib.Format.std_formatter ();
     Stdlib.Format.pp_print_flush Stdlib.Format.err_formatter ();
@@ -1070,7 +1091,7 @@ let capture_output (f : unit -> int) : int * string * string =
     Unix.close saved_out;
     Unix.close saved_err
   in
-  let code = Stdlib.Fun.protect ~finally:restore f in
+  let code = Stdlib.Fun.protect ~finally:restore (fun () -> f saved_out) in
   let read file =
     let text = Stdio.In_channel.read_all file in
     Stdlib.Sys.remove file;
@@ -1133,9 +1154,11 @@ let cancelled id () =
 
 (** Answers requests on stdin, one JSON object per line, [{"id", "cwd", "args"}]: the
     working directory and command-line arguments of a run. Each answer is one line on
-    stdout, [{"id", "exit", "stdout", "stderr"}]: the run's exit code and output. A run is
-    cancelled by [{"cancel": id}], and then answered by [{"id", "cancelled": true}]. The
-    library is type-checked once for all runs. *)
+    stdout, [{"id", "exit", "stdout", "stderr"}]: the run's exit code and output. A
+    request with ["partial": true] is first answered by [{"id", "partial"}] once the
+    program is type-checked without errors, with what a run with `--typeonly` would
+    output. A run is cancelled by [{"cancel": id}], and then answered by
+    [{"id", "cancelled": true}]. The library is type-checked once for all runs. *)
 let serve () =
   serving := true;
   let answer fields =
@@ -1154,15 +1177,16 @@ let serve () =
               let open Yojson.Safe.Util in
               ( member "id" json,
                 member "cwd" json |> to_string,
-                member "args" json |> to_list |> List.map ~f:to_string ))
+                member "args" json |> to_list |> List.map ~f:to_string,
+                member "partial" json |> to_bool_option |> Option.value ~default:false ))
         in
         begin match request with
         | Error _ ->
             answer [ ("id", `Null); ("error", `String ("Not a request: " ^ line)) ]
-        | Ok (id, cwd, _)
+        | Ok (id, cwd, _, _)
           when not (Stdlib.Sys.file_exists cwd && Stdlib.Sys.is_directory cwd) ->
             answer [ ("id", id); ("error", `String ("No such directory: " ^ cwd)) ]
-        | Ok (id, cwd, args) ->
+        | Ok (id, cwd, args, partial) ->
             Unix.chdir cwd;
             let poll = cancelled id in
             let was_cancelled = ref false in
@@ -1176,9 +1200,20 @@ let serve () =
                       !was_cancelled);
                 };
             let code, out, err =
-              capture_output (fun () ->
+              capture_output (fun stdout ->
+                  if partial then
+                    server_partial :=
+                      Some
+                        (fun text ->
+                          let line =
+                            Yojson.Safe.to_string
+                              (`Assoc [ ("id", id); ("partial", `String text) ])
+                            ^ "\n"
+                          in
+                          write_all stdout line);
                   Cmd.eval' ~argv:(Array.of_list ("raven" :: args)) main_cmd)
             in
+            server_partial := None;
             server_cancellation := None;
             if !was_cancelled then answer [ ("id", id); ("cancelled", `Bool true) ]
             else

@@ -33,3 +33,15 @@ cancellation of a run that is done is ignored.
   > } | dune exec -- raven --server
   {"id":6,"cancelled":true}
   {"id":7,"exit":0,"stdout":"Verification successful.\n","stderr":""}
+
+A request can ask for what type checking found before the run is done. A program with type
+errors gets no such partial answer.
+
+  $ preq() { printf '{"id":%s,"cwd":"%s","args":[%s],"partial":true}\n' "$1" "$PWD" "$2"; }
+  $ echo 'proc p() { var x: Int := true; }' > ill_typed.rav
+  $ { preq 8 '"--lsp-mode","-q","agree_inhale.rav"'
+  >   preq 9 '"--lsp-mode","-q","ill_typed.rav"'
+  > } | dune exec -- raven --server
+  {"id":8,"partial":"[]"}
+  {"id":8,"exit":0,"stdout":"","stderr":""}
+  {"id":9,"exit":0,"stdout":"[{\"file\":\"ill_typed.rav\",\"start_line\":1,\"start_col\":25,\"end_line\":1,\"end_col\":29,\"kind\":\"Type\",\"message\":[\"Expected an expression of type\",\"  Int\",\"but found an expression of type\",\"  Bool\"]}]\n","stderr":""}
