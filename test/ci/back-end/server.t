@@ -42,6 +42,7 @@ errors gets no such partial answer.
   $ { preq 8 '"--lsp-mode","-q","agree_inhale.rav"'
   >   preq 9 '"--lsp-mode","-q","ill_typed.rav"'
   > } | dune exec -- raven --server
-  {"id":8,"partial":"[]"}
+  {"id":8,"partial":"[]","phase":"typed"}
+  {"id":8,"partial":"[]","phase":"scheduled"}
   {"id":8,"exit":0,"stdout":"","stderr":""}
   {"id":9,"exit":0,"stdout":"[{\"file\":\"ill_typed.rav\",\"start_line\":1,\"start_col\":25,\"end_line\":1,\"end_col\":29,\"kind\":\"Type\",\"message\":[\"Expected an expression of type\",\"  Int\",\"but found an expression of type\",\"  Bool\"]}]\n","stderr":""}

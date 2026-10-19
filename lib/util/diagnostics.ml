@@ -78,11 +78,12 @@ end
     the members nested in it. *)
 module MemberStatus = struct
   (** The outcome of checking a procedure, from best to worst: [Cached] if it was verified
-      before, as the cache of fingerprints shows. *)
-  type outcome = Cached | Verified | Timeout | Failed [@@deriving compare]
+      before, as the cache of fingerprints shows, and [Pending] if it is still to be
+      checked. *)
+  type outcome = Cached | Verified | Pending | Timeout | Failed [@@deriving compare]
 
   (** The status of a member, from best to worst. *)
-  type status = Verified | Skipped | Timeout | Failed [@@deriving compare]
+  type status = Verified | Pending | Skipped | Timeout | Failed [@@deriving compare]
 
   type member = {
     name : string;  (** Qualified by the modules it is nested in. *)
@@ -122,12 +123,14 @@ module MemberStatus = struct
 
   let status_to_string = function
     | Verified -> "verified"
+    | Pending -> "pending"
     | Skipped -> "skipped"
     | Timeout -> "timeout"
     | Failed -> "failed"
 
   let of_outcome : outcome -> status = function
     | Cached | Verified -> Verified
+    | Pending -> Pending
     | Timeout -> Timeout
     | Failed -> Failed
 
@@ -183,7 +186,8 @@ module MemberStatus = struct
       in
       match worst with
       | _ when List.is_empty results -> (None, false)
-      | Some ((Failed | Timeout) as outcome) -> (Some (of_outcome outcome), false)
+      | Some ((Failed | Timeout | Pending) as outcome) ->
+          (Some (of_outcome outcome), false)
       | _ when aborted && member.checked && not checked_itself -> (Some Skipped, false)
       | Some ((Cached | Verified) as outcome) ->
           (Some Verified, [%compare.equal: outcome] outcome Cached)
@@ -490,8 +494,13 @@ let set_members d (members, groups) =
 
 let record_result d proc outcome = d.results <- (proc, outcome) :: d.results
 
-let members_to_json d =
-  MemberStatus.to_json ~aborted:d.aborted d.members d.groups d.results
+(** The members with their statuses, those of the [pending] procedures still to be
+    checked. *)
+let members_to_json ?(pending = []) d =
+  MemberStatus.to_json ~aborted:d.aborted d.members d.groups
+    (List.map pending ~f:(fun proc ->
+         (proc, (MemberStatus.Pending : MemberStatus.outcome)))
+    @ d.results)
 
 let record_reference d reference = d.references <- reference :: d.references
 

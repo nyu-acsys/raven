@@ -40,7 +40,7 @@ type library_snapshot = {
 let serving = ref false
 
 (** How the run a server is answering sends a partial answer, if it is asked for one. *)
-let server_partial : (string -> unit) option ref = ref None
+let server_partial : (phase:string -> string -> unit) option ref = ref None
 
 (** How the run a server is answering learns that it is cancelled. *)
 let server_cancellation : Diagnostics.cancellation option ref = ref None
@@ -405,8 +405,10 @@ let focus_of members groups (name : string) : Backend.CheckerContext.focus =
     parsed here ahead of the library, the reverse of the order *type-checking* needs (see
     [type_cu]'s doc comment): parsing has no dependency on the library's symbol table,
     only type-checking does. [on_typed] is called once the program is type-checked without
-    errors, if it is verified next. *)
-let parse_and_check_all ?on_typed ~extension_mode ~diagnostics config file_names =
+    errors, if it is verified next, and [on_scheduled] with the procedures still to be
+    checked once it is known which are. *)
+let parse_and_check_all ?on_typed ?on_scheduled ~extension_mode ~diagnostics config
+    file_names =
   Ident.restore ();
   Hashtbl.clear include_map;
   (* Variable which controls whether the
@@ -637,7 +639,7 @@ let parse_and_check_all ?on_typed ~extension_mode ~diagnostics config file_names
         let cache = Option.map config.cache_dir ~f:Backend.VerificationCache.load in
         let context =
           Backend.CheckerContext.create ?focus ~counterexamples:config.counterexamples
-            ?fingerprinting ?cache ~diagnostics solver_session
+            ?fingerprinting ?cache ?on_scheduled ~diagnostics solver_session
         in
         let (_ : Backend.CheckerContext.context) =
           backend_check_cu tbl context processed
@@ -868,7 +870,7 @@ let anchor_lsp_diagnostic err =
   anchor err
 
 (** With `--lsp-annotations`, include editor annotations and dependency filenames. *)
-let lsp_output config ~diagnostics errs =
+let lsp_output ?pending config ~diagnostics errs =
   let errs =
     List.map (Diagnostics.warnings diagnostics @ errs) ~f:anchor_lsp_diagnostic
   in
@@ -879,7 +881,7 @@ let lsp_output config ~diagnostics errs =
          [
            ("errors", `List (List.map errs ~f:Error.to_lsp_json));
            ("annotations", Diagnostics.annotations_to_json diagnostics);
-           ("members", Diagnostics.members_to_json diagnostics);
+           ("members", Diagnostics.members_to_json ?pending diagnostics);
            ("references", references);
            ("symbols", symbols);
            ( "dependencies",
@@ -1009,12 +1011,20 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annot
           ?cancellation:!server_cancellation ()
       in
       try
-        (* A server can answer what type checking found before verification is done. *)
+        (* A server can answer what type checking found before verification is done, and
+           which members are still to be checked. *)
         let on_typed =
           Option.map !server_partial ~f:(fun send () ->
-              if config.lsp_mode then send (lsp_output config ~diagnostics []))
+              if config.lsp_mode then
+                send ~phase:"typed" (lsp_output config ~diagnostics []))
         in
-        parse_and_check_all ?on_typed ~extension_mode ~diagnostics config input_files;
+        let on_scheduled =
+          Option.map !server_partial ~f:(fun send pending ->
+              if config.lsp_mode then
+                send ~phase:"scheduled" (lsp_output ~pending config ~diagnostics []))
+        in
+        parse_and_check_all ?on_typed ?on_scheduled ~extension_mode ~diagnostics config
+          input_files;
         if
           config.lsp_mode
           && (config.lsp_annotations
@@ -1155,9 +1165,11 @@ let cancelled id () =
 (** Answers requests on stdin, one JSON object per line, [{"id", "cwd", "args"}]: the
     working directory and command-line arguments of a run. Each answer is one line on
     stdout, [{"id", "exit", "stdout", "stderr"}]: the run's exit code and output. A
-    request with ["partial": true] is first answered by [{"id", "partial"}] once the
-    program is type-checked without errors, with what a run with `--typeonly` would
-    output. A run is cancelled by [{"cancel": id}], and then answered by
+    request with ["partial": true] is first answered by [{"id", "partial", "phase"}]: in
+    phase ["typed"] once the program is type-checked without errors, with what a run with
+    `--typeonly` would output, and in phase ["scheduled"] once it is known which members
+    are still to be checked, with the output at that point, where they are ["pending"]. A
+    run is cancelled by [{"cancel": id}], and then answered by
     [{"id", "cancelled": true}]. The library is type-checked once for all runs. *)
 let serve () =
   serving := true;
@@ -1204,10 +1216,15 @@ let serve () =
                   if partial then
                     server_partial :=
                       Some
-                        (fun text ->
+                        (fun ~phase text ->
                           let line =
                             Yojson.Safe.to_string
-                              (`Assoc [ ("id", id); ("partial", `String text) ])
+                              (`Assoc
+                                 [
+                                   ("id", id);
+                                   ("partial", `String text);
+                                   ("phase", `String phase);
+                                 ])
                             ^ "\n"
                           in
                           write_all stdout line);

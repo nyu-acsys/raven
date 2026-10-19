@@ -28,6 +28,9 @@ type context = {
   used_fingerprints : string list;
       (** The fingerprints of the obligations found in the cache or verified. *)
   failed : bool;  (** Whether a check of the procedure being checked failed. *)
+  on_scheduled : (Diagnostics.MemberStatus.procedure list -> unit) option;
+      (** Gets the procedures and named assertions still to be checked, once it is known
+          which are. *)
   heap_fields : (string, string) Hashtbl.t;
       (** The field each field's heap variable is named after, by the heap's name. *)
   sequence_functions : type_expr -> (qual_ident * qual_ident) option;
@@ -41,7 +44,8 @@ type context = {
 
 type 'a t = context -> context * 'a
 
-let create ?focus ?(counterexamples = false) ?fingerprinting ?cache ~diagnostics session =
+let create ?focus ?(counterexamples = false) ?fingerprinting ?cache ?on_scheduled
+    ~diagnostics session =
   {
     session;
     path_conditions = [];
@@ -54,6 +58,7 @@ let create ?focus ?(counterexamples = false) ?fingerprinting ?cache ~diagnostics
     fingerprints = Map.empty (module QualIdent);
     used_fingerprints = [];
     failed = false;
+    on_scheduled;
     heap_fields = Hashtbl.create (module String);
     sequence_functions = (fun _ -> None);
     branches = [];
@@ -108,7 +113,9 @@ let record_result (proc : Diagnostics.MemberStatus.procedure)
  fun context ->
   Diagnostics.record_result context.diagnostics proc outcome;
   let failed =
-    match outcome with Failed | Timeout -> true | Cached | Verified -> context.failed
+    match outcome with
+    | Failed | Timeout -> true
+    | Cached | Verified | Pending -> context.failed
   in
   ({ context with failed }, ())
 

@@ -475,6 +475,24 @@ let record_cached tbl qual_name fingerprint : unit t =
         use_fingerprint fingerprint
   | _ -> State.return ()
 
+(** The status records of the obligation [qual_name] and of its named assertions, if it is
+    checked. *)
+let scheduled tbl qual_name : Diagnostics.MemberStatus.procedure list t =
+  let open State.Syntax in
+  match reify tbl qual_name with
+  | Module.CallDef { call_def = ProcDef { proc_body = Some stmt }; call_decl }
+    when not (is_free call_decl.call_decl_status) ->
+      let* in_focus = in_focus call_decl.call_decl_loc in
+      let+ focused = focused_assertion in
+      if not in_focus then []
+      else
+        (if Option.is_none focused then [ procedure qual_name call_decl ] else [])
+        @ List.filter_map (named_assertions stmt) ~f:(fun (spec, name, stmt) ->
+            Option.some_if
+              (Option.for_all focused ~f:(String.equal name))
+              (assertion_result spec name qual_name stmt))
+  | _ -> State.return []
+
 (** Declares and checks a single SCC ([dep], as returned by [Dependencies.analyze]) at
     whatever scope is currently open -- the caller ([check_members]) is responsible for
     getting that scope right first. Function symbols get their [declare-fun] before
@@ -767,6 +785,26 @@ let check_module (module_defs : Ast.Module.t list) (lemma_calls : Dependencies.G
         in
         ( List.filter dependencies ~f:(fun (_, scc) -> List.exists scc ~f:(Set.mem used)),
           context )
+  in
+  (* What is left to check, the obligations that are not cached. *)
+  let context =
+    match context.on_scheduled with
+    | None -> context
+    | Some on_scheduled ->
+        let cached q =
+          Option.exists (Map.find context.fingerprints q) ~f:(fun fingerprint ->
+              Option.exists context.cache ~f:(fun cache ->
+                  VerificationCache.mem cache fingerprint))
+        in
+        let context, pending =
+          State.eval
+            (State.List.map
+               (List.concat_map dependencies ~f:snd |> List.filter ~f:(Fn.non cached))
+               ~f:(scheduled tbl))
+            context
+        in
+        on_scheduled (List.concat pending);
+        context
   in
 
   Logs.debug (fun m ->
