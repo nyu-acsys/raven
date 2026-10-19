@@ -869,11 +869,13 @@ let anchor_lsp_diagnostic err =
   in
   anchor err
 
+(** The warnings of [diagnostics] and [errs], as an editor gets them. *)
+let lsp_errors ~diagnostics errs =
+  List.map (Diagnostics.warnings diagnostics @ errs) ~f:anchor_lsp_diagnostic
+
 (** With `--lsp-annotations`, include editor annotations and dependency filenames. *)
 let lsp_output ?pending config ~diagnostics errs =
-  let errs =
-    List.map (Diagnostics.warnings diagnostics @ errs) ~f:anchor_lsp_diagnostic
-  in
+  let errs = lsp_errors ~diagnostics errs in
   if config.lsp_annotations then
     let references, symbols = Diagnostics.references_to_json diagnostics in
     Yojson.Safe.to_string
@@ -1030,7 +1032,15 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annot
                 send ~phase:"progress"
                   (Yojson.Safe.to_string
                      (`Assoc
-                        [ ("members", Diagnostics.members_to_json ~pending diagnostics) ])))
+                        [
+                          ( "errors",
+                            `List
+                              (List.map
+                                 (lsp_errors ~diagnostics
+                                    (Diagnostics.report_errors diagnostics))
+                                 ~f:Error.to_lsp_json) );
+                          ("members", Diagnostics.members_to_json ~pending diagnostics);
+                        ])))
         in
         parse_and_check_all ?on_typed ?on_scheduled ?on_progress ~extension_mode
           ~diagnostics config input_files;
@@ -1178,9 +1188,9 @@ let cancelled id () =
     phase ["typed"] once the program is type-checked without errors, with what a run with
     `--typeonly` would output, and in phase ["scheduled"] once it is known which members
     are still to be checked, with the output at that point, where they are ["pending"],
-    and in phase ["progress"] after each check, with the members' statuses then. A run is
-    cancelled by [{"cancel": id}], and then answered by [{"id", "cancelled": true}]. The
-    library is type-checked once for all runs. *)
+    and in phase ["progress"] after each check, with the errors and the members' statuses
+    then. A run is cancelled by [{"cancel": id}], and then answered by
+    [{"id", "cancelled": true}]. The library is type-checked once for all runs. *)
 let serve () =
   serving := true;
   let answer fields =
