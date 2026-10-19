@@ -19,12 +19,15 @@ module SmtSession = struct
     response_timeout : float option;
     mutable pending_input : string;
     mutable closed : bool;
+    cancellation : Diagnostics.cancellation option;
+        (** Watched while waiting for an answer. *)
   }
 
   type session = { mutable stack_height : int; solver_state : solver_state }
   type read_error = Response_timeout | End_of_stream | Session_closed | Io_error of exn
 
-  let create_session ?pid ?log_out_chan ~response_timeout ~input ~output () =
+  let create_session ?pid ?log_out_chan ?cancellation ~response_timeout ~input ~output ()
+      =
     {
       stack_height = 0;
       solver_state =
@@ -36,6 +39,7 @@ module SmtSession = struct
           response_timeout;
           pending_input = "";
           closed = false;
+          cancellation;
         };
     }
 
@@ -72,7 +76,7 @@ module SmtSession = struct
       Option.iter state.pid ~f:(fun pid -> best_effort (fun () -> reap_solver pid))
     end
 
-  let start_solver ?(logging = true) ?(response_timeout = Some 30.) () =
+  let start_solver ?(logging = true) ?cancellation ?(response_timeout = Some 30.) () =
     (* Broken solver pipes must raise write errors instead of terminating Raven. *)
     best_effort (fun () ->
         Stdlib.Sys.set_signal Stdlib.Sys.sigpipe Stdlib.Sys.Signal_ignore);
@@ -104,8 +108,8 @@ module SmtSession = struct
     in
     pid := Some child;
     let session =
-      create_session ~pid:child ?log_out_chan ~response_timeout ~input:stdout_read
-        ~output:stdin_write ()
+      create_session ~pid:child ?log_out_chan ?cancellation ~response_timeout
+        ~input:stdout_read ~output:stdin_write ()
     in
     transferred := true;
     session
@@ -174,12 +178,23 @@ module SmtSession = struct
             in
             if Float.(remaining = 0.) then Error Response_timeout
             else
+              (* A server's run waits for its cancellation too. *)
+              let cancellation =
+                Option.to_list
+                  (Option.map state.cancellation ~f:(fun c -> c.Diagnostics.input))
+              in
               match
-                Result.try_with (fun () -> Unix.select [ state.in_descr ] [] [] remaining)
+                Result.try_with (fun () ->
+                    Unix.select (state.in_descr :: cancellation) [] [] remaining)
               with
               | Error (Unix.Unix_error (Unix.EINTR, _, _)) -> read_line ()
               | Error exn -> Error (Io_error exn)
               | Ok ([], _, _) -> Error Response_timeout
+              | Ok (ready, _, _)
+                when not (List.mem ready state.in_descr ~equal:Poly.equal) ->
+                  if Option.exists state.cancellation ~f:(fun c -> c.poll ()) then
+                    raise Diagnostics.Cancelled;
+                  read_line ()
               | Ok _ -> (
                   match
                     Result.try_with (fun () ->
@@ -344,7 +359,9 @@ module SmtSession = struct
       | Session_closed
       | Io_error of exn
 
-    let of_owned_descriptors = create_session
+    let of_owned_descriptors ?pid ?log_out_chan ~response_timeout ~input ~output () =
+      create_session ?pid ?log_out_chan ~response_timeout ~input ~output ()
+
     let read_response = read_response
     let stack_height session = session.stack_height
   end
@@ -352,11 +369,11 @@ end
 
 type session = SmtSession.session
 
-let init ?(logging = true) timeout : session =
+let init ?(logging = true) ?cancellation timeout : session =
   let response_timeout =
     if timeout > 0 then Some (Float.of_int timeout /. 1000.) else None
   in
-  SmtSession.start_solver ~logging ~response_timeout ()
+  SmtSession.start_solver ~logging ?cancellation ~response_timeout ()
 
 (** Closes and reaps the session without replacing an error from verification. *)
 let stop (session : session) = SmtSession.stop_solver session

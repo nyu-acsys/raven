@@ -343,6 +343,15 @@ end
 
 (** {1 The accumulator} *)
 
+exception Cancelled
+(** Ends a run that was cancelled. *)
+
+type cancellation = {
+  input : Unix.file_descr;  (** Where a cancellation arrives. *)
+  poll : unit -> bool;  (** Reads what arrived, and whether the run is cancelled. *)
+}
+(** How a run that a server answers learns that it is cancelled (see `raven --server`). *)
+
 type t = {
   mutable errors : Err.t list list;  (** Latest first. *)
   mutable aborted : bool;  (** Whether more than [max_errors] errors were found. *)
@@ -360,9 +369,12 @@ type t = {
   origins : (string, string) Hashtbl.t;
       (** The interface each inherited member originates from, by the qualified name of
           the member in the module that inherits it. *)
+  cancellation : cancellation option;
+  mutable last_poll : float;  (** When [cancellation] was last polled. *)
 }
 
-let create ?max_errors ?(collect_warnings = false) ?(reference_files = []) () =
+let create ?max_errors ?(collect_warnings = false) ?(reference_files = []) ?cancellation
+    () =
   {
     errors = [];
     aborted = false;
@@ -376,7 +388,25 @@ let create ?max_errors ?(collect_warnings = false) ?(reference_files = []) () =
     references = [];
     results = [];
     origins = Hashtbl.create (module String);
+    cancellation;
+    last_poll = 0.;
   }
+
+(** Raises [Cancelled] if the run is cancelled. *)
+let check_cancelled d =
+  match d.cancellation with
+  | Some cancellation when cancellation.poll () -> raise Cancelled
+  | _ -> ()
+
+(** Like [check_cancelled], at most every 10 ms, for places passed often. *)
+let check_cancelled_now_and_then d =
+  if Option.is_some d.cancellation then begin
+    let now = Unix.gettimeofday () in
+    if Float.(now -. d.last_poll > 0.01) then begin
+      d.last_poll <- now;
+      check_cancelled d
+    end
+  end
 
 (** The number of errors recorded, counting each diagnostic once. *)
 let error_count d = List.length d.errors

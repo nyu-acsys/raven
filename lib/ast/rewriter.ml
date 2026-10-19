@@ -1044,6 +1044,7 @@ let exit_callable (call_def : Callable.t) s =
     call_def )
 
 let enter symbol s =
+  Diagnostics.check_cancelled_now_and_then s.state_diagnostics;
   (*Logs.debug (fun m ->
       m "Rewriter.enter: symbol = %a" Ident.pr (AstDef.Symbol.to_name symbol));*)
   (* Logs.debug (fun m -> m "Rewriter.enter: symbol = %a" Symbol.pr (symbol)); *)

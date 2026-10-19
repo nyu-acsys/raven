@@ -58,8 +58,9 @@ end
 
 type session = SmtSession.session
 
-val init : ?logging:bool -> int -> session
-(** Starts a solver with a response timeout in milliseconds; zero means unlimited. *)
+val init : ?logging:bool -> ?cancellation:Util.Diagnostics.cancellation -> int -> session
+(** Starts a solver with a response timeout in milliseconds; zero means unlimited. While
+    waiting for an answer, it watches the [cancellation] of a server's run. *)
 
 val stop : session -> unit
 (** Closes and reaps the session. Repeated calls are harmless. *)

@@ -39,6 +39,9 @@ type library_snapshot = {
 (** Whether runs keep and reuse the type-checked library, as a server's do. *)
 let serving = ref false
 
+(** How the run a server is answering learns that it is cancelled. *)
+let server_cancellation : Diagnostics.cancellation option ref = ref None
+
 (** The type-checked library of each extension and setting that changes it. *)
 let library_snapshots : (string, library_snapshot) Hashtbl.t =
   Hashtbl.create (module String)
@@ -612,7 +615,8 @@ let parse_and_check_all ~extension_mode ~diagnostics config file_names =
         can declare them. *)
         let arities = Smt.TupleArities.of_symbols (Map.data tbl.tbl_symbols) in
         let solver_session =
-          Smt.SmtSolver.init ~logging:external_logging config.smt_timeout
+          Smt.SmtSolver.init ~logging:external_logging ?cancellation:!server_cancellation
+            config.smt_timeout
         in
         Stdlib.Fun.protect ~finally:(fun () -> Smt.SmtSolver.stop solver_session)
         @@ fun () ->
@@ -994,7 +998,7 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annot
           ~collect_warnings:config.lsp_mode
           ~reference_files:
             (if config.lsp_mode && config.lsp_annotations then input_files else [])
-          ()
+          ?cancellation:!server_cancellation ()
       in
       try
         parse_and_check_all ~extension_mode ~diagnostics config input_files;
@@ -1006,6 +1010,7 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annot
         `Ok 0
       with
       | Finished code -> `Ok code
+      | Diagnostics.Cancelled -> `Ok 130
       | Unix.Unix_error (err, _, prog) ->
           let msg =
             Printf.sprintf
@@ -1073,9 +1078,63 @@ let capture_output (f : unit -> int) : int * string * string =
   in
   (code, read out_file, read err_file)
 
+(** What a server read from stdin and has not handled yet, and whether stdin is closed. *)
+let server_input = ref ""
+
+let server_input_closed = ref false
+
+(** Reads what arrived on stdin, waiting for it at most [timeout] seconds, or without
+    limit if it is negative. *)
+let read_server_input ~timeout =
+  let bytes = Bytes.create 65536 in
+  let ready =
+    Result.try_with (fun () -> Unix.select [ Unix.stdin ] [] [] timeout)
+    |> Result.map ~f:(fun (ready, _, _) -> not (List.is_empty ready))
+  in
+  match ready with
+  | Ok true ->
+      begin match
+        Result.try_with (fun () -> Unix.read Unix.stdin bytes 0 (Bytes.length bytes))
+      with
+      | Ok 0 | Error _ -> server_input_closed := true
+      | Ok n -> server_input := !server_input ^ Bytes.To_string.sub bytes ~pos:0 ~len:n
+      end
+  | Ok false | Error _ -> ()
+
+(** The next line on stdin, if it is not closed before. *)
+let rec next_server_line () =
+  match String.lsplit2 !server_input ~on:'\n' with
+  | Some (line, rest) ->
+      server_input := rest;
+      Some line
+  | None when !server_input_closed -> None
+  | None ->
+      read_server_input ~timeout:(-1.);
+      next_server_line ()
+
+(** The request a line cancels, [{"cancel": id}], if it is one. *)
+let cancellation line =
+  match Result.try_with (fun () -> Yojson.Safe.from_string line) with
+  | Ok (`Assoc [ ("cancel", id) ]) -> Some id
+  | _ -> None
+
+(** Whether the request [id] is cancelled by a line on stdin. Cancellations of other
+    requests, which are done, are dropped. *)
+let cancelled id () =
+  read_server_input ~timeout:0.;
+  let lines = String.split !server_input ~on:'\n' in
+  let complete, partial = (List.drop_last_exn lines, List.last_exn lines) in
+  let cancellations, others =
+    List.partition_map complete ~f:(fun line ->
+        match cancellation line with Some id -> First id | None -> Second line)
+  in
+  server_input := String.concat ~sep:"\n" (others @ [ partial ]);
+  List.exists cancellations ~f:(Yojson.Safe.equal id)
+
 (** Answers requests on stdin, one JSON object per line, [{"id", "cwd", "args"}]: the
     working directory and command-line arguments of a run. Each answer is one line on
-    stdout, [{"id", "exit", "stdout", "stderr"}]: the run's exit code and output. The
+    stdout, [{"id", "exit", "stdout", "stderr"}]: the run's exit code and output. A run is
+    cancelled by [{"cancel": id}], and then answered by [{"id", "cancelled": true}]. The
     library is type-checked once for all runs. *)
 let serve () =
   serving := true;
@@ -1085,8 +1144,9 @@ let serve () =
     Stdio.Out_channel.flush Stdio.stdout
   in
   let rec loop () =
-    match Stdio.In_channel.input_line Stdio.In_channel.stdin with
+    match next_server_line () with
     | None -> ()
+    | Some line when Option.is_some (cancellation line) -> loop ()
     | Some line ->
         let request =
           Result.try_with (fun () ->
@@ -1104,17 +1164,31 @@ let serve () =
             answer [ ("id", id); ("error", `String ("No such directory: " ^ cwd)) ]
         | Ok (id, cwd, args) ->
             Unix.chdir cwd;
+            let poll = cancelled id in
+            let was_cancelled = ref false in
+            server_cancellation :=
+              Some
+                {
+                  input = Unix.stdin;
+                  poll =
+                    (fun () ->
+                      was_cancelled := !was_cancelled || poll ();
+                      !was_cancelled);
+                };
             let code, out, err =
               capture_output (fun () ->
                   Cmd.eval' ~argv:(Array.of_list ("raven" :: args)) main_cmd)
             in
-            answer
-              [
-                ("id", id);
-                ("exit", `Int code);
-                ("stdout", `String out);
-                ("stderr", `String err);
-              ]
+            server_cancellation := None;
+            if !was_cancelled then answer [ ("id", id); ("cancelled", `Bool true) ]
+            else
+              answer
+                [
+                  ("id", id);
+                  ("exit", `Int code);
+                  ("stdout", `String out);
+                  ("stderr", `String err);
+                ]
         end;
         loop ()
   in

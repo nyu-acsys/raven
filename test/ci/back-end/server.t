@@ -22,3 +22,14 @@ The same request gets the same answer, also after others.
   $ sed -n 2p answers | sed 's/"id":2/"id":4/' > second
   $ sed -n 4p answers | cmp - second && echo identical
   identical
+
+A cancelled run is answered as such, and the server goes on with the next request. A
+cancellation of a run that is done is ignored.
+
+  $ { req 6 '"--shh","agree_inhale.rav"'
+  >   echo '{"cancel":6}'
+  >   echo '{"cancel":1}'
+  >   req 7 '"--shh","agree_inhale.rav"'
+  > } | dune exec -- raven --server
+  {"id":6,"cancelled":true}
+  {"id":7,"exit":0,"stdout":"Verification successful.\n","stderr":""}

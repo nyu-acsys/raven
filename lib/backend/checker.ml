@@ -381,6 +381,8 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) : 
                 (* Verified before; its statuses are recorded by [record_cached]. *)
                 State.return ()
             | _ ->
+                let* context = get_state in
+                Diagnostics.check_cancelled context.diagnostics;
                 let* () = check_procedure fully_qual_name callable stmt proc in
                 let* context = get_state in
                 if Option.is_none focused && not context.failed then
