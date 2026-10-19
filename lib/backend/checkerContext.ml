@@ -31,6 +31,11 @@ type context = {
   on_scheduled : (Diagnostics.MemberStatus.procedure list -> unit) option;
       (** Gets the procedures and named assertions still to be checked, once it is known
           which are. *)
+  on_progress : (Diagnostics.MemberStatus.procedure list -> unit) option;
+      (** Gets those still to be checked after each check of a procedure. *)
+  pending : Diagnostics.MemberStatus.procedure list;
+      (** The procedures and named assertions still to be checked, if they are reported.
+      *)
   heap_fields : (string, string) Hashtbl.t;
       (** The field each field's heap variable is named after, by the heap's name. *)
   sequence_functions : type_expr -> (qual_ident * qual_ident) option;
@@ -45,7 +50,7 @@ type context = {
 type 'a t = context -> context * 'a
 
 let create ?focus ?(counterexamples = false) ?fingerprinting ?cache ?on_scheduled
-    ~diagnostics session =
+    ?on_progress ~diagnostics session =
   {
     session;
     path_conditions = [];
@@ -59,6 +64,8 @@ let create ?focus ?(counterexamples = false) ?fingerprinting ?cache ?on_schedule
     used_fingerprints = [];
     failed = false;
     on_scheduled;
+    on_progress;
+    pending = [];
     heap_fields = Hashtbl.create (module String);
     sequence_functions = (fun _ -> None);
     branches = [];
@@ -128,6 +135,23 @@ let fingerprint qual_name : (string * bool) option t =
         ( fingerprint,
           Option.exists context.cache ~f:(fun cache ->
               VerificationCache.mem cache fingerprint) )) )
+
+(** Notes that the procedure [proc] and the named assertions [assertions] in it are
+    checked, and reports what is still to be checked. *)
+let checked (proc : Diagnostics.MemberStatus.procedure)
+    (assertions : Diagnostics.MemberStatus.procedure list) : unit t =
+ fun context ->
+  match context.on_progress with
+  | None -> (context, ())
+  | Some on_progress ->
+      let done_ (p : Diagnostics.MemberStatus.procedure) =
+        List.exists (proc :: assertions)
+          ~f:(fun (q : Diagnostics.MemberStatus.procedure) ->
+            String.equal p.proc_name q.proc_name && Loc.equal p.proc_loc q.proc_loc)
+      in
+      let pending = List.filter context.pending ~f:(Fn.non done_) in
+      on_progress pending;
+      ({ context with pending }, ())
 
 (** Notes that the obligation of [fingerprint] was found in the cache or verified. *)
 let use_fingerprint fingerprint : unit t =

@@ -405,10 +405,10 @@ let focus_of members groups (name : string) : Backend.CheckerContext.focus =
     parsed here ahead of the library, the reverse of the order *type-checking* needs (see
     [type_cu]'s doc comment): parsing has no dependency on the library's symbol table,
     only type-checking does. [on_typed] is called once the program is type-checked without
-    errors, if it is verified next, and [on_scheduled] with the procedures still to be
-    checked once it is known which are. *)
-let parse_and_check_all ?on_typed ?on_scheduled ~extension_mode ~diagnostics config
-    file_names =
+    errors, if it is verified next, [on_scheduled] with the procedures still to be checked
+    once it is known which are, and [on_progress] with those left after each check. *)
+let parse_and_check_all ?on_typed ?on_scheduled ?on_progress ~extension_mode ~diagnostics
+    config file_names =
   Ident.restore ();
   Hashtbl.clear include_map;
   (* Variable which controls whether the
@@ -639,7 +639,7 @@ let parse_and_check_all ?on_typed ?on_scheduled ~extension_mode ~diagnostics con
         let cache = Option.map config.cache_dir ~f:Backend.VerificationCache.load in
         let context =
           Backend.CheckerContext.create ?focus ~counterexamples:config.counterexamples
-            ?fingerprinting ?cache ?on_scheduled ~diagnostics solver_session
+            ?fingerprinting ?cache ?on_scheduled ?on_progress ~diagnostics solver_session
         in
         let (_ : Backend.CheckerContext.context) =
           backend_check_cu tbl context processed
@@ -1023,8 +1023,17 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annot
               if config.lsp_mode then
                 send ~phase:"scheduled" (lsp_output ~pending config ~diagnostics []))
         in
-        parse_and_check_all ?on_typed ?on_scheduled ~extension_mode ~diagnostics config
-          input_files;
+        (* And the members' statuses as each check is done. *)
+        let on_progress =
+          Option.map !server_partial ~f:(fun send pending ->
+              if config.lsp_mode && config.lsp_annotations then
+                send ~phase:"progress"
+                  (Yojson.Safe.to_string
+                     (`Assoc
+                        [ ("members", Diagnostics.members_to_json ~pending diagnostics) ])))
+        in
+        parse_and_check_all ?on_typed ?on_scheduled ?on_progress ~extension_mode
+          ~diagnostics config input_files;
         if
           config.lsp_mode
           && (config.lsp_annotations
@@ -1168,9 +1177,10 @@ let cancelled id () =
     request with ["partial": true] is first answered by [{"id", "partial", "phase"}]: in
     phase ["typed"] once the program is type-checked without errors, with what a run with
     `--typeonly` would output, and in phase ["scheduled"] once it is known which members
-    are still to be checked, with the output at that point, where they are ["pending"]. A
-    run is cancelled by [{"cancel": id}], and then answered by
-    [{"id", "cancelled": true}]. The library is type-checked once for all runs. *)
+    are still to be checked, with the output at that point, where they are ["pending"],
+    and in phase ["progress"] after each check, with the members' statuses then. A run is
+    cancelled by [{"cancel": id}], and then answered by [{"id", "cancelled": true}]. The
+    library is type-checked once for all runs. *)
 let serve () =
   serving := true;
   let answer fields =

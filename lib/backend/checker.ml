@@ -384,6 +384,11 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) : 
                 let* context = get_state in
                 Diagnostics.check_cancelled context.diagnostics;
                 let* () = check_procedure fully_qual_name callable stmt proc in
+                let* () =
+                  checked proc
+                    (List.map (named_assertions stmt) ~f:(fun (spec, name, stmt) ->
+                         assertion_result spec name fully_qual_name stmt))
+                in
                 let* context = get_state in
                 if Option.is_none focused && not context.failed then
                   Option.value_map fingerprint ~default:(State.return ())
@@ -804,7 +809,7 @@ let check_module (module_defs : Ast.Module.t list) (lemma_calls : Dependencies.G
             context
         in
         on_scheduled (List.concat pending);
-        context
+        { context with pending = List.concat pending }
   in
 
   Logs.debug (fun m ->
