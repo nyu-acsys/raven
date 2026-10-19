@@ -143,35 +143,35 @@ proc complete(l_descr_ref: Ref, l_n: Ref,
   requires read_l_descr(l_descr_ref, l_descr') 
   ensures own(l_descr_ref.one_shot, public)
 {
-  unfold read_l_m(l_descr'.(Descr.l_m));
-  unfold read_l_descr(l_descr_ref, l_descr');
-  ghost var rdcss_ret: Int := l_descr'.Descr.n1;
+  unfold read_l_m(l_descr'.(Descr.l_m))
+  unfold read_l_descr(l_descr_ref, l_descr')
+  ghost var rdcss_ret: Int := l_descr'.Descr.n1
 
-  var l_descr: Descr.L_descr := l_descr_ref.Descr.descr_fld;
-  var l_m := l_descr.Descr.l_m;
-  var m1 := l_descr.Descr.m1;
-  var n1 := l_descr.Descr.n1;
-  var n2 := l_descr.Descr.n2;
+  var l_descr: Descr.L_descr := l_descr_ref.Descr.descr_fld
+  var l_m := l_descr.Descr.l_m
+  var m1 := l_descr.Descr.m1
+  var n1 := l_descr.Descr.n1
+  var n2 := l_descr.Descr.n2
 
-  ghost var vs_ghost: List[Int];
-  ghost var tid_ghost: Proph[Int];
+  ghost var vs_ghost: List[Int]
+  ghost var tid_ghost: Proph[Int]
 
-  tid_ghost, vs_ghost := new Proph[Int];
+  tid_ghost, vs_ghost := new Proph[Int]
 
-  ghost var s: AbstractState;
-  ghost var token': AtomicToken<rdcss>;
-  ghost var tid_ghost_winner': Proph[Int];
-  ghost var q1: Real; ghost var q2: Real;
+  ghost var s: AbstractState
+  ghost var token': AtomicToken<rdcss>
+  ghost var tid_ghost_winner': Proph[Int]
+  ghost var q1: Real; ghost var q2: Real
 
-  unfold rdcss_inv(l_n)[s := s, q1 := q1, token' := token , tid_ghost_winner' := tid_ghost_winner];
+  unfold rdcss_inv(l_n)[s := s, q1 := q1, token' := token , tid_ghost_winner' := tid_ghost_winner]
 
-  ghost var l_m_value': Int;
-  ghost var m': Int;
-  ghost var n': Int;
+  ghost var l_m_value': Int
+  ghost var m': Int
+  ghost var n': Int
 
-  ghost var vs: List[(Bool, Proph[Int])];
-  ghost var notDone: Bool;
-  ghost var isPending: Bool;
+  ghost var vs: List[(Bool, Proph[Int])]
+  ghost var notDone: Bool
+  ghost var isPending: Bool
 
   {!
     if (tid_ghost_winner == tid_ghost) {
@@ -181,36 +181,36 @@ proc complete(l_descr_ref: Ref, l_n: Ref,
         vs := vs,
         notDone := notDone,
         isPending := isPending
-      ];
+      ]
       
       if (notDone && isPending) {
         // descr_inv in `pending`
         // descr_inv `pending` to `accepted`
         unfold pending_state(token, l_descr, rdcss_ret, proph_extract_winner(vs), tid_ghost_winner, l_n, l_descr_ref);
 
-        m', n' := openAU(token, (l_n, l_descr));
-        ghost var q: Real;
-        unfold read_l_m(l_descr.Descr.l_m)[q := q];
-        fold read_l_m(l_descr.Descr.l_m)[q := q];
-        sync_values(l_n, rdcss_ret, n'); 
-        update_value(l_n, rdcss_ret, n', (m' == m1 && n' == n1 ? n2 : n' ));
+        m', n' := openAU(token, (l_n, l_descr))
+        ghost var q: Real
+        unfold read_l_m(l_descr.Descr.l_m)[q := q]
+        fold read_l_m(l_descr.Descr.l_m)[q := q]
+        sync_values(l_n, rdcss_ret, n')
+        update_value(l_n, rdcss_ret, n', (m' == m1 && n' == n1 ? n2 : n' ))
 
-        commitAU(token, (l_n, l_descr), rdcss_ret);
-        fold accepted_state(token, l_n, l_descr, rdcss_ret, proph_extract_winner(vs), tid_ghost)[vs := vs_ghost];
-        isPending := false;
+        commitAU(token, (l_n, l_descr), rdcss_ret)
+        fold accepted_state(token, l_n, l_descr, rdcss_ret, proph_extract_winner(vs), tid_ghost)[vs := vs_ghost]
+        isPending := false
 
       } else {
         if (notDone && !isPending) {
           // descr_inv in `accepted`
           // contradiction
-          unfold accepted_state(token, l_n, l_descr, rdcss_ret, proph_extract_winner(vs), tid_ghost_winner);
-          assert false;
+          unfold accepted_state(token, l_n, l_descr, rdcss_ret, proph_extract_winner(vs), tid_ghost_winner)
+          assert false
         }
         if (!notDone) {
           // descr_inv in `done`
           // contradiction
-          unfold done_state(token, l_n, l_descr_ref, l_descr, rdcss_ret, tid_ghost_winner);
-          assert false;
+          unfold done_state(token, l_n, l_descr_ref, l_descr, rdcss_ret, tid_ghost_winner)
+          assert false
         }
       }
 
@@ -218,23 +218,22 @@ proc complete(l_descr_ref: Ref, l_n: Ref,
         vs := vs,
         notDone := notDone,
         isPending := isPending
-      ];
+      ]
     }
   !}
 
-  var l_m_value := l_m.MLocVal.m_loc_value;
+  var l_m_value := l_m.MLocVal.m_loc_value
 
-  fold rdcss_inv(l_n)[s := s, q1 := q1, token := token', tid_ghost_winner := tid_ghost_winner'];
+  fold rdcss_inv(l_n)[s := s, q1 := q1, token := token', tid_ghost_winner := tid_ghost_winner']
 
-  var n_new := 
-    l_m_value == m1 ? n2 : n1;
+  var n_new := l_m_value == m1 ? n2 : n1
 
-  unfold rdcss_inv(l_n)[s := s, q1 := q1, token' := token, tid_ghost_winner' := tid_ghost_winner];
+  unfold rdcss_inv(l_n)[s := s, q1 := q1, token' := token, tid_ghost_winner' := tid_ghost_winner]
   unfold descr_inv(token, p, rdcss_ret, l_n, l_descr_ref, l_descr, tid_ghost_winner)[
     vs := vs,
     notDone := notDone,
     isPending := isPending
-  ];
+  ]
 
   {!
     if (tid_ghost_winner == tid_ghost) {
@@ -243,23 +242,23 @@ proc complete(l_descr_ref: Ref, l_n: Ref,
       if (notDone && isPending) {
         // descr_inv in `pending`
         // contradiction
-        unfold pending_state(token, l_descr, rdcss_ret, proph_extract_winner(vs), tid_ghost_winner, l_n, l_descr_ref);
-        assert false;
+        unfold pending_state(token, l_descr, rdcss_ret, proph_extract_winner(vs), tid_ghost_winner, l_n, l_descr_ref)
+        assert false
 
       } else if (notDone && !isPending) {
         // descr_inv in `accepted`; it moves to `done` after the cas
         if (s is quiescentState) {
-          assert false;
+          assert false
 
         } else {
-          unfold accepted_state(token, l_n, l_descr, rdcss_ret, proph_extract_winner(vs), tid_ghost_winner);
+          unfold accepted_state(token, l_n, l_descr, rdcss_ret, proph_extract_winner(vs), tid_ghost_winner)
         }
 
       } else {
         // descr_inv in `done`
         // contradiction
-        unfold done_state(token, l_n, l_descr_ref, l_descr, rdcss_ret, tid_ghost_winner);
-        assert false;
+        unfold done_state(token, l_n, l_descr_ref, l_descr, rdcss_ret, tid_ghost_winner)
+        assert false
       }
 
     } else {
@@ -273,31 +272,31 @@ proc complete(l_descr_ref: Ref, l_n: Ref,
         } else {
           // s is `pendingState`
           if (s.l_descr_ref_destr == l_descr_ref) {
-            unfold done_state(token, l_n, l_descr_ref, l_descr, rdcss_ret, tid_ghost_winner);
-            assert false;
+            unfold done_state(token, l_n, l_descr_ref, l_descr, rdcss_ret, tid_ghost_winner)
+            assert false
           }
         }
       }
     }
   !}
 
-  var succ: Bool := cas(l_n.n_loc, pending(l_descr_ref), quiescent(n_new));
+  var succ: Bool := cas(l_n.n_loc, pending(l_descr_ref), quiescent(n_new))
 
   {!
     // descr_inv `accepted` to `done`, after the cas: an invariant open around an
     // atomic call must still be closable should the call abort
     if (tid_ghost_winner == tid_ghost && notDone && !isPending && !(s is quiescentState)) {
-      fpu(l_descr_ref.one_shot, public );
-      assert own(l_descr_ref.Descr.descr_fld, l_descr, 0.5);
+      fpu(l_descr_ref.one_shot, public )
+      assert own(l_descr_ref.Descr.descr_fld, l_descr, 0.5)
       fold done_state(token, l_n, l_descr_ref, l_descr, rdcss_ret, tid_ghost_winner)[auRetrieved := false];
     }
   !}
 
-  ghost var newState: AbstractState := succ ? quiescentState(n_new) : s;
+  ghost var newState: AbstractState := succ ? quiescentState(n_new) : s
 
   // Is there a difference between resolving the Proph.proph "around" the cas, vs
   // first doing the cas, and then resolving the Proph.proph?
-  Proph.resolve(p, (succ, tid_ghost));
+  Proph.resolve(p, (succ, tid_ghost))
 
   {!
     if (tid_ghost_winner != tid_ghost) {
@@ -306,14 +305,14 @@ proc complete(l_descr_ref: Ref, l_n: Ref,
         if (isPending) {
           // descr_inv in `pending`
           // contradiction
-          unfold pending_state(token, l_descr, rdcss_ret, proph_extract_winner(vs), tid_ghost_winner, l_n, l_descr_ref);
-          assert false;
+          unfold pending_state(token, l_descr, rdcss_ret, proph_extract_winner(vs), tid_ghost_winner, l_n, l_descr_ref)
+          assert false
 
         } else {
           // descr_inv in `accepted`
           // contradiction
-          unfold accepted_state(token, l_n, l_descr, rdcss_ret, proph_extract_winner(vs), tid_ghost_winner);
-          assert false;
+          unfold accepted_state(token, l_n, l_descr, rdcss_ret, proph_extract_winner(vs), tid_ghost_winner)
+          assert false
         }
       }
     }
@@ -325,7 +324,7 @@ proc complete(l_descr_ref: Ref, l_n: Ref,
     isPending := isPending
   ];
 
-  fold rdcss_inv(l_n)[s := newState, q1 := q1, token := token', tid_ghost_winner := tid_ghost_winner'];
+  fold rdcss_inv(l_n)[s := newState, q1 := q1, token := token', tid_ghost_winner := tid_ghost_winner']
 }
 
 // GET ()
@@ -334,44 +333,44 @@ proc get(l_n: Ref, implicit ghost n: Int) returns (ret: Int)
   atomic requires rdcss_state(l_n, n)
   atomic ensures rdcss_state(l_n, n) && ret == n
 {
-  ghost var phi := bindAU();
-  unfold is_rdcss(l_n);
+  ghost var phi := bindAU()
+  unfold is_rdcss(l_n)
 
-  ghost var s: AbstractState;
-  ghost var tkn: AtomicToken<rdcss>;
-  ghost var tid_ghost_winner: Proph[Int];
-  ghost var q1: Real; ghost var q2: Real;
+  ghost var s: AbstractState
+  ghost var tkn: AtomicToken<rdcss>
+  ghost var tid_ghost_winner: Proph[Int]
+  ghost var q1: Real; ghost var q2: Real
 
-  unfold rdcss_inv(l_n)[s := s, q1 := q1, tkn := token, tid_ghost_winner := tid_ghost_winner];
+  unfold rdcss_inv(l_n)[s := s, q1 := q1, tkn := token, tid_ghost_winner := tid_ghost_winner]
 
-  var l_n_val := l_n.n_loc;
-  ghost var n': Int;
+  var l_n_val := l_n.n_loc
+  ghost var n': Int
 
   {! 
     if (s is quiescentState) {
-      n' := openAU(phi);
-      sync_values(l_n, s.value0, n'); 
-      commitAU(phi, n');
+      n' := openAU(phi)
+      sync_values(l_n, s.value0, n') 
+      commitAU(phi, n')
     } else {
-      duplicate_read_l_m(s.l_descr_val.(Descr.l_m));
+      duplicate_read_l_m(s.l_descr_val.(Descr.l_m))
     }
   !}
 
-  fold rdcss_inv(l_n)[s := s, q1 := q1/2, token := tkn, tid_ghost_winner := tid_ghost_winner];
+  fold rdcss_inv(l_n)[s := s, q1 := q1/2, token := tkn, tid_ghost_winner := tid_ghost_winner]
 
   if (l_n_val is quiescent) {
-    return l_n_val.value;
+    return l_n_val.value
     
   } else {
-    fold is_rdcss(l_n);
-    fold read_l_descr(l_n_val.descr, s.l_descr_val)[q := q1/2];
+    fold is_rdcss(l_n)
+    fold read_l_descr(l_n_val.descr, s.l_descr_val)[q := q1/2]
 
-    complete(l_n_val.descr, l_n, s.l_descr_val, tkn, s.prophField, tid_ghost_winner);
+    complete(l_n_val.descr, l_n, s.l_descr_val, tkn, s.prophField, tid_ghost_winner)
 
-    n' := openAU(phi);
-    var ret := get(l_n, n');
-    commitAU(phi, n');
-    return ret;
+    n' := openAU(phi)
+    var ret := get(l_n, n')
+    commitAU(phi, n')
+    return ret
   }
 }
 
@@ -509,10 +508,10 @@ lemma sync_values(l_n: Ref, n: Int, m: Int)
     && rdcss_state(l_n, m)
 
 {
-  unfold rdcss_state_auth(l_n, n);
-  unfold rdcss_state(l_n, m);
-  fold rdcss_state(l_n, m);
-  fold rdcss_state_auth(l_n, n);
+  unfold rdcss_state_auth(l_n, n)
+  unfold rdcss_state(l_n, m)
+  fold rdcss_state(l_n, m)
+  fold rdcss_state_auth(l_n, n)
 }
 
 lemma update_value(l_n: Ref, n1: Int, n2: Int, m: Int)
@@ -521,15 +520,15 @@ lemma update_value(l_n: Ref, n1: Int, n2: Int, m: Int)
   ensures rdcss_state_auth(l_n, m)
   ensures rdcss_state(l_n, m)
 {
-  unfold rdcss_state_auth(l_n, n1);
-  unfold rdcss_state(l_n, n2);
+  unfold rdcss_state_auth(l_n, n1)
+  unfold rdcss_state(l_n, n2)
 
   fpu(l_n.rdcss_state_fld, 
     Auth_Excl_Int.auth_frag(Excl_Int.excl(m), Excl_Int.excl(m))
-  );
+  )
 
-  fold rdcss_state(l_n, m);
-  fold rdcss_state_auth(l_n, m);
+  fold rdcss_state(l_n, m)
+  fold rdcss_state_auth(l_n, m)
 }
 
 func proph_extract_winner(pvs: List[(Bool, Proph[Int])]) returns (ret: Opt_Proph) {
@@ -644,8 +643,8 @@ lemma rdcss_state_exclusive(l_n: Ref, n_1: Int, n_2: Int)
   requires rdcss_state(l_n, n_1) && rdcss_state(l_n, n_2)
   ensures false
 {
-  unfold rdcss_state(l_n, n_1);
-  unfold rdcss_state(l_n, n_2);
+  unfold rdcss_state(l_n, n_1)
+  unfold rdcss_state(l_n, n_2)
 }
 
 lemma state_done_extract_Q(token: AtomicToken<rdcss> , p: Proph[(Bool, Proph[Int])], rdcss_ret: Int, l_n: Ref, l_descr_ref: Ref, l_descr: Descr.L_descr, tid_ghost_winner: Proph[Int])
@@ -654,27 +653,27 @@ lemma state_done_extract_Q(token: AtomicToken<rdcss> , p: Proph[(Bool, Proph[Int
   requires own_rdcss_token(l_descr_ref)
   ensures auCommit<rdcss>(token, (l_n, l_descr), rdcss_ret)
 {
-  var notDone: Bool;
-  var isPending: Bool;
-  var vs: List[(Bool, Proph[Int])];
-  unfold descr_inv(token, p, rdcss_ret, l_n, l_descr_ref, l_descr, tid_ghost_winner)[vs := vs, notDone := notDone, isPending := isPending];
+  var notDone: Bool
+  var isPending: Bool
+  var vs: List[(Bool, Proph[Int])]
+  unfold descr_inv(token, p, rdcss_ret, l_n, l_descr_ref, l_descr, tid_ghost_winner)[vs := vs, notDone := notDone, isPending := isPending]
 
   if (notDone) { 
     // own(l_n.oneshot, public) && own(l_n.oneshot, private) -> _|_
-    assert false;
-    fold descr_inv(token, p, rdcss_ret, l_n, l_descr_ref, l_descr, tid_ghost_winner)[notDone := true, isPending := false];
+    assert false
+    fold descr_inv(token, p, rdcss_ret, l_n, l_descr_ref, l_descr, tid_ghost_winner)[notDone := true, isPending := false]
   } else {
-    var auRetrieved: Bool;
-    unfold done_state(token, l_n, l_descr_ref, l_descr, rdcss_ret, tid_ghost_winner)[auRetrieved := auRetrieved];
+    var auRetrieved: Bool
+    unfold done_state(token, l_n, l_descr_ref, l_descr, rdcss_ret, tid_ghost_winner)[auRetrieved := auRetrieved]
 
     if (auRetrieved) {
       // own_rdcss_token(l_descr_ref) && own_rdcss_token(l_descr_ref) -> _|_
-      assert false;
-      fold descr_inv(token, p, rdcss_ret, l_n, l_descr_ref, l_descr, tid_ghost_winner)[notDone := false, isPending := false];
+      assert false
+      fold descr_inv(token, p, rdcss_ret, l_n, l_descr_ref, l_descr, tid_ghost_winner)[notDone := false, isPending := false]
     } else {
       // here we can extract the auCommit token from done_state by exchanging it for `own_rdcss_token(l_descr_ref)`
-      fold done_state(token, l_n, l_descr_ref, l_descr, rdcss_ret, tid_ghost_winner)[auRetrieved := true];
-      fold descr_inv(token, p, rdcss_ret, l_n, l_descr_ref, l_descr, tid_ghost_winner)[vs := vs, notDone := false, isPending := false];
+      fold done_state(token, l_n, l_descr_ref, l_descr, rdcss_ret, tid_ghost_winner)[auRetrieved := true]
+      fold descr_inv(token, p, rdcss_ret, l_n, l_descr_ref, l_descr, tid_ghost_winner)[vs := vs, notDone := false, isPending := false]
     }
   }
 }
