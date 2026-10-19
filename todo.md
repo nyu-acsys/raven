@@ -22,7 +22,7 @@
     at each `if` on the path.
 - [ ] Map literals with a default, such as `[1 := 5, else 4]`, as counterexamples show
     maps.
-- [ ] Incremental verification: re-check only members whose dependencies changed
+- [x] Incremental verification: re-check only members whose dependencies changed
     since the last run.
 - [ ] Editor: a "Show elaborated program" command that opens the elaborated or
     lowered program read-only; needs a flag that prints it to stdout.
