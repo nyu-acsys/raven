@@ -883,7 +883,10 @@ module Expr = struct
     (* function symbols *)
     | Bool b -> Printf.sprintf "%b" b
     | Int i -> Int64.to_string i
-    | Real r -> Float.to_string r
+    | Real r ->
+        (* With a digit after the point, as the lexer requires. *)
+        let s = Float.to_string r in
+        if String.is_suffix s ~suffix:"." then s ^ "0" else s
     | Null -> "null"
     | Tuple -> "()"
     | DataConstr id | DataDestr id -> QualIdent.to_string id
@@ -926,6 +929,23 @@ module Expr = struct
   let constr_to_string c =
     make_constr_to_string ~expr_ext_to_string:default_expr_ext_to_string c
 
+  (** How the callee [id] of an application is written: in infix form if it is a binary
+      operator, in prefix form if a unary one, and with its arguments in the places of its
+      [_]s if it is a mixfix operator, such as [_[_]]. *)
+  type operator_form = Infix of string | Prefix of string | Mixfix of string list
+
+  let operator_form (id : QualIdent.t) arity =
+    let name = Ident.name id.qual_base in
+    let symbolic c = not (Char.is_alphanum c || Char.equal c '_' || Char.equal c '$') in
+    let keyword = List.mem [ "in"; "!in"; "subseteq" ] name ~equal:String.equal in
+    if not (List.is_empty id.qual_path) then None
+    else if String.mem name '_' && String.exists name ~f:symbolic then
+      let parts = String.split name ~on:'_' in
+      Option.some_if (List.length parts = arity + 1) (Mixfix parts)
+    else if keyword || ((not (String.is_empty name)) && String.for_all name ~f:symbolic)
+    then match arity with 2 -> Some (Infix name) | 1 -> Some (Prefix name) | _ -> None
+    else None
+
   let constr_to_prio = function
     | Null | Empty | Int _ | Real _ | Bool _ -> 0
     | Enumeration _ | Tuple | Read | Own | AUPred _ | AUPredCommit _ | Var _ | TupleLookUp
@@ -938,11 +958,15 @@ module Expr = struct
     | Gt | Lt | Geq | Leq -> 7
     | Eq | DataTest _ -> 8
     | And -> 12
-    | Or | Impl -> 16
+    | Or -> 15
+    | Impl -> 16
     | Ite -> 17
     | ExprExt expr_ext -> 18
 
   let to_prio = function
+    | App (Var id, (_ :: _ as es), _)
+      when Option.is_some (operator_form id (List.length es)) ->
+        6
     | App (c, _, _) -> constr_to_prio c
     | Binder (Compr, _, _, _, _) -> 0
     | Binder ((Forall | Exists), _, _, _, _) -> 18
@@ -1015,9 +1039,50 @@ module Expr = struct
       match e with
       | App (And, [], a) -> pr ppf (App (Bool false, [], a))
       | App (Or, [], a) -> pr ppf (App (Bool true, [], a))
+      | App (Enumeration opener, [], _) ->
+          let opening, closing = enumeration_delimiters opener in
+          fprintf ppf "%s%s" opening closing
       | App (c, [], _) -> fprintf ppf "%a" pr_constr c
+      | App (Var id, (_ :: _ as es), _)
+        when Option.is_some (operator_form id (List.length es)) -> (
+          (* Operands are parenthesized unless atomic, since the precedence of a
+             user-defined operator is not known here. *)
+          let pr_operand ppf e = if to_prio e > 1 then pr_paran ppf e else pr ppf e in
+          match (operator_form id (List.length es), es) with
+          | Some (Infix op), [ e1; e2 ] ->
+              fprintf ppf "%a %s %a" pr_operand e1 op pr_operand e2
+          | Some (Prefix op), [ e1 ] -> fprintf ppf "%s%a" op pr_operand e1
+          | Some (Mixfix (first :: parts)), _ ->
+              (* Symbolic parts between operands are spaced, so that they do not run
+                 into an operand's own symbols, as `:=` into `-1`. *)
+              let n = List.length parts in
+              let spaced i part =
+                if i < n - 1 && String.exists part ~f:(fun c -> not (Char.is_alphanum c))
+                then " " ^ part ^ " "
+                else part
+              in
+              fprintf ppf "%s" first;
+              List.iteri (List.zip_exn es parts) ~f:(fun i (e, part) ->
+                  fprintf ppf "%a%s" pr e (spaced i part))
+          | _ -> fprintf ppf "%a(%a)" QualIdent.pr id pr_list_compact es)
       | App (DataConstr id, es, _) | App (Var id, (_ :: _ as es), _) ->
           fprintf ppf "%a(%a)" QualIdent.pr id pr_list_compact es
+      | App (Read, [ e1; App (Var field, [], _) ], _) ->
+          let pr_e1 = if to_prio e1 > 1 then pr_paran else pr in
+          if List.is_empty field.qual_path then
+            fprintf ppf "%a.%a" pr_e1 e1 QualIdent.pr field
+          else fprintf ppf "%a.(%a)" pr_e1 e1 QualIdent.pr field
+      | App (MapLookUp, [ e1; e2 ], _) ->
+          let pr_e1 = if to_prio e1 > 1 then pr_paran else pr in
+          fprintf ppf "%a[%a]" pr_e1 e1 pr e2
+      | App (MapUpdate, [ e1; e2; e3 ], _) ->
+          let pr_e1 = if to_prio e1 > 1 then pr_paran else pr in
+          fprintf ppf "%a[%a := %a]" pr_e1 e1 pr e2 pr e3
+      | App (Ite, [ c; e1; e2 ], _) ->
+          let pr_c = if to_prio c >= constr_to_prio Ite then pr_paran else pr in
+          let pr_e1 = if to_prio e1 >= constr_to_prio Ite then pr_paran else pr in
+          let pr_e2 = if to_prio e2 > constr_to_prio Ite then pr_paran else pr in
+          fprintf ppf "%a ? %a : %a" pr_c c pr_e1 e1 pr_e2 e2
       | App (DataTest id, [ arg ], _) ->
           let pr_arg =
             if to_prio arg >= constr_to_prio (DataTest id) then pr_paran else pr
@@ -1028,8 +1093,20 @@ module Expr = struct
              as c),
             [ e1; e2 ],
             _ ) ->
-          let pr_e1 = if constr_to_prio c < to_prio e1 then pr_paran else pr in
-          let pr_e2 = if constr_to_prio c <= to_prio e2 then pr_paran else pr in
+          (* Implication associates to the right, the others to the left. *)
+          let right = equal_constr c Impl in
+          let pr_e1 =
+            if constr_to_prio c < to_prio e1 || (right && constr_to_prio c = to_prio e1)
+            then pr_paran
+            else pr
+          in
+          let pr_e2 =
+            if
+              constr_to_prio c < to_prio e2
+              || ((not right) && constr_to_prio c = to_prio e2)
+            then pr_paran
+            else pr
+          in
           fprintf ppf "%a %a %a" pr_e1 e1 pr_constr c pr_e2 e2
       | App (Enumeration opener, es, _) ->
           let opening, closing = enumeration_delimiters opener in
@@ -1866,11 +1943,16 @@ module Stmt = struct
     end in
     let rec pr_var_def ppf vdef =
       let open Stdlib.Format in
-      fprintf ppf "%s%s @[<2>%a@ :@ %a%a@]"
+      (* Without a type, if none was given and none inferred yet. *)
+      let pr_type ppf tp =
+        if not (Type.is_any tp) then fprintf ppf "@ :@ %a" Type.pr tp
+      in
+      fprintf ppf "%s%s @[<2>%a%a%a@]"
         (if Type.is_ghost_var vdef.var_decl then "ghost " else "")
         (if Type.is_const_var vdef.var_decl then "val" else "var")
-        Ident.pr vdef.var_decl.var_name Type.pr vdef.var_decl.var_type
-        (fun ppf -> function Some e -> fprintf ppf "@ =@ %a" Expr.pr e | None -> ())
+        Ident.pr vdef.var_decl.var_name pr_type
+        (Type.set_ghost false vdef.var_decl.var_type)
+        (fun ppf -> function Some e -> fprintf ppf "@ :=@ %a" Expr.pr e | None -> ())
         vdef.var_init
     and pr_spec_name ppf = function
       | Some name -> Stdlib.Format.fprintf ppf "%s: " name
@@ -1903,7 +1985,12 @@ module Stmt = struct
       | VarDef vdef -> pr_var_def ppf vdef
       | Assign astm -> (
           match astm.assign_lhs with
-          | [] -> Expr.pr ppf astm.assign_rhs
+          | [] -> (
+              (* A call as a statement, which needs its parentheses even without
+                 arguments. *)
+              match astm.assign_rhs with
+              | App (Var callee, [], _) -> fprintf ppf "%a()" QualIdent.pr callee
+              | rhs -> Expr.pr ppf rhs)
           | vs ->
               fprintf ppf "@[<2>%a@ :=@ %a@]" QualIdent.pr_list vs Expr.pr astm.assign_rhs
           )
@@ -1923,7 +2010,7 @@ module Stmt = struct
           fprintf ppf "@[<2>havoc@ %a%s@]" QualIdent.pr hvc.havoc_var
             (if hvc.havoc_is_init then " (init)" else "")
       | New nstm ->
-          fprintf ppf "@[<2>%a@ :=@ new@ %a@]" QualIdent.pr nstm.new_lhs
+          fprintf ppf "@[<2>%a@ :=@ new(@[%a@])@]" QualIdent.pr nstm.new_lhs
             (Print.pr_list_comma (fun ppf -> function
               | f, Some e -> fprintf ppf "%a:@ %a" QualIdent.pr f Expr.pr e
               | f, None -> QualIdent.pr ppf f))
@@ -2012,7 +2099,38 @@ module Stmt = struct
           end
       | Basic bs -> pr_basic_stmt ppf bs
       | StmtExt stmt_ext -> pr_stmt_ext ppf stmt_ext
-    and pr_block ppf stmts = Print.pr_list_nl pr ppf stmts in
+    (* A local definition with an initial value is followed by the statement that
+       assigns it, which the two print as one, as they are written. *)
+    and pr_block ppf stmts =
+      let open Stdlib.Format in
+      let initializes (vdef : var_def) = function
+        | Basic (Assign { assign_lhs = [ x ]; assign_is_init = true; _ })
+        | Basic (New { new_lhs = x; new_is_init = true; _ }) ->
+            List.is_empty x.qual_path && Ident.equal x.qual_base vdef.var_decl.var_name
+        | _ -> false
+      in
+      let pr_initialized ppf (vdef, init) =
+        let decl = { vdef with var_init = None } in
+        match init with
+        | Basic (New nstm) ->
+            fprintf ppf "@[<2>%a@ :=@ new(@[%a@])@]" pr_var_def decl
+              (Print.pr_list_comma (fun ppf -> function
+                | f, Some e -> fprintf ppf "%a:@ %a" QualIdent.pr f Expr.pr e
+                | f, None -> QualIdent.pr ppf f))
+              nstm.new_args
+        | Basic (Assign astm) ->
+            fprintf ppf "@[<2>%a@ :=@ %a@]" pr_var_def decl Expr.pr astm.assign_rhs
+        | _ -> pr_var_def ppf vdef
+      in
+      let rec items = function
+        | { stmt_desc = Basic (VarDef vdef); _ } :: { stmt_desc = init; _ } :: stmts
+          when initializes vdef init ->
+            (fun ppf -> pr_initialized ppf (vdef, init)) :: items stmts
+        | stmt :: stmts -> (fun ppf -> pr ppf stmt) :: items stmts
+        | [] -> []
+      in
+      Print.pr_list_nl (fun ppf item -> item ppf) ppf (items stmts)
+    in
     let to_string s = Print.string_of_format pr s in
     let print chan s = Print.print_of_format pr s chan in
     (pr_var_def, pr_spec_list, pr_basic_stmt, pr, pr_block, to_string, print)

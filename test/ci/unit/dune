@@ -42,3 +42,8 @@
  (name alpha_renaming)
  (modules alpha_renaming)
  (libraries ast base util))
+
+(executable
+ (name print_roundtrip)
+ (modules print_roundtrip)
+ (libraries driver frontend ext extApi ast util base stdio))

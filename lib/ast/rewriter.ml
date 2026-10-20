@@ -767,6 +767,7 @@ type printers = {
   pr_stmt_spec_list : string -> Stdlib.Format.formatter -> Stmt.spec list -> unit;
   pr_callable : Stdlib.Format.formatter -> Callable.t -> unit;
   pr_module : Stdlib.Format.formatter -> Module.t -> unit;
+  pr_module_instrs : Stdlib.Format.formatter -> Module.module_instr list -> unit;
   pr_symbol : Stdlib.Format.formatter -> Module.symbol -> unit;
   symbol_to_string : Module.symbol -> string;
 }
@@ -797,7 +798,7 @@ let printers_of_ext_hooks (h : ext_hooks) : printers =
       ~expr_ext_to_string:h.expr_ext_to_string ~pr_basic_stmt_ext:h.pr_basic_stmt_ext
       ~pr_stmt_ext:h.pr_stmt_ext ~contract_ext_to_string:h.contract_ext_to_string
   in
-  let pr_module, _, _, _ =
+  let pr_module, _, pr_module_instrs, _ =
     Module.make_printers ~type_ext_to_name:h.type_ext_to_name
       ~expr_ext_to_string:h.expr_ext_to_string ~pr_basic_stmt_ext:h.pr_basic_stmt_ext
       ~pr_stmt_ext:h.pr_stmt_ext ~contract_ext_to_string:h.contract_ext_to_string
@@ -818,6 +819,7 @@ let printers_of_ext_hooks (h : ext_hooks) : printers =
     pr_stmt_spec_list;
     pr_callable;
     pr_module;
+    pr_module_instrs;
     pr_symbol;
     symbol_to_string;
   }
