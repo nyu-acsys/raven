@@ -16,6 +16,7 @@ let rep_module_of_type_arg (formal : Module.module_inst) (formal_iface : qual_id
   | None ->
       type_argument_without_rep_error (Type.to_loc tp) formal.mod_inst_name formal_iface
   | Some (interface_qual_ident, rep_ident) ->
+      let* tp = TypeExpr.expand_type_expr tp in
       let* insert_scope, reference_scope =
         lift (ProgUtils.find_insertion_scope_for_types [ tp ])
       in

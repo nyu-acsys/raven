@@ -1,0 +1,43 @@
+// A data type and a functor application, passed where a module implementing
+// Library.Type is expected, stand for the modules wrapping them.
+
+type Color = data {
+  case red
+  case shade(level: Int)
+}
+
+module Colors = Library.SetRA[Color]
+module Shares = Library.Frac[Seq[Int]]
+
+ghost field seen: Colors
+ghost field share: Shares
+
+lemma seen_red(x: Ref)
+  requires own(x.seen, Colors.set({red, shade(1)}))
+  ensures own(x.seen, Colors.set({red}))
+{}
+
+lemma shares_agree(x: Ref, s: Seq[Int])
+  requires own(x.share, Shares.frac_chunk([1, 2], 0.5))
+  requires own(x.share, Shares.frac_chunk(s, 0.5))
+  ensures s == [1, 2]
+{}
+
+// Likewise inside a functor, for types that mention its parameter.
+module Box[A: Library.Type] {
+  type Entry = data {
+    case entry(key: Int, value: A)
+  }
+
+  module Entries = Library.SetRA[Entry]
+  module Values = Library.Frac[Seq[A]]
+
+  ghost field entries: Entries
+  ghost field values: Values
+
+  lemma values_agree(x: Ref, s: Seq[A], t: Seq[A])
+    requires own(x.values, Values.frac_chunk(s, 0.5))
+    requires own(x.values, Values.frac_chunk(t, 0.5))
+    ensures s == t
+  {}
+}

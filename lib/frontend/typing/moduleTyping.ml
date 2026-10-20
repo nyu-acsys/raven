@@ -666,7 +666,18 @@ and check_instr (m : Module.t) (instr : Module.module_instr) : Module.module_ins
                     Rewriter.List.map args_and_formals
                       ~f:(fun (arg, (formal, formal_iface)) ->
                         match arg with
-                        | Module.ModArg qi -> Rewriter.return (qi, formal_iface)
+                        | Module.ModArg qi -> (
+                            (* A bare name parses as a module; one naming a type stands
+                               for the module wrapping it. *)
+                            let* symbol = Rewriter.find qi in
+                            match Rewriter.Symbol.orig_symbol symbol with
+                            | Module.TypeDef _ ->
+                                let+ qi =
+                                  Interfaces.rep_module_of_type_arg formal formal_iface
+                                    (Type.mk_var qi)
+                                in
+                                (qi, formal_iface)
+                            | _ -> Rewriter.return (qi, formal_iface))
                         | Module.TypeArg tp ->
                             let+ qi =
                               Interfaces.rep_module_of_type_arg formal formal_iface tp

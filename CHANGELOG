@@ -29,6 +29,7 @@ All notable changes to this project will be documented in this file.
 - An atomic call and its abort check give up the same resources for its ordinary precondition.
 - An invariant still open at a call or a loop's next iteration is reported as a missing fold.
 - Locations in different files are ordered by file name, independently of memory layout.
+- Data types and functor applications can be module arguments, as in `Library.Frac[Seq[Int]]`.
 
 ## [1.5.0] - 2026-10-16
 
