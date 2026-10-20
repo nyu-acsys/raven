@@ -1,3 +1,9 @@
+20 oct, 2026:
+- [ ] Infer implicit ghost arguments from invariants in the precondition: for
+    `proc acquire(l: Ref, implicit ghost r: Ref) requires lock_inv(l, r)`, a
+    caller holding `lock_inv(l, b)` gets an arbitrary `r` from `acquire(l)` and
+    is told that the invariant is not in its mask; `acquire(l, b)` verifies.
+
 17 oct, 2026:
 - [x] Wire the VS Code plugin's `ravenServer.maxNumberOfProblems` into the protocol.
     The setting is unused so far, and its defaults disagree (100 in `package.json`,
