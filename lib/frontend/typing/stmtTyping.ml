@@ -1079,7 +1079,8 @@ and claim_if_not_core_indexed ~is_ghost_scope call_decl stmt_loc disam_tbl basic
   let open Rewriter.Syntax in
   match expr with
   | App (constr, base :: _, _)
-    when ExprTyping.is_lookup_constr constr || ExprTyping.is_update_constr constr ->
+    when (ExprTyping.is_lookup_constr constr || ExprTyping.is_update_constr constr)
+         && Option.is_none (ExprTyping.map_literal_parts expr) ->
       let* core_indexable = peek_core_indexable disam_tbl base in
       if core_indexable then Rewriter.return None
       else claim_stmt ~is_ghost_scope call_decl stmt_loc disam_tbl basic_stmt

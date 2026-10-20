@@ -40,6 +40,24 @@ let rec update_root (expr : expr) : expr =
   | App (constr, base :: _, _) when is_update_constr constr -> update_root base
   | _ -> expr
 
+(** A map literal's variable, default and entries, the last first: the parser makes it the
+    updates of a comprehension whose variable has no type. *)
+let rec map_literal_parts (expr : expr) =
+  match expr with
+  | App (MapUpdate, [ map; key; value ], _) ->
+      Option.map (map_literal_parts map) ~f:(fun (var_decl, default, entries) ->
+          (var_decl, default, (key, value) :: entries))
+  | Binder (Compr, [ var_decl ], [], default, _) when Type.is_any var_decl.var_type ->
+      Some (var_decl, default, [])
+  | _ -> None
+
+(** The map literal [expr] with [root] in place of its comprehension. *)
+let rec with_map_literal_root (expr : expr) (root : expr) : expr =
+  match expr with
+  | App (MapUpdate, [ map; key; value ], attr) ->
+      App (MapUpdate, [ with_map_literal_root map root; key; value ], attr)
+  | _ -> root
+
 (** Whether [exp_ty] and [fnd_ty], different type names, stand for the same module: both
     trace back to the same declaration, and, if its module has formals, bind each formal
     to the same argument. *)
@@ -163,6 +181,8 @@ let rec check ?(allow_proc_call = false) ?(contextual = false) (expr : expr)
       in
       let actual_typ = Expr.to_type e in
       set_checked_type e actual_typ actual_typ expected_typ
+  | None when Option.is_some (map_literal_parts expr) ->
+      check_map_literal expr expected_typ
   | None -> (
       match expr with
       | App (constr, expr_list, expr_attr) -> (
@@ -921,6 +941,52 @@ and resolve_read_ident (expr1 : expr) (field_ident : qual_ident)
       let* peeked_expr1 = check expr1 (Type.any |> Type.set_ghost_to expected_typ) in
       ImplicitInstantiation.try_resolve_implicit_instantiation_destr
         ~field_ident:candidate ~arg_typ:(Expr.to_type peeked_expr1))
+
+(** A map literal, typed as its updates once its key type is known: the expected one, or
+    that of its keys. Unless expected, its value type is the default's, or the values' for
+    a default that has no type of its own, such as another map literal. *)
+and check_map_literal (expr : expr) (expected_typ : type_expr) : expr t =
+  let open Rewriter.Syntax in
+  let var_decl, default, entries = Option.value_exn (map_literal_parts expr) in
+  let default_needs_context =
+    Option.is_some (map_literal_parts default)
+    || match default with App (Enumeration _, [], _) -> true | _ -> false
+  in
+  let expected_key, expected_value =
+    match expected_typ with
+    | App (Map, [ key; value ], _) -> (key, value)
+    | _ -> (Type.any, Type.any)
+  in
+  let known typ = not (Type.is_any typ || Type.contains_bot typ) in
+  let joined_type exprs expected =
+    if known expected then Rewriter.return expected
+    else
+      let+ typed =
+        Rewriter.List.map exprs ~f:(fun e ->
+            speculatively (check e (Type.any |> Type.set_ghost_to expected_typ)))
+      in
+      List.fold typed ~init:Type.bot ~f:(fun typ e -> Type.join typ (Expr.to_type e))
+  in
+  let* key_typ = joined_type (List.map entries ~f:fst) expected_key in
+  if not (known key_typ) then map_literal_key_type_error (Expr.to_loc expr);
+  let* value_typ =
+    if known expected_value || default_needs_context then
+      joined_type (List.map entries ~f:snd) expected_value
+    else Rewriter.return Type.any
+  in
+  let value_typ = if known value_typ then value_typ else Type.any in
+  let map_typ = Type.map key_typ value_typ |> Type.set_ghost_to expected_typ in
+  (* The comprehension first, as updates type their map without the expected type. *)
+  let* root =
+    check
+      (Expr.mk_binder ~loc:(Expr.to_loc expr) ~typ:Type.any Compr
+         [ { var_decl with var_type = key_typ } ]
+         default)
+      map_typ
+  in
+  let* expr = check (with_map_literal_root expr root) map_typ in
+  let typ = Expr.to_type expr in
+  set_checked_type expr typ typ expected_typ
 
 (** A quantifier or a comprehension. *)
 and check_binder (binder : Expr.binder) (var_decl_list : var_decl list)

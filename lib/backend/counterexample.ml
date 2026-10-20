@@ -154,7 +154,7 @@ and render_array ~reference (value : Sexp.t) : string =
             List.rev_map entries ~f:(fun (index, v) ->
                 Printf.sprintf "%s := %s" (render index) (render v))
           in
-          Printf.sprintf "[%s]"
+          Printf.sprintf "{%s}"
             (String.concat ~sep:", " (shown @ [ "else " ^ render constant ])))
 
 (** A field's value: for a fraction, its value and permission, or [None] without one. *)

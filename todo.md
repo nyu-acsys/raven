@@ -20,7 +20,7 @@
     through lowering and SSA.
 - [x] Counterexamples: show which branches the failing path took, e.g. as inlay hints
     at each `if` on the path.
-- [ ] Map literals with a default, such as `[1 := 5, else 4]`, as counterexamples show
+- [x] Map literals with a default, such as `{1 := 5, else 4}`, as counterexamples show
     maps.
 - [x] Incremental verification: re-check only members whose dependencies changed
     since the last run.

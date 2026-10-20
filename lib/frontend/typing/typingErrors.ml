@@ -770,3 +770,8 @@ let inherited_twice_error loc member module_name =
          %{Ident#user} implements; a module cannot inherit two declarations of the same \
          name"
        member module_name)
+
+let map_literal_key_type_error loc =
+  Error.type_error loc
+    "Cannot infer the key type of this map literal; annotate it, as in `({else 0} : \
+     Map[Int, Int])`"

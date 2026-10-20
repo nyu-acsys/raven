@@ -1,0 +1,28 @@
+// Map literals with a value at every other key, their key and value types inferred.
+module M {
+  proc p() {
+    var m := {1 := 5, 2 := 6, else 4}
+    assert m[1] == 5 && m[2] == 6 && m[3] == 4
+    var n: Map[Int, Bool] := {else true}
+    assert n[7]
+    var o := {1 := 5, 1 := 7, else 0}
+    assert o[1] == 7
+    var s: Set[Int] := {1 := true, else false}
+    assert s == {1}
+    var r := {1 := 2, else 0.5}
+    assert r[1] == 2.0
+    var t := {1 := {2}, else {}}
+    assert 2 in t[1] && !(2 in t[3])
+    var q := {[1] := {2 := 3, else 0}, else {else 1}}
+    assert q[[1]][2] == 3 && q[[]][5] == 1
+    assert {1 := 5, else 4}[1] == 5
+    assert ({else 0} : Map[Int, Int])[3] == 0
+  }
+
+  func f(k: Int) returns (r: Map[Int, Int])
+    ensures r[k] == 1
+  {
+    {k := 1,
+     else 0}
+  }
+}

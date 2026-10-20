@@ -1059,6 +1059,27 @@ enumeration_close:
         let name = checked_enumeration_name loc opener closer ~singleton in
         Expr.(mk_app ~typ:Type.any ~loc (Var (QualIdent.from_ident name)) args)
   }
+| opener = enumeration_open; entries = map_entries; closer = enumeration_close {
+    let loc = Loc.make $symbolstartpos $endpos in
+    (match opener, closer with
+     | ("{", false), ("}", false) -> ()
+     | _ -> Error.syntax_error loc "A map literal is delimited by braces");
+    let entries, default = entries in
+    (* A comprehension of the default, whose key type comes from the updates or the
+       expected type. *)
+    let key =
+      Type.{ var_name = Ident.make loc "$key" 0;
+             var_type = Type.mk_any loc;
+             var_loc = loc;
+             var_const = false;
+             var_ghost = false;
+             var_implicit = false;
+           }
+    in
+    let constant = Expr.mk_binder ~loc ~typ:Type.any Compr [ key ] default in
+    Stdlib.List.fold_left (fun map (k, v) ->
+        Expr.mk_app ~typ:Type.any ~loc MapUpdate [ map; k; v ]) constant entries
+  }
 | opener = enumeration_open; v = bound_var; COLONCOLON; e = expr;
   closer = enumeration_close {
     let loc = Loc.make $symbolstartpos $endpos in
@@ -1067,6 +1088,18 @@ enumeration_close:
   }
 ;
   
+(* The entries of a map literal, and the value at every other key. *)
+map_entries:
+| ELSE; default = expr { ([], default) }
+| k = expr; COLONEQ; v = expr; COMMA; entries = map_entries {
+    let entries, default = entries in
+    ((k, v) :: entries, default)
+  }
+| expr; COLONEQ; expr {
+    Error.syntax_error (Loc.make $endpos $endpos)
+      "A map literal needs a value for the other keys: add `else e`"
+  }
+
 dot_expr:
 (*| MAP LT var_type, var_type GT LPAREN expr_list_opt RPAREN {*)
 | p = qual_ident_expr; co = call_opt { co p }

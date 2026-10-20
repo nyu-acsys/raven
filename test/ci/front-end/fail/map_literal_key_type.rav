@@ -1,0 +1,5 @@
+module M {
+  proc p() {
+    var m := {else 4}
+  }
+}

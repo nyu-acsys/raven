@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
 - Say when an assertion fails because the solver timed out.
 - `--cache-dir DIR` skips the checks of members verified before whose dependencies are unchanged.
 - `--server` answers requested runs in one process, type-checking the library only once.
+- Map literals list entries and the value at every other key, as in `{1 := 5, else 4}`.
 
 ### Changed
 

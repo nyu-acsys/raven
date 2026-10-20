@@ -40,9 +40,9 @@ let () =
       ("(store (store ((as const (Set Int)) false) 1 true) 1 false)", "{}");
       ("(store ((as const (Set Int)) true) 2 false)", "all but {2}");
       ( "(store (store ((as const (Array Int Int)) 4) 1 5) 2 6)",
-        "[1 := 5, 2 := 6, else 4]" );
-      ("(store (store ((as const (Array Int Int)) 4) 1 5) 1 7)", "[1 := 7, else 4]");
-      ("((as const (Array Int Int)) 0)", "[else 0]");
+        "{1 := 5, 2 := 6, else 4}" );
+      ("(store (store ((as const (Array Int Int)) 4) 1 5) 1 7)", "{1 := 7, else 4}");
+      ("((as const (Array Int Int)) 0)", "{else 0}");
       ("(_ as-array k!0)", "…");
       ("(lambda ((x Int)) (= x 1))", "…");
       ("(store a 1 2)", "…");
