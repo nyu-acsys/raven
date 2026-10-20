@@ -1004,11 +1004,13 @@ and check_call (call_desc : Stmt.call_desc) (call_decl : Callable.call_decl)
     | _ -> false
   in
   let* _ = Rewriter.enter_ghost is_ghost in
+  (* [check_returns] has checked that a ghost result goes to a ghost target. *)
+  let returns_ghost = Type.is_ghost (Callable.return_type call_decl) in
   let* call_expr =
     Expr.App (Var call_desc.call_name, call_desc.call_args, Expr.mk_attr stmt_loc Type.any)
     |> fun expr ->
     disambiguate_and_check_expr expr
-      (Type.any |> Type.set_ghost is_ghost)
+      (Type.any |> Type.set_ghost (is_ghost || returns_ghost))
       disam_tbl ~allow_proc_call:true
   in
   let+ _ = Rewriter.exit_ghost in

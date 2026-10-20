@@ -1,0 +1,12 @@
+// A procedure's ghost result cannot be assigned to a non-ghost variable.
+
+proc g(x: Ref, ghost i: Int) returns (ghost k: Int)
+  ensures k == i + 1
+{
+  k := i + 1;
+}
+
+proc h(x: Ref) {
+  var k: Int;
+  k := g(x, 3);
+}

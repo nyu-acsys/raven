@@ -1,0 +1,15 @@
+// A procedure's ghost result can be assigned to a ghost variable.
+
+field f: Int
+
+proc next(x: Ref, ghost i: Int) returns (ghost k: Int)
+  ensures k == i + 1
+{
+  k := i + 1;
+}
+
+proc caller(x: Ref) {
+  ghost var k: Int;
+  k := next(x, 3);
+  assert k == 4;
+}
