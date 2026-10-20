@@ -257,9 +257,11 @@ and type_check_stmt_functs = {
 and ext_hooks = {
   type_ext_to_name : Type.type_ext -> string;
   expr_ext_to_string : Expr.expr_ext -> string;
+  pr_expr_ext : Expr.pr_expr_ext;
   expr_ext_is_literal : Expr.expr_ext -> bool;
   expr_ext_literal_accepts_type : Expr.expr_ext -> Type.t -> bool t;
-  pr_basic_stmt_ext : Stdlib.Format.formatter -> Stmt.stmt_ext -> expr list -> unit;
+  pr_basic_stmt_ext :
+    Stmt.ext_printers -> Stdlib.Format.formatter -> Stmt.stmt_ext -> expr list -> unit;
   contract_ext_to_string : Stmt.contract_ext -> string;
   basic_stmt_ext_symbols : Stmt.stmt_ext -> QualIdentSet.t;
   basic_stmt_ext_local_vars_modified : Stmt.stmt_ext -> expr list -> ident list;
@@ -269,7 +271,7 @@ and ext_hooks = {
           [contract_ext], used by extension statements that need a nested [Stmt.t] of
           their own -- see [Stmt.basic_stmt_desc.BasicStmtExt]'s doc comment for why the
           two extension points are split). *)
-  pr_stmt_ext : Stdlib.Format.formatter -> Stmt.stmt_ext -> unit;
+  pr_stmt_ext : Stmt.ext_printers -> Stdlib.Format.formatter -> Stmt.stmt_ext -> unit;
   stmt_ext_symbols : Stmt.stmt_ext -> QualIdentSet.t;
   stmt_ext_local_vars_modified : Stmt.stmt_ext -> ident list;
   stmt_ext_fields_accessed : Stmt.stmt_ext -> qual_ident list;
@@ -471,6 +473,7 @@ let default_ext_hooks : ext_hooks =
   {
     type_ext_to_name = Type.default_type_ext_to_name;
     expr_ext_to_string = Expr.default_expr_ext_to_string;
+    pr_expr_ext = Expr.default_pr_expr_ext;
     expr_ext_is_literal = (fun _ -> false);
     expr_ext_literal_accepts_type = (fun _ _ state -> (state, true));
     pr_basic_stmt_ext = Stmt.default_pr_basic_stmt_ext;
@@ -786,27 +789,31 @@ let printers_of_ext_hooks (h : ext_hooks) : printers =
   in
   let _, _, _, pr_expr, pr_expr_list, _, _, _, _, _, _, _ =
     Expr.make_printers ~type_ext_to_name:h.type_ext_to_name
-      ~expr_ext_to_string:h.expr_ext_to_string
+      ~expr_ext_to_string:h.expr_ext_to_string ~pr_expr_ext:h.pr_expr_ext
   in
   let _, pr_stmt_spec_list, pr_stmt_basic, pr_stmt, _, _, _ =
     Stmt.make_printers ~type_ext_to_name:h.type_ext_to_name
-      ~expr_ext_to_string:h.expr_ext_to_string ~pr_basic_stmt_ext:h.pr_basic_stmt_ext
-      ~pr_stmt_ext:h.pr_stmt_ext ~contract_ext_to_string:h.contract_ext_to_string
+      ~expr_ext_to_string:h.expr_ext_to_string ~pr_expr_ext:h.pr_expr_ext
+      ~pr_basic_stmt_ext:h.pr_basic_stmt_ext ~pr_stmt_ext:h.pr_stmt_ext
+      ~contract_ext_to_string:h.contract_ext_to_string
   in
   let _, _, pr_callable =
     Callable.make_printers ~type_ext_to_name:h.type_ext_to_name
-      ~expr_ext_to_string:h.expr_ext_to_string ~pr_basic_stmt_ext:h.pr_basic_stmt_ext
-      ~pr_stmt_ext:h.pr_stmt_ext ~contract_ext_to_string:h.contract_ext_to_string
+      ~expr_ext_to_string:h.expr_ext_to_string ~pr_expr_ext:h.pr_expr_ext
+      ~pr_basic_stmt_ext:h.pr_basic_stmt_ext ~pr_stmt_ext:h.pr_stmt_ext
+      ~contract_ext_to_string:h.contract_ext_to_string
   in
   let pr_module, _, pr_module_instrs, _ =
     Module.make_printers ~type_ext_to_name:h.type_ext_to_name
-      ~expr_ext_to_string:h.expr_ext_to_string ~pr_basic_stmt_ext:h.pr_basic_stmt_ext
-      ~pr_stmt_ext:h.pr_stmt_ext ~contract_ext_to_string:h.contract_ext_to_string
+      ~expr_ext_to_string:h.expr_ext_to_string ~pr_expr_ext:h.pr_expr_ext
+      ~pr_basic_stmt_ext:h.pr_basic_stmt_ext ~pr_stmt_ext:h.pr_stmt_ext
+      ~contract_ext_to_string:h.contract_ext_to_string
   in
   let pr_symbol, symbol_to_string =
     Symbol.make_printers ~type_ext_to_name:h.type_ext_to_name
-      ~expr_ext_to_string:h.expr_ext_to_string ~pr_basic_stmt_ext:h.pr_basic_stmt_ext
-      ~pr_stmt_ext:h.pr_stmt_ext ~contract_ext_to_string:h.contract_ext_to_string
+      ~expr_ext_to_string:h.expr_ext_to_string ~pr_expr_ext:h.pr_expr_ext
+      ~pr_basic_stmt_ext:h.pr_basic_stmt_ext ~pr_stmt_ext:h.pr_stmt_ext
+      ~contract_ext_to_string:h.contract_ext_to_string
   in
   {
     pr_type;

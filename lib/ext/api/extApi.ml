@@ -59,18 +59,24 @@ module type Ext = sig
   val type_ext_to_name : Type.type_ext -> string
   val expr_ext_to_string : Expr.expr_ext -> string
 
+  val pr_expr_ext : Expr.pr_expr_ext
+  (** Prints an application of an extension constructor to its arguments, as written. *)
+
   (* Contextually typed literals may have nonconstant operands. *)
   val expr_ext_is_literal : Expr.expr_ext -> bool
 
   (* Read-only compatibility check for a literal whose type is still unresolved. *)
   val expr_ext_literal_accepts_type : Expr.expr_ext -> Type.t -> bool Rewriter.t
-  val pr_basic_stmt_ext : Stdlib.Format.formatter -> Stmt.stmt_ext -> expr list -> unit
+
+  val pr_basic_stmt_ext :
+    Stmt.ext_printers -> Stdlib.Format.formatter -> Stmt.stmt_ext -> expr list -> unit
+
   val contract_ext_to_string : Stmt.contract_ext -> string
   val basic_stmt_ext_symbols : Stmt.stmt_ext -> QualIdentSet.t
   val basic_stmt_ext_local_vars_modified : Stmt.stmt_ext -> expr list -> ident list
   val basic_stmt_ext_fields_accessed : Stmt.stmt_ext -> expr list -> qual_ident list
 
-  val pr_stmt_ext : Stdlib.Format.formatter -> Stmt.stmt_ext -> unit
+  val pr_stmt_ext : Stmt.ext_printers -> Stdlib.Format.formatter -> Stmt.stmt_ext -> unit
   (** The [stmt_desc]-level sibling of the [pr_basic_stmt_ext]/[basic_stmt_ext_*] family
       above, for the self-contained [Stmt.StmtExt] extension point (statements that need a
       nested [Stmt.t] of their own -- see [Stmt.basic_stmt_desc.BasicStmtExt]'s doc

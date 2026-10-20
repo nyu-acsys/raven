@@ -34,12 +34,15 @@ module AssertWithExt (Cont : Ext) = struct
      basic_stmt_ext_*: no type_ext/expr_ext/BasicStmtExt/contract_ext constructors
      here (this extension only adds a top-level StmtExt), so Cont's default is used. *)
 
-  let pr_stmt_ext ppf stmt_ext =
+  let pr_stmt_ext (printers : Stmt.ext_printers) ppf stmt_ext =
     let open Stdlib.Format in
     match stmt_ext with
-    | AssertWith { spec; _ } ->
-        fprintf ppf "@[<2>[EXT]assert@ %a@ with@ { ... }@]" Expr.pr spec.spec_form
-    | _ -> Cont.pr_stmt_ext ppf stmt_ext
+    | AssertWith { spec; proof } ->
+        let pr_name ppf = Option.iter ~f:(fprintf ppf "%s: ") in
+        (* On one line up to the proof: a line break before `with` ends the statement. *)
+        fprintf ppf "@[<2>assert %a%a with %a@]" pr_name spec.spec_name printers.pr_expr
+          spec.spec_form printers.pr_stmt proof
+    | _ -> Cont.pr_stmt_ext printers ppf stmt_ext
 
   (* `AssertWith` is always lowered (by [rewrite_stmt_ext] below) long before any pass
      that consults these three -- same "empty by default" precedent already accepted

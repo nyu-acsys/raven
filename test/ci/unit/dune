@@ -47,3 +47,15 @@
  (name print_roundtrip)
  (modules print_roundtrip)
  (libraries driver frontend ext extApi ast util base stdio))
+
+; Every .rav file of the tests, the tutorial and the library prints as Raven that parses
+; back to the same program.
+
+(rule
+ (alias runtest)
+ (deps
+  (glob_files_rec %{project_root}/test/**.rav)
+  (glob_files_rec %{project_root}/docs/tutorial/**.rav)
+  (glob_files_rec %{project_root}/lib/library/**.rav))
+ (action
+  (run %{exe:print_roundtrip.exe} %{deps})))

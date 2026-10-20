@@ -78,23 +78,29 @@ module ErrorCreditsExt (Cont : Ext) = struct
   let expr_ext_to_string expr_ext =
     match expr_ext with ErrorCreds -> "EC.error" | _ -> Cont.expr_ext_to_string expr_ext
 
-  let pr_basic_stmt_ext ppf ext expr_list =
+  let pr_expr_ext ~pr ppf expr_ext args =
+    match (expr_ext, args) with
+    | ErrorCreds, [ e ] -> Stdlib.Format.fprintf ppf "EC.error(%a)" pr e
+    | _ -> Cont.pr_expr_ext ~pr ppf expr_ext args
+
+  let pr_basic_stmt_ext (printers : Stmt.ext_printers) ppf ext expr_list =
     let open Stdlib.Format in
     match (ext, expr_list) with
     | EC_Rand _, [ lhs_expr; n_expr ] ->
-        fprintf ppf "@[<2>[EXT]%a@ :=@ %s(%a)@]" Expr.pr lhs_expr "Rand" Expr.pr n_expr
+        fprintf ppf "@[<2>%a@ :=@ EC.rand(%a)@]" printers.pr_expr lhs_expr
+          printers.pr_expr n_expr
     | EC_RandVal _, [ lhs_expr; n_expr; errorVal ] ->
-        fprintf ppf "@[<2>[EXT]%a@ :=@ %s(%a; %s:≠%a)@]" Expr.pr lhs_expr "Rand" Expr.pr
-          n_expr "ECVal" Expr.pr errorVal
+        fprintf ppf "@[<2>%a@ :=@ EC.rand(%a; ECVal: != %a)@]" printers.pr_expr lhs_expr
+          printers.pr_expr n_expr printers.pr_expr errorVal
     | EC_RandFn _, [ lhs_expr; n_expr; ec_expr; errFn_arg; errFn_def ] ->
-        fprintf ppf "@[<2>[EXT]%a@ :=@ %s(%a; %s:%s(%a), \\%a :: %a)@]" Expr.pr lhs_expr
-          "Rand" Expr.pr n_expr "ECFn" "EC.error" Expr.pr ec_expr Expr.pr errFn_arg
-          Expr.pr errFn_def
+        fprintf ppf "@[<2>%a@ :=@ EC.rand(%a; ECFn: EC.error(%a), \\%a :: %a)@]"
+          printers.pr_expr lhs_expr printers.pr_expr n_expr printers.pr_expr ec_expr
+          printers.pr_expr errFn_arg printers.pr_expr errFn_def
     | EC_RandList _, [ lhs_expr; n_expr; ls_expr ] ->
-        fprintf ppf "@[<2>[EXT]%a@ :=@ %s(%a; %s: !in%a)@]" Expr.pr lhs_expr "Rand"
-          Expr.pr n_expr "ECList" Expr.pr ls_expr
-    | EC_Contra, [] -> fprintf ppf "@[<2>[EXT]EC_Contra@]"
-    | _ -> Cont.pr_basic_stmt_ext ppf ext expr_list
+        fprintf ppf "@[<2>%a@ :=@ EC.rand(%a; ECList: !in %a)@]" printers.pr_expr lhs_expr
+          printers.pr_expr n_expr printers.pr_expr ls_expr
+    | EC_Contra, [] -> fprintf ppf "EC.contra()"
+    | _ -> Cont.pr_basic_stmt_ext printers ppf ext expr_list
 
   (* Expected to be mostly empty. *)
   let basic_stmt_ext_symbols stmt_ext =

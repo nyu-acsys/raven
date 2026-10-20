@@ -19,14 +19,15 @@ module SampleExt (Cont : Ext) = struct
   (* type_ext_to_name/expr_ext_to_string: no type_ext/expr_ext constructors here, so
      Cont's default is used. *)
 
-  let pr_basic_stmt_ext ppf ext expr_list =
+  let pr_basic_stmt_ext (printers : Stmt.ext_printers) ppf ext expr_list =
     let open Stdlib.Format in
     match (ext, expr_list) with
     | RandEven, [ lhs_expr; n_expr ] ->
-        fprintf ppf "@[<2>[EXT]%a@ :=@ %s(%a)@]" Expr.pr lhs_expr "Rand" Expr.pr n_expr
+        fprintf ppf "@[<2>[EXT]%a@ :=@ %s(%a)@]" printers.pr_expr lhs_expr "Rand"
+          printers.pr_expr n_expr
     | RandEven, _ ->
         Error.internal_error Loc.dummy "wrong number of arguments for randEven(...)"
-    | _ -> Cont.pr_basic_stmt_ext ppf ext expr_list
+    | _ -> Cont.pr_basic_stmt_ext printers ppf ext expr_list
 
   let basic_stmt_ext_symbols stmt_ext =
     match stmt_ext with

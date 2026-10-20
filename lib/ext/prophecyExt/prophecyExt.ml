@@ -103,23 +103,29 @@ module ProphecyExt (Cont : Ext) = struct
     | ProphResource _ -> "Proph.proph"
     | _ -> Cont.expr_ext_to_string expr_ext
 
+  let pr_expr_ext ~pr ppf expr_ext args =
+    match (expr_ext, args) with
+    | ProphResource _, [ proph_id; proph_val ] ->
+        Stdlib.Format.fprintf ppf "Proph.proph(%a, %a)" pr proph_id pr proph_val
+    | _ -> Cont.pr_expr_ext ~pr ppf expr_ext args
+
   (* Standard format for printer functions. *)
-  let pr_basic_stmt_ext ppf ext expr_list =
+  let pr_basic_stmt_ext (printers : Stmt.ext_printers) ppf ext expr_list =
     let open Stdlib.Format in
     match (ext, expr_list) with
     | NewProph (b, typ), [ proph_id; proph_val ] ->
-        fprintf ppf "@[[EXT] %a, %a@ :=@ new Proph[typ:%a%s]@]" Expr.pr proph_id Expr.pr
-          proph_val Type.pr typ
+        fprintf ppf "@[%a, %a@ :=@ new Proph[%a%s]@]" printers.pr_expr proph_id
+          printers.pr_expr proph_val printers.pr_type typ
           (if b then ", 1" else "")
     (* Make sure to have a case for malformed arguments; ensures we catch all our cases. *)
     | NewProph _, _ ->
         Error.internal_error Loc.dummy "wrong number of arguments for new Proph(...)"
     | ResolveProph _, [ proph_id; resolve_val ] ->
-        fprintf ppf "@[[EXT] Proph.resolve(%a -> %a)@]" Expr.pr proph_id Expr.pr
+        fprintf ppf "@[Proph.resolve(%a, %a)@]" printers.pr_expr proph_id printers.pr_expr
           resolve_val
     | ResolveProph _, _ ->
         Error.internal_error Loc.dummy "wrong number of arguments for Proph.resolve(...)"
-    | _ -> Cont.pr_basic_stmt_ext ppf ext expr_list
+    | _ -> Cont.pr_basic_stmt_ext printers ppf ext expr_list
 
   (* This is almost always expected to be empty. Only to be used if one stores variables/names within the Stmt _constructor_. Typically all the additional arguments are stored as stmt_args *)
   let basic_stmt_ext_symbols stmt_ext =

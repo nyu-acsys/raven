@@ -17,7 +17,11 @@ module DefaultExt = struct
     Error.internal_error Loc.dummy
       "unhandled expression extension (no active extension recognizes this expression)"
 
-  let pr_basic_stmt_ext ppf =
+  let pr_expr_ext ~pr ppf expr_ext args =
+    Error.internal_error Loc.dummy
+      "unhandled expression extension (no active extension recognizes this expression)"
+
+  let pr_basic_stmt_ext _ ppf =
     Error.internal_error Loc.dummy
       "unhandled statement extension (no active extension recognizes this statement)"
 
@@ -29,7 +33,7 @@ module DefaultExt = struct
   let basic_stmt_ext_local_vars_modified stmt_ext exprs = []
   let basic_stmt_ext_fields_accessed stmt_ext exprs = []
 
-  let pr_stmt_ext ppf =
+  let pr_stmt_ext _ ppf =
     Error.internal_error Loc.dummy
       "unhandled statement extension (no active extension recognizes this statement)"
 

@@ -167,6 +167,28 @@ module MatchExt (Cont : Ext) = struct
         "match ... { " ^ String.concat ~sep:" " (List.map arms ~f:arm_to_string) ^ " }"
     | other -> Cont.expr_ext_to_string other
 
+  let pr_expr_ext ~pr ppf (expr_ext : Expr.expr_ext) args =
+    let open Stdlib.Format in
+    let pr_operand ppf e =
+      if Expr.to_prio e > 1 then fprintf ppf "(%a)" pr e else pr ppf e
+    in
+    match (expr_ext, args) with
+    | Is ctor_qi, [ e ] -> fprintf ppf "%a is %a" pr_operand e QualIdent.pr ctor_qi
+    | MatchExpr arms, scrutinee :: bodies when List.length arms = List.length bodies ->
+        let pr_arm ppf ((arm : match_arm), body) =
+          let ctor = Option.value_map arm.arm_ctor ~default:"_" ~f:Ident.to_string in
+          match arm.arm_vars with
+          | [] -> fprintf ppf "case %s => %a" ctor pr body
+          | vars ->
+              fprintf ppf "case %s(%a) => %a" ctor
+                (Util.Print.pr_list_comma Ident.pr)
+                vars pr body
+        in
+        fprintf ppf "match %a { %a }" pr scrutinee
+          (Util.Print.pr_list_sep " " pr_arm)
+          (List.zip_exn arms bodies)
+    | _ -> Cont.pr_expr_ext ~pr ppf expr_ext args
+
   let expr_ext_is_recognized (expr_ext : Expr.expr_ext) : bool =
     match expr_ext with
     | Is _ | MatchExpr _ -> true

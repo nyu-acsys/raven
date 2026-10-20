@@ -309,6 +309,7 @@ let to_ext_hooks (ext : (module ExtApi.Ext)) : Ast.Rewriter.ext_hooks =
   {
     type_ext_to_name = Ext.type_ext_to_name;
     expr_ext_to_string = Ext.expr_ext_to_string;
+    pr_expr_ext = Ext.pr_expr_ext;
     expr_ext_is_literal = Ext.expr_ext_is_literal;
     expr_ext_literal_accepts_type = Ext.expr_ext_literal_accepts_type;
     pr_basic_stmt_ext = Ext.pr_basic_stmt_ext;
