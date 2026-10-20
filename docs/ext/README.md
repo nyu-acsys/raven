@@ -244,7 +244,7 @@ Once the programmer has created the extension such that it successfully compiles
 
   Not every extension needs to be one more `--extension` choice, though: `DecreasesExt` (see [Decreases Extension](#decreases-extension)) is instead stacked directly into the base of the chain, so it's present under every `--extension` value rather than being mutually exclusive with the others. Do this if your extension's functionality is orthogonal to which of the existing extensions is active, by inserting your `<Ext>Instance` earlier in the chain (as `Cont` for the modules built on top of it) instead of adding it to `module_map`.
 
-5. That's the only place the new extension needs to be registered: [raven.ml](../../bin/raven.ml)'s `main` resolves the `--extension` flag via `Ext.module_map` and passes the result down through the rest of the pipeline automatically (see [Wiring: how `ext_hooks` reaches your code](#wiring-how-ext_hooks-reaches-your-code) below).
+5. That's the only place the new extension needs to be registered: [driver.ml](../../lib/driver/driver.ml)'s `parse_and_check_all` resolves the `--extension` flag via `Ext.module_map` and passes the result down through the rest of the pipeline automatically (see [Wiring: how `ext_hooks` reaches your code](#wiring-how-ext_hooks-reaches-your-code) below).
 
 6. Run `dune build; dune install` to compile Raven with the new extension.
 
@@ -655,7 +655,7 @@ This contains a value that properly propagates and accumulates the configuration
   val lib_sources : (lib_unit * (string * string)) list
 ```
 
-This is read directly off the `(module ExtApi.Ext)` value chosen by `--extension`, once in `bin/raven.ml`, before type-checking even starts, to assemble the standard library source (see `parse_and_check_all`).
+This is read directly off the `(module ExtApi.Ext)` value chosen by `--extension`, once in `lib/driver/driver.ml`, before type-checking even starts, to assemble the standard library source (see `parse_and_check_all`).
 
 This sums up the API itself. In the next section we will discuss many commonly used functions in the Raven code-base, and other relevant code in order to provide a starting point into the code-base. At present, the best way to understand how to use each of these functionalities is to read the code, find references to specific functions and see how they're being used. Please contact the authors if you're interested, we will be happy to give a walkthrough, discuss specific extension designs, and answer any questions you may have.
 
@@ -794,6 +794,6 @@ The following are monadic implementations of commonly used higher order function
 
 Every function you implement in your extension (`type_ext_to_name`, `type_check_basic_stmt`, `rewrite_expr_ext`, ...) has to be reachable from deep inside `lib/ast`'s and `lib/frontend`'s generic AST traversal, printing, and rewriting code -- code that runs identically regardless of which extension (if any) is active, and that cannot depend on `lib/ext` (extensions depend on the core, not the other way round). Raven resolves this by bundling all of the functions an extension implements into a single record, `Ast.Rewriter.ext_hooks` (defined in [rewriter.ml](../../lib/ast/rewriter.ml) alongside the `Rewriter.t` monad itself), and threading that record through the pipeline as an ordinary value:
 
-1. [`bin/raven.ml`](../../bin/raven.ml) resolves the `--extension` flag to a `(module ExtApi.Ext)` via `Ext.module_map`, then converts it to an `ext_hooks` value via `Ext.to_ext_hooks` (in [ext.ml](../../lib/ext/ext.ml)) -- this is the *only* place a `module Ext : ExtApi.Ext` gets unpacked into plain data.
+1. [`lib/driver/driver.ml`](../../lib/driver/driver.ml) resolves the `--extension` flag to a `(module ExtApi.Ext)` via `Ext.module_map`, then converts it to an `ext_hooks` value via `Ext.to_ext_hooks` (in [ext.ml](../../lib/ext/ext.ml)) -- this is the *only* place a `module Ext : ExtApi.Ext` gets unpacked into plain data.
 2. That `ext_hooks` value is passed as an explicit `~ext_hooks` argument into `Typing.check_module` and `Elaboration.elaborate_module`, which install it into the `Rewriter.t` monad's state via `Rewriter.eval ?ext_hooks`.
 3. From then on, any code running inside the `Rewriter.t` monad -- which is essentially all of type-checking and rewriting, including the code inside your own extension -- can read it back out with `Rewriter.current_printers` (for the printing/query functions) or by pattern-matching `Ast.Rewriter.ext_hooks`'s other fields directly. Extension code practically never needs to do this itself, since Raven only calls into `type_check_type_expr`/`rewrite_stmt_ext`/etc. *with* the relevant pieces of `ext_hooks` already applied (e.g. via the `type_check_*_functs` bundles, see [Typing](#typing) above) -- but it matters if your own implementation wants to print or log an AST fragment that might still contain another extension's constructs (see [Printing and logging from your extension](#printing-and-logging-from-your-extension)).

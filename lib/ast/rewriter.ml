@@ -777,7 +777,7 @@ type printers = {
     that can still contain [*_ext] nodes, i.e. before [Elaboration.elaborate_module] has
     rewritten them away. Most callers want [current_printers] below, which reads the hooks
     out of the active [Rewriter.t] state; this pure version exists for the handful of call
-    sites (e.g. [bin/raven.ml]) that only have an [ext_hooks] value, not a running
+    sites (e.g. [lib/driver/driver.ml]) that only have an [ext_hooks] value, not a running
     computation, in scope. *)
 let printers_of_ext_hooks (h : ext_hooks) : printers =
   let _, pr_type, pr_type_var_decl, pr_type_var_decl_list, _, _, _, _, _, _ =

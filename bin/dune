@@ -13,13 +13,9 @@
   config
   yojson
   util
-  ast
-  frontend
-  elaboration
-  lowering
-  backend
-  smt
-  library)
+  library
+  ext
+  driver)
  (preprocess
   (pps ppx_custom_printf))
  (modes byte exe))

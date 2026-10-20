@@ -46,13 +46,13 @@ let file_name loc = loc.loc_start.pos_fname
     underneath it -- for display only. Locations are always stored (and looked up, e.g. in
     [context] below) by the real, absolute path: that's what the LSP JSON output
     ([Error.to_lsp_json]) sends as-is for the editor to resolve against an open document's
-    URI, and what the file-inclusion dedup logic in bin/raven.ml keys on. Neither of those
-    should see a shortened path; only human-facing text (this module's [to_string] and
-    [to_string_simple]) should. *)
+    URI, and what the file-inclusion dedup logic in lib/driver/driver.ml keys on. Neither
+    of those should see a shortened path; only human-facing text (this module's
+    [to_string] and [to_string_simple]) should. *)
 let display_file_name loc =
   let fname = file_name loc in
   (* [fname] is always forward-slash-normalized (see normalizeFilename in
-     bin/raven.ml), but Sys.getcwd () returns a native path -- backslash-separated on
+     lib/driver/driver.ml), but Sys.getcwd () returns a native path -- backslash-separated on
      Windows -- so it has to be normalized the same way before comparing prefixes. *)
   let cwd =
     Stdlib.Sys.getcwd () |> String.map ~f:(function '\\' -> '/' | c -> c) |> fun s ->
@@ -128,7 +128,7 @@ let rec ancestors dir =
 
 (** Join with '/', flattening any '\' the platform contributed. Library sources are named
     by a '/'-separated path (see [Library.sources]), and Raven normalizes paths to '/'
-    elsewhere too (see [normalizeFilename] in bin/raven.ml), so joining with
+    elsewhere too (see [normalizeFilename] in lib/driver/driver.ml), so joining with
     [Filename.concat] would hand back a mix of both separators on Windows -- ugly in a
     diagnostic, and awkward for a client that has to escape it into JSON. Windows accepts
     '/' in paths, so the result is still openable there. *)
