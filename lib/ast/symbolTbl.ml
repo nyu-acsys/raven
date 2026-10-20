@@ -78,6 +78,12 @@ type sealed_view = {
   sealed_args : (Ident.t * QualIdent.t) list;
 }
 
+(* The binding of a key in a table of a scope before a change. *)
+type change = Previous : 'a IdentHashtbl.t * Ident.t * 'a option -> change
+
+(* The changes to scopes since the outermost open recovery point, latest first. *)
+type journal = { mutable undo : change list; mutable open_points : int }
+
 type t = {
   (* Root scope *)
   tbl_root : scope;
@@ -94,6 +100,8 @@ type t = {
   tbl_local_reads : int IdentHashtbl.t;
   (* The fully qualified names of the members that failed to type-check. *)
   tbl_poisoned : QualIdentSet.t;
+  (* The scopes are mutable, so a recovery point undoes their changes from this. *)
+  tbl_journal : journal;
 }
 
 let entry_to_string = function
@@ -174,6 +182,7 @@ let create () =
     tbl_generation = ref 0;
     tbl_local_reads = Hashtbl.create (module Ident);
     tbl_poisoned = Set.empty (module QualIdent);
+    tbl_journal = { undo = []; open_points = 0 };
   }
 
 let invalidate_caches tbl = Int.incr tbl.tbl_generation
@@ -234,10 +243,58 @@ let copy tbl =
     tbl_path = List.map tbl.tbl_path ~f:copied;
     tbl_generation = ref !(tbl.tbl_generation);
     tbl_local_reads = Hashtbl.copy tbl.tbl_local_reads;
+    tbl_journal = { undo = []; open_points = 0 };
   }
 
 (** Return the name of the root scope of [tbl] *)
 let root_ident tbl = tbl.tbl_root.scope_id
+
+(** Records how to restore the binding of [key] in [map], a table of one of [tbl]'s
+    scopes, while a recovery point is open. *)
+let journal tbl map key =
+  let journal = tbl.tbl_journal in
+  if journal.open_points > 0 then
+    journal.undo <- Previous (map, key, Hashtbl.find map key) :: journal.undo
+
+let set_in_scope tbl map ~key ~data =
+  journal tbl map key;
+  Hashtbl.set map ~key ~data
+
+let remove_from_scope tbl map key =
+  journal tbl map key;
+  Hashtbl.remove map key
+
+let add_to_map tbl map loc key
+    ?(duplicate = fun _ _ _ -> Error.redeclaration_error loc (Ident.to_string key)) data =
+  if Hashtbl.mem map key then duplicate map key data else set_in_scope tbl map ~key ~data
+
+(** Opens a recovery point, returning the state that [close_recovery_point] can roll the
+    scopes back to. *)
+let open_recovery_point tbl =
+  tbl.tbl_journal.open_points <- tbl.tbl_journal.open_points + 1;
+  tbl.tbl_journal.undo
+
+(** Closes the recovery point opened at [checkpoint], undoing the changes to scopes since
+    then if [rollback]. *)
+let close_recovery_point ?(rollback = false) tbl checkpoint =
+  let journal = tbl.tbl_journal in
+  if rollback then begin
+    let rec undo changes =
+      if not (phys_equal changes checkpoint) then
+        match changes with
+        | [] -> ()
+        | Previous (map, key, previous) :: changes ->
+            begin match previous with
+            | Some data -> Hashtbl.set map ~key ~data
+            | None -> Hashtbl.remove map key
+            end;
+            undo changes
+    in
+    undo journal.undo;
+    journal.undo <- checkpoint
+  end;
+  journal.open_points <- journal.open_points - 1;
+  if journal.open_points = 0 then journal.undo <- []
 
 (** Check whether current scope of [tbl] is the root scope *)
 let curr_is_root tbl = List.is_empty tbl.tbl_path
@@ -612,10 +669,6 @@ let goto_scope scope tbl : t =
                (Util.Print.pr_list_comma Ident.pr)
                (Hashtbl.keys tbl.tbl_curr.scope_children)))
 
-let add_to_map map loc key
-    ?(duplicate = fun _ _ _ -> Error.redeclaration_error loc (Ident.to_string key)) data =
-  match Hashtbl.add map ~key ~data with `Ok -> () | `Duplicate -> duplicate map key data
-
 let get_scope_exn scope_name tbl : scope =
   let tbl = goto scope_name tbl in
 
@@ -695,7 +748,7 @@ let check_named_import ~diagnostics ~import_loc ~import_name ~targets tbl =
   in
   match declared with
   | [] ->
-      Hashtbl.set
+      set_in_scope tbl
         (get_scope_named_imports tbl.tbl_curr)
         ~key:name
         ~data:(import_loc, import_name, targets)
@@ -710,7 +763,7 @@ let check_hidden_by_declaration ~diagnostics scope name symbol_qual_ident decl_l
   let named_imports = get_scope_named_imports scope in
   Option.iter (Hashtbl.find named_imports name)
     ~f:(fun (import_loc, import_name, targets) ->
-      Hashtbl.remove named_imports name;
+      remove_from_scope tbl named_imports name;
       if not (denote_same targets [ symbol_qual_ident ] tbl) then
         warn_hidden_import ~diagnostics ~import_loc ~import_name ~decl_loc)
 
@@ -719,7 +772,7 @@ let import_binding ~loc ~name ~target ~symbol tbl =
   let entries = get_scope_entries tbl.tbl_curr in
   let set_entry entry =
     invalidate_caches tbl;
-    Hashtbl.set entries ~key:name ~data:entry
+    set_in_scope tbl entries ~key:name ~data:entry
   in
   match Hashtbl.find entries name with
   | None ->
@@ -839,8 +892,8 @@ let add_transparent ident target tbl =
   | Some (Transparent existing) when QualIdent.equal existing target -> ()
   | _ ->
       invalidate_caches tbl;
-      add_to_map entries (Ident.to_loc ident) ident (Transparent target)
-        ~duplicate:(fun map key data -> Hashtbl.set map ~key ~data)
+      add_to_map tbl entries (Ident.to_loc ident) ident (Transparent target)
+        ~duplicate:(fun map key data -> set_in_scope tbl map ~key ~data)
   end;
   tbl
 
@@ -887,7 +940,7 @@ let add_symbol ?(scope : scope option = None) ~diagnostics symbol tbl =
       | Import _ | Functions { imported = true; _ } ->
           check_hidden_by_declaration ~diagnostics appropriate_scope key symbol_qual_ident
             symbol_loc tbl;
-          Hashtbl.set map ~key ~data
+          set_in_scope tbl map ~key ~data
       | _ -> Error.redeclaration_error symbol_loc (Ident.to_string key)
     in
 
@@ -908,11 +961,12 @@ let add_symbol ?(scope : scope option = None) ~diagnostics symbol tbl =
         if Map.mem tbl.tbl_symbols symbol_qual_ident then
           Error.redeclaration_error symbol_loc (Ident.to_string source);
         if not (Ident.equal source symbol_ident) then
-          add_to_map entries symbol_loc symbol_ident (Symbol symbol_qual_ident) ~duplicate;
-        Hashtbl.set entries ~key:source
+          add_to_map tbl entries symbol_loc symbol_ident (Symbol symbol_qual_ident)
+            ~duplicate;
+        set_in_scope tbl entries ~key:source
           ~data:(Functions { imported = false; targets = symbol_qual_ident :: targets });
         let symbol_scope = create_scope symbol_qual_ident false true in
-        add_to_map
+        add_to_map tbl
           (get_scope_children appropriate_scope)
           symbol_loc symbol_ident symbol_scope;
         {
@@ -925,7 +979,7 @@ let add_symbol ?(scope : scope option = None) ~diagnostics symbol tbl =
        the target -- which is what keeps the two sharing one heap. *)
     | FieldDef { field_alias = Some target; _ } ->
         let _, target_qual_ident, _, _ = resolve_and_find_exn target tbl in
-        add_to_map
+        add_to_map tbl
           (get_scope_entries appropriate_scope)
           symbol_loc symbol_ident (Transparent target_qual_ident) ~duplicate;
         tbl
@@ -1057,7 +1111,7 @@ let add_symbol ?(scope : scope option = None) ~diagnostics symbol tbl =
               (mod_inst_type, [], None)
         in
         let is_abstract = mod_inst.mod_inst_is_interface in
-        add_to_map
+        add_to_map tbl
           (get_scope_entries appropriate_scope)
           symbol_loc symbol_ident
           (Alias (is_abstract, mod_inst_qual_ident, subst))
@@ -1068,7 +1122,7 @@ let add_symbol ?(scope : scope option = None) ~diagnostics symbol tbl =
         | None -> tbl
         end
     | _ -> (
-        add_to_map
+        add_to_map tbl
           (get_scope_entries appropriate_scope)
           symbol_loc symbol_ident (Symbol symbol_qual_ident) ~duplicate;
         let new_map = Map.add_exn tbl.tbl_symbols ~key:symbol_qual_ident ~data:symbol in
@@ -1080,13 +1134,13 @@ let add_symbol ?(scope : scope option = None) ~diagnostics symbol tbl =
               || List.length mod_def.mod_decl.mod_decl_formals > 0
             in
             let symbol_scope = create_scope symbol_qual_ident is_abstract false in
-            add_to_map
+            add_to_map tbl
               (get_scope_children appropriate_scope)
               symbol_loc symbol_ident symbol_scope;
             tbl
         | CallDef _ ->
             let symbol_scope = create_scope symbol_qual_ident false true in
-            add_to_map
+            add_to_map tbl
               (get_scope_children appropriate_scope)
               symbol_loc symbol_ident symbol_scope;
             tbl

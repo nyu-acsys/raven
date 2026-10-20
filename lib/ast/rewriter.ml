@@ -720,23 +720,29 @@ let recover ?(poison : Ident.t option) ~(fallback : 'a) (m : ('a, 'b) t_ext) :
     ('a, 'b) t_ext =
  fun s ->
   let selection = Ident.selection_depth () in
-  try m s
-  with
-  | Error.Msg diag
-  when (not (Base.List.exists diag ~f:is_internal_error))
-       && not s.state_diagnostics.aborted
-  ->
-    (* The callables [m] entered and did not exit. *)
-    Ident.restore_selection selection;
-    Diagnostics.record_error s.state_diagnostics diag;
-    if s.state_diagnostics.aborted then Error.fail_with [];
-    (* The scopes are mutable, so lookups cached during [m] may be stale. *)
-    SymbolTbl.invalidate_caches s.state_table;
-    let state_table =
-      Base.Option.fold poison ~init:s.state_table ~f:(fun tbl ident ->
-          SymbolTbl.poison (QualIdent.append tbl.tbl_curr.scope_id ident) tbl)
-    in
-    ({ s with state_table }, fallback)
+  let checkpoint = SymbolTbl.open_recovery_point s.state_table in
+  match m s with
+  | result ->
+      SymbolTbl.close_recovery_point s.state_table checkpoint;
+      result
+  | exception Error.Msg diag
+    when (not (Base.List.exists diag ~f:is_internal_error))
+         && not s.state_diagnostics.aborted ->
+      (* The callables [m] entered and did not exit. *)
+      Ident.restore_selection selection;
+      SymbolTbl.close_recovery_point ~rollback:true s.state_table checkpoint;
+      Diagnostics.record_error s.state_diagnostics diag;
+      if s.state_diagnostics.aborted then Error.fail_with [];
+      (* The scopes are mutable, so lookups cached during [m] may be stale. *)
+      SymbolTbl.invalidate_caches s.state_table;
+      let state_table =
+        Base.Option.fold poison ~init:s.state_table ~f:(fun tbl ident ->
+            SymbolTbl.poison (QualIdent.append tbl.tbl_curr.scope_id ident) tbl)
+      in
+      ({ s with state_table }, fallback)
+  | exception exn ->
+      SymbolTbl.close_recovery_point s.state_table checkpoint;
+      raise exn
 
 let eval_with_user_state ~init (f : 'a state -> 'a state * 'b) : 'b t =
  fun st ->

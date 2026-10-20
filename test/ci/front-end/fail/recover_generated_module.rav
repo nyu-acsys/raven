@@ -1,0 +1,24 @@
+// A body that fails after a use of `cas` leaves no trace of the module generated for
+// that use, so that the next use generates it again.
+
+import Library.Atomics._
+
+module Broken {
+  proc once(b: Int) returns (r: Int)
+}
+
+field f: Int
+
+proc first(x: Ref, old: Int, implicit ghost v: Int)
+  requires own(x.f, v, 1.0)
+{
+  val res := cas(x.f, old, 0);
+  val b := Broken.once(0);
+}
+
+proc second(x: Ref, old: Int, implicit ghost v: Int)
+  requires own(x.f, v, 1.0)
+{
+  val res := cas(x.f, old, 0);
+  val b := Broken.once(0);
+}
