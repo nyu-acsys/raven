@@ -720,6 +720,7 @@ and check_assign (assign_desc : Stmt.assign_desc) (call_decl : Callable.call_dec
                     call_args = args;
                     call_is_spawn = false;
                     call_is_init = assign_desc.assign_is_init;
+                    call_precond_given = false;
                   }
                 in
                 check_basic call_decl (Stmt.Call call_desc) stmt_loc disam_tbl

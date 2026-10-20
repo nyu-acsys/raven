@@ -1674,6 +1674,10 @@ module Stmt = struct
     call_args : expr list;
     call_is_spawn : bool;
     call_is_init : bool;
+    call_precond_given : bool;
+        (** Whether the ordinary precondition of the logically atomic callee is given up
+            before the call, which then gives up only the atomic one (see
+            [AtomicityAnalysis.abort_check]). *)
   }
 
   type fpu_desc = {
@@ -2175,6 +2179,7 @@ module Stmt = struct
         call_args = args;
         call_is_spawn = is_spawn;
         call_is_init = false;
+        call_precond_given = false;
       }
     in
     { stmt_desc = Basic (Call call); stmt_loc = loc }

@@ -451,9 +451,10 @@ let au_renaming (callable_decl : Callable.call_decl) (au : au_token) :
 
 (* A logically atomic callee may abort, handing back its atomic precondition but
    keeping its ordinary one. The open atomic update must then still be abortable and
-   every instance open around the call closable, which a branch before the call checks:
-   it gives up the ordinary precondition, aborts the update, folds the instances, and
-   ends in [assume false]. If the ordinary precondition is pure, only an update or
+   every instance open around the call closable. So the ordinary precondition is given up
+   before the call, which then gives up only the atomic one, and a branch in between
+   aborts the update, folds the instances, and ends in [assume false]. The branch and the
+   call share what the precondition gives up. If the ordinary precondition is pure, only an update or
    instance with a ghost update since it was opened is checked; any other is as
    closable as at its [openAU] or [unfold].
    Implicit arguments the call omits are bound first, as the call itself would bind them,
@@ -519,9 +520,12 @@ let abort_check ~loc (call_decl : Callable.call_decl) (call_desc : Stmt.call_des
                  (Expr.mk_and (List.map call_decl.call_decl_precond ~f:instantiate)));
           ]
     in
+    let* callee = Rewriter.resolve call_desc.call_name in
     let exhale_stmts =
-      List.map ordinary_precond ~f:(fun spec ->
-          Stmt.mk_exhale_expr ~loc ~spec_error:spec.spec_error (instantiate spec))
+      List.filter_mapi call_decl.call_decl_precond ~f:(fun i spec ->
+          Option.some_if (not spec.spec_atomic)
+            (Stmt.mk_exhale_expr ~loc ?name:spec.spec_name ~spec_error:spec.spec_error
+               ~spec_source:(callee, i) (instantiate spec)))
     in
     (* Each refolded instance is asserted, which lets a later refold find witnesses in
        it. *)
@@ -648,12 +652,12 @@ let abort_check ~loc (call_decl : Callable.call_decl) (call_desc : Stmt.call_des
       Stmt.mk_cond ~loc ~cond_if_assumes_false:true
         (Some (Expr.from_var_decl abort))
         (Stmt.mk_block_stmt ~loc
-           (exhale_stmts @ refold_stmts @ abort_au_stmts @ fold_stmts
+           (refold_stmts @ abort_au_stmts @ fold_stmts
            @ [ Stmt.mk_assume_expr ~loc (Expr.mk_bool false) ]))
         (Stmt.mk_block_stmt ~loc [])
     in
-    ( bind_stmts @ [ Stmt.mk_havoc ~loc ~is_init:true abort_qi; branch ],
-      { call_desc with call_args } )
+    ( bind_stmts @ exhale_stmts @ [ Stmt.mk_havoc ~loc ~is_init:true abort_qi; branch ],
+      { call_desc with call_args; call_precond_given = true } )
 
 (* Returns the extra assert statements (reentrancy guard + membership proof)
    the caller must splice in immediately before the [Unfold] statement,

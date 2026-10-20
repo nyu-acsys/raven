@@ -719,6 +719,7 @@ stmt_wo_trailing_substmt:
       call_args = args;
       call_is_spawn = true;
       call_is_init = false;
+      call_precond_given = false;
     }
   in
   [Basic (Call call)]

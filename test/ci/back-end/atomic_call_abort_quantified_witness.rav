@@ -1,0 +1,30 @@
+// The abort check shares the call's exhale of its ordinary precondition, with an
+// existential for each instance of a quantifier.
+
+import Library.IntAtomics._
+
+field d: Int
+field c: Int
+
+inv dInv(x: Ref) {
+  exists n: Int :: own(x.c, n, 1.0)
+}
+
+proc p(x: Ref, s: Set[Ref], implicit ghost n: Int)
+  requires forall r: Ref :: r in s ==> (exists v: Int :: own(r.d, v, 1.0))
+  atomic requires own(x.c, n, 1.0)
+  atomic ensures own(x.c, n + 1, 1.0)
+{
+  ghost var phi := bindAU();
+  ghost var n0: Int := openAU(phi);
+  var old_val: Int := faa(x.c, 1);
+  commitAU(phi, ());
+}
+
+proc writer(x: Ref, s: Set[Ref])
+  requires dInv(x) && (forall r: Ref :: r in s ==> (exists v: Int :: own(r.d, v, 1.0)))
+{
+  unfold dInv(x);
+  p(x, s);
+  fold dInv(x);
+}
