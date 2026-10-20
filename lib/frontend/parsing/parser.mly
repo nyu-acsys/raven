@@ -25,8 +25,10 @@ let mixfix_application loc name base bounds arguments =
   in
   Expr.mk_app ~typ:Type.any ~loc (Expr.Var target) args
 
-let checked_enumeration_name loc opener closer ~singleton =
-  if not (String.equal (Expr.enumeration_closer opener) closer) then
+(* An enumeration delimiter, and whether it is written with a pipe. *)
+let checked_enumeration_name loc (opener, opener_piped) (closer, closer_piped) ~singleton =
+  if not (String.equal (Expr.enumeration_closer opener) closer)
+     || not (Bool.equal opener_piped closer_piped) then
     Error.syntax_error loc "Mismatched enumeration delimiter";
   Ident.make loc (Expr.enumeration_name opener ~singleton) 0
 
@@ -35,8 +37,9 @@ let is_enumeration_hole = function
       QualIdent.is_local qi && Ident.name (QualIdent.unqualify qi) = "_"
   | _ -> false
 
-let check_set_comprehension loc opener closer =
-  if not (String.equal opener "{" && String.equal closer "}") then
+let check_set_comprehension loc (opener, opener_piped) (closer, closer_piped) =
+  if not (String.equal opener "{" && String.equal closer "}"
+          && Bool.equal opener_piped closer_piped) then
     Error.syntax_error loc "This delimiter cannot form a set comprehension"
 
 (* A callable has at most one `opens` clause. *)
@@ -128,6 +131,9 @@ let mk_local_var_def ~ghost ~const decl rhs_opt ~rhs_loc =
 %token UNDERSCORE UNION INTER DIFF DOTDOT
 %token LPAREN RPAREN LBRACE RBRACE LBRACKET RBRACKET
 %token LBRACEPIPE RBRACEPIPE LBRACKETPIPE RBRACKETPIPE LGHOSTBRACE RGHOSTBRACE
+(* The braces of an enumeration literal written without pipes, told apart from a block's
+   by the lexer. *)
+%token LENUMBRACE RENUMBRACE
 %token <string> ENUM_OPEN ENUM_CLOSE
 %token COLON COLONGT COLONEQ COLONCOLON SEMICOLON DOT QMARK COLONPIPE
 %token <Ast.Expr.constr> ADDOP MULTOP
@@ -1025,14 +1031,18 @@ primary:
 ;
 
 enumeration_open:
-| ENUM_OPEN { $1 }
-| LBRACEPIPE { "{" }
-| LBRACKETPIPE { "[" }
+| ENUM_OPEN { ($1, true) }
+| LBRACEPIPE { ("{", true) }
+| LBRACKETPIPE { ("[", true) }
+| LENUMBRACE { ("{", false) }
+| LBRACKET { ("[", false) }
 
 enumeration_close:
-| ENUM_CLOSE { $1 }
-| RBRACEPIPE { "}" }
-| RBRACKETPIPE { "]" }
+| ENUM_CLOSE { ($1, true) }
+| RBRACEPIPE { ("}", true) }
+| RBRACKETPIPE { ("]", true) }
+| RENUMBRACE { ("}", false) }
+| RBRACKET { ("]", false) }
 
 (* Retained as an extension point for nonstandard comprehensions. *)
 %public compr_expr:
@@ -1041,7 +1051,7 @@ enumeration_close:
     let loc = Loc.make $symbolstartpos $endpos in
     ignore (checked_enumeration_name loc opener closer ~singleton:false);
     match args with
-    | None -> Expr.(mk_app ~typ:Type.any ~loc (Enumeration opener) es)
+    | None -> Expr.(mk_app ~typ:Type.any ~loc (Enumeration (fst opener)) es)
     | Some args ->
         let singleton = match es with [e] when is_enumeration_hole e -> true | _ -> false in
         if not (List.is_empty es || singleton) then

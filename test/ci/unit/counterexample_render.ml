@@ -36,9 +36,9 @@ let () =
       ("(Library.List.cons 1 Library.List.nil)", "cons(1, nil)");
       ( "(let ((a!1 (Library.List.cons 2 Library.List.nil))) (Library.List.cons 1 a!1))",
         "cons(1, cons(2, nil))" );
-      ("(store (store ((as const (Set Int)) false) 1 true) 3 true)", "{|1, 3|}");
-      ("(store (store ((as const (Set Int)) false) 1 true) 1 false)", "{||}");
-      ("(store ((as const (Set Int)) true) 2 false)", "all but {|2|}");
+      ("(store (store ((as const (Set Int)) false) 1 true) 3 true)", "{1, 3}");
+      ("(store (store ((as const (Set Int)) false) 1 true) 1 false)", "{}");
+      ("(store ((as const (Set Int)) true) 2 false)", "all but {2}");
       ( "(store (store ((as const (Array Int Int)) 4) 1 5) 2 6)",
         "[1 := 5, 2 := 6, else 4]" );
       ("(store (store ((as const (Array Int Int)) 4) 1 5) 1 7)", "[1 := 7, else 4]");

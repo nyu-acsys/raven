@@ -30,7 +30,7 @@ open Ext.MatchExtInstance
 
 (* `match` is fully bracketed (leading `MATCH` keyword, trailing `RBRACE`), so it's an
    atomic alternative rather than an infix form with a precedence to place -- it hangs
-   off `unary_expr` (the tightest %public level) the same way `compr_expr`'s `{| ... |}`
+   off `unary_expr` (the tightest %public level) the same way `compr_expr`'s `{ ... }`
    forms sit at `primary`, letting a `match` appear as an operand of anything, e.g.
    `match xs { ... } + 1`. Arms are separated the same way `data`'s own `variant_decl`
    list already is (see core parser.mly's `type_def_expr`): an optional semicolon

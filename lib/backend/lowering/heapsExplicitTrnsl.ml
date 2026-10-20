@@ -316,7 +316,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants) (conds : co
   and* tp2 = !Rewriter.expand_type_expr_ref (Expr.to_type arg_expr) in
 
   (* [inv_expr] and [arg_expr] need not be *exactly* the same type anymore now that
-     `FinSet[T] <: Set[T]` exists: e.g. `inv_expr` can be `{||}` (typed `FinSet[K]`,
+     `FinSet[T] <: Set[T]` exists: e.g. `inv_expr` can be `{}` (typed `FinSet[K]`,
      since set enumerations always prefer the tightest available type) while
      `arg_expr` is a universally-quantified variable genuinely ranging over `Set[K]`.
      Subtype-comparable is enough; below, [arg_type] uses [Type.join tp1 tp2] (not

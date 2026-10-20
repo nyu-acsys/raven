@@ -1,0 +1,43 @@
+// Set and sequence literals without pipes, where a brace may also open a block or a trigger.
+module M {
+  func f(s: Set[Int]) returns (r: Set[Int])
+    ensures r == {1, 2} ++ s
+  {
+    {x: Int :: x in s
+      || x == 1 || x == 2}
+  }
+
+  func g() returns (r: Map[Int, Map[Int, Int]]) {
+    {i: Int :: {j: Int :: 0}}
+  }
+
+  auto lemma l(s: Set[Int])
+    ensures {f(s)} 1 in f(s)
+  {}
+
+  proc p(s: Set[Int]) returns (q: Seq[Int])
+    requires 1 in s
+    ensures q == [1, 2]
+  {
+    var t: Set[Int] := {
+      1,
+      2
+    }
+    assert t == {2, 1}
+    assert forall x: Int :: {x in t} x in t ==> x in {1, 2}
+    assert ({} : Set[Int]) subseteq t
+    assert t != {}
+    if (1 in t) {
+      t := t ++ {3}
+    } else {
+      t := {}
+    }
+    q := [1,
+      2]
+    assert q[0] == 1
+    assert [3, 4][1] == 4
+    assert [] ++ q == q
+    assert [5] == [5]
+    var l: List[Int] := <|1, 2|>
+  }
+}

@@ -17,10 +17,10 @@ let prelude =
   [ [ "Option" ]; [ "List" ]; [ "Seq" ]; [ "Array" ] ]
   @ List.map
       (fun name -> [ "Sets"; name ])
-      [ "++"; "**"; "--"; "subseteq"; "choose"; "in"; "{||}"; "{|_|}" ]
+      [ "++"; "**"; "--"; "subseteq"; "choose"; "in"; "{}"; "{_}" ]
   @ List.map
       (fun name -> [ "Seq"; name ])
-      [ "++"; "_[_.._]"; "_[.._]"; "_[_..]"; "_[_:=_]"; "_[_]"; "in"; "[||]"; "[|_|]" ]
+      [ "++"; "_[_.._]"; "_[.._]"; "_[_..]"; "_[_:=_]"; "_[_]"; "in"; "[]"; "[_]" ]
   @ List.map (fun name -> [ "List"; name ]) [ "in"; "++"; "<||>"; "<|_|>" ]
 
 let library_sources =

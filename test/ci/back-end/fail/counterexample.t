@@ -33,8 +33,8 @@ counterexample", so the two are shown alike here.
                 ^^^^^
   Verification Error: This assertion may be violated.
   [Error] Counterexample:
-    q = [|7, 8|]
-    s = {|1, 3|}
+    q = [7, 8]
+    s = {1, 3}
   [Error] File "./counterexample.rav", line 53, columns 9-15:
   53 |   assert z != 2;
                 ^^^^^^

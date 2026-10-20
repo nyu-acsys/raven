@@ -39,6 +39,8 @@ let lexical_error lexbuf msg =
          keyword to classify a brace by -- the loop's body brace is only recognized as such when
          it directly follows a complete-looking token (see [next_brace_kind] below), as opposed to
          a quantifier trigger nested inside an invariant's expression, which never is.
+       - [Literal], for the braces of a set literal or comprehension, which open where an
+         expression must follow (see [opens_literal]); their closing brace ends an expression.
        - [Module_list], for a module body: nothing (semicolon or otherwise) separates its members.
        - [Stmt_list], for a proc/lemma body or a nested block/loop body: the only scope in which a
          newline may become a semicolon.
@@ -71,7 +73,7 @@ let lexical_error lexbuf msg =
    mechanics of this lookahead (see their comments below); every other decision in this file
    remains a pure function of [lex_state] and the current token. *)
 
-type scope_kind = Group | Loop_header | Module_list | Stmt_list | Trigger
+type scope_kind = Group | Literal | Loop_header | Module_list | Stmt_list | Trigger
 
 type lex_state = {
   scopes : scope_kind list;
@@ -98,8 +100,16 @@ type lex_state = {
      brace of a previous trigger -- and consumed by the next token. A trigger's braces are a
      [Trigger] scope, and like those of `opens {}` leave [next_brace_kind] to the body. *)
   next_brace_is_trigger : bool;
+  (* Set on a quantifier and consumed by its [COLONCOLON], which a trigger may follow,
+     unlike the `::` of a comprehension or a list. *)
+  in_quantifier_vars : bool;
+  (* Whether the last token may be followed by a block, which a brace then opens even
+     though the token cannot end a statement (see [opens_literal]). *)
+  last_token_precedes_block : bool;
   (* `return` may be followed directly by a compound literal. *)
   last_token_is_return : bool;
+  (* What follows `is` names a constructor, which may be an operator like `::`. *)
+  last_token_is_is : bool;
 }
 
 let initial_state =
@@ -112,8 +122,22 @@ let initial_state =
     in_atomic_token_brackets = false;
     next_brace_is_opens = false;
     next_brace_is_trigger = false;
+    in_quantifier_vars = false;
+    last_token_precedes_block = false;
     last_token_is_return = false;
+    last_token_is_is = false;
   }
+
+(* Whether a plain brace opens an enumeration literal: it does where an expression must
+   follow, i.e. after a token that can neither end a statement nor, in a statement list,
+   precede a block. *)
+let opens_literal st =
+  let precedes_block =
+    st.last_token_precedes_block
+    && (match st.scopes with Stmt_list :: _ | Module_list :: _ | [] -> true | _ -> false)
+  in
+  not (st.next_brace_is_opens || st.next_brace_is_trigger || st.last_token_can_end_stmt
+       || precedes_block)
 
 (* Computes the state to carry forward after producing [tok], given the state [st] beforehand. *)
 let advance st (tok : Parser.token) =
@@ -129,6 +153,7 @@ let advance st (tok : Parser.token) =
     match tok with
     | LPAREN -> (if st.next_paren_is_loop_cond then Loop_header else Group) :: st.scopes
     | LBRACKET | LBRACEPIPE | LBRACKETPIPE | ENUM_OPEN _ -> Group :: st.scopes
+    | LENUMBRACE -> Literal :: st.scopes
     | LGHOSTBRACE -> Stmt_list :: st.scopes
     | RPAREN ->
         (match st.scopes with
@@ -137,7 +162,7 @@ let advance st (tok : Parser.token) =
          | Loop_header :: rest -> Loop_header :: rest
          | _ :: rest -> rest
          | [] -> [])
-    | RBRACKET | RBRACEPIPE | RBRACKETPIPE | ENUM_CLOSE _ | RGHOSTBRACE ->
+    | RBRACKET | RBRACEPIPE | RBRACKETPIPE | ENUM_CLOSE _ | RENUMBRACE | RGHOSTBRACE ->
         (match st.scopes with _ :: rest -> rest | [] -> [])
     | LBRACE when st.next_brace_is_opens -> Group :: st.scopes
     | LBRACE when st.next_brace_is_trigger -> Trigger :: st.scopes
@@ -154,7 +179,10 @@ let advance st (tok : Parser.token) =
              let kind =
                match st.next_brace_kind with
                | Some k -> k
-               | None -> (match scopes with Group :: _ | Loop_header :: _ -> Group | _ -> Stmt_list)
+               | None ->
+                   (match scopes with
+                    | (Group | Literal | Loop_header) :: _ -> Group
+                    | _ -> Stmt_list)
              in
              kind :: scopes)
     | RBRACE -> (match st.scopes with _ :: rest -> rest | [] -> [])
@@ -178,7 +206,20 @@ let advance st (tok : Parser.token) =
   let next_brace_is_opens = match tok with OPENS -> true | _ -> false in
   let next_brace_is_trigger =
     match tok, st.scopes with
-    | (COLONCOLON | ENSURES), _ | RBRACE, Trigger :: _ -> true
+    | COLONCOLON, _ -> st.in_quantifier_vars
+    | ENSURES, _ | RBRACE, Trigger :: _ -> true
+    | _ -> false
+  in
+  let in_quantifier_vars =
+    match tok with
+    | QUANT _ -> true
+    | COLONCOLON -> false
+    | _ -> st.in_quantifier_vars
+  in
+  let last_token_precedes_block =
+    match tok with
+    | ELSE | WITH | ATOMIC | DATA | LBRACE | RBRACE | SEMICOLON | LGHOSTBRACE | RGHOSTBRACE ->
+        true
     | _ -> false
   in
   let next_paren_is_loop_cond =
@@ -203,7 +244,7 @@ let advance st (tok : Parser.token) =
     match tok with
     | IDENT _ | UNDERSCORE | MODIDENT _ | CONSTVAL _ | CONSTTYPE _ | ATOMICTOKEN
     | STRINGVAL _ | HASH _
-    | RPAREN | RBRACKET | RBRACEPIPE | RBRACKETPIPE | ENUM_CLOSE _
+    | RPAREN | RBRACKET | RBRACEPIPE | RBRACKETPIPE | ENUM_CLOSE _ | RENUMBRACE
     (* Unlike every other keyword here, `return` can legally end a statement
        on its own -- a return with no values, from a callable with no `returns`
        clause. A `return` with values is always followed by at least one more
@@ -213,12 +254,13 @@ let advance st (tok : Parser.token) =
        [st], not the freshly-computed [in_atomic_token_brackets] above, since what matters is
        whether *this* '>' was the closing one, i.e. the state as of just before it. *)
     | GT when st.in_atomic_token_brackets -> true
-    | _ -> false
+    | _ -> st.last_token_is_is
   in
   { scopes; enumeration_closers; last_token_can_end_stmt; next_brace_kind; next_paren_is_loop_cond;
     next_lt_opens_atomic_token; in_atomic_token_brackets; next_brace_is_opens;
-    next_brace_is_trigger;
+    next_brace_is_trigger; in_quantifier_vars; last_token_precedes_block;
     last_token_is_return = (match tok with RETURN -> true | _ -> false);
+    last_token_is_is = (match tok with IS -> true | _ -> false);
     }
 
 (* Produces [tok], pairing it with the state to carry forward after it, and no buffered
@@ -392,8 +434,8 @@ rule token_lex st = parse
   }
 | '(' { emit st LPAREN }
 | ')' { emit st RPAREN }
-| '{' { emit st LBRACE }
-| '}' { emit st RBRACE }
+| '{' { emit st (if opens_literal st then LENUMBRACE else LBRACE) }
+| '}' { emit st (match st.scopes with Literal :: _ -> RENUMBRACE | _ -> RBRACE) }
 | '[' { emit st LBRACKET }
 | ']' { emit st RBRACKET }
 | "{!" { emit st LGHOSTBRACE }

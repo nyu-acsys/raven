@@ -665,9 +665,9 @@ module Type = struct
   let is_any tp_expr = equal tp_expr any
 
   (** True iff [Bot] occurs anywhere in [tp_expr], e.g. `Set(Bot)` -- the type an empty
-      collection literal ([{||}]) is given absent any expected type to pin down its
-      element type. Such a type carries no real information and should never be treated as
-      a successfully inferred type argument. *)
+      collection literal ([{}]) is given absent any expected type to pin down its element
+      type. Such a type carries no real information and should never be treated as a
+      successfully inferred type argument. *)
   let rec contains_bot = function
     | App (Bot, _, _) -> true
     | App (_, ts, _) -> List.exists ts ~f:contains_bot
@@ -869,8 +869,15 @@ module Expr = struct
       | _ -> invalid_arg "Expected an enumeration opener")
     |> String.of_char_list
 
+  (** How an enumeration literal with [opener] is delimited: sets and sequences without
+      pipes, other enumerations with them. *)
+  let enumeration_delimiters opener =
+    let closer = enumeration_closer opener in
+    match opener with "{" | "[" -> (opener, closer) | _ -> (opener ^ "|", "|" ^ closer)
+
   let enumeration_name opener ~singleton =
-    opener ^ (if singleton then "|_|" else "||") ^ enumeration_closer opener
+    let opening, closing = enumeration_delimiters opener in
+    opening ^ (if singleton then "_" else "") ^ closing
 
   let make_constr_to_string ~expr_ext_to_string = function
     (* function symbols *)
@@ -893,8 +900,10 @@ module Expr = struct
     | Mult -> "*"
     | Div -> "/"
     | Mod -> "%"
-    | Empty -> "{||}"
-    | Enumeration opener -> opener ^ "|...|" ^ enumeration_closer opener
+    | Empty -> "{}"
+    | Enumeration opener ->
+        let opening, closing = enumeration_delimiters opener in
+        opening ^ "..." ^ closing
     | Ite -> "ite"
     (* predicate symbols *)
     | Eq -> "=="
@@ -990,8 +999,9 @@ module Expr = struct
           fprintf ppf "@[<2>(%a %a@ %a \027[35m :%a \027[0m)@]" pr_e1 e1 pr_constr c pr_e2
             e2 Type.pr (to_type e)
       | App (Enumeration opener, es, _) ->
-          fprintf ppf "(%s|@[%a@]|%s \027[35m :%a \027[0m)" opener pr_list es
-            (enumeration_closer opener) Type.pr (to_type e)
+          let opening, closing = enumeration_delimiters opener in
+          fprintf ppf "(%s@[%a@]%s \027[35m :%a \027[0m)" opening pr_list es closing
+            Type.pr (to_type e)
       | App (Tuple, es, _) -> fprintf ppf "(@[<1>%a@])" pr_list es
       | App (c, es, _) ->
           fprintf ppf "(%a(@[%a@]) \027[35m :%a \027[0m)" pr_constr c pr_list es Type.pr
@@ -1022,7 +1032,8 @@ module Expr = struct
           let pr_e2 = if constr_to_prio c <= to_prio e2 then pr_paran else pr in
           fprintf ppf "%a %a %a" pr_e1 e1 pr_constr c pr_e2 e2
       | App (Enumeration opener, es, _) ->
-          fprintf ppf "%s|%a|%s" opener pr_list_compact es (enumeration_closer opener)
+          let opening, closing = enumeration_delimiters opener in
+          fprintf ppf "%s%a%s" opening pr_list_compact es closing
       | App (Tuple, es, _) -> fprintf ppf "(@[<1>%a@])" pr_list_compact es
       | App (c, es, _) -> fprintf ppf "%a(%a)" pr_constr c pr_list_compact es
       | Binder (b, vs, trgs, e1, _) ->
@@ -1037,7 +1048,7 @@ module Expr = struct
           Stdlib.Format.fprintf ppf "%s@ %a@ ::@ %a %a" (binder_to_string b)
             pr_var_decl_list vs pr_trgs trgs pr e
       | Compr, vs, trgs, e, _ ->
-          Stdlib.Format.fprintf ppf "{|@ @[%a@ ::@ %a@]@ |}" pr_var_decl_list vs pr e
+          Stdlib.Format.fprintf ppf "{@[%a@ ::@ %a@]}" pr_var_decl_list vs pr e
     and pr_trgs ppf trgs =
       match trgs with
       | [] -> ()

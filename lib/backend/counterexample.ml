@@ -144,12 +144,11 @@ and render_array ~reference (value : Sexp.t) : string =
       in
       match (is_set, constant) with
       | true, Atom "false" ->
-          Printf.sprintf "{|%s|}" (String.concat ~sep:", " (members (Atom "false")))
+          Printf.sprintf "{%s}" (String.concat ~sep:", " (members (Atom "false")))
       | true, _ -> (
           match members (Atom "true") with
           | [] -> "all"
-          | excluded -> Printf.sprintf "all but {|%s|}" (String.concat ~sep:", " excluded)
-          )
+          | excluded -> Printf.sprintf "all but {%s}" (String.concat ~sep:", " excluded))
       | false, _ ->
           let shown =
             List.rev_map entries ~f:(fun (index, v) ->
@@ -228,10 +227,10 @@ let lines ?(sequences = []) (query : query) (values : Sexp.t list) : string list
               (String.equal sequence_name name)
               (let shown = List.map elements ~f:(render ~reference) in
                if List.length shown < length then
-                 Printf.sprintf "[|%s, …|] (length %d)"
+                 Printf.sprintf "[%s, …] (length %d)"
                    (String.concat ~sep:", " shown)
                    length
-               else Printf.sprintf "[|%s|]" (String.concat ~sep:", " shown)))
+               else Printf.sprintf "[%s]" (String.concat ~sep:", " shown)))
       in
       let variables =
         List.map2_exn query.variables variable_values ~f:(fun (name, _) value ->
