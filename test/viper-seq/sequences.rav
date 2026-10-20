@@ -3,33 +3,33 @@
 // no counterpart in Raven.
 
 proc t1(x: Int, xs: Seq[Int]) {
-  var n: Seq[Int] := [||];
+  var n: Seq[Int] := [];
   assert Seq.length(n) == 0;
-  assert n != [|x|];
-  assert Seq.length([|1|]) == 1;
+  assert n != [x];
+  assert Seq.length([1]) == 1;
 }
 
 proc t2() {
-  assert 1 in [|1, 2, 3|];
-  assert [|1|] ++ [|2|] == [|1, 2|];
+  assert 1 in [1, 2, 3];
+  assert [1] ++ [2] == [1, 2];
 
-  var a: Seq[Int] := [|0, 1, -11, 22|];
+  var a: Seq[Int] := [0, 1, -11, 22];
   assert a[2] == -11;
 
-  assert a[..1] == [|0|];
-  assert a[1..] == [|1, -11, 22|];
-  assert a[1..2] == [|1|];
+  assert a[..1] == [0];
+  assert a[1..] == [1, -11, 22];
+  assert a[1..2] == [1];
 
   assert a[1 := 22] == a[1 := -1][1 := 22];
-  assert a[1 := 22] == [|0, 22, -11, 22|];
+  assert a[1 := 22] == [0, 22, -11, 22];
   assert Seq.length(a[1 := 22]) == 4;
   assert a[1 := 22][1] == 22;
   assert a[1 := 22][2] == -11;
 }
 
 proc test3() {
-  var xs: Seq[Int] := [|0, 1, 2, 3, 4, 5, 6, 7|];
-  var bs: Seq[Bool] := [|true, true, false, true|] ++ [|false, true|];
+  var xs: Seq[Int] := [0, 1, 2, 3, 4, 5, 6, 7];
+  var bs: Seq[Bool] := [true, true, false, true] ++ [false, true];
 
   assert Seq.length(xs[1..][..6]) == Seq.length(bs);
 }
@@ -48,8 +48,8 @@ proc test5(s: Seq[Int], i: Int, j: Int) {
 }
 
 proc test6() {
-  assert [|3, 4, 5, 6|][0] == 3;
-  assert [|3, 4, 5, 6|][1] == 4;
-  assert [|3, 4, 5, 6|][2] == 5;
-  assert [|3, 4, 5, 6|][3] == 6;
+  assert [3, 4, 5, 6][0] == 3;
+  assert [3, 4, 5, 6][1] == 4;
+  assert [3, 4, 5, 6][2] == 5;
+  assert [3, 4, 5, 6][3] == 6;
 }

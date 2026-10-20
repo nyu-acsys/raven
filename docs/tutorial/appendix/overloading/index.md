@@ -30,7 +30,7 @@ cannot be distinguished only by their return types.
 
 An ambiguous call is an error. Qualify the function name to choose a module, or annotate an
 argument to make its type explicit. Empty collections often need this extra context; write
-`( [||] : Seq[Int])`, for example, when the surrounding call does not determine the sequence's
+`([] : Seq[Int])`, for example, when the surrounding call does not determine the sequence's
 element type. Generic library functions use the same resolution and infer their module
 instances as described in {{ref sec:implicit-functor-instantiation}}. For detailed inference
 rules and instance identity, see {{ref app:advanced-modules}}.
@@ -234,22 +234,22 @@ elements. The prelude supplies these definitions for sequences, lists, and finit
 
 | Collection | Empty | Singleton | Several elements |
 |---|---|---|---|
-| Sequence | `[||]` | `[|1|]` | `[|1, 2|]` |
+| Sequence | `[]` | `[1]` | `[1, 2]` |
 | List | `<||>` | `<|1|>` | `<|1, 2|>` |
-| Finite set | `{||}` | `{|1|}` | `{|1, 2|}` |
+| Finite set | `{}` | `{1}` | `{1, 2}` |
 
-For example, `[|1, 2|]` combines `[|_|](1)` and `[|_|](2)` with `++`.
-Longer literals associate to the right: `[|1, 2, 3|]` means
-`[|_|](1) ++ ([|_|](2) ++ [|_|](3))`, even if `++` is not associative.
-The function `[||]()` supplies the empty sequence. A type annotation provides the element
+For example, `[1, 2]` combines `[_](1)` and `[_](2)` with `++`.
+Longer literals associate to the right: `[1, 2, 3]` means
+`[_](1) ++ ([_](2) ++ [_](3))`, even if `++` is not associative.
+The function `[]()` supplies the empty sequence. A type annotation provides the element
 type for an empty collection: `val xs: List[Int] := <||>;`. Context also reaches nested
-elements, so `val ss: Seq[Seq[Int]] := [|[||]|];` determines both sequence types.
+elements, so `val ss: Seq[Seq[Int]] := [[]];` determines both sequence types.
 
 You can choose another matching run of brackets for your own enumeration notation.
-The opening and closing brackets must be contiguous and surround the `|` markers.
+Unlike those of sequences and sets, the opening and closing brackets surround `|` markers,
+as in `<|1, 2|>`, and must be contiguous.
 Opening symbols may be `(`, `[`, `{`, or `<`; closing symbols reverse and match them.
-In expression positions, `([|1|])` uses the compound delimiter `([`. To group a
-sequence literal with parentheses, insert whitespace: `( [|1|] )`. Brackets that
+In expression positions, `([|1|])` uses the compound delimiter `([`. Brackets that
 start an indexed access and braces that start a body keep those roles.
 Declare the matching empty and singleton patterns, then import them together with your
 combining function:
@@ -267,7 +267,7 @@ After `import SumLiteral._`, <code v-pre>{{||}}</code> is `0` and
 These patterns can also be called explicitly, as in
 <code v-pre>SumLiteral.{{|_|}}(1)</code>.
 The declarations determine the result type and meaning of the literal.
-Set comprehensions such as `{| x: Int :: x > 0 |}` retain their binder syntax.
+Set comprehensions such as `{x: Int :: x > 0}` retain their binder syntax.
 The finite-set constructors wrap the native `finset()` and `finset(e)` primitives,
 which construct the empty set and a singleton while preserving their `FinSet` type
 and direct SMT encoding. Enumeration syntax itself uses ordinary library calls.

@@ -126,7 +126,7 @@ proc demoAssertWith()
 // `inline` makes the body of `union` a macro: the solver sees the body wherever
 // `union` is applied, rather than a function it has to unfold first.
 inline func union(s: Set[Int], t: Set[Int]) returns (r: Set[Int]) {
-  {| x: Int :: x in s || x in t |}
+  { x: Int :: x in s || x in t }
 }
 
 lemma unionAssoc(a: Set[Int], b: Set[Int], c: Set[Int])

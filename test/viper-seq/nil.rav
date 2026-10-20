@@ -1,8 +1,8 @@
 // Viper's test nil.vpr.
 
 proc test01() {
-  var bs1: Seq[Bool] := [||];
-  var bs2: Seq[Bool] := [||];
+  var bs1: Seq[Bool] := [];
+  var bs2: Seq[Bool] := [];
 
   assert bs1 == bs2;
   assert Seq.length(bs1) == 0;

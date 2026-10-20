@@ -6,7 +6,7 @@ module S = Library.Sets[Int]
 lemma operators(a: Set[Int], b: Set[Int])
   ensures S.union(a, b) == a ++ b && S.inter(a, b) == a ** b && S.diff(a, b) == a -- b
   ensures S.subset(a, b) == (a subseteq b)
-  ensures a != {||} ==> choose(a) in a && S.choose(a) in a
+  ensures a != {} ==> choose(a) in a && S.choose(a) in a
 {}
 
 // Equality type-checks with the finite set on either side.
@@ -17,7 +17,7 @@ lemma symmetric(f: FinSet[Int], s: Set[Int])
 
 // Finite results stay finite.
 func finite(f: FinSet[Int], g: FinSet[Int], s: Set[Int]) returns (r: FinSet[Int])
-  ensures r == (f ++ g) ** s -- {|1|}
+  ensures r == (f ++ g) ** s -- {1}
 {
-  (f ++ g) ** s -- {|1|}
+  (f ++ g) ** s -- {1}
 }

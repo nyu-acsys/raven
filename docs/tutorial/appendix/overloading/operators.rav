@@ -61,7 +61,7 @@ module UpdateClient {
     assert s == entry(2) && s[0] == 2;
     assert s[1 := 3] == s;
 
-    var m: Map[Int, Int] := {| i: Int :: 0 |};
+    var m: Map[Int, Int] := { i: Int :: 0 };
     m[1] := 3;
     assert m[1] == 3;
     assert _[_:=_](m, 2, 4) == m[2 := 4];

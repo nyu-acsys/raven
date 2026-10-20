@@ -151,7 +151,7 @@ Set operators are ordinary overloaded functions in `Library.Sets[E]`, imported b
 
 ### Collection Notation
 
-Collection enumeration literals are core syntax. An empty literal calls its empty pattern, a singleton calls its one-hole pattern, and a longer literal combines singleton calls with `++`. The library supplies `[||]` and `[|_|]` for sequences, `<||>` and `<|_|>` for lists, and `{||}` and `{|_|}` for finite sets. Expected types flow into the pattern calls, including nested empty literals. User-defined matching bracket runs use the same mechanism.
+Collection enumeration literals are core syntax. An empty literal calls its empty pattern, a singleton calls its one-hole pattern, and a longer literal combines singleton calls with `++`. The library supplies `[]` and `[_]` for sequences, `<||>` and `<|_|>` for lists, and `{}` and `{_}` for finite sets. Expected types flow into the pattern calls, including nested empty literals. User-defined matching bracket runs use the same mechanism.
 
 Enumeration composition associates to the right. Finite-set constructors wrap the native `finset()` and `finset(e)` primitives; these retain their direct empty/singleton SMT encoding. The generic literal machinery replaces the sequence extension.
 

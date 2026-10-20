@@ -86,9 +86,9 @@ let normalizeFilename base_dir file_name =
 
 (** Parse a single compilation unit from file [file_name] as a module named
     [top_level_md_ident]. *)
-let parse_cu file_dir top_level_md_ident lexbuf =
+let parse_cu ~diagnostics file_dir top_level_md_ident lexbuf =
   let incls, md =
-    try Parser.main (Lexer.make_token ()) lexbuf
+    try Parser.main (Lexer.make_token ~warn:(Diagnostics.warning diagnostics) ()) lexbuf
     with Parser.Error ->
       let err_pos = lexbuf.lex_curr_p in
       let tok = Lexing.lexeme lexbuf in
@@ -447,7 +447,7 @@ let parse_and_check_all ?on_typed ?on_scheduled ?on_progress ~extension_mode ~di
                 (Printf.sprintf "Cannot find file '%s' (referenced by an include)"
                    file_name)
           in
-          let includes, md = parse_cu file_dir Predefs.prog_ident lexbuf in
+          let includes, md = parse_cu ~diagnostics file_dir Predefs.prog_ident lexbuf in
 
           if config.strict then warn_free_usage ~diagnostics md;
 
@@ -535,7 +535,9 @@ let parse_and_check_all ?on_typed ?on_scheduled ?on_progress ~extension_mode ~di
             let lib_source_lexbuf = Lexing.from_string lib_source in
             let _ = Lexer.set_file_name lib_source_lexbuf lib_file_name in
             let _includes, md =
-              parse_cu (Stdlib.Filename.dirname lib_file_name) cu_ident lib_source_lexbuf
+              parse_cu ~diagnostics
+                (Stdlib.Filename.dirname lib_file_name)
+                cu_ident lib_source_lexbuf
             in
             (* [set_unit_free], not [set_free]: the standard library is trusted by the
            compiler so it isn't re-verified for every program, which is exactly what

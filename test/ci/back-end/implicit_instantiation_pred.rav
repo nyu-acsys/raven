@@ -5,7 +5,7 @@ import Library._
 // Sets every entry of a to x.
 proc fill(a: Array[Int], x: Int, implicit ghost m: Map[Int, Int])
   requires Array.arr(a, m)
-  ensures Array.arr(a, {| i: Int :: 0 <= i && i < Array.length(a) ? x : m[i] |})
+  ensures Array.arr(a, { i: Int :: 0 <= i && i < Array.length(a) ? x : m[i] })
 {
   unfold Array.arr(a, m);
   var i := 0;
@@ -17,7 +17,7 @@ proc fill(a: Array[Int], x: Int, implicit ghost m: Map[Int, Int])
     a[i] := x;
     i := i + 1;
   }
-  fold Array.arr(a, {| i: Int :: 0 <= i && i < Array.length(a) ? x : m[i] |});
+  fold Array.arr(a, { i: Int :: 0 <= i && i < Array.length(a) ? x : m[i] });
 }
 
 proc client()

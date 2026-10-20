@@ -82,12 +82,12 @@ module DisjSet[X: Type] : CancellativeResourceAlgebra {
       case set(value: Set[X]); case top
   }
 
-  val id: T = set({||})
+  val id: T = set({})
 
   func valid(n: T) returns (ret: Bool) { n == set(n.value) }
 
   func comp(a: T, b: T) returns (ret: T) {
-      a is set && b is set && a.value ** b.value == {||} ?
+      a is set && b is set && a.value ** b.value == {} ?
         set(a.value ++ b.value) : top
   }
 

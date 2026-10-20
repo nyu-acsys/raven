@@ -8,7 +8,7 @@ interface I[E: Library.Type] {
 
 module G[E: Library.Type] : I[E] {
   func identity(s: Library.Seq[E]) returns (r: Library.Seq[E]) { s }
-  func wrap(s: Library.Seq[E]) returns (r: Library.Seq[Library.Seq[E]]) { [| s |] }
+  func wrap(s: Library.Seq[E]) returns (r: Library.Seq[Library.Seq[E]]) { [ s ] }
   func keep(l: Library.List[E]) returns (r: Library.List[E]) { l }
 }
 

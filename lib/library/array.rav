@@ -28,5 +28,5 @@ module Array[E: Library.Type] : Library.Type {
   // A new array of length len, all of whose entries are d.
   free proc alloc(len: Int, d: E) returns (a: T)
     requires 0 <= len
-    ensures length(a) == len && arr(a, {| i: Int :: 0 <= i < len ? d : E.default |})
+    ensures length(a) == len && arr(a, { i: Int :: 0 <= i < len ? d : E.default })
 }

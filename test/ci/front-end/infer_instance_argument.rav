@@ -25,6 +25,6 @@ lemma infer() {
   assert G.nested(bb) == 1;
   assert GI.nested(bb) == 1;
   assert P.key(b, true) == 1;
-  val s: Library.Seq[Int] := [|1, 2|];
+  val s: Library.Seq[Int] := [1, 2];
   assert H.size(s) == 2;
 }

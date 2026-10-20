@@ -2,7 +2,7 @@
 field f: Map[Int, Int]
 
 proc p(x: Ref)
-  requires own(x.f, {| i: Int :: 0 |})
+  requires own(x.f, { i: Int :: 0 })
 {
   x.f[0] := 1;
 }

@@ -44,15 +44,15 @@ module M {
   }
 
   func empty_is_finite() returns (res: FinSet[Int]) {
-    {||}
+    {}
   }
 
   func enum_is_finite() returns (res: FinSet[Int]) {
-    {|1, 2, 3|}
+    {1, 2, 3}
   }
 
   func compr_stays_set(bound: Int) returns (res: Set[Int]) {
-    {| x: Int :: x > bound |}
+    { x: Int :: x > bound }
   }
 
   func upcast_allowed(s: FinSet[Int]) returns (res: Set[Int]) {

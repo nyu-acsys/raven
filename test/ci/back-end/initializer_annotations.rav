@@ -23,7 +23,7 @@ proc initialized_locals(x: Ref, n: Number)
   literal := 0.5;
   assert literal == 0.5;
 
-  var values: Map[Int, Real] := {| i: Int :: 0.0 |};
+  var values: Map[Int, Real] := { i: Int :: 0.0 };
   values[0] := 1;
   values[1] := 0.5;
   assert values[0] == 1.0 && values[1] == 0.5;

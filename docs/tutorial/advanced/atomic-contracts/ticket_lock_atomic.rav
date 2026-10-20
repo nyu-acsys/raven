@@ -51,13 +51,13 @@ module TicketLock[R: LockResource] {
       own(l.next, n, 1.0) && n >= 0
       && own(l.curr, c, 1.0)
       && (b ? 
-        own(l.tickets, AuthDisjInts.frag(IntSet.set({|c|}))) :
+        own(l.tickets, AuthDisjInts.frag(IntSet.set({c}))) :
         resource(r) && locked(l)
       )
       && own(l.tickets, 
         AuthDisjInts.auth_frag(
-          IntSet.set({|i: Int :: 0 <= i && i < n|}), 
-          IntSet.set({||})
+          IntSet.set({i: Int :: 0 <= i && i < n}), 
+          IntSet.set({})
         )
       )
   }
@@ -69,7 +69,7 @@ module TicketLock[R: LockResource] {
     l := new (
       next: 0, curr: -1, 
       tickets: AuthDisjInts.auth_frag(
-        IntSet.set({||}), IntSet.set({||})
+        IntSet.set({}), IntSet.set({})
       ),
       exclusive: ExclUnit.excl(())
     )
@@ -78,7 +78,7 @@ module TicketLock[R: LockResource] {
   }
 
   proc wait_loop(l: Ref, x: Int, implicit ghost r: R)
-    requires own(l.tickets, AuthDisjInts.frag(IntSet.set({|x|})))
+    requires own(l.tickets, AuthDisjInts.frag(IntSet.set({x})))
     atomic requires is_lock(l, r)
     atomic ensures is_lock(l, r) && locked(l) && resource(r)
   {
@@ -120,12 +120,12 @@ module TicketLock[R: LockResource] {
     if (res) {
       fpu(l, tickets, 
         AuthDisjInts.auth_frag(
-          IntSet.set({|i: Int :: 0 <= i && i < nxt|}), 
-          IntSet.set({||})
+          IntSet.set({i: Int :: 0 <= i && i < nxt}), 
+          IntSet.set({})
         ), 
         AuthDisjInts.auth_frag(
-          IntSet.set({|i: Int :: 0 <= i && i < nxt+1|}), 
-          IntSet.set({|nxt|})
+          IntSet.set({i: Int :: 0 <= i && i < nxt+1}), 
+          IntSet.set({nxt})
         )
       )
       fold is_lock(l, r)[b := b]

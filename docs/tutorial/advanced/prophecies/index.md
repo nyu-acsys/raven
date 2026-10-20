@@ -322,9 +322,9 @@ proc get(c: Counter, implicit ghost n: Int) returns (ret: Int)
     }
   !}
   fold helping_prot_state(hcell, c)
-  fpu(c.shared.regs_auth, Auth.auth(SetRA.set(regs)), Auth.full(SetRA.set(regs ++ {|hcell|})))
+  fpu(c.shared.regs_auth, Auth.auth(SetRA.set(regs)), Auth.full(SetRA.set(regs ++ {hcell})))
   val n1 := c.a.count
-  fold counter_inv(c)[regs := regs ++ {|hcell|}]
+  fold counter_inv(c)[regs := regs ++ {hcell}]
 
   unfold counter_inv(c)[regs := regs]
   val n2 := c.b.count
@@ -374,9 +374,9 @@ lemma bump_all(c: Counter, n: Int, regs: FinSet[Ref])
   ensures counter_state(c, n+1)
   decreases regs
 {
-  if (regs != {||}) {
+  if (regs != {}) {
     ghost val hcell := choose(regs)
-    bump_all(c, n, regs -- {|hcell|})
+    bump_all(c, n, regs -- {hcell})
     unfold helping_prot_state(hcell, c)
     hcell.snap := n + 1
     var np: Int

@@ -16,7 +16,7 @@ module M {
 
   proc fill(a: A.T, x: Int, implicit ghost m: Map[Int, Int])
     requires arr(a, m)
-    ensures arr(a, {| i: Int :: 0 <= i && i < length(a) ? x : m[i] |})
+    ensures arr(a, { i: Int :: 0 <= i && i < length(a) ? x : m[i] })
   {
     unfold arr(a, m);
     var i := 0;
@@ -28,7 +28,7 @@ module M {
       a[i] := x;
       i := i + 1;
     }
-    fold arr(a, {| i: Int :: 0 <= i && i < length(a) ? x : m[i] |});
+    fold arr(a, { i: Int :: 0 <= i && i < length(a) ? x : m[i] });
   }
 
   proc read_ghost(a: A.T, implicit ghost v: Int) returns (ghost r: Int)

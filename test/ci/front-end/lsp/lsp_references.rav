@@ -24,7 +24,7 @@ module M {
 
 proc client(s: Seq[Int]) returns (n: Int) {
   n := M.double(3);
-  var t: Set[Int] := {| 1, 2 |};
+  var t: Set[Int] := { 1, 2 };
 }
 
 module F[T: Library.Type] {

@@ -1,8 +1,8 @@
 module Delimiters {
   inline func <||>() returns (r: Int) { 0 }
   inline func <|_|>(e: Int) returns (r: Int) { e }
-  inline func [||]() returns (r: Int) { 0 }
-  inline func [|_|](e: Int) returns (r: Int) { e }
+  inline func []() returns (r: Int) { 0 }
+  inline func [_](e: Int) returns (r: Int) { e }
   inline func ([||])() returns (r: Int) { 0 }
   inline func ([|_|])(e: Int) returns (r: Int) { e }
   inline func {{||}}() returns (r: Int) { 0 }
@@ -16,7 +16,7 @@ module Delimiters {
 module Client {
   import Delimiters._
 
-  inline func adjacent() returns (r: Int){[|1|]}
+  inline func adjacent() returns (r: Int){[1]}
 
   proc return_literal() returns (r: Int) {
     return {{|1|}};
@@ -35,7 +35,7 @@ module Client {
     assert {[||]} == 0;
     assert {[|1, 2, 3|]} == 33;
     assert ( <|1, 2, 3|> ) == 33;
-    assert 4[[|1|]] == 5;
+    assert 4[[1]] == 5;
     assert adjacent() == 1;
     assert Delimiters.<|_|>(4) == 4;
     assert Delimiters.([|_|])(4) == 4;

@@ -107,7 +107,7 @@ module ArrayUtils[E: Library.Type] {
 
   rep type T = A.T
 
-  val default_map: Map[Int, E] = {| i: Int :: E.default |}
+  val default_map: Map[Int, E] = { i: Int :: E.default }
 
   proc copy(a: T, implicit ghost m: Map[Int, E]) 
     returns (b: T)
@@ -140,7 +140,7 @@ module ArrayUtils[E: Library.Type] {
 
   func set_of_map(m: Map[Int, E], i: Int, j: Int) returns (res: Set[E])
   {
-    {| k: E :: i <= inverse(m, i, j, k) < j |}
+    { k: E :: i <= inverse(m, i, j, k) < j }
   }
 
   lemma injective_split()
@@ -159,13 +159,13 @@ module ArrayUtils[E: Library.Type] {
   func map_shift(m: Map[Int, E], src: Int, dst: Int, len: Int)
     returns (res: Map[Int, E])
   {
-    {| i: Int :: i < dst || dst + len <= i ? m[i] : m[src + (i - dst)] |}
+    { i: Int :: i < dst || dst + len <= i ? m[i] : m[src + (i - dst)] }
   }
 
   func map_copy(m1: Map[Int, E], m2: Map[Int, E], src: Int, dst: Int, len: Int)
     returns (res: Map[Int, E])
   {
-    {| i: Int :: dst <= i < dst + len ? m2[src + (i - dst)] : m1[i] |}
+    { i: Int :: dst <= i < dst + len ? m2[src + (i - dst)] : m1[i] }
   }
 
   lemma set_of_map_equal(m1: Map[Int, E], m2: Map[Int, E], i1: Int, i2: Int, len: Int)

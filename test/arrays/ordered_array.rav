@@ -65,7 +65,7 @@ module OrderedArray[E: Library.OrderedType] {
     requires 0 <= idx <= len
     requires k in set_of_map(m, 0, len) ==> new_len == len && m1 == m
     requires k !in set_of_map(m, 0, len) ==> new_len == len + 1 && m1 == map_shift(m, idx, idx + 1, len - idx)[idx := k]
-    ensures set_of_map(m1, 0, new_len) == set_of_map(m, 0, len) ++ {| k |}
+    ensures set_of_map(m1, 0, new_len) == set_of_map(m, 0, len) ++ { k }
   {
     if (m[idx] == k && idx < len) {
       return;
@@ -77,12 +77,12 @@ module OrderedArray[E: Library.OrderedType] {
     set_of_map_equal(m, ms, 0, 0, idx);
     set_of_map_equal(m, ms, idx, idx + 1, len - idx);
     assert set_of_map(m, 0, len) == set_of_map(ms, 0, idx) ++ set_of_map(ms, idx + 1, len + 1);
-    // prove set_of_map(m1, 0, new_len) == set_of_map(ms, 0, idx) ++ {|k|} ++ set_of_map(ms, idx + 1, len + 1)
+    // prove set_of_map(m1, 0, new_len) == set_of_map(ms, 0, idx) ++ {k} ++ set_of_map(ms, idx + 1, len + 1)
     inverse_update();
     frame_set_of_map(ms, 0, idx);
     frame_set_of_map(ms, idx + 1, len + 1); 
     set_of_map_split(m1, 0, idx, len + 1);
-    assert set_of_map(m1, 0, new_len) == set_of_map(ms, 0, idx) ++ {|k|} ++ set_of_map(ms, idx + 1, len + 1);
+    assert set_of_map(m1, 0, new_len) == set_of_map(ms, 0, idx) ++ {k} ++ set_of_map(ms, idx + 1, len + 1);
   }
 
   lemma map_delete_content_set(m: Map[Int, E], len: Int, idx: Int, k: E)
@@ -90,7 +90,7 @@ module OrderedArray[E: Library.OrderedType] {
     requires idx == map_find(m, 0, len, k)
     requires 0 <= idx <= len
     ensures set_of_map((k in set_of_map(m, 0, len) ? map_shift(m, idx + 1, idx, len - (idx + 1)) : m), 0, 
-                       (k in set_of_map(m, 0, len) ? len - 1 : len)) == set_of_map(m, 0, len) -- {|k|}
+                       (k in set_of_map(m, 0, len) ? len - 1 : len)) == set_of_map(m, 0, len) -- {k}
   {   
     if (idx == len || m[idx] != k) {
       return;

@@ -54,11 +54,11 @@ interface Barrier[N: NumThreads, A: AbstractPredicates] {
     }
 
     func tickets_geq(n: Int) returns (res: IntSet) {
-        IntSet.set({| i: Int :: i > n |})
+        IntSet.set({ i: Int :: i > n })
     }
 
     func ticket(n: Int) returns (res: IntSet) {
-        IntSet.set({| n+1 |})
+        IntSet.set({ n+1 })
     }
 
     pred z_lt_threads(l: Ref, r: Ref, z: Int) {

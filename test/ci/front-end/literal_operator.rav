@@ -23,30 +23,30 @@ lemma collections() {
   val empty_list: List[Int] := <||>;
   assert empty_list == (nil : List[Int]);
 
-  val s: Seq[Int] := [|1, 2|];
+  val s: Seq[Int] := [1, 2];
   assert Seq.length(s) == 2;
   assert s[0] == 1 && s[1] == 2;
-  val empty_seq: Seq[Int] := [||];
+  val empty_seq: Seq[Int] := [];
   assert Seq.length(empty_seq) == 0;
-  val longer: Seq[Int] := [|0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15|];
+  val longer: Seq[Int] := [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
   assert Seq.length(longer) == 16 && longer[15] == 15;
 
-  val finite: FinSet[Int] := {|1, 2, 1|};
+  val finite: FinSet[Int] := {1, 2, 1};
   assert 1 in finite && 2 in finite && 3 !in finite;
-  val empty_set: FinSet[Int] := {||};
+  val empty_set: FinSet[Int] := {};
   assert 1 !in empty_set;
 
-  val nested_seq: Seq[Seq[Int]] := [|[||]|];
+  val nested_seq: Seq[Seq[Int]] := [[]];
   assert Seq.length(nested_seq) == 1;
   assert Seq.length(nested_seq[0]) == 0;
   val nested_list: List[List[Int]] := <|<||>|>;
   assert nested_list == ((nil : List[Int])) :: ((nil : List[List[Int]]));
 
-  val empty_sequences: Seq[Seq[Int]] := [|[||], [||]|];
+  val empty_sequences: Seq[Seq[Int]] := [[], []];
   assert Seq.length(empty_sequences) == 2;
   assert Seq.length(empty_sequences[0]) == 0;
   assert Seq.length(empty_sequences[1]) == 0;
-  val mixed_sequences: Seq[Seq[Int]] := [|[||], [|7|]|];
+  val mixed_sequences: Seq[Seq[Int]] := [[], [7]];
   assert Seq.length(mixed_sequences) == 2;
   assert Seq.length(mixed_sequences[0]) == 0;
   assert Seq.length(mixed_sequences[1]) == 1 && mixed_sequences[1][0] == 7;

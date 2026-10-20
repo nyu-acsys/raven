@@ -96,5 +96,5 @@ func sawVisitor(seen: Set[Int], id: Int) returns (r: Bool)
 func recordVisitor(seen: Set[Int], id: Int) returns (r: Set[Int])
   ensures forall x: Int :: (x in r) == (x in seen || x == id)
 {
-  seen ++ {|id|}
+  seen ++ {id}
 }

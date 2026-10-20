@@ -12,7 +12,7 @@ interface Keyspace {
 
 module IntKeyspace : Keyspace {
   rep type T = Int
-  val ks: Set[T] = {| k: Int :: true |}
+  val ks: Set[T] = { k: Int :: true }
 }
 
 interface SearchStructureSpec {
@@ -25,8 +25,8 @@ interface SearchStructureSpec {
     op == searchOp() ?
       ((c_in, (k in c_in))) :
     (op == insertOp() ?
-      ((c_in ++ {| k |}, (k !in c_in))) :
-      ((c_in -- {| k |}, (k in c_in))))
+      ((c_in ++ { k }, (k !in c_in))) :
+      ((c_in -- { k }, (k in c_in))))
 	}
 }
 
@@ -66,22 +66,22 @@ interface NodeImpl {
 
   func inset(i: Flow_K.T, n: Ref) returns (ret: Set[K])
   {
-    {| k : K :: (i.inf[n])[k] > 0 |}
+    { k : K :: (i.inf[n])[k] > 0 }
   }
 
   func insets(i: Flow_K.T) returns (ret: Set[K])
   {
-    {| k : K :: exists n: Ref :: {inset(i,n)} n in i.dom && k in inset(i, n) |}
+    { k : K :: exists n: Ref :: {inset(i,n)} n in i.dom && k in inset(i, n) }
   }
 
   func outset(i: Flow_K.T, n: Ref) returns (ret: Set[K])
   {
-    {| k : K :: (i.out[n])[k] > 0 |}
+    { k : K :: (i.out[n])[k] > 0 }
   }
 
   func outsets(i: Flow_K.T) returns (ret: Set[K])
   {
-    {| k: K :: exists n: Ref :: {outset(i,n)} n !in i.dom && k in outset(i,n) |}
+    { k: K :: exists n: Ref :: {outset(i,n)} n !in i.dom && k in outset(i,n) }
   }
 
   func keyset(i: Flow_K.T) returns (ret: Set[K])
@@ -93,7 +93,7 @@ interface NodeImpl {
   {
       Flow_K.valid(g_i) &&
       r in g_i.dom &&
-      outsets(g_i) == {||} &&
+      outsets(g_i) == {} &&
       inset(g_i, r) == keyspace  
   }
 
@@ -107,15 +107,15 @@ interface NodeImpl {
   pred nodePred(r: Ref, n: Ref; c: Set[K], i_n: Flow_K) {
     own(r.authKS, AuthKeyset_K.frag( Keyset_K.prodKS( keyset(i_n), c ) )) &&
     own(r.authFlow, AuthFlow_K.frag(i_n)) &&
-    i_n.dom == {|n|} && 
+    i_n.dom == {n} && 
     node(n, c, i_n)
   }
 
   proc createRoot()
     returns (r: Ref, implicit ghost g_i: Flow_K)
     ensures own(r.lock, false)
-    ensures globalRes(r, {||}, g_i) && g_i.dom == {|r|}
-    ensures nodePred(r, r, {||}, g_i) 
+    ensures globalRes(r, {}, g_i) && g_i.dom == {r}
+    ensures nodePred(r, r, {}, g_i) 
 
   proc decisiveOp(dop: Op, n: Ref, k: K, implicit ghost c: Set[K], implicit ghost i_n: Flow_K)
     returns (succ: Bool, res: Bool, implicit ghost c1: Set[K])
@@ -153,7 +153,7 @@ interface SearchStructure {
 
    proc create()
      returns (r: Ref)
-     ensures css(r, {||})
+     ensures css(r, {})
 
     proc cssOp(dop: Op, r: Ref, k: K, implicit ghost c: Set[K])
       returns (res: Bool, implicit ghost cc: Set[K])
@@ -176,7 +176,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
   }
   
   inline pred inFP(r: Ref, n: Ref) {
-    own(r.authSet, AuthSetRef.frag(SetRefRA.set({|n|})) )
+    own(r.authSet, AuthSetRef.frag(SetRefRA.set({n})) )
   }
 
   pred cssR(r: Ref; c: Set[K], g_i: Flow_K) {
@@ -294,13 +294,13 @@ interface GiveUpTemplate[Node: NodeImpl] {
 
   proc create()
     returns (r: Ref)
-    ensures css(r, {||})
+    ensures css(r, {})
   {
     ghost var i_r: Flow_K;
     r, i_r := Node.createRoot();
 
-    fold cssR(r, {||});
-    fold css(r, {||});
+    fold cssR(r, {});
+    fold css(r, {});
   }
 
   proc traverse(r: Ref, n: Ref, k: K, implicit ghost c: Set[K])
@@ -403,9 +403,9 @@ interface GiveUpTemplate[Node: NodeImpl] {
       c1 := c;
     } else {
       if (dop == insertOp) {
-        c1 := c ++ {| k |};
+        c1 := c ++ { k };
       } else {
-        c1 := c -- {| k |};
+        c1 := c -- { k };
       }
         
       fpu(r.authKS, 

@@ -1,0 +1,8 @@
+// The deprecated piped set and sequence literals are still accepted.
+module M {
+  proc p() {
+    assert {|1, 2|} == {2, 1}
+    assert [||] ++ [|3|] == [3]
+    assert {|x: Int :: x == 1|} == {1}
+  }
+}

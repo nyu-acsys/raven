@@ -16,7 +16,7 @@ interface LCList {
     ghost field authSet: AuthSetRef
 
     pred inFP(r: Ref, n: Ref) {
-        own(r.authSet, AuthSetRef.frag(SetRefRA.set({|n|})) )
+        own(r.authSet, AuthSetRef.frag(SetRefRA.set({n})) )
     }
 
     pred cssR(r: Ref, fp: Set[Ref], locks: Map[Ref, Int], nexts: Map[Ref, Ref], vals: Map[Ref, Int]) {
@@ -167,13 +167,13 @@ interface LCList {
             next: null, 
             lock: 0, 
             value: 0, 
-            authSet:AuthSetRef.auth(SetRefRA.set({|r|}))
+            authSet:AuthSetRef.auth(SetRefRA.set({r}))
         );
 
-        ghost var fp: Set[Ref] := {|r|};
-        ghost var locks: Map[Ref, Int] := {| l: Ref :: 0 |};
-        ghost var nexts: Map[Ref, Ref] := {| l: Ref :: null |};
-        ghost var vals: Map[Ref, Int] := {| l: Ref :: 0 |};
+        ghost var fp: Set[Ref] := {r};
+        ghost var locks: Map[Ref, Int] := { l: Ref :: 0 };
+        ghost var nexts: Map[Ref, Ref] := { l: Ref :: null };
+        ghost var vals: Map[Ref, Int] := { l: Ref :: 0 };
 
         fold cssR(r, fp, locks, nexts, vals);
         assert cssR(r, fp, locks, nexts, vals);
@@ -317,7 +317,7 @@ interface LCList {
                 
                 assert new_node !in fp0;
 
-                ghost var fp1: Set[Ref] := fp0 ++ {| new_node |};
+                ghost var fp1: Set[Ref] := fp0 ++ { new_node };
                 ghost var locks1: Map[Ref, Int] := locks0[new_node := 0];
                 ghost var nexts1: Map[Ref, Ref] := nexts0[new_node := null];
                 ghost var vals1: Map[Ref, Int] := vals0[new_node := k];
@@ -326,7 +326,7 @@ interface LCList {
                     AuthSetRef.auth(SetRefRA.set(fp0)),
                     AuthSetRef.auth_frag(
                         SetRefRA.set(fp1),
-                        SetRefRA.set({| new_node |})
+                        SetRefRA.set({ new_node })
                     )
                 );
 
@@ -374,7 +374,7 @@ interface LCList {
                     cssInFp(r, c, fp0, locks0, nexts0, vals0);
                     unfold cssR(r, fp0, locks0, nexts0, vals0);
 
-                    ghost var fp1: Set[Ref] := fp0 ++ {| new_node |};
+                    ghost var fp1: Set[Ref] := fp0 ++ { new_node };
                     ghost var locks1: Map[Ref, Int] := locks0[new_node := 0];
                     ghost var nexts1: Map[Ref, Ref] := nexts0[new_node := c];
                     ghost var vals1: Map[Ref, Int] := vals0[new_node := k];
@@ -383,7 +383,7 @@ interface LCList {
                         AuthSetRef.auth(SetRefRA.set(fp0)),
                         AuthSetRef.auth_frag(
                             SetRefRA.set(fp1),
-                            SetRefRA.set({| new_node |})
+                            SetRefRA.set({ new_node })
                         )
                     );
 

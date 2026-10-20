@@ -10,6 +10,6 @@ module M {
     decreases s
     ensures res >= 0
   {
-    s == {||} ? 0 : 1 + count(s -- {|choose(s)|})
+    s == {} ? 0 : 1 + count(s -- {choose(s)})
   }
 }

@@ -525,7 +525,7 @@ module SetRA[X: Type] : LatticeResourceAlgebra {
         case top
     }
 
-    val id: T = set({||})
+    val id: T = set({})
 
     func valid(n:T) returns (ret:Bool) {
         n is set
@@ -556,14 +556,14 @@ module DisjSet[X: Type] : CancellativeResourceAlgebra {
         case top
     }
 
-    val id: T = set({||})
+    val id: T = set({})
 
     func valid(n:T) returns (ret:Bool) {
         n is set
     }
 
     func comp(a:T, b:T) returns (ret:T) {
-        a is set && b is set && a.value ** b.value == {||} ? 
+        a is set && b is set && a.value ** b.value == {} ? 
           set(a.value ++ b.value) : top
     }
 

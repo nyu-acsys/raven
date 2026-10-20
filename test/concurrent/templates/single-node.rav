@@ -69,8 +69,8 @@ interface SearchStructureSpec {
     op == searchOp() ? 
       c_in == c_out && res == (k in c_in) :
     (op == insertOp() ?
-      c_out == c_in ++ {| k |} && res == (k !in c_in) :
-      c_out == c_in -- {| k |} && res == (k in c_in))
+      c_out == c_in ++ { k } && res == (k !in c_in) :
+      c_out == c_in -- { k } && res == (k in c_in))
 	}
 }
 
@@ -88,7 +88,7 @@ interface NodeImpl {
 
   proc create()
     returns (n: Ref)
-    ensures nodeR(n, {||}) && own(n.lock, false) && own(n.frac, {||})
+    ensures nodeR(n, {}) && own(n.lock, false) && own(n.frac, {})
 
   proc decisiveOp(dop: Op, n: Ref, k: K, implicit ghost c: Set[K])
     returns (res: Bool, implicit ghost c1: Set[K])
@@ -113,7 +113,7 @@ interface SearchStructure {
 
   proc create()
     returns (r: Ref)
-    ensures cssR(r, {||})
+    ensures cssR(r, {})
 }
 
 interface SingleNodeTemplate[Node: NodeImpl] {
@@ -141,10 +141,10 @@ interface SingleNodeTemplate[Node: NodeImpl] {
 
   proc create()
     returns (r: Ref)
-    ensures cssR(r, {||})
+    ensures cssR(r, {})
   {
     r := Node.create();
-    fold cssR(r, {||})[b := false];
+    fold cssR(r, {})[b := false];
   }
 
   proc cssOp(dop: Op, r: Ref, k: K, implicit ghost c: Set[K])
@@ -186,7 +186,7 @@ interface SingleNodeTemplate[Node: NodeImpl] {
 
 module IntSearchStructureSpec : SearchStructureSpec {
   type K = Int
-  val keyset : Set[K] = {| k: Int :: k >= 0 |}
+  val keyset : Set[K] = { k: Int :: k >= 0 }
 }
 
 
@@ -203,10 +203,10 @@ module IntSetNodeImpl : NodeImpl {
 
   proc create()
     returns (n: Ref)
-    ensures nodeR(n, {||}) && own(n.lock, false) && own(n.frac, {||})
+    ensures nodeR(n, {}) && own(n.lock, false) && own(n.frac, {})
   {
-    n := new(value:{||}, lock: false, frac: {||});
-    fold nodeR(n, {||});
+    n := new(value:{}, lock: false, frac: {});
+    fold nodeR(n, {});
   }
 
   proc decisiveOp(dop: Op, n: Ref, k: K, implicit ghost c: Set[K])
@@ -224,11 +224,11 @@ module IntSetNodeImpl : NodeImpl {
     } else {
       if (dop == insertOp()) {
         res := (k !in v);
-        n.value := v ++ {| k |};
+        n.value := v ++ { k };
         c_ret := n.value;
       } else {
         res := (k in v);
-        n.value := v -- {| k |};
+        n.value := v -- { k };
         c_ret := n.value;
       }
     }

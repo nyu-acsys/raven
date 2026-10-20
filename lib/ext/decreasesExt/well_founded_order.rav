@@ -198,11 +198,11 @@ module SetOrder[E: Type] : WellFoundedOrder {
   rep type T = FinSet[E]
 
   func msize_step(s: T) returns (res: T) {
-    s -- {|choose(s)|}
+    s -- {choose(s)}
   }
 
   func msize(s: T) returns (res: Int) {
-    s == {||} ? 0 : 1 + msize(msize_step(s))
+    s == {} ? 0 : 1 + msize(msize_step(s))
   }
 
   func lt(x: T, y: T) returns (res: Bool) {
@@ -216,7 +216,7 @@ module SetOrder[E: Type] : WellFoundedOrder {
   lemma msize_nonneg(s: T)
     ensures msize(s) >= 0
   {
-    if (s != {||}) {
+    if (s != {}) {
       msize_nonneg(msize_step(s));
     }
   }
@@ -224,7 +224,7 @@ module SetOrder[E: Type] : WellFoundedOrder {
   // Peeling any already-present element -- not just choose(s)'s own choice --
   // decreases msize by exactly 1. `s'` is given as an explicit parameter,
   // characterized purely by its membership relative to `s` and `e`, rather
-  // than written as `s -- {|e|}` in the conclusion: nothing forces two
+  // than written as `s -- {e}` in the conclusion: nothing forces two
   // separately-written set-difference expressions to be recognized as
   // denoting the same set automatically, so stating the needed set directly
   // by its membership avoids relying on that.
@@ -247,7 +247,7 @@ module SetOrder[E: Type] : WellFoundedOrder {
     assert forall z: E :: {z in s0} (z in s0) == (z in s && z != e0);
     if (e == e0) {
     } else {
-      var u: T := s0 -- {|e|};
+      var u: T := s0 -- {e};
       assert forall z: E :: {z in u} (z in u) == (z in s0 && z != e);
       msize_remove(s0, e, u);
       msize_remove(s', e0, u);
@@ -263,7 +263,7 @@ module SetOrder[E: Type] : WellFoundedOrder {
     assert forall z: E :: {z in y0} (z in y0) == (z in y && z != e);
     msize_remove(y, e, y0);
     if (e in x) {
-      var x0: T := x -- {|e|};
+      var x0: T := x -- {e};
       assert forall z: E :: {z in x0} (z in x0) == (z in x && z != e);
       msize_remove(x, e, x0);
       msize_mono(x0, y0);

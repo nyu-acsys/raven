@@ -74,7 +74,7 @@ also be written with a notation of their own:
 
 | Operation | Notation | Meaning |
 |---|---|---|
-| `empty`, `singleton(e)` | `[\|\|]`, `[\|e\|]` | the empty sequence, and the sequence holding just `e` |
+| `empty`, `singleton(e)` | `[]`, `[e]` | the empty sequence, and the sequence holding just `e` |
 | `length(s)` | | the number of entries of `s` |
 | `index(s, i)` | `s[i]` | the entry at position `i`, counting from 0 |
 | `append(s, t)` | `s ++ t` | `s` followed by `t` |
@@ -87,10 +87,10 @@ also be written with a notation of their own:
 statement `s[i] := e` is short for `s := s[i := e]`. The slice `s[m..n]` holds the entries from
 position `m` up to, but excluding, position `n`, and is short for `s[..n][m..]`.
 
-You can write a sequence as a literal, listing its entries between `[|` and `|]`, as in
-`[|1, 2, 3|]`, much as you write a set as `{|1, 2, 3|}`. The empty sequence `[||]`, like
-`Seq.empty`, takes its instance from the type expected where it appears, as in `s == [||]`, or
-from an annotation, as in `([||] : Seq[Int])`.
+You can write a sequence as a literal, listing its entries between `[` and `]`, as in
+`[1, 2, 3]`, much as you write a set as `{1, 2, 3}`. The empty sequence `[]`, like
+`Seq.empty`, takes its instance from the type expected where it appears, as in `s == []`, or
+from an annotation, as in `([] : Seq[Int])`.
 
 Unlike `List`, `Seq` is sealed ({{ref sec:sealing}}). Its interface, `Library.SeqSpec[E]`, states
 the properties of these operations as `auto` lemmas, and those lemmas are all you see as a
@@ -117,7 +117,7 @@ module HitLog {
   {
     unfold valid(c, v)
     var l := c.log
-    c.log := l ++ [|Log.length(l)|]
+    c.log := l ++ [Log.length(l)]
     fold valid(c, v + 1)
   }
 
@@ -178,7 +178,7 @@ with the instance inferred from the argument ({{ref sec:implicit-functor-instant
 ```raven
 proc fill(a: Array[Int], x: Int, implicit ghost m: Map[Int, Int])
   requires arr(a, m)
-  ensures arr(a, {| i: Int :: 0 <= i && i < length(a) ? x : m[i] |})
+  ensures arr(a, { i: Int :: 0 <= i && i < length(a) ? x : m[i] })
 {
   unfold arr(a, m);
   var i := 0;
@@ -190,7 +190,7 @@ proc fill(a: Array[Int], x: Int, implicit ghost m: Map[Int, Int])
     a[i] := x;
     i := i + 1;
   }
-  fold arr(a, {| i: Int :: 0 <= i && i < length(a) ? x : m[i] |});
+  fold arr(a, { i: Int :: 0 <= i && i < length(a) ? x : m[i] });
 }
 ```
 

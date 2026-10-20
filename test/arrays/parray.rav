@@ -80,7 +80,7 @@ interface PArray : Library.Type {
   proc create(len: Int, d: E)
     returns (pa: T)
     requires 0 <= len
-    ensures parr(pa, len, {| i: Int :: 0 <= i < len ? d : E.default |})
+    ensures parr(pa, len, { i: Int :: 0 <= i < len ? d : E.default })
 }
 
 module Make[E: Library.Type, LockF: Lock] : PArray {
@@ -122,11 +122,11 @@ module Make[E: Library.Type, LockF: Lock] : PArray {
   proc create(len: Int, d: E)
     returns (pa: T)
     requires 0 <= len
-    ensures parr(pa, len, {| i: Int :: 0 <= i < len ? d : E.default |})
+    ensures parr(pa, len, { i: Int :: 0 <= i < len ? d : E.default })
   {
     val elems := AU.A.alloc(len, d);
     pa := new(lock: null, desc: base(elems), dist: 0);
-    val m := {| i: Int :: 0 <= i < len ? d : E.default |};
+    val m := { i: Int :: 0 <= i < len ? d : E.default };
     fold R.resource(pa, (len, m));
     val l := L.create(pa);
     pa.lock := l;

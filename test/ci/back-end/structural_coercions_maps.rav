@@ -17,7 +17,7 @@ proc widened_map_result(m: Map[Int, Int]) returns (r: Map[Int, Real])
 proc map_values(m: Map[Int, Int], wide_domain: Map[Real, Int],
     nested: Map[Int, Map[Int, Int]], tuple_domain: Map[(Real, Real), Int], b: Bool)
 {
-  var literal: Map[Int, Real] := {| i: Int :: 0 |};
+  var literal: Map[Int, Real] := { i: Int :: 0 };
   assert literal[0] == 0.0;
 
   var real_values: Map[Int, Real] := m;

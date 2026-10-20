@@ -165,7 +165,8 @@ only fires once *both* terms appear as ground terms somewhere in the current pro
 Together, the terms in the set have to cover every bound variable, but no single term needs to
 mention all of them. A quantifier can also carry more than one trigger *set*, written one after
 the other as in `{t1} {t2}`. This means that either set is enough on its own to trigger the
-instantiation, independently of the other:
+instantiation, independently of the other. Since braces after `::` start a trigger, a body
+that starts with a set literal needs parentheses, as in `forall x: Int :: ({x} subseteq s)`:
 
 ```raven
 interface Bounds {
@@ -231,7 +232,7 @@ body a macro: every application is replaced by the body before the solver sees i
 
 ```raven
 inline func union(s: Set[Int], t: Set[Int]) returns (r: Set[Int]) {
-  {| x: Int :: x in s || x in t |}
+  { x: Int :: x in s || x in t }
 }
 ```
 

@@ -23,7 +23,7 @@ module HitLog {
   {
     unfold valid(c, v)
     var l := c.log
-    c.log := l ++ [|Log.length(l)|]
+    c.log := l ++ [Log.length(l)]
     fold valid(c, v + 1)
   }
 

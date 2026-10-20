@@ -40,12 +40,12 @@ place. For example, `recordVisitor` below builds a new set rather than modifying
 func recordVisitor(seen: Set[Int], id: Int) returns (r: Set[Int])
   ensures forall x: Int :: (x in r) == (x in seen || x == id)
 {
-  seen ++ {|id|}
+  seen ++ {id}
 }
 ```
 
-`{|id|}` is a singleton-set literal, `++` is set union, and `in` is membership. Set/map
-*comprehensions* (`{| k: Int :: k > 5 |}`) show up later once we need to describe unbounded
+`{id}` is a singleton-set literal, `++` is set union, and `in` is membership. Set/map
+*comprehensions* (`{k: Int :: k > 5}`) show up later once we need to describe unbounded
 families of values at once.
 
 A map `m` is read with `m[k]`, and `m[k := v]` is the map that agrees with `m` everywhere except
@@ -55,7 +55,7 @@ updates work the same way: `m[i][j] := v` is short for `m := m[i := m[i][j := v]
 
 A comprehension like that one can describe an infinite set, so `Set[T]` on its own doesn't
 promise finiteness. `FinSet[T]` is a built-in subtype of `Set[T]` for sets that are finite by
-construction. Union, intersection, difference, and enumeration literals (including `{|id|}`
+construction. Union, intersection, difference, and enumeration literals (including `{id}`
 above) all produce a `FinSet[T]` whenever their inputs are finite sets. In fact, `recordVisitor`
 above could equally well have been typed `FinSet[Int] -> FinSet[Int]`. However, there's no way to
 *downcast* a plain `Set[T]` into a `FinSet[T]`, even one you happen to know is finite, because the

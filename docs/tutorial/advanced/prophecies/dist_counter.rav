@@ -135,9 +135,9 @@ module DistCounter {
     ensures counter_state(c, n+1)
     decreases regs
   {
-    if (regs != {||}) {
+    if (regs != {}) {
       ghost val hcell := choose(regs)
-      bump_all(c, n, regs -- {|hcell|})
+      bump_all(c, n, regs -- {hcell})
       unfold helping_prot_state(hcell, c)
       hcell.snap := n + 1
       var np: Int
@@ -171,9 +171,9 @@ module DistCounter {
     val shared_ref := new(total: 0,
                count_a_max: AuthMaxNat.auth_frag(0, 0),
                count_b_max: AuthMaxNat.auth_frag(0, 0),
-               regs_auth: Auth.full(SetRA.set({||} : FinSet[Ref])))
+               regs_auth: Auth.full(SetRA.set({} : FinSet[Ref])))
     ret := counter(a_ref, b_ref, shared_ref)
-    fold counter_inv(ret)[regs := {||}]
+    fold counter_inv(ret)[regs := {}]
     return ret
   }
 
@@ -205,9 +205,9 @@ module DistCounter {
       }
     !}
     fold helping_prot_state(hcell, c)
-    fpu(c.shared.regs_auth, Auth.auth(SetRA.set(regs)), Auth.full(SetRA.set(regs ++ {|hcell|})))
+    fpu(c.shared.regs_auth, Auth.auth(SetRA.set(regs)), Auth.full(SetRA.set(regs ++ {hcell})))
     val n1 := c.a.count
-    fold counter_inv(c)[regs := regs ++ {|hcell|}]
+    fold counter_inv(c)[regs := regs ++ {hcell}]
 
     unfold counter_inv(c)[regs := regs]
     val n2 := c.b.count

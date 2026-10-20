@@ -6,16 +6,16 @@ import Library.Type
 module Multiset[K: Type]: CCM {
   rep type T = Map[K, Int]
 
-  val id: T := {| k: K :: 0 |}
+  val id: T := { k: K :: 0 }
 
   func comp(a:T, b:T) returns (ret:T)
   { 
-    {| k: K :: a[k] + b[k] |} 
+    { k: K :: a[k] + b[k] } 
   }
   
   func frame(a:T, b:T) returns (ret:T)
   {  
-    {| k: K :: a[k] - b[k] |}
+    { k: K :: a[k] - b[k] }
   }
 
   func valid(a:T) returns (ret: Bool)
@@ -25,7 +25,7 @@ module Multiset[K: Type]: CCM {
 
   func fromSet(s: Set[K]) returns (ret:T)
   {
-    {| k: K :: k in s ? 1 : 0 |}
+    { k: K :: k in s ? 1 : 0 }
   }
 
   func elem(m: T, k: K) returns (ret: Bool)

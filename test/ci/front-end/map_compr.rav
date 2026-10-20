@@ -4,7 +4,7 @@ val y: Bool = true
 
 proc p() {
 
-  var m: Map[Int, Int] := {| y:Int :: (exists a: Int :: (y == 2*a)) ? y/2 : y  |};
+  var m: Map[Int, Int] := { y:Int :: (exists a: Int :: (y == 2*a)) ? y/2 : y  };
   var x: Int := m[5];
   assert x == 5;
 }

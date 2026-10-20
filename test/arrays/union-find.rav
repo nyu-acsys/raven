@@ -19,11 +19,11 @@ module UnionFind[PA: IntPArray] : Library.Type {
   func indices(n: Int) returns (res: FinSet[Int])
     decreases n
   {
-    n <= 0 ? {||} : indices(n - 1) ++ {|n - 1|}
+    n <= 0 ? {} : indices(n - 1) ++ {n - 1}
   }
 
   lemma indices_bounds(n: Int)
-    ensures indices(n) == {| i: Int :: 0 <= i < n |}
+    ensures indices(n) == { i: Int :: 0 <= i < n }
     decreases n
   {
     if (n > 0) { indices_bounds(n - 1); }
@@ -32,7 +32,7 @@ module UnionFind[PA: IntPArray] : Library.Type {
   // Following a higher-ranked parent removes at least the current index.
   func remaining(r: R, x: Int) returns (res: FinSet[Int]) {
     0 <= x < r.len ?
-      indices(r.len) ** {| i: Int :: r.rnk[x] <= r.rnk[i] |} : {||}
+      indices(r.len) ** { i: Int :: r.rnk[x] <= r.rnk[i] } : {}
   }
 
   auto lemma remaining_decreases(r: R, x: Int, y: Int)

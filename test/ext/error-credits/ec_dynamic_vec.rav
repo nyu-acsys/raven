@@ -17,7 +17,7 @@ interface FaultyVector[T: Library.Type] {
         requires EC.error(epsilon)
         requires Array_T.arr(l, contents)
         requires offset < Array_T.length(l)
-        ensures Array_T.arr(l, {| i: Int :: i == offset ? v : contents[i] |})
+        ensures Array_T.arr(l, { i: Int :: i == offset ? v : contents[i] })
 
     proc load(l: Array_T, offset: Int, implicit ghost contents: Map[Int, T], implicit ghost x: Ref)
         returns (ret: T)
@@ -40,11 +40,11 @@ interface FaultyVector[T: Library.Type] {
         requires vec_spec(l, fill, contents, x) 
         ensures fill' == fill + 1
         ensures vec_spec(l', fill', contents', x)
-        ensures contents' == {|i:Int :: i == fill ? v : contents[i] |}
+        ensures contents' == {i:Int :: i == fill ? v : contents[i] }
         ensures fill' <= Array_T.length(l')
     {
         store(l, fill, v, contents, x);
-        contents' := {|i : Int :: i == fill ? v : contents[i] |};
+        contents' := {i : Int :: i == fill ? v : contents[i] };
 
         if (fill+1 == Array_T.length(l)) {
             l', contents' := extend(Array_T.length(l), l, contents', x);

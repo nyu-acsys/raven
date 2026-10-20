@@ -496,18 +496,36 @@ and comments level st = parse
    semicolon, which unavoidably consumes that lookahead token from the buffer; when that happens
    it is stashed here, along with its own source positions, and replayed on the following call
    instead of lexing afresh. Restoring those positions is what keeps the inserted semicolon's
-   own position (the line break -- see the ['\n'] rule) from displacing the lookahead's. *)
-let make_token () =
+   own position (the line break -- see the ['\n'] rule) from displacing the lookahead's.
+
+   [warn] receives the deprecated uses of pipes in set and sequence literals. *)
+let make_token ~warn () =
   let state = ref (initial_state, None) in
+  let warn_deprecated lexbuf (tok : Parser.token) =
+    let warn_pipes opening closing =
+      warn
+        (Loc.make lexbuf.lex_start_p lexbuf.lex_curr_p)
+        (Printf.sprintf "Deprecated syntax: write %s ... %s instead of %s| ... |%s" opening
+           closing opening closing)
+    in
+    match tok with
+    | LBRACEPIPE | ENUM_OPEN "{" -> warn_pipes "{" "}"
+    | LBRACKETPIPE | ENUM_OPEN "[" -> warn_pipes "[" "]"
+    | _ -> ()
+  in
   fun lexbuf ->
-    match !state with
-    | _, Some (st', tok, start_p, curr_p) ->
-        state := (st', None);
-        lexbuf.lex_start_p <- start_p;
-        lexbuf.lex_curr_p <- curr_p;
-        tok
-    | st, None ->
-        let st', tok, pending = token_lex st lexbuf in
-        state := (st', pending);
-        tok
+    let tok =
+      match !state with
+      | _, Some (st', tok, start_p, curr_p) ->
+          state := (st', None);
+          lexbuf.lex_start_p <- start_p;
+          lexbuf.lex_curr_p <- curr_p;
+          tok
+      | st, None ->
+          let st', tok, pending = token_lex st lexbuf in
+          state := (st', pending);
+          tok
+    in
+    warn_deprecated lexbuf tok;
+    tok
 }

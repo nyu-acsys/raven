@@ -104,16 +104,16 @@ ghost field members: Sets
 
 proc lattice_exhales(x: Ref)
   requires own(x.maximum, 5)
-  requires own(x.members, Sets.set({|1, 2|}))
+  requires own(x.members, Sets.set({1, 2}))
   ensures own(x.maximum, 5)
-  ensures own(x.members, Sets.set({|1, 2|}))
+  ensures own(x.members, Sets.set({1, 2}))
 {
   exhale own(x.maximum, 3);
   assert true;
   exhale own(x.maximum, 5);
-  exhale own(x.members, Sets.set({|1|}));
+  exhale own(x.members, Sets.set({1}));
   assert true;
-  exhale own(x.members, Sets.set({|2|}));
+  exhale own(x.members, Sets.set({2}));
 }
 
 proc lattice_pair(x: Ref)

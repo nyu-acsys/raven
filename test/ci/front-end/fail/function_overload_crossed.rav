@@ -1,5 +1,5 @@
 func f(x: FinSet[Int], y: Set[Int]) returns (r: Int) { 1 }
 func f(x: Set[Int], y: FinSet[Int]) returns (r: Int) { 2 }
 proc check() {
-  var x: Int := f({| 1 |}, {| 2 |});
+  var x: Int := f({ 1 }, { 2 });
 }

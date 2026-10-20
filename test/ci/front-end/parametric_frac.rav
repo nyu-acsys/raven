@@ -8,8 +8,8 @@ module M[N: Library.Type] {
     
   {
     var y: Int := 5;
-    var z: Set[Int] := {| k:Int :: k % 2 == 0  |};
-    var a: Map[Int, Int] := {| k: Int :: k%2 |};
+    var z: Set[Int] := { k:Int :: k % 2 == 0  };
+    var a: Map[Int, Int] := { k: Int :: k%2 };
 
     return v, 5;
   }

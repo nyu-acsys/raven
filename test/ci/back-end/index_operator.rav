@@ -17,11 +17,11 @@ lemma map_index(m: Map[Int, Set[Int]], f: FinSet[Int], i: Int)
 {}
 
 lemma literals() {
-  assert [|1, 2|][0] == 1;
-  assert [|[|1|]|][0][0] == 1;
-  assert {|1, 2|}[1];
-  assert !{||}[1];
-  val empty: Set[Int] := ( {| i: Int :: {||} |})[0];
+  assert [1, 2][0] == 1;
+  assert [[1]][0][0] == 1;
+  assert {1, 2}[1];
+  assert !{}[1];
+  val empty: Set[Int] := ( { i: Int :: {} })[0];
   assert 1 !in empty;
 }
 
@@ -45,7 +45,7 @@ module Client {
     s[2] := 5;
     assert s[2] == 5;
 
-    var nested: Map[Int, Custom.T] := {| i: Int :: box(1) |};
+    var nested: Map[Int, Custom.T] := { i: Int :: box(1) };
     nested[0][2] := 5;
     assert nested[0][2] == 5 && nested[1][2] == 3;
   }

@@ -3,7 +3,7 @@ import Array._
 // Sets every entry of a to x.
 proc fill(a: Array[Int], x: Int, implicit ghost m: Map[Int, Int])
   requires arr(a, m)
-  ensures arr(a, {| i: Int :: 0 <= i && i < length(a) ? x : m[i] |})
+  ensures arr(a, { i: Int :: 0 <= i && i < length(a) ? x : m[i] })
 {
   unfold arr(a, m);
   var i := 0;
@@ -15,7 +15,7 @@ proc fill(a: Array[Int], x: Int, implicit ghost m: Map[Int, Int])
     a[i] := x;
     i := i + 1;
   }
-  fold arr(a, {| i: Int :: 0 <= i && i < length(a) ? x : m[i] |});
+  fold arr(a, { i: Int :: 0 <= i && i < length(a) ? x : m[i] });
 }
 
 proc client()

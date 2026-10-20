@@ -13,13 +13,13 @@ lemma notin(s: Seq[Int])
   ensures !(1 in s)
 {}
 
-// Literals, with the instance of `[||]` taken from the expected type or the other operand.
+// Literals, with the instance of `[]` taken from the expected type or the other operand.
 lemma literals(s: Seq[Int])
-  ensures Seq.length([|1, 2, 3|]) == 3 && [|1, 2, 3|][1] == 2
-  ensures 2 in [|1, 2|]
-  ensures s == [||] ==> Seq.length(s) == 0
-  ensures [||] ++ s == s && s ++ [||] == s
-  ensures [|[|1|]|][0] == [|1|]
+  ensures Seq.length([1, 2, 3]) == 3 && [1, 2, 3][1] == 2
+  ensures 2 in [1, 2]
+  ensures s == [] ==> Seq.length(s) == 0
+  ensures [] ++ s == s && s ++ [] == s
+  ensures [[1]][0] == [1]
 {}
 
 // Slices, also chained with an index and on a literal.
@@ -29,10 +29,10 @@ lemma slices(s: Seq[Int], n: Int)
   ensures s[..n] ++ s[n..] == s
   ensures s[1..n] == s[..n][1..]
   ensures s[n..][0] == s[n]
-  ensures [|1, 2, 3|][1..2] == [|2|]
+  ensures [1, 2, 3][1..2] == [2]
 {
   assert Seq.equal(s[..n] ++ s[n..], s);
-  assert Seq.equal([|1, 2, 3|][1..2], [|2|]);
+  assert Seq.equal([1, 2, 3][1..2], [2]);
 }
 
 proc p(s: Seq[Int]) returns (r: Seq[Int])
@@ -56,7 +56,7 @@ module M {
 module N {
   module IS = Library.Seq[Int]
   lemma l(s: IS.T)
-    ensures IS.length(s ++ [|1|]) == IS.length(s) + 1
-    ensures IS.length(( [||] : IS.T)) == 0
+    ensures IS.length(s ++ [1]) == IS.length(s) + 1
+    ensures IS.length(( [] : IS.T)) == 0
   {}
 }

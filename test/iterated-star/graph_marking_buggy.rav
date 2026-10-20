@@ -68,11 +68,11 @@ proc client_success() {
 	a.left := b; a.right := null;
 	b.left := null; b.right := a;
 
-	var nodes: Set[Ref] := {| a, b |};
+	var nodes: Set[Ref] := { a, b };
 
-	ghost var lMap: Map[Ref, Ref] := {| r: Ref :: r == a ? b : null |};
-	ghost var rMap: Map[Ref, Ref] := {| r: Ref :: r == b ? a : null |};
-	ghost var mMap: Map[Ref, Bool] := {| r: Ref :: false |};
+	ghost var lMap: Map[Ref, Ref] := { r: Ref :: r == a ? b : null };
+	ghost var rMap: Map[Ref, Ref] := { r: Ref :: r == b ? a : null };
+	ghost var mMap: Map[Ref, Bool] := { r: Ref :: false };
 
 	assert forall n: Ref :: n in nodes ==> !mMap[n];
   
@@ -92,11 +92,11 @@ proc client_failure() {
 	a.left := a; a.right := a;
 	b.left := a; b.right := a;
 
-	var nodes: Set[Ref] := {| a, b |};
+	var nodes: Set[Ref] := { a, b };
 
-	ghost var lMap: Map[Ref, Ref] := {| r: Ref :: r == a ? a : (r == b ? a : null) |};
-	ghost var rMap: Map[Ref, Ref] := {| r: Ref :: r == a ? a : (r == b ? a : null) |};
-	ghost var mMap: Map[Ref, Bool] := {| r: Ref :: false |};
+	ghost var lMap: Map[Ref, Ref] := { r: Ref :: r == a ? a : (r == b ? a : null) };
+	ghost var rMap: Map[Ref, Ref] := { r: Ref :: r == a ? a : (r == b ? a : null) };
+	ghost var mMap: Map[Ref, Bool] := { r: Ref :: false };
 
 	assert forall n: Ref :: n in nodes ==> !mMap[n];
 

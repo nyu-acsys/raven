@@ -19,10 +19,10 @@ type Seq = data {
 
 lemma names()
 {
-  assert union({|1|}, {|2|}) == {||};
-  assert {|1|} ++ {|2|} == {|1, 2|};
-  assert select({| i: Int :: 0 |}, 3) == 1;
-  assert {| i: Int :: 0 |}[3] == 0;
-  assert !subset({|1|}, {|1, 2|}) && {|1|} subseteq {|1, 2|};
+  assert union({1}, {2}) == {};
+  assert {1} ++ {2} == {1, 2};
+  assert select({ i: Int :: 0 }, 3) == 1;
+  assert { i: Int :: 0 }[3] == 0;
+  assert !subset({1}, {1, 2}) && {1} subseteq {1, 2};
   assert cons(1, nil).hd == 1;
 }

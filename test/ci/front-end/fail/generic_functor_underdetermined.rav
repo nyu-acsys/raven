@@ -5,5 +5,5 @@ module M[T: Library.Type] {
 }
 
 proc p() {
-  var x := M.c({||});
+  var x := M.c({});
 }

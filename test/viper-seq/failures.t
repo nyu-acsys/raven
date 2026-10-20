@@ -1,7 +1,7 @@
   $ dune exec -- raven --shh ./failures/sequences_t1.rav
-  [Error] File "./failures/sequences_t1.rav", line 3, columns 9-31:
-  3 |   assert Seq.length([|0|]) == 0;
-               ^^^^^^^^^^^^^^^^^^^^^^
+  [Error] File "./failures/sequences_t1.rav", line 3, columns 9-29:
+  3 |   assert Seq.length([0]) == 0;
+               ^^^^^^^^^^^^^^^^^^^^
   Verification Error: This assertion may be violated.
   [1]
   $ dune exec -- raven --shh ./failures/sequences_t2.rav
@@ -23,9 +23,9 @@
   Verification Error: This assertion may be violated.
   [1]
   $ dune exec -- raven --shh ./failures/sequences_test6.rav
-  [Error] File "./failures/sequences_test6.rav", line 3, columns 9-31:
-  3 |   assert [|3, 4, 5, 6|][3] == 5;
-               ^^^^^^^^^^^^^^^^^^^^^^
+  [Error] File "./failures/sequences_test6.rav", line 3, columns 9-29:
+  3 |   assert [3, 4, 5, 6][3] == 5;
+               ^^^^^^^^^^^^^^^^^^^^
   Verification Error: This assertion may be violated.
   [1]
   $ dune exec -- raven --shh ./failures/sequence_incompletenesses_colourings1.rav

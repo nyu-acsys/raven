@@ -11,22 +11,22 @@ interface Type {
 module Sets[E: Type] {
   type T = Set[E]
 
-  inline func {||}() returns (r: FinSet[E]) { finset() }
+  inline func {}() returns (r: FinSet[E]) { finset() }
 
-  inline func {|_|}(e: E) returns (r: FinSet[E]) { finset(e) }
+  inline func {_}(e: E) returns (r: FinSet[E]) { finset(e) }
 
   inline func in(e: E, s: T) returns (r: Bool) { s[e] }
 
   inline func union(s: T, t: T) returns (r: T) {
-    {| x: E :: x in s || x in t |}
+    { x: E :: x in s || x in t }
   }
 
   inline func inter(s: T, t: T) returns (r: T) {
-    {| x: E :: x in s && x in t |}
+    { x: E :: x in s && x in t }
   }
 
   inline func diff(s: T, t: T) returns (r: T) {
-    {| x: E :: x in s && !(x in t) |}
+    { x: E :: x in s && !(x in t) }
   }
 
   inline func subset(s: T, t: T) returns (r: Bool) {
@@ -71,11 +71,11 @@ module Sets[E: Type] {
   free func choose(s: T) returns (e: E)
 
   free auto axiom choose_in()
-    ensures forall s: T :: {choose(s)} s != {| x: E :: false |} ==> choose(s) in s
+    ensures forall s: T :: {choose(s)} s != { x: E :: false } ==> choose(s) in s
 }
 
-import Sets.{||}
-import Sets.{|_|}
+import Sets.{}
+import Sets.{_}
 import Sets.++
 import Sets.**
 import Sets.--
@@ -150,10 +150,10 @@ interface SeqSpec[E: Type] : Type {
   auto lemma length_nonneg()
     ensures forall s: T :: {length(s)} 0 <= length(s)
 
-  // Written `[||]`.
+  // Written `[]`.
   val empty: T
 
-  inline func [||]() returns (ret: T) { empty }
+  inline func []() returns (ret: T) { empty }
 
   auto lemma empty_length()
     ensures length(empty) == 0
@@ -161,10 +161,10 @@ interface SeqSpec[E: Type] : Type {
   auto lemma length_zero()
     ensures forall s: T :: {length(s)} length(s) == 0 ==> s == empty
 
-  // Written `[|e|]`.
+  // Written `[e]`.
   func singleton(e: E) returns (ret: T)
 
-  inline func [|_|](e: E) returns (ret: T) { singleton(e) }
+  inline func [_](e: E) returns (ret: T) { singleton(e) }
 
   auto lemma singleton_length()
     ensures forall e: E :: {singleton(e)} length(singleton(e)) == 1
@@ -917,8 +917,8 @@ interface OrderedType : Type {
 }
 
 import Seq.++
-import Seq.[||]
-import Seq.[|_|]
+import Seq.[]
+import Seq.[_]
 import Seq._[_.._]
 import Seq._[.._]
 import Seq._[_..]
