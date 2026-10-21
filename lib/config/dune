@@ -1,3 +1,4 @@
 (library
  (name config)
+ (package raven)
  (libraries base logs))

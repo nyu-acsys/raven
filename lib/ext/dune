@@ -1,5 +1,6 @@
 (library
  (name ext)
+ (package raven)
  (libraries
   base
   util

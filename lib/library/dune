@@ -1,5 +1,6 @@
 (library
  (name library)
+ (package raven)
  (preprocessor_deps
   (file base_types.rav)
   (file resource_algebra.rav)

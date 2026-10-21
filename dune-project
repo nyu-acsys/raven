@@ -13,7 +13,7 @@
 (license MIT)
 
 (package
- (name Raven)
+ (name raven)
  (synopsis "Intermediate verification language and deductive verifier for concurrent programs")
  (description "Raven is an intermediate verification language and SMT-based deductive verifier based on concurrent separation logic. It is intended as an intermediate layer for building program verification tools that target concurrent programs. Raven can also be used as a standalone educational tool.")
  (depends
@@ -24,7 +24,9 @@
   (z3
    (>= 5.1.0))
   (ocamlformat
-   (>= 0.29.0))
+   (and
+    :with-dev-setup
+    (>= 0.29.0)))
   (base
    (>= 0.14))
   (stdio

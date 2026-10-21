@@ -1,5 +1,6 @@
 (library
  (name errorCreditsExt)
+ (package raven)
  (libraries base util ast extApi)
  (preprocessor_deps
   (file errorCreditsLib.rav))

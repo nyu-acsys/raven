@@ -1,5 +1,6 @@
 (library
  (name decreasesExt)
+ (package raven)
  (libraries base util ast extApi)
  (preprocessor_deps
   (file well_founded_order.rav))

@@ -1,5 +1,6 @@
 (library
  (name driver)
+ (package raven)
  (libraries
   base
   stdio
