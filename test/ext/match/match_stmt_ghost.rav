@@ -1,0 +1,6 @@
+type Shape = data {
+  case circle(r: Int);
+  case rect(w: Int, h: Int)
+}
+
+proc f(ghost s: Shape) returns (x: Int) { match s { case circle(r) => { x := r; } case _ => { x := 0; } } }

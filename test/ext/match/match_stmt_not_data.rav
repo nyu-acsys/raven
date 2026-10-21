@@ -1,0 +1,6 @@
+type Shape = data {
+  case circle(r: Int);
+  case rect(w: Int, h: Int)
+}
+
+proc f(x: Int) { match x { case _ => { } } }

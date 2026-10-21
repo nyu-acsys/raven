@@ -26,3 +26,25 @@ proc incr(x: Ref)
  }
 verified: false
 postcondition at line 2: A postcondition may not hold at this return point
+
+type S = data  {
+  case some(v: Int)
+  case none()
+}
+
+proc get(s: S)
+  returns (r: Int)
+  ensures r == (match s { case some(v) => v case none => 0 })
+  /*locals ()*/
+  /* mask: <none> */
+ {
+   match s {
+     case some(v) => {
+       r := v;
+     }
+     case none => {
+       r := 0;
+     }
+   }
+ }
+verified: true

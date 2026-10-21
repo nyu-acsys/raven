@@ -83,6 +83,17 @@ func settle(r: Outcome, fallback: Int) returns (v: Int)
   }
 }
 
+// The same as a `match` statement, whose arms are blocks.
+proc settleInto(r: Outcome, fallback: Int) returns (v: Int)
+  ensures r is ok ==> v == r.value
+  ensures r is capped ==> v == fallback
+{
+  match r {
+    case ok(n) => { v := n; }
+    case capped => { v := fallback; }
+  }
+}
+
 // A tiny use of Set[Int] and a quantified specification: track which visitor IDs
 // have been seen so far as a set, and specify `recordVisitor` purely in terms of
 // set membership. `forall`/`exists` here range over plain (non-resource) values --

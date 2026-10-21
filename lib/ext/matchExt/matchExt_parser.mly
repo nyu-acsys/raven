@@ -24,8 +24,7 @@ open Ext.MatchExtInstance
    error, and no precedence declaration has to be shared across fragment files. *)
 %public eq_expr:
 | e = rel_expr; IS; c = decl_name {
-    let ctor_qi = QualIdent.from_ident c in
-    Expr.mk_app ~loc:(Loc.make $symbolstartpos $endpos) ~typ:Type.any (ExprExt (Is ctor_qi)) [e]
+    mk_is ~loc:(Loc.make $symbolstartpos $endpos) e c
   }
 
 (* `match` is fully bracketed (leading `MATCH` keyword, trailing `RBRACE`), so it's an
@@ -39,8 +38,7 @@ open Ext.MatchExtInstance
    `CASE`. *)
 %public unary_expr:
 | MATCH; e = expr; LBRACE; arms = separated_list(option(SEMICOLON), match_arm_expr); RBRACE {
-    let arm_list, bodies = List.split arms in
-    Expr.mk_app ~loc:(Loc.make $symbolstartpos $endpos) ~typ:Type.any (ExprExt (MatchExpr arm_list)) (e :: bodies)
+    mk_match ~loc:(Loc.make $symbolstartpos $endpos) e arms
   }
 
 (* [plain_ident] includes `_`; wildcard names are checked after parsing. *)
@@ -63,4 +61,23 @@ match_arm_expr:
    of operator syntax. *)
 | CASE; v1 = plain_ident; ctor = right_assoc_binary_op_ident; v2 = plain_ident; DARROW; body = expr {
     ({ arm_ctor = Some ctor; arm_vars = [v1; v2] }, body)
+  }
+
+(* A `match` statement: as the expression, with blocks as the arms' bodies. *)
+%public stmt_ext:
+| MATCH; e = expr; LBRACE; arms = nonempty_list(match_arm_stmt); RBRACE {
+    let stmt = mk_match_stmt ~loc:(Loc.make $startpos $endpos) e arms in
+    [stmt.stmt_desc]
+  }
+
+match_arm_stmt:
+| CASE; ctor = decl_name; vars = option(delimited(LPAREN, separated_list(COMMA, plain_ident), RPAREN));
+  DARROW; b = block {
+    let arm_vars = match vars with Some vs -> vs | None -> [] in
+    let arm_ctor = if String.equal (Ident.name ctor) "_" then None else Some ctor in
+    ({ arm_ctor; arm_vars }, ({ stmt_desc = b; stmt_loc = Loc.make $startpos(b) $endpos(b) } : Stmt.t))
+  }
+| CASE; v1 = plain_ident; ctor = right_assoc_binary_op_ident; v2 = plain_ident; DARROW; b = block {
+    ({ arm_ctor = Some ctor; arm_vars = [v1; v2] },
+     ({ stmt_desc = b; stmt_loc = Loc.make $startpos(b) $endpos(b) } : Stmt.t))
   }

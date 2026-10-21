@@ -1,0 +1,14 @@
+// A `match` statement whose arm fails to verify: a negative radius.
+type Shape = data {
+  case circle(r: Int);
+  case rect(w: Int, h: Int)
+}
+
+proc wrong_area(s: Shape) returns (a: Int)
+  ensures a >= 0
+{
+  match s {
+    case circle(r) => { a := r; }
+    case rect(w, h) => { a := w * h; }
+  }
+}

@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 - `--server` answers requested runs in one process, type-checking the library only once.
 - Map literals list entries and the value at every other key, as in `{1 := 5, else 4}`.
 - The library `raven-ivl.api` lets other tools build programs and verify them.
+- `match` statements, whose arms are blocks, as in `case ok(n) => { v := n; }`.
 
 ### Changed
 

@@ -119,6 +119,16 @@ module Expr : sig
   val neg : loc:Loc.t -> t -> t
   val not_ : loc:Loc.t -> t -> t
 
+  (** The case of a match: a constructor and the variables bound to its arguments, or the
+      default case [_]. Patterns are not nested. *)
+  type case = Case of Ident.t * Ident.t list | Default
+
+  val is_ : loc:Loc.t -> t -> Ident.t -> t
+  (** [e is c]: whether [e] was built with the constructor [c] of its data type. *)
+
+  val match_ : loc:Loc.t -> t -> (case * t) list -> t
+  (** [match e { case c(x, y) => e1 ... }]. *)
+
   type binop =
     | Mult
     | Div
@@ -208,6 +218,11 @@ module Stmt : sig
   val ghost_block : loc:Loc.t -> t list -> t
   val atomic_block : loc:Loc.t -> t list -> t
   val if_ : loc:Loc.t -> Expr.t -> t list -> t list -> t
+
+  val match_ : loc:Loc.t -> Expr.t -> (Expr.case * t list) list -> t
+  (** [match e { case c(x, y) => { ... } ... }]: the cases must cover every constructor of
+      [e]'s data type, or end with [Default]. *)
+
   val while_ : loc:Loc.t -> ?invariants:Spec.t list -> Expr.t -> t list -> t
 end
 

@@ -297,6 +297,22 @@ with a catch-all `case _ =>` arm covering whatever is left. Forgetting one is a 
 than a silent gap that only shows up later as a failed proof. You can also write `_` in place of
 an argument name when you don't need it (`case ok(_) => 0`).
 
+In a procedure, `match` can also be a statement, whose arms are blocks. The same rules apply:
+every case is named once or covered by a final `case _`, and an arm's variables are in scope
+in its block.
+
+```raven
+proc settleInto(r: Outcome, fallback: Int) returns (v: Int)
+  ensures r is ok ==> v == r.value
+  ensures r is capped ==> v == fallback
+{
+  match r {
+    case ok(n) => { v := n; }
+    case capped => { v := fallback; }
+  }
+}
+```
+
 The `is` operator remains useful in places where an exhaustive `match` is not needed.
 
 Naming an arm's pattern variable after the field it binds is fine, and often clearest.

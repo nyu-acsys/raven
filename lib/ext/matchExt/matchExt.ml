@@ -49,6 +49,11 @@ module MatchExt (Cont : Ext) = struct
       further name resolution is needed. *)
   type Expr.expr_ext += Is of QualIdent.t | MatchExpr of match_arm list
 
+  (** A `match` statement, whose arms' bodies are blocks. Type checking lowers it to
+      conditionals on [Is] tests, with the arms' variables defined by field reads. *)
+  type Stmt.stmt_ext +=
+    | MatchStmt of { scrutinee : expr; arms : (match_arm * Stmt.t) list }
+
   (* Resolves [tp] to its own qual_ident and variant list if it's a `data` type,
      [None] otherwise. Mirrors [DecreasesExt.as_data_type] (lib/ext/decreasesExt/
      decreasesExt.ml), extended with one more case: an extension-provided type
@@ -152,6 +157,18 @@ module MatchExt (Cont : Ext) = struct
   let recognizer_cond ~(loc : location) (scrutinee : expr) (ctor_qi : qual_ident) : expr =
     Expr.mk_app ~loc ~typ:Type.bool (DataTest ctor_qi) [ scrutinee ]
 
+  (** [e is ctor], and [match e { ... }] with its [cases]: the builders the parser and the
+      API use. *)
+  let mk_is ~loc (e : expr) (ctor : ident) : expr =
+    Expr.mk_app ~loc ~typ:Type.any (ExprExt (Is (QualIdent.from_ident ctor))) [ e ]
+
+  let mk_match ~loc (e : expr) (cases : (match_arm * expr) list) : expr =
+    let arms, bodies = List.unzip cases in
+    Expr.mk_app ~loc ~typ:Type.any (ExprExt (MatchExpr arms)) (e :: bodies)
+
+  let mk_match_stmt ~loc (scrutinee : expr) (arms : (match_arm * Stmt.t) list) : Stmt.t =
+    { stmt_desc = StmtExt (MatchStmt { scrutinee; arms }); stmt_loc = loc }
+
   (** AstDef *)
   let expr_ext_to_string (expr_ext : Expr.expr_ext) : string =
     match expr_ext with
@@ -188,6 +205,67 @@ module MatchExt (Cont : Ext) = struct
           (Util.Print.pr_list_sep " " pr_arm)
           (List.zip_exn arms bodies)
     | _ -> Cont.pr_expr_ext ~pr ppf expr_ext args
+
+  let pr_arm_pattern ppf (arm : match_arm) =
+    let ctor = Option.value_map arm.arm_ctor ~default:"_" ~f:Ident.to_string in
+    match arm.arm_vars with
+    | [] -> Stdlib.Format.fprintf ppf "%s" ctor
+    | vars ->
+        Stdlib.Format.fprintf ppf "%s(%a)" ctor (Util.Print.pr_list_comma Ident.pr) vars
+
+  let pr_stmt_ext (printers : Stmt.ext_printers) ppf stmt_ext =
+    let open Stdlib.Format in
+    match stmt_ext with
+    | MatchStmt { scrutinee; arms } ->
+        let pr_arm ppf ((arm : match_arm), body) =
+          fprintf ppf "case %a => %a" pr_arm_pattern arm printers.pr_stmt body
+        in
+        fprintf ppf "match %a {@\n  @[<v>%a@]@\n}" printers.pr_expr scrutinee
+          (Util.Print.pr_list_sep "@\n" pr_arm)
+          arms
+    | _ -> Cont.pr_stmt_ext printers ppf stmt_ext
+
+  (* Type checking lowers [MatchStmt] (see [type_check_stmt_ext]), before any pass that
+     consults these. *)
+  let stmt_ext_symbols stmt_ext =
+    match stmt_ext with
+    | MatchStmt _ -> Set.empty (module QualIdent)
+    | _ -> Cont.stmt_ext_symbols stmt_ext
+
+  let stmt_ext_local_vars_modified stmt_ext =
+    match stmt_ext with
+    | MatchStmt _ -> []
+    | _ -> Cont.stmt_ext_local_vars_modified stmt_ext
+
+  let stmt_ext_fields_accessed stmt_ext =
+    match stmt_ext with MatchStmt _ -> [] | _ -> Cont.stmt_ext_fields_accessed stmt_ext
+
+  let stmt_ext_is_recognized stmt_ext =
+    match stmt_ext with MatchStmt _ -> true | _ -> Cont.stmt_ext_is_recognized stmt_ext
+
+  let stmt_ext_contents stmt_ext =
+    match stmt_ext with
+    | MatchStmt { arms; _ } -> ([], List.map arms ~f:snd)
+    | _ -> Cont.stmt_ext_contents stmt_ext
+
+  let stmt_ext_atomicity stmt_ext =
+    match stmt_ext with
+    | MatchStmt _ -> Stmt.NoStep
+    | _ -> Cont.stmt_ext_atomicity stmt_ext
+
+  let stmt_ext_rewrite ~(f : expr -> expr Rewriter.t) ~(c : Stmt.t -> Stmt.t Rewriter.t)
+      (stmt_ext : Stmt.stmt_ext) : Stmt.stmt_ext Rewriter.t =
+    let open Rewriter.Syntax in
+    match stmt_ext with
+    | MatchStmt { scrutinee; arms } ->
+        let* scrutinee = f scrutinee in
+        let+ arms =
+          Rewriter.List.map arms ~f:(fun (arm, body) ->
+              let+ body = c body in
+              (arm, body))
+        in
+        MatchStmt { scrutinee; arms }
+    | _ -> Cont.stmt_ext_rewrite ~f ~c stmt_ext
 
   let expr_ext_is_recognized (expr_ext : Expr.expr_ext) : bool =
     match expr_ext with
@@ -346,7 +424,103 @@ module MatchExt (Cont : Ext) = struct
               result_typ result_typ expected_typ)
     | _ -> Cont.type_check_expr expr_ext expr_list expr_attr expected_typ functs
 
+  (** Checks the arms of a `match` statement on [scrutinee] and lowers it: each arm's body
+      becomes a block defining its variables by reads of the constructor's fields, and the
+      arms are chained by [Is] tests, the last one untested. The lowered statement is then
+      type-checked as a whole, as [AssertWith]'s is. *)
+  let type_check_stmt_ext (call_decl : Callable.call_decl) (stmt_ext : Stmt.stmt_ext)
+      (loc : location) (disam_tbl : ProgUtils.DisambiguationTbl.t)
+      (type_check_stmt_functs : type_check_stmt_functs) :
+      (Stmt.stmt_desc * ProgUtils.DisambiguationTbl.t) Rewriter.t =
+    let open Rewriter.Syntax in
+    match stmt_ext with
+    | MatchStmt { scrutinee; arms } ->
+        (* As for a conditional, a ghost scrutinee is allowed in ghost code only. *)
+        let* ghost = Rewriter.is_ghost_scope in
+        let* checked =
+          type_check_stmt_functs.disambiguate_and_check_expr scrutinee
+            (Type.any |> Type.set_ghost ghost)
+            disam_tbl
+        in
+        let scrutinee_typ = Expr.to_type checked in
+        let* data_type = as_data_type scrutinee_typ in
+        let* data_qi, variant_decls =
+          match data_type with
+          | Some data_type -> Rewriter.return data_type
+          | None -> Error.type_error loc "a `match` scrutinee must have a `data` type"
+        in
+        let* () = check_arms_exhaustive loc variant_decls (List.map arms ~f:fst) in
+        let arm_block ((arm : match_arm), (body : Stmt.t)) =
+          match arm.arm_ctor with
+          | None ->
+              if List.is_empty arm.arm_vars then Rewriter.return (None, body)
+              else
+                Error.type_error loc
+                  "a wildcard ('_') match arm cannot bind pattern variables"
+          | Some ctor_ident -> (
+              let ctor_qi, (variant : Type.variant_decl) =
+                Option.value_exn (find_variant data_qi variant_decls ctor_ident)
+              in
+              match List.zip arm.arm_vars variant.variant_args with
+              | Unequal_lengths ->
+                  Error.type_error loc
+                    (Printf.sprintf
+                       "'%s' expects %d pattern variable(s), but this arm binds %d"
+                       (Ident.to_string ctor_ident)
+                       (List.length variant.variant_args)
+                       (List.length arm.arm_vars))
+              | Ok pairs ->
+                  let var_def (pat_ident, (field : var_decl)) =
+                    let var_loc = Ident.to_loc pat_ident in
+                    let decl =
+                      Surface.Type.var_decl ~loc:var_loc ~const:true pat_ident
+                        field.var_type
+                    in
+                    let read =
+                      Surface.Expr.field ~loc:var_loc scrutinee
+                        (QualIdent.from_ident field.var_name)
+                    in
+                    Surface.Stmt.local_var_def ~ghost:false ~const:true decl
+                      (Some (Surface.Stmt.expr_rhs read))
+                      ~rhs_loc:var_loc
+                    |> List.map ~f:(fun stmt_desc ->
+                        Stmt.{ stmt_desc; stmt_loc = var_loc })
+                  in
+                  let defs =
+                    List.concat_map pairs ~f:(fun ((pat_ident, _) as pair) ->
+                        if is_wildcard pat_ident then [] else var_def pair)
+                  in
+                  Rewriter.return
+                    (Some ctor_qi, Stmt.mk_block_stmt ~loc:body.stmt_loc (defs @ [ body ]))
+              )
+        in
+        let* blocks = Rewriter.List.map arms ~f:arm_block in
+        let rec chain = function
+          | [] -> Error.type_error loc "a `match` needs at least one arm"
+          | [ (_, block) ] -> Rewriter.return block
+          | (None, block) :: _ -> Rewriter.return block
+          | (Some ctor_qi, block) :: rest ->
+              let+ rest = chain rest in
+              let test = mk_is ~loc scrutinee (QualIdent.unqualify ctor_qi) in
+              Stmt.mk_cond ~loc (Some test) block rest
+        in
+        let* lowered = chain blocks in
+        let+ lowered, disam_tbl =
+          type_check_stmt_functs.check_stmt call_decl lowered disam_tbl
+        in
+        (lowered.stmt_desc, disam_tbl)
+    | _ ->
+        Cont.type_check_stmt_ext call_decl stmt_ext loc disam_tbl type_check_stmt_functs
+
   (* Rewrites *)
+
+  let rewrite_stmt_ext (stmt_ext : Stmt.stmt_ext) (loc : location) : Stmt.t Rewriter.t =
+    match stmt_ext with
+    | MatchStmt _ ->
+        Error.internal_error loc
+          "MatchStmt reached the rewrite phase unresolved (should have been lowered by \
+           type_check_stmt_ext)"
+    | _ -> Cont.rewrite_stmt_ext stmt_ext loc
 
   let rewrite_expr_ext (expr_ext : Expr.expr_ext) (expr_list : expr list)
       (expr_attr : Expr.expr_attr) : expr Rewriter.t =

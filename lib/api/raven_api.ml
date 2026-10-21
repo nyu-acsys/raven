@@ -91,6 +91,18 @@ module Expr = struct
   let neg = S.Expr.neg
   let not_ = S.Expr.not_
 
+  type case = Case of Ident.t * Ident.t list | Default
+
+  let is_ ~loc e ctor = Ext.MatchExtInstance.mk_is ~loc e ctor
+
+  let arm = function
+    | Case (ctor, vars) -> { Ext.MatchExtInstance.arm_ctor = Some ctor; arm_vars = vars }
+    | Default -> { arm_ctor = None; arm_vars = [] }
+
+  let match_ ~loc e cases =
+    Ext.MatchExtInstance.mk_match ~loc e
+      (List.map cases ~f:(fun (c, body) -> (arm c, body)))
+
   type binop =
     | Mult
     | Div
@@ -187,6 +199,10 @@ module Stmt = struct
   let block ~loc stmts = S.Stmt.at ~loc (S.Stmt.block stmts)
   let ghost_block ~loc stmts = S.Stmt.at ~loc (S.Stmt.ghost_block stmts)
   let atomic_block ~loc stmts = S.Stmt.at ~loc (S.Stmt.atomic_block stmts)
+
+  let match_ ~loc e cases =
+    let case (c, body) = (Expr.arm c, S.Stmt.at ~loc (S.Stmt.block body)) in
+    Ext.MatchExtInstance.mk_match_stmt ~loc e (List.map cases ~f:case)
 
   let if_ ~loc test then_ else_ =
     S.Stmt.at ~loc (S.Stmt.if_ ~then_loc:loc ~else_loc:loc test then_ else_)

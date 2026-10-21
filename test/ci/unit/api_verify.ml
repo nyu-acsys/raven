@@ -48,8 +48,48 @@ let report program =
         (Loc.start d.loc).pos_lnum d.message)
     result.diagnostics
 
+(* type S = data { case some(v: Int); case none }
+   proc get(s: S) returns (r: Int)
+     ensures r == match s { case some(v) => v case none => 0 }
+   { match s { case some(v) => { r := v; } case none => { r := 0; } } } *)
+let matching =
+  let l = line 5 in
+  let s = Expr.var ~loc:l (name "s") and r = Expr.var ~loc:l (name "r") in
+  let v = Expr.var ~loc:l (name "v") in
+  let some = ident "some" and none = ident "none" in
+  let data =
+    Type.data ~loc:l
+      [
+        Type.variant ~loc:l some [ (ident "v", Type.int ~loc:l) ];
+        Type.variant ~loc:l none [];
+      ]
+  in
+  let value =
+    Expr.match_ ~loc:l s
+      [ (Case (some, [ ident "v" ]), v); (Case (none, []), Expr.int ~loc:l 0) ]
+  in
+  let assign e = Stmt.assign ~loc:l [ r ] (Stmt.expr_rhs e) in
+  let get =
+    Callable.proc ~loc:l
+      ~formals:[ Var.make ~loc:l (ident "s") (Type.named ~loc:l (name "S") []) ]
+      ~returns:[ Var.make ~loc:l (ident "r") (Type.int ~loc:l) ]
+      ~ensures:[ Spec.make (Expr.binary ~loc:l Eq r value) ]
+      (ident "get")
+      (Some
+         [
+           Stmt.match_ ~loc:l s
+             [
+               (Expr.Case (some, [ ident "v" ]), [ assign v ]);
+               (Expr.Case (none, []), [ assign (Expr.int ~loc:l 0) ]);
+             ];
+         ])
+  in
+  Program.make ~loc:l [ Member.type_ ~loc:l (ident "S") (Some data); Member.callable get ]
+
 let () =
   Printf.printf "raven-ivl.api version %d\n\n" version;
   report (program ~result:1);
   print_newline ();
-  report (program ~result:2)
+  report (program ~result:2);
+  print_newline ();
+  report matching

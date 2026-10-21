@@ -44,6 +44,8 @@ let lexical_error lexbuf msg =
        - [Module_list], for a module body: nothing (semicolon or otherwise) separates its members.
        - [Stmt_list], for a proc/lemma body or a nested block/loop body: the only scope in which a
          newline may become a semicolon.
+       - [Match_arms], for the arms of a `match` statement: as a [Group], except that a brace
+         in it opens an arm's block.
      The stack starts empty, which behaves like [Group] (or, equivalently, like top level before
      any module has been entered) for insertion purposes: never insert.
    - [last_token_can_end_stmt] records whether the most recently lexed token could plausibly be
@@ -73,7 +75,7 @@ let lexical_error lexbuf msg =
    mechanics of this lookahead (see their comments below); every other decision in this file
    remains a pure function of [lex_state] and the current token. *)
 
-type scope_kind = Group | Literal | Loop_header | Module_list | Stmt_list | Trigger
+type scope_kind = Group | Literal | Loop_header | Match_arms | Module_list | Stmt_list | Trigger
 
 type lex_state = {
   scopes : scope_kind list;
@@ -136,8 +138,9 @@ let opens_literal st =
     st.last_token_precedes_block
     && (match st.scopes with Stmt_list :: _ | Module_list :: _ | [] -> true | _ -> false)
   in
+  let opens_arm_block = match st.scopes with Match_arms :: _ -> true | _ -> false in
   not (st.next_brace_is_opens || st.next_brace_is_trigger || st.last_token_can_end_stmt
-       || precedes_block)
+       || precedes_block || opens_arm_block)
 
 (* Computes the state to carry forward after producing [tok], given the state [st] beforehand. *)
 let advance st (tok : Parser.token) =
@@ -196,7 +199,14 @@ let advance st (tok : Parser.token) =
        inside a `proc`, the pending [Stmt_list] set by [PROC] would otherwise be claimed
        by the *match's* brace rather than the body's, turning each arm-ending newline
        into a semicolon and leaving a trailing one before the closing brace. *)
-    | FUNC _ | DATA | MATCH -> Some Group
+    | FUNC _ | DATA -> Some Group
+    (* A `match` that starts a statement is a `match` statement, whose arms are blocks. *)
+    | MATCH ->
+        let starts_stmt =
+          st.last_token_precedes_block
+          && (match st.scopes with Stmt_list :: _ -> true | _ -> false)
+        in
+        Some (if starts_stmt then Match_arms else Group)
     | MODULE _ -> Some Module_list
     | PROC | LEMMA | AXIOM -> Some Stmt_list
     | LBRACE when st.next_brace_is_opens || st.next_brace_is_trigger -> st.next_brace_kind
@@ -283,7 +293,10 @@ let on_newline st ~peek =
       let st', tok, _ = peek { st with last_token_can_end_stmt = false } in
       (match tok with
        | COLON -> Some (st', tok, None)
-       | _ -> Some (advance st SEMICOLON, SEMICOLON, Some (st', tok)))
+       | _ ->
+           (* The token after the semicolon follows it, as the start of a statement. *)
+           let st_semicolon = advance st SEMICOLON in
+           Some (st_semicolon, SEMICOLON, Some (advance st_semicolon tok, tok)))
   | _ -> None
 
 let retreat lexbuf count =

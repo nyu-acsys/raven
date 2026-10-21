@@ -1,0 +1,89 @@
+// `match` statements over a user-declared `data` type and over the stdlib
+// `Library.List[T]`: arms binding fields, the infix pattern, wildcard arms and `_`
+// pattern variables, nesting, an arm variable named like a field or an enclosing
+// local, ghost scrutinees, and statements in arms.
+module IntList = Library.List[Int]
+import IntList._
+
+type Shape = data {
+  case circle(r: Int);
+  case rect(w: Int, h: Int);
+  case empty
+}
+
+proc area(s: Shape) returns (a: Int)
+  requires s is circle ==> s.r >= 0
+  ensures a >= 0 || s is rect
+{
+  match s {
+    case circle(r) => { a := 3 * r * r; }
+    case rect(w, h) => { a := w * h; }
+    case empty => { a := 0; }
+  }
+}
+
+proc length(xs: IntList.T) returns (n: Int)
+  ensures n >= 0
+{
+  match xs {
+    case nil => { n := 0; }
+    case hd :: tl => {
+      var m: Int := length(tl);
+      n := m + 1;
+    }
+  }
+}
+
+proc first_or(xs: IntList.T, d: Int) returns (x: Int)
+  ensures xs is nil ==> x == d
+  ensures xs is :: ==> x == xs.hd
+{
+  match xs {
+    case ::(hd, _) => { x := hd; }
+    case _ => { x := d; }
+  }
+}
+
+// Nested matches, and arm variables named like an enclosing local.
+proc second(xs: IntList.T) returns (x: Int, found: Bool)
+  ensures found ==> x == xs.tl.hd
+{
+  var hd: Int := 7;
+  found := false;
+  match xs {
+    case ::(hd, tl) => {
+      match tl {
+        case ::(hd, _) => { x := hd; found := true; }
+        case nil => { }
+      }
+    }
+    case nil => { }
+  }
+  assert hd == 7;
+}
+
+proc ghost_scrutinee(ghost s: Shape) returns (ghost k: Int)
+  ensures s is empty ==> k == 0
+{
+  {!
+    match s {
+      case empty => { k := 0; }
+      case _ => { k := 1; }
+    }
+  !}
+}
+
+// Newlines end statements before, inside and after a `match` statement.
+proc newlines(s: Shape) returns (a: Int)
+  ensures a >= 1
+{
+  var k := 1
+  match s {
+    case rect(w, h) => {
+      var m := w * h
+      a := m * m + k
+    }
+    case _ => { a := k; }
+  }
+  k := 2
+}
