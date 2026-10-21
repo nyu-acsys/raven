@@ -1,4 +1,7 @@
 21 oct, 2026:
+- [ ] The printer emits a fold, unfold, openInv or closeInv without witnesses
+    with an empty witness list and trailing spaces, as `fold lseg(c, l)[]  ;`;
+    it should print `fold lseg(c, l)`.
 - [ ] A data type nested in an instance of itself, such as
     `type T = data { case node(v: Int, children: List[T]) }`, crashes when a
     constructor is called: Z3 rejects the datatype declarations ("unknown sort
