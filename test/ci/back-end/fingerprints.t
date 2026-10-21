@@ -1,6 +1,6 @@
 The obligations whose fingerprints an edit of fingerprints.rav changes.
 
-  $ fp() { dune exec -- raven --shh --fingerprints "$1" | grep -v successful | awk '{print $2, $1}' | sort; }
+  $ fp() { dune exec -- raven --shh --fingerprints "$1" | tr -d '\r' | grep -v successful | awk '{print $2, $1}' | sort; }
   $ fp fingerprints.rav > base
   $ changed() { sed "$1" fingerprints.rav > variant.rav; fp variant.rav | join base - | awk '$2 != $3 {s = s " " $1} END {print (s == "" ? "none" : substr(s, 2))}'; }
   $ cut -d' ' -f1 base

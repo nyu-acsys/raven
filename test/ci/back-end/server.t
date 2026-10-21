@@ -1,7 +1,8 @@
 A server answers each request with what a run with the same arguments would output,
 whatever it ran before.
 
-  $ req() { printf '{"id":%s,"cwd":"%s","args":[%s]}\n' "$1" "${3:-$PWD}" "$2"; }
+  $ cwd=$(cygpath -m "$PWD" 2>/dev/null || printf '%s' "$PWD")
+  $ req() { printf '{"id":%s,"cwd":"%s","args":[%s]}\n' "$1" "${3:-$cwd}" "$2"; }
   $ { req 1 '"--shh","agree_inhale.rav"'
   >   req 2 '"--shh","fail/fpu_fail.rav"'
   >   req 3 '"--shh","--typeonly","agree_inhale.rav"'
@@ -37,7 +38,7 @@ cancellation of a run that is done is ignored.
 A request can ask for what type checking found before the run is done. A program with type
 errors gets no such partial answer.
 
-  $ preq() { printf '{"id":%s,"cwd":"%s","args":[%s],"partial":true}\n' "$1" "$PWD" "$2"; }
+  $ preq() { printf '{"id":%s,"cwd":"%s","args":[%s],"partial":true}\n' "$1" "$cwd" "$2"; }
   $ echo 'proc p() { var x: Int := true; }' > ill_typed.rav
   $ { preq 8 '"--lsp-mode","-q","agree_inhale.rav"'
   >   preq 9 '"--lsp-mode","-q","ill_typed.rav"'
