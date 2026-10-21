@@ -6,7 +6,7 @@ let rec rewrite_stmt_error_msg call_id (stmt : Stmt.t) : Stmt.t Rewriter.t =
   match stmt.stmt_desc with
   | Basic (Spec (((Assert | Exhale) as kind), spec)) ->
       let error =
-        ( Error.Verification,
+        ( Error.Verification Error.Assertion,
           Expr.to_loc spec.spec_form,
           match kind with
           | Assert -> "This assertion may be violated"
@@ -19,7 +19,7 @@ let rec rewrite_stmt_error_msg call_id (stmt : Stmt.t) : Stmt.t Rewriter.t =
       let loop_contract =
         List.map loop_desc.loop_contract ~f:(fun spec ->
             let error callee loc =
-              ( Error.Verification,
+              ( Error.Verification Error.Loop_invariant_entry,
                 Expr.to_loc spec.spec_form,
                 if Ident.(QualIdent.unqualify callee = call_id) then
                   "This loop invariant may not hold upon loop entry"
@@ -37,7 +37,9 @@ let rewrite_callable_error_msg (call : Callable.t) : Callable.t Rewriter.t =
   let call_decl_postcond =
     List.map call_decl.call_decl_postcond ~f:(fun spec ->
         let error _ loc =
-          (Error.Verification, loc, "A postcondition may not hold at this return point")
+          ( Error.Verification Error.Postcondition,
+            loc,
+            "A postcondition may not hold at this return point" )
         in
         (*let error_rel =
           ( Error.RelatedLoc,
@@ -49,7 +51,9 @@ let rewrite_callable_error_msg (call : Callable.t) : Callable.t Rewriter.t =
   let call_decl_precond =
     List.map call_decl.call_decl_precond ~f:(fun spec ->
         let error _ loc =
-          (Error.Verification, loc, "A precondition may not hold for this call")
+          ( Error.Verification Error.Precondition,
+            loc,
+            "A precondition may not hold for this call" )
         in
         (*let error_rel =
           ( Error.RelatedLoc,
@@ -1082,7 +1086,7 @@ let rec rewrite_add_func_contract_lemmas (sm : scc_map) (m : Module.t) :
                      Expr.alpha_renaming post.spec_form ret_subst_map))
             in
             let postcond_error _ loc =
-              ( Error.Verification,
+              ( Error.Verification Error.Postcondition,
                 loc,
                 "The postcondition of "
                 ^ Ident.to_string call_decl.call_decl_name

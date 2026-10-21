@@ -551,7 +551,8 @@ module ErrorCreditsExt (Cont : Ext) = struct
         (* ```exhale own(ec_ref, ec_field, Fraction(1 / n_expr))``` *)
         let exhale_stmt =
           let error =
-            ( Error.Verification,
+            ( Error.Verification
+                (Error.Extension { extension = "error-credits"; name = "credits" }),
               loc,
               "Not enough error credits to ensure random value does not match given value"
             )
@@ -699,7 +700,8 @@ module ErrorCreditsExt (Cont : Ext) = struct
         (* ```exhale forall ind_arg: Int :: errFn_def(ind) >= 0.0``` *)
         let check_valid_stmt1 =
           let error =
-            ( Error.Verification,
+            ( Error.Verification
+                (Error.Extension { extension = "error-credits"; name = "error-function" }),
               loc,
               "Error function should always be greater than or equal to 0" )
           in
@@ -722,7 +724,8 @@ module ErrorCreditsExt (Cont : Ext) = struct
         (* ```exhale errFnSumToN(n-1, <env_vars>) == ec_expr```  *)
         let check_valid_stmt2 =
           let error =
-            ( Error.Verification,
+            ( Error.Verification
+                (Error.Extension { extension = "error-credits"; name = "error-function" }),
               loc,
               "Error function does not preserve expected error; function defined \
                incorrectly" )
@@ -743,7 +746,8 @@ module ErrorCreditsExt (Cont : Ext) = struct
         (* ```exhale own(ec_ref, ec_field, Fraction.frac(ec_expr))``` *)
         let exhale_stmt =
           let error =
-            ( Error.Verification,
+            ( Error.Verification
+                (Error.Extension { extension = "error-credits"; name = "credits" }),
               loc,
               "Not enough error credits to ensure random value does not match given value"
             )
@@ -831,7 +835,8 @@ module ErrorCreditsExt (Cont : Ext) = struct
         (* ```exhale own(ec_ref, ec_field, Fraction.frac(List.len(ls_expr) / n_expr));``` *)
         let exhale_stmt =
           let error =
-            ( Error.Verification,
+            ( Error.Verification
+                (Error.Extension { extension = "error-credits"; name = "credits" }),
               loc,
               "Not enough error credits to ensure random value doesn't lie in given list"
             )
@@ -883,7 +888,10 @@ module ErrorCreditsExt (Cont : Ext) = struct
         (* ```exhale own(ec_ref, ec_field, Fraction.frac(1.0));``` *)
         let exhale_stmt =
           let error =
-            (Error.Verification, loc, "Not enough error credits to ensure false")
+            ( Error.Verification
+                (Error.Extension { extension = "error-credits"; name = "credits" }),
+              loc,
+              "Not enough error credits to ensure false" )
           in
           Stmt.mk_exhale_expr ~loc ~cmnt:"EC_Contra precond"
             ~spec_error:[ Stmt.mk_const_spec_error error ]

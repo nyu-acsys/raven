@@ -309,6 +309,36 @@ module Diagnostic : sig
   (** What kind of check reported it. *)
   type kind = Syntax | Type | Verification | Unsupported | Internal | Other
 
+  (** What a verification error says failed. *)
+  type code =
+    | Assertion
+    | Loop_invariant_entry
+    | Precondition
+    | Postcondition
+    | Fold
+    | Unfold
+    | Permission
+    | Frame_preserving_update
+    | Bind
+    | Injectivity
+    | Allocation
+    | Commit
+    | Abort
+    | Uncommitted
+    | Atomic_token
+    | Implicit_agreement
+    | Atomicity
+    | Mask
+    | Unclosed
+    | Invariant_arguments
+    | Atomic_update
+    | Abortable_call
+    | Extension of { extension : string; name : string }
+        (** An extension's own check, named by the extension. *)
+
+  val code_name : code -> string
+  (** The stable name of [code], as in ["postcondition"] or ["decreases/termination"]. *)
+
   type related = { related_loc : Loc.t; related_message : string }
   (** A location related to a diagnostic, as a conjunct of a postcondition that may not
       hold, or a counterexample's values. *)
@@ -316,6 +346,7 @@ module Diagnostic : sig
   type t = {
     severity : severity;
     kind : kind;
+    code : code option;  (** For verification errors. *)
     loc : Loc.t;
     message : string;
     related : related list;

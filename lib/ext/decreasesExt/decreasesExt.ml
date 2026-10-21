@@ -356,7 +356,8 @@ module DecreasesExt (Cont : Ext) = struct
 
   let default_measure_error (spec_form : expr) : qual_ident -> location -> Error.t =
     Stmt.mk_const_spec_error
-      ( Error.Verification,
+      ( Error.Verification
+          (Error.Extension { extension = "decreases"; name = "termination" }),
         Expr.to_loc spec_form,
         "This decreases clause's termination measure may not decrease on this recursive \
          call" )
@@ -675,7 +676,9 @@ module DecreasesExt (Cont : Ext) = struct
                 location in a closure before [rewrite_loops] alpha-renames it. *)
                let error =
                  Stmt.mk_const_spec_error
-                   ( Error.Verification,
+                   ( Error.Verification
+                       (Error.Extension
+                          { extension = "decreases"; name = "loop-termination" }),
                      Expr.to_loc spec.Stmt.spec_form,
                      "This loop may not terminate: its decreases clause's termination \
                       measure may not decrease on every iteration" )

@@ -295,11 +295,90 @@ end
 module Diagnostic = struct
   type severity = Error | Warning
   type kind = Syntax | Type | Verification | Unsupported | Internal | Other
+
+  type code =
+    | Assertion
+    | Loop_invariant_entry
+    | Precondition
+    | Postcondition
+    | Fold
+    | Unfold
+    | Permission
+    | Frame_preserving_update
+    | Bind
+    | Injectivity
+    | Allocation
+    | Commit
+    | Abort
+    | Uncommitted
+    | Atomic_token
+    | Implicit_agreement
+    | Atomicity
+    | Mask
+    | Unclosed
+    | Invariant_arguments
+    | Atomic_update
+    | Abortable_call
+    | Extension of { extension : string; name : string }
+
+  let to_error_code : code -> Error.code = function
+    | Assertion -> Assertion
+    | Loop_invariant_entry -> Loop_invariant_entry
+    | Precondition -> Precondition
+    | Postcondition -> Postcondition
+    | Fold -> Fold
+    | Unfold -> Unfold
+    | Permission -> Permission
+    | Frame_preserving_update -> Frame_preserving_update
+    | Bind -> Bind
+    | Injectivity -> Injectivity
+    | Allocation -> Allocation
+    | Commit -> Commit
+    | Abort -> Abort
+    | Uncommitted -> Uncommitted
+    | Atomic_token -> Atomic_token
+    | Implicit_agreement -> Implicit_agreement
+    | Atomicity -> Atomicity
+    | Mask -> Mask
+    | Unclosed -> Unclosed
+    | Invariant_arguments -> Invariant_arguments
+    | Atomic_update -> Atomic_update
+    | Abortable_call -> Abortable_call
+    | Extension { extension; name } -> Extension { extension; name }
+
+  let of_error_code : Error.code -> code = function
+    | Assertion -> Assertion
+    | Loop_invariant_entry -> Loop_invariant_entry
+    | Precondition -> Precondition
+    | Postcondition -> Postcondition
+    | Fold -> Fold
+    | Unfold -> Unfold
+    | Permission -> Permission
+    | Frame_preserving_update -> Frame_preserving_update
+    | Bind -> Bind
+    | Injectivity -> Injectivity
+    | Allocation -> Allocation
+    | Commit -> Commit
+    | Abort -> Abort
+    | Uncommitted -> Uncommitted
+    | Atomic_token -> Atomic_token
+    | Implicit_agreement -> Implicit_agreement
+    | Atomicity -> Atomicity
+    | Mask -> Mask
+    | Unclosed -> Unclosed
+    | Invariant_arguments -> Invariant_arguments
+    | Atomic_update -> Atomic_update
+    | Abortable_call -> Abortable_call
+    | Extension { extension; name } -> Extension { extension; name }
+
+  let code_name code = Error.code_name (to_error_code code)
+
   type related = { related_loc : Loc.t; related_message : string }
 
   type t = {
     severity : severity;
     kind : kind;
+    code : code option;
     loc : Loc.t;
     message : string;
     related : related list;
@@ -310,7 +389,8 @@ module Diagnostic = struct
     | Warning, _ -> Warning
     | Error, Syntax -> Syntax
     | Error, Type -> Type
-    | Error, Verification -> Verification
+    | Error, Verification ->
+        Verification (Option.value_map d.code ~default:Error.Assertion ~f:to_error_code)
     | Error, Unsupported -> Unsupported
     | Error, Internal -> Internal
     | Error, Other -> Generic
@@ -325,17 +405,17 @@ module Diagnostic = struct
       counterexamples and branches that follow it. *)
   let of_errors (errors : Error.t list) : t list =
     let primary (kind, loc, message) =
-      let severity, kind =
+      let severity, kind, code =
         match (kind : Error.error_kind) with
-        | Warning -> (Warning, Other)
-        | Lexical | Syntax -> (Error, Syntax)
-        | Type -> (Error, Type)
-        | Verification -> (Error, Verification)
-        | Unsupported -> (Error, Unsupported)
-        | Internal -> (Error, Internal)
-        | Generic | Limit | RelatedLoc | Counterexample _ | Branch -> (Error, Other)
+        | Warning -> (Warning, Other, None)
+        | Lexical | Syntax -> (Error, Syntax, None)
+        | Type -> (Error, Type, None)
+        | Verification code -> (Error, Verification, Some (of_error_code code))
+        | Unsupported -> (Error, Unsupported, None)
+        | Internal -> (Error, Internal, None)
+        | Generic | Limit | RelatedLoc | Counterexample _ | Branch -> (Error, Other, None)
       in
-      { severity; kind; loc; message; related = [] }
+      { severity; kind; code; loc; message; related = [] }
     in
     let add_related d (kind, loc, message) =
       let message =

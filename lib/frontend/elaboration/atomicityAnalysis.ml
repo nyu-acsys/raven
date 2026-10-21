@@ -98,7 +98,7 @@ let unclosed_error ~(body_loc : location) (state : atomicity_check) : 'a =
   | [] -> Error.internal_error body_loc "unclosed_error called with nothing left open"
   | (msg, rel_loc, rel_msg) :: rest ->
       Error.fail_with
-        ((Error.Verification, Loc.last_char body_loc, msg)
+        ((Error.Verification Error.Unclosed, Loc.last_char body_loc, msg)
         :: (Error.RelatedLoc, rel_loc, rel_msg)
         :: List.map rest ~f:(fun (msg, rel_loc, _) -> (Error.RelatedLoc, rel_loc, msg)))
 
@@ -360,7 +360,7 @@ let take_atomic_step ~loc (state : atomicity_check) : atomicity_check =
     match state.atomic_step_taken with
     | false -> { state with atomic_step_taken = true }
     | true ->
-        Error.verification_error loc
+        Error.verification_error ~code:Error.Atomicity loc
           "Attempting to take more than one atomic step with an open invariant or atomic \
            update"
 
@@ -368,7 +368,7 @@ let take_non_atomic_step ~loc (state : atomicity_check) : atomicity_check =
   if state.in_atomic_block then state
   else if List.is_empty state.au_opened && List.is_empty state.invs_opened then state
   else
-    Error.verification_error loc
+    Error.verification_error ~code:Error.Atomicity loc
       "Cannot take a non-atomic step while an invariant or atomic update is open"
 
 (* An extension statement is opaque here -- this pass has to run before the
@@ -545,7 +545,7 @@ let abort_check ~loc (call_decl : Callable.call_decl) (call_desc : Stmt.call_des
                          use_spec_error =
                            [
                              Stmt.mk_const_spec_error
-                               ( Error.Verification,
+                               ( Error.Verification Error.Abortable_call,
                                  loc,
                                  "A predicate unfolded around this atomic call may not \
                                   be refoldable if the call aborts" );
@@ -578,7 +578,7 @@ let abort_check ~loc (call_decl : Callable.call_decl) (call_desc : Stmt.call_des
                     let spec_error =
                       [
                         Stmt.mk_const_spec_error
-                          ( Error.Verification,
+                          ( Error.Verification Error.Abortable_call,
                             loc,
                             "The atomic update open around this atomic call may not be \
                              abortable if the call aborts" );
@@ -627,7 +627,7 @@ let abort_check ~loc (call_decl : Callable.call_decl) (call_desc : Stmt.call_des
                          use_spec_error =
                            [
                              Stmt.mk_const_spec_error
-                               ( Error.Verification,
+                               ( Error.Verification Error.Abortable_call,
                                  loc,
                                  "An invariant open around this atomic call may not be \
                                   closable if the call aborts" );
@@ -675,14 +675,14 @@ let open_inv ~loc (inv_name, inv_args, inv_snapshot, inv_updated_flag) atomicity
     List.map same_name_open ~f:(fun inv ->
         match disjointness_condition ~loc inv_args inv with
         | Error () ->
-            Error.verification_error loc
+            Error.verification_error ~code:Error.Mask loc
               (Printf.sprintf
                  !"Invariant %{Ident} is already open"
                  (inv_name |> QualIdent.unqualify))
         | Ok cond ->
             let spec_error =
               let error =
-                ( Error.Verification,
+                ( Error.Verification Error.Mask,
                   loc,
                   Printf.sprintf
                     !"Cannot unfold %{Ident}: this instance may be the same as one \
@@ -714,7 +714,7 @@ let open_inv ~loc (inv_name, inv_args, inv_snapshot, inv_updated_flag) atomicity
     | None -> (
         match scored with
         | [] ->
-            Error.verification_error loc
+            Error.verification_error ~code:Error.Mask loc
               (Printf.sprintf
                  !"Invariant %{Ident} is not in the current mask"
                  (inv_name |> QualIdent.unqualify))
@@ -724,7 +724,7 @@ let open_inv ~loc (inv_name, inv_args, inv_snapshot, inv_updated_flag) atomicity
     List.map membership_conds ~f:(fun cond ->
         let spec_error =
           let error =
-            ( Error.Verification,
+            ( Error.Verification Error.Mask,
               loc,
               Printf.sprintf
                 !"Cannot unfold %{Ident}: the available mask entry's arguments are not \
@@ -793,7 +793,7 @@ let call_reentrancy_asserts ~loc (atomicity_state : atomicity_check)
           | Error () ->
               Error.fail_with
                 [
-                  ( Error.Verification,
+                  ( Error.Verification Error.Unclosed,
                     loc,
                     Printf.sprintf "Missing fold for unfolded invariant %s"
                       (inv_to_string inv) );
@@ -802,7 +802,7 @@ let call_reentrancy_asserts ~loc (atomicity_state : atomicity_check)
           | Ok cond ->
               let spec_error =
                 let error =
-                  ( Error.Verification,
+                  ( Error.Verification Error.Unclosed,
                     loc,
                     Printf.sprintf
                       "Missing fold for unfolded invariant %s, which the callee may need \
@@ -861,7 +861,7 @@ let open_au ~loc (token, callable, callable_args, implicit_bound_vars, au_update
     atomicity_state : atomicity_check =
   if List.exists atomicity_state.au_opened ~f:(fun au -> Expr.alpha_equal au.token token)
   then
-    Error.verification_error loc
+    Error.verification_error ~code:Error.Atomic_update loc
       (Printf.sprintf
          !"Atomic token %{String} is already open"
          (Expr.to_source_string token))
@@ -877,7 +877,7 @@ let open_au ~loc (token, callable, callable_args, implicit_bound_vars, au_update
        logical, so nothing can interleave between the close and the next
        open, and the next open still has to honestly justify its own atomic
        precondition against whatever is actually held at that point. *)
-    Error.verification_error loc
+    Error.verification_error ~code:Error.Atomic_update loc
       (Printf.sprintf
          !"Cannot open atomic token %{String} while another atomic update is still open; \
            commit or abort it first"
@@ -904,7 +904,7 @@ let close_au ~loc token atomicity_state : atomicity_check =
       (List.exists atomicity_state.au_opened ~f:(fun au ->
            Expr.alpha_equal au.token token))
   then
-    Error.verification_error loc
+    Error.verification_error ~code:Error.Atomic_update loc
       (Printf.sprintf
          !"Atomic token %{String} is not open (nothing to close)"
          (Expr.to_source_string token))
@@ -1134,7 +1134,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
                 let cond = Expr.mk_or ~loc disjuncts in
                 let call_id = call_desc.call_name |> QualIdent.unqualify in
                 let error =
-                  ( Error.Verification,
+                  ( Error.Verification Error.Mask,
                     loc,
                     Printf.sprintf
                       !"Cannot call %{Ident}. The invariant %{Ident} required by \
@@ -1342,7 +1342,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
                       | _ :: _ ->
                           let spec_error =
                             let error =
-                              ( Error.Verification,
+                              ( Error.Verification Error.Unfold,
                                 loc,
                                 "Failed to unfold predicate. The predicate may not hold \
                                  at this point" )
@@ -1463,7 +1463,9 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
                                   changed, which an invariant does not allow"
                                 inv_id
                           in
-                          let error = (Error.Verification, loc, msg) in
+                          let error =
+                            (Error.Verification Error.Invariant_arguments, loc, msg)
+                          in
                           [ Stmt.mk_const_spec_error error ]
                         in
                         let assert_stmt =
@@ -1507,7 +1509,9 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
             in
             let exhale_stmt =
               let error =
-                (Error.Verification, loc, "Atomic token resource may not be available")
+                ( Error.Verification Error.Atomic_token,
+                  loc,
+                  "Atomic token resource may not be available" )
               in
               Stmt.mk_exhale_expr
                 ~cmnt:("OpenAU: " ^ Stmt.to_string stmt)
@@ -1582,7 +1586,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
             let opened_au_token =
               match opened_au_token with
               | None ->
-                  Error.verification_error stmt.stmt_loc
+                  Error.verification_error ~code:Error.Atomic_update stmt.stmt_loc
                     (Printf.sprintf
                        !"Cannot %{String}: atomic token %{String} is not open"
                        (auaction_kind_to_string auaction_desc.auaction_kind)
@@ -1618,7 +1622,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
                         if not spec.spec_atomic then None
                         else
                           let error =
-                            ( Error.Verification,
+                            ( Error.Verification Error.Abort,
                               loc,
                               "An atomic precondition may no longer hold when aborting \
                                the atomic update." )
@@ -1663,7 +1667,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
                         if not spec.spec_atomic then None
                         else
                           let error =
-                            ( Error.Verification,
+                            ( Error.Verification Error.Commit,
                               loc,
                               "An atomic postcondition may not hold at this commit point."
                             )
@@ -1754,7 +1758,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
             && List.equal same_open_au inner.au_opened outer.au_opened
           then Rewriter.return ()
           else
-            Error.verification_error loc
+            Error.verification_error ~code:Error.Atomicity loc
               "An invariant or atomic update opened inside an atomic block must also be \
                closed inside it"
         in
@@ -1850,7 +1854,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
             let* _ = Rewriter.set_user_state atomicity_state in
             Rewriter.return new_stmt
         else
-          Error.verification_error stmt.stmt_loc
+          Error.verification_error ~code:Error.Atomicity stmt.stmt_loc
             "Inconsistent atomicity states in then and else branches"
     | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_au_cmnds
   in

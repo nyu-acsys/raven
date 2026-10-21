@@ -44,7 +44,7 @@ let report program =
   List.iter
     (fun (d : Diagnostic.t) ->
       Printf.printf "%s at line %d: %s\n"
-        (match d.kind with Verification -> "verification" | _ -> "other")
+        (match d.code with Some code -> Diagnostic.code_name code | None -> "no code")
         (Loc.start d.loc).pos_lnum d.message)
     result.diagnostics
 

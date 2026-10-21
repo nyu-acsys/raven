@@ -153,7 +153,7 @@ let generate_injectivity_assertions ~loc (universal_quants : universal_quants)
 
   let assert_stmt =
     let error =
-      ( Error.Verification,
+      ( Error.Verification Error.Injectivity,
         loc,
         "Could not prove the injectivity of the index expression for this iterated \
          separating conjunction" )
@@ -298,7 +298,7 @@ module GuardedIscInvAxioms = struct
               (Expr.alpha_renaming inverted_expr_with_inv_expr ret_renam_map)))
     in
     let error =
-      ( Error.Verification,
+      ( Error.Verification Error.Injectivity,
         loc,
         "This iterated separating conjunction may not be injective on the quantified \
          variable(s) within its guard" )
@@ -463,7 +463,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants) (conds : co
                     (Expr.alpha_renaming inv_expr inv_renam_map)))
           in
           let error =
-            ( Error.Verification,
+            ( Error.Verification Error.Injectivity,
               loc,
               "This iterated separating conjunction may not be injective on the \
                quantified variable(s)" )
@@ -504,7 +504,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants) (conds : co
                  (Expr.alpha_renaming inverted_expr_with_inv_expr ret_renam_map))
           in
           let error =
-            ( Error.Verification,
+            ( Error.Verification Error.Injectivity,
               loc,
               "This iterated separating conjunction may not be injective on the \
                quantified variable(s)" )
@@ -1057,7 +1057,9 @@ let rec rewrite_fpu (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
       let assert_stmt =
         let error =
-          (Error.Verification, stmt.stmt_loc, "This update may not be frame-preserving")
+          ( Error.Verification Error.Frame_preserving_update,
+            stmt.stmt_loc,
+            "This update may not be frame-preserving" )
         in
         Stmt.mk_assert_expr ~loc:stmt.stmt_loc
           ~cmnt:("FPU stmt: " ^ Stmt.to_string stmt)
@@ -1068,7 +1070,9 @@ let rec rewrite_fpu (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
       let exhale_stmt =
         let error =
-          (Error.Verification, stmt.stmt_loc, "This update may not be frame-preserving")
+          ( Error.Verification Error.Frame_preserving_update,
+            stmt.stmt_loc,
+            "This update may not be frame-preserving" )
         in
         Stmt.mk_exhale_expr ~loc:stmt.stmt_loc
           ~cmnt:("FPU stmt: " ^ Stmt.to_string stmt)
@@ -1129,7 +1133,7 @@ let rec rewrite_binds (stmt : Stmt.t) : Stmt.t Rewriter.t =
         match bind_desc.bind_rhs.spec_error with
         | [] ->
             let error =
-              ( Error.Verification,
+              ( Error.Verification Error.Bind,
                 Expr.to_loc bind_desc.bind_rhs.spec_form,
                 "The right-hand side of this bind statement may not hold" )
             in
@@ -4260,7 +4264,7 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
 
             let assert_stmt =
               let error =
-                ( Error.Verification,
+                ( Error.Verification Error.Permission,
                   loc,
                   "Could not assert sufficient permissions to access this field" )
               in
@@ -4330,7 +4334,7 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
 
             let assert_stmt =
               let error =
-                ( Error.Verification,
+                ( Error.Verification Error.Permission,
                   s.stmt_loc,
                   "Could not assert sufficient permissions to assign this field" )
               in

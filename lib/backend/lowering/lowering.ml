@@ -78,7 +78,7 @@ let rec rewrite_ret_stmts (callable_decl : Callable.call_decl) (stmt : Stmt.t) :
           let concrete_args_expr = List.map concrete_args ~f:Expr.from_var_decl in
 
           let error =
-            ( Error.Verification,
+            ( Error.Verification Error.Uncommitted,
               loc,
               "The atomic specification may not have been committed before reaching this \
                return point" )
@@ -92,7 +92,7 @@ let rec rewrite_ret_stmts (callable_decl : Callable.call_decl) (stmt : Stmt.t) :
           ( List.map postconds_spec ~f:(fun spec ->
                 Expr.alpha_renaming spec.spec_form renaming_map),
             let error =
-              ( Error.Verification,
+              ( Error.Verification Error.Postcondition,
                 loc,
                 "A postcondition may not hold at this return point" )
             in
@@ -162,7 +162,7 @@ let rec rewrite_new_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
                 in
                 let assert_stmt =
                   let error =
-                    ( Error.Verification,
+                    ( Error.Verification Error.Allocation,
                       stmt.stmt_loc,
                       "Could not prove validity of initially-allocated value" )
                   in
@@ -397,7 +397,7 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
                   | _ :: _ as spec_error -> spec_error
                   | [] ->
                       let error =
-                        ( Error.Verification,
+                        ( Error.Verification Error.Fold,
                           stmt.stmt_loc,
                           "Failed to fold predicate. The body of the predicate may not \
                            hold at this point" )
@@ -444,7 +444,7 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
                 let spec_error =
                   let error =
-                    ( Error.Verification,
+                    ( Error.Verification Error.Unfold,
                       stmt.stmt_loc,
                       "Failed to unfold predicate. The predicate may not hold at this \
                        point" )
@@ -771,7 +771,7 @@ let rewrite_callable_pre_post_conds (c : Callable.t) : Callable.t Rewriter.t =
                 in
                 let ret_expr = Expr.mk_tuple ~loc ret_vars in
                 let error =
-                  ( Error.Verification,
+                  ( Error.Verification Error.Uncommitted,
                     loc |> Loc.to_end,
                     "The atomic specification may not have been committed before \
                      reaching this return point" )
@@ -1245,7 +1245,7 @@ let rewrite_add_predicate_validity_lemmas (c : Callable.t) : Callable.t Rewriter
                         (Expr.from_var_decl implicit_arg2)
                     in
                     let error =
-                      ( Error.Verification,
+                      ( Error.Verification Error.Implicit_agreement,
                         implicit_arg1.var_loc,
                         "Two instances held at the same time that agree on the explicit \
                          parameters may disagree on this implicit parameter" )

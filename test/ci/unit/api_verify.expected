@@ -25,4 +25,4 @@ proc incr(x: Ref)
    x.f := 1;
  }
 verified: false
-verification at line 2: A postcondition may not hold at this return point
+postcondition at line 2: A postcondition may not hold at this return point

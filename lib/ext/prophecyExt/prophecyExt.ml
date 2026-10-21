@@ -858,7 +858,8 @@ module ProphecyExt (Cont : Ext) = struct
                    ])
             in
             let error =
-              ( Error.Verification,
+              ( Error.Verification
+                  (Error.Extension { extension = "prophecy"; name = "resource" }),
                 loc,
                 "This prophecy's resource is not available here -- it may already have \
                  been resolved, or it may still be held elsewhere in the proof" )

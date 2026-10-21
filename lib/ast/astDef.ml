@@ -1760,9 +1760,8 @@ module Stmt = struct
     List.map spec.spec_error ~f:(fun error ->
         let kind, loc, message = error call_id loc in
         let message =
-          match spec.spec_name with
-          | Some name when Poly.(kind = Error.Verification) ->
-              "Assertion '" ^ name ^ "': " ^ message
+          match (spec.spec_name, kind) with
+          | Some name, Error.Verification _ -> "Assertion '" ^ name ^ "': " ^ message
           | _ -> message
         in
         (kind, loc, message))

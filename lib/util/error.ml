@@ -2,6 +2,63 @@
 
 open Base
 
+(** What a verification error says failed. *)
+type code =
+  | Assertion
+  | Loop_invariant_entry  (** A loop invariant on entry to the loop. *)
+  | Precondition  (** Of a call. *)
+  | Postcondition
+  | Fold  (** The body of the predicate folded. *)
+  | Unfold  (** The predicate unfolded. *)
+  | Permission  (** To read or write a field. *)
+  | Frame_preserving_update
+  | Bind  (** The right-hand side of a binding [x :| e]. *)
+  | Injectivity  (** Of an iterated separating conjunction. *)
+  | Allocation  (** The validity of an allocated ghost value. *)
+  | Commit  (** An atomic postcondition, where an atomic update is committed. *)
+  | Abort  (** An atomic precondition, where an atomic update is aborted. *)
+  | Uncommitted  (** An atomic update not committed before the callable returns. *)
+  | Atomic_token  (** The resource of an atomic token. *)
+  | Implicit_agreement
+      (** An implicit parameter of two instances of a predicate held at once. *)
+  | Atomicity
+      (** More than one atomic step, or a non-atomic one, while an invariant or atomic
+          update is open. *)
+  | Mask  (** An invariant opened that may be open already or not be in the mask. *)
+  | Unclosed  (** An invariant or atomic update still open, or not folded again. *)
+  | Invariant_arguments  (** A fold of an invariant whose arguments may have changed. *)
+  | Atomic_update  (** A command on an atomic update that is not open, or open already. *)
+  | Abortable_call
+      (** What is open around an atomic call, which may not be closable if it aborts. *)
+  | Extension of { extension : string; name : string }
+      (** An extension's own check, named by the extension. *)
+
+(** The stable name of [code], as clients see it. *)
+let code_name = function
+  | Assertion -> "assertion"
+  | Loop_invariant_entry -> "loop-invariant-entry"
+  | Precondition -> "precondition"
+  | Postcondition -> "postcondition"
+  | Fold -> "fold"
+  | Unfold -> "unfold"
+  | Permission -> "permission"
+  | Frame_preserving_update -> "frame-preserving-update"
+  | Bind -> "bind"
+  | Injectivity -> "injectivity"
+  | Allocation -> "allocation"
+  | Commit -> "commit"
+  | Abort -> "abort"
+  | Uncommitted -> "uncommitted"
+  | Atomic_token -> "atomic-token"
+  | Implicit_agreement -> "implicit-agreement"
+  | Atomicity -> "atomicity"
+  | Mask -> "mask"
+  | Unclosed -> "unclosed"
+  | Invariant_arguments -> "invariant-arguments"
+  | Atomic_update -> "atomic-update"
+  | Abortable_call -> "abortable-call"
+  | Extension { extension; name } -> extension ^ "/" ^ name
+
 type error_kind =
   | Generic
   | Lexical
@@ -9,7 +66,7 @@ type error_kind =
   | Type
   | Internal
   | Unsupported
-  | Verification
+  | Verification of code
   | RelatedLoc
   | Warning
   | Limit  (** The note that a run stopped after the maximal number of errors. *)
@@ -27,7 +84,7 @@ let error_kind_to_lsp_string = function
   | Type -> "Type"
   | Internal -> "Internal"
   | Unsupported -> "Unsupported"
-  | Verification -> "Verification"
+  | Verification _ -> "Verification"
   | RelatedLoc -> "RelatedLoc"
   | Warning -> "Warning"
   | Limit -> "Limit"
@@ -41,7 +98,7 @@ let error_kind_to_string = function
   | Type -> "Type Error"
   | Internal -> "Internal Error"
   | Unsupported -> "Unsupported Error"
-  | Verification -> "Verification Error"
+  | Verification _ -> "Verification Error"
   | RelatedLoc -> "Related Location"
   | Warning -> "Warning"
   | Limit -> "Error"
@@ -167,4 +224,4 @@ let redeclaration_error loc name =
   error loc
     (Printf.sprintf !"Identifier %{String} has already been declared in this scope" name)
 
-let verification_error loc msg = fail loc ~lbl:Verification msg
+let verification_error ~code loc msg = fail loc ~lbl:(Verification code) msg
