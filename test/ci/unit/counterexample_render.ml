@@ -1,6 +1,7 @@
 (* Rendering the solver's model values in source terms. *)
 
 open Base
+open Raven
 module Counterexample = Backend.Counterexample
 
 let sexp = Sexplib.Sexp.of_string

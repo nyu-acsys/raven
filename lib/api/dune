@@ -1,4 +1,6 @@
+(include_subdirs no)
+
 (library
  (name raven_api)
  (public_name raven.api)
- (libraries base unix config util ast ext extApi driver))
+ (libraries base unix raven))

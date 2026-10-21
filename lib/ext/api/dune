@@ -1,6 +1,0 @@
-(library
- (name extApi)
- (package raven)
- (libraries base util ast)
- (preprocess
-  (pps ppx_hash ppx_compare ppx_sexp_conv ppx_custom_printf ppx_let)))

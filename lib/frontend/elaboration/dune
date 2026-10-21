@@ -1,6 +1,0 @@
-(library
- (name elaboration)
- (package raven)
- (libraries base ast util frontend)
- (preprocess
-  (pps ppx_hash ppx_compare ppx_sexp_conv ppx_custom_printf ppx_let)))

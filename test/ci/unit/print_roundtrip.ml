@@ -6,6 +6,7 @@
    written there. *)
 
 open Base
+open Raven
 open Util
 
 let parse ~file_name text =

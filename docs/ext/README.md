@@ -203,15 +203,15 @@ Verification successful.
 
 ## Creating a New Extension
 
-An extension typically consists of 3 files, and may contain a 4th file. For a new extension say `SampleExt`, these files are:
+An extension typically consists of 2 files, and may contain a 3rd file. For a new extension say `SampleExt`, these files are:
 
 1. `sampleExt.ml`: This file contains the `SampleExt` module that satisfies the `ExtApi.Ext` API. This contains, at a high level, the declarations of the additional AST constructs, along with functions to type-check these constructs, as well as _rewrite_ these constructs into simpler Raven terms.
 
 2. `sampleExt_parser.mly`: This file contains the parser rules for the new syntax that the extension needs. These rules are then combined with Raven's existing parser and compiled by Menhir. Raven's parser makes certain non-terminals public, which means they can be referenced from outside files. These terminals can then be extended using other public terminals, and other freshly defined tokens.
 
-3. `dune`: This file is for the `dune` build system. It defines the current module along with dependencies so that the `dune` build system can compile the code. This file declares the name of the module, ensure that it is equal to `SampleExt`. 
+3. (Optional) `sampleExt_lib.rav`: This file contains optional Raven code with Raven declarations relevant for implementing the extension. This file is included as part of Raven's standard library when compiling Raven. This allows the programmer to include certain Raven definitions for modules, interfaces, procedures, functions, types, etc that can then be used for example during the rewriting process in `sampleExt.ml`.
 
-4. (Optional) `sampleExt_lib.rav`: This file contains optional Raven code with Raven declarations relevant for implementing the extension. This file is included as part of Raven's standard library when compiling Raven. This allows the programmer to include certain Raven definitions for modules, interfaces, procedures, functions, types, etc that can then be used for example during the rewriting process in `sampleExt.ml`.
+The files go in a new directory under `lib/ext/`, such as `lib/ext/sampleExt/`. The directory needs no `dune` file of its own: all of Raven but its API is one library, `raven`, defined in [lib/dune](../../lib/dune), whose modules are those of the directories below `lib/`.
 
 The best way to get started with a new extension is to copy an existing extension and clear out the existing functionality. There is also the `blank_ext.ml.md` file provided in the `ext` folder to serve as a quick-start for new extensions.
 
@@ -220,13 +220,8 @@ The best way to get started with a new extension is to copy an existing extensio
 
 Once the programmer has created the extension such that it successfully compiles with the `dune build` command, they must complete the following steps to make sure the extension is integrated into the Raven pipeline and becomes usable:
 
-1. In [lib/ext/dune](../../lib/ext/dune): 
-  add the extension as a dependency by appending `sampleExt` to the `libraries` field of the `library` stanza (line 3).
-
-2. In [lib/frontend/parsing/dune](../../lib/frontend/parsing/dune):
-  a. add the extension as a dependency by appending `sampleExt` to the `libraries` field of the `library` stanza (line 3).
-
-  b. add a rule to copy the `sampleExt_parser.mly` file into the `lib/frontend/parsing` directory. Like this:
+1. In [lib/frontend/parsing/dune](../../lib/frontend/parsing/dune):
+  a. add a rule to copy the `sampleExt_parser.mly` file into the `lib/frontend/parsing` directory. Like this:
   ```dune
     (rule
     (target sampleExt_parser.mly)
@@ -234,19 +229,19 @@ Once the programmer has created the extension such that it successfully compiles
     (action (copy %{deps} %{target})))
   ```
 
-  c. append `sampleExt_parser` to the `modules` field of the `menhir` stanza.
+  b. append `sampleExt_parser` to the `modules` field of the `menhir` stanza.
 
-3. In [lib/frontend/parsing/terminals.ml](../../lib/frontend/parsing/terminals.ml), add any new keywords required by the extension. These correspond to the new tokens declared in `sampleExt_parser.mly`.
+2. In [lib/frontend/parsing/terminals.ml](../../lib/frontend/parsing/terminals.ml), add any new keywords required by the extension. These correspond to the new tokens declared in `sampleExt_parser.mly`.
 
-4. Finally, in [lib/ext/ext.ml](../../lib/ext/ext.ml):
+3. Finally, in [lib/ext/ext.ml](../../lib/ext/ext.ml):
   a. add a new module `SampleExtInstance` that instantiates `SampleExt` with an existing extension and introduce it into the chain of extensions. Typically, newer extensions should be added towards the end as the "outermost" instantiations.
   b. add an entry for it to `module_map`, the function that resolves a `supported_extensions` value (in turn parsed from the `--extension` command-line flag) to the corresponding `(module ExtApi.Ext)`.
 
   Not every extension needs to be one more `--extension` choice, though: `DecreasesExt` (see [Decreases Extension](#decreases-extension)) is instead stacked directly into the base of the chain, so it's present under every `--extension` value rather than being mutually exclusive with the others. Do this if your extension's functionality is orthogonal to which of the existing extensions is active, by inserting your `<Ext>Instance` earlier in the chain (as `Cont` for the modules built on top of it) instead of adding it to `module_map`.
 
-5. That's the only place the new extension needs to be registered: [driver.ml](../../lib/driver/driver.ml)'s `parse_and_check_all` resolves the `--extension` flag via `Ext.module_map` and passes the result down through the rest of the pipeline automatically (see [Wiring: how `ext_hooks` reaches your code](#wiring-how-ext_hooks-reaches-your-code) below).
+4. That's the only place the new extension needs to be registered: [driver.ml](../../lib/driver/driver.ml)'s `parse_and_check_all` resolves the `--extension` flag via `Ext.module_map` and passes the result down through the rest of the pipeline automatically (see [Wiring: how `ext_hooks` reaches your code](#wiring-how-ext_hooks-reaches-your-code) below).
 
-6. Run `dune build; dune install` to compile Raven with the new extension.
+5. Run `dune build; dune install` to compile Raven with the new extension.
 
 That's it! 
 - With the updated parser, Raven front-end will support the newly defined syntax.
@@ -294,11 +289,9 @@ These values are used to configure certain options for your extension.
 - `val lib_source : (lib_unit * (string * string)) option`
 This value can optionally contain a Raven library file, such as `sampleExt_lib.rav` to be included as part of the current extension. If no such library is required, the programmer can set this to `None`. The `lib_unit` says where the file goes: `Library_unit` merges it into `Library`, where programs can use its modules; `Elaboration_unit` puts it in a unit that programs cannot name, for modules only the extension itself instantiates (as `Prophecy` and `ErrorCreds` are). In order to include `sampleExt_lib.rav` for instance, set it as follows:
 
-`let lib_source = Some (ExtApi.Library_unit, ("sampleExt_lib.rav", [%blob "sampleExt_lib.rav"]))`, and make the following modifications to the `dune` file located in the extension:
-a. add `ppx_blob` in the `pps` list in the `preprocess` option of the `library` stanza.
-b. add `(preprocessor_deps (file sampleExt_lib.rav))` to the `library` stanza. 
+`let lib_source = Some (ExtApi.Library_unit, ("sampleExt_lib.rav", [%blob "sampleExt_lib.rav"]))`, and add `(file ext/sampleExt/sampleExt_lib.rav)` to the `preprocessor_deps` of the library stanza in [lib/dune](../../lib/dune).
 
-Please take a look at [sampleExt.ml](../../lib/ext/sampleExt/sampleExt.ml) and [dune](../../lib/ext/sampleExt/dune) for an example of how to include an optional library file.
+Please take a look at [sampleExt.ml](../../lib/ext/sampleExt/sampleExt.ml) for an example of how to include an optional library file.
 
 If your extension needs its own local variables to reliably encode new constructs during rewriting (e.g. a scratch ghost local), don't reach for a config value here -- there isn't one, on purpose. See `rewrite_callable_entry` under [Rewrites](#rewrites): it lets you introduce (via `Rewriter.introduce_symbol`) and initialize whatever locals a specific callable needs, sized/typed/named however that callable requires, rather than a fixed set added uniformly (and mostly unused) to every callable in the program.
 

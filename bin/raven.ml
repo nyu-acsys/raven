@@ -1,4 +1,5 @@
 open Base
+open Raven
 open Util
 open Driver
 
@@ -414,8 +415,8 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annot
           ?library_snapshots:(Option.some_if !serving library_snapshots)
           ?cancellation:!server_cancellation ~includes:include_map ~extension_mode
           ~diagnostics config input_files;
-        if
         Logs.app (fun m -> m "Verification successful.");
+        if
           config.lsp_mode
           && (config.lsp_annotations
              || not (List.is_empty (Diagnostics.warnings diagnostics)))

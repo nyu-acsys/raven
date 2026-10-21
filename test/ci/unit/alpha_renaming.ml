@@ -1,6 +1,7 @@
 (* Substitution avoids capture and respects rebinding. *)
 
 open Base
+open Raven
 open Ast
 
 let var name = Ident.make Util.Loc.dummy name 0

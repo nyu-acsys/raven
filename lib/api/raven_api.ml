@@ -2,6 +2,7 @@
     pipeline of [Driver]. *)
 
 open Base
+open Raven
 open Util
 module S = Ast.Surface
 

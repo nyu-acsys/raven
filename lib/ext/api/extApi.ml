@@ -14,7 +14,7 @@ type type_check_expr_functs = Rewriter.type_check_expr_functs = {
   set_checked_type : expr -> type_expr -> type_expr -> type_expr -> expr Rewriter.t;
   check_expr : expr -> type_expr -> expr Rewriter.t;
   type_mismatch_error : 'a. location -> type_expr -> type_expr -> 'a;
-  expand_type_expr : type_expr -> (type_expr, unit) Ast__Rewriter.t_ext;
+  expand_type_expr : type_expr -> (type_expr, unit) Rewriter.t_ext;
 }
 (** Set of functions of the type checker available for type checking `Expr.expr_ext` *)
 
@@ -30,7 +30,7 @@ type type_check_stmt_functs = Rewriter.type_check_stmt_functs = {
     qual_ident ->
     unit Rewriter.state ->
     unit Rewriter.state * (qual_ident * var_decl);
-  expand_type_expr : type_expr -> (type_expr, unit) Ast__Rewriter.t_ext;
+  expand_type_expr : type_expr -> (type_expr, unit) Rewriter.t_ext;
   disambiguate_and_check_expr :
     expr -> type_expr -> ProgUtils.DisambiguationTbl.t -> expr Rewriter.t;
   type_mismatch_error : 'a. location -> type_expr -> type_expr -> 'a;

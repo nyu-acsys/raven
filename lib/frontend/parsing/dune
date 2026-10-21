@@ -1,15 +1,8 @@
-(library
- (name frontend)
- (package raven)
- (libraries base ast ext defaultExt prophecyExt typing)
- (preprocess
-  (pps ppx_hash ppx_compare ppx_sexp_conv ppx_custom_printf ppx_let)))
-
 (ocamllex
  (modules lexer))
 
 (rule
- (target prophecyExt.mly)
+ (target prophecyExt_parser.mly)
  (deps ../../ext/prophecyExt/prophecyExt_parser.mly)
  (action
   (copy %{deps} %{target})))
@@ -47,7 +40,7 @@
 (menhir
  (modules
   parser
-  prophecyExt
+  prophecyExt_parser
   errorCreditsExt_parser
   sampleExt_parser
   decreasesExt_parser

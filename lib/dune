@@ -1,0 +1,21 @@
+; All of Raven but its API, as one library whose modules are those of the directories
+; below; raven.ml lists what it exports.
+
+(include_subdirs unqualified)
+
+(library
+ (name raven)
+ (package raven)
+ (libraries base stdio str unix logs fmt logs.fmt sexplib yojson)
+ (preprocessor_deps
+  (file library/base_types.rav)
+  (file library/resource_algebra.rav)
+  (file library/atomics.rav)
+  (file library/array.rav)
+  (file library/lowering.rav)
+  (file ext/prophecyExt/prophecyLib.rav)
+  (file ext/errorCreditsExt/errorCreditsLib.rav)
+  (file ext/decreasesExt/well_founded_order.rav)
+  (file ext/sampleExt/sampleExt_lib.rav))
+ (preprocess
+  (pps ppx_blob ppx_hash ppx_compare ppx_sexp_conv ppx_custom_printf ppx_let)))

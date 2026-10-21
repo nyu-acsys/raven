@@ -10,12 +10,8 @@
   logs
   logs.cli
   logs.fmt
-  config
-  yojson
-  util
-  library
-  ext
-  driver)
+  raven
+  yojson)
  (preprocess
   (pps ppx_custom_printf))
  (modes byte exe))

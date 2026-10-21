@@ -1,32 +1,32 @@
 (test
  (name symbol_table_overloads)
  (modules symbol_table_overloads)
- (libraries ast base util))
+ (libraries raven base))
 
 (test
  (name overload_resolution)
  (modules overload_resolution)
- (libraries typing ast base util))
+ (libraries raven base))
 
 (test
  (name smt_ident_encoding)
  (modules smt_ident_encoding)
- (libraries smt ast base util))
+ (libraries raven base))
 
 (test
  (name smt_printing)
  (modules smt_printing)
- (libraries smt ast base util))
+ (libraries raven base))
 
 (test
  (name smt_results)
  (modules smt_results)
- (libraries smt ast base util))
+ (libraries raven base))
 
 (test
  (name smt_lifecycle)
  (modules smt_lifecycle)
- (libraries smt ast base unix))
+ (libraries raven base unix))
 
 (executable
  (name smt_stub)
@@ -36,17 +36,17 @@
 (test
  (name counterexample_render)
  (modules counterexample_render)
- (libraries backend base sexplib))
+ (libraries raven base sexplib))
 
 (test
  (name alpha_renaming)
  (modules alpha_renaming)
- (libraries ast base util))
+ (libraries raven base))
 
 (executable
  (name print_roundtrip)
  (modules print_roundtrip)
- (libraries driver frontend ext extApi ast util base stdio))
+ (libraries raven base stdio))
 
 ; Every .rav file of the tests, the tutorial and the library prints as Raven that parses
 ; back to the same program.
