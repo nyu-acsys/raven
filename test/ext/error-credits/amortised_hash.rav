@@ -149,7 +149,7 @@ module Hash {
         if (k == 0) {
           // For some reason need to assert the following fact about Reals;
           assert (
-            (h-1) / (2*v)  ==  ((h-1) / 2) / v
+            (h-1) / (2.0*v)  ==  ((h-1) / 2.0) / v
           );
         }
       // }
@@ -201,7 +201,7 @@ module Hash {
 
   auto lemma sum_n_m_val(n: Int, m: Int)
     decreases m - n + 1
-    ensures {sum_n_m(n, m)} 0 <= n <= m ==> sum_n_m(n, m) == (m*(m+1) - n*(n-1)) / 2
+    ensures {sum_n_m(n, m)} 0 <= n <= m ==> 2 * sum_n_m(n, m) == m*(m+1) - n*(n-1)
   {
     if (0 < n && n == m ) {
 

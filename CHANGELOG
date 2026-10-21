@@ -32,6 +32,7 @@ All notable changes to this project will be documented in this file.
 - Locations in different files are ordered by file name, independently of memory layout.
 - Data types and functor applications can be module arguments, as in `Library.Frac[Seq[Int]]`.
 - A procedure's ghost result can be assigned to a ghost variable.
+- Integer division is integer division in verification conditions, where it could make proofs unsound.
 
 ## [1.5.0] - 2026-10-16
 

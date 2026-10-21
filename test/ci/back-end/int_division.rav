@@ -1,0 +1,36 @@
+// Division of Ints is integer division, Euclidean as in SMT-LIB, also in an inline func,
+// which is a definition in SMT-LIB. In a Real context, as in the permission 1/2, it is
+// real division.
+
+inline func trunc_div(a: Int, b: Int) returns (q: Int) {
+  a >= 0 ? a / b : -((-a) / b)
+}
+
+inline func trunc_mod(a: Int, b: Int) returns (r: Int) {
+  a - b * trunc_div(a, b)
+}
+
+func half(n: Int) returns (r: Int) {
+  n / 2
+}
+
+proc rounding() {
+  assert -7 / 2 == -4 && -7 % 2 == 1;
+  assert trunc_div(-7, 2) == -3 && trunc_mod(-7, 2) == -1;
+  assert trunc_div(7, -2) == -3 && trunc_mod(7, -2) == 1;
+  assert half(7) == 3;
+}
+
+proc real_context(x: Int)
+  requires x == 7
+{
+  var r: Real := x / 2;
+  assert r == 3.5;
+  var p: Real := 1 / 2;
+  assert p == 0.5;
+}
+
+// The definition of half is consistent: false does not follow from it.
+proc consistent() {
+  assert false;
+}

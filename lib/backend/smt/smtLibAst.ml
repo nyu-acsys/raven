@@ -184,6 +184,10 @@ let rec pr_term ppf (term : term) =
       match (constr, expr_list) with
       | DataTest constructor, [ arg ] ->
           fprintf ppf "@[<2>((_ is %a)@ %a)@]" pr_smt_ident constructor pr_term arg
+      (* SMT-LIB's [/] is real division; Z3 reads it on integers as [div] only outside of
+         definitions. *)
+      | Div, [ t1; t2 ] when Type.equal (Expr.to_type term) Type.int ->
+          fprintf ppf "@[<2>(div@ %a@ %a)@]" pr_term t1 pr_term t2
       | ( (( Bool _ | Int _ | Real _ | Not | ToReal | MapLookUp | MapUpdate | Eq | Gt | Lt
            | Geq | Leq | And | Or | Plus | Minus | Mult | Div | Mod | DataConstr _
            | DataDestr _ | Ite | Var _ ) as sym),
