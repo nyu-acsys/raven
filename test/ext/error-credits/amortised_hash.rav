@@ -16,7 +16,7 @@ module Hash {
   free auto lemma val_size_pos()
     ensures val_size > 0
 
-  val amortized_error: Real = (max_hash_size-1) / (2*(val_size+1))
+  val amortized_error: Real = (max_hash_size-1) / (2.0*(val_size+1))
 
   module OptInt = Library.Option[Int]
 
@@ -138,9 +138,9 @@ module Hash {
 
       {!
       // if (!OptInt.is_some(lookUpHashMap(mp, v))) {
-        ghost var eps: Real := (((max_hash_size-1) * len(mp)) / 2 - sum_n_m(0, len(mp)-1)) / (val_size + 1);
+        ghost var eps: Real := (((max_hash_size-1) * len(mp)) / 2.0 - sum_n_m(0, len(mp)-1)) / (val_size + 1);
 
-        ghost var eps'': Real := (((max_hash_size-1) * (1+len(mp)))/2 - sum_n_m(0, len(mp))) / (val_size + 1);
+        ghost var eps'': Real := (((max_hash_size-1) * (1+len(mp)))/2.0 - sum_n_m(0, len(mp))) / (val_size + 1);
 
         ghost var v := val_size+1;
         ghost var k := len(mp);
@@ -201,7 +201,7 @@ module Hash {
 
   auto lemma sum_n_m_val(n: Int, m: Int)
     decreases m - n + 1
-    ensures {sum_n_m(n, m)} 0 <= n <= m ==> 2 * sum_n_m(n, m) == m*(m+1) - n*(n-1)
+    ensures {sum_n_m(n, m)} 0 <= n <= m ==> sum_n_m(n, m) == (m*(m+1) - n*(n-1)) / 2.0
   {
     if (0 < n && n == m ) {
 
@@ -219,7 +219,7 @@ module Hash {
 
   inline pred hashfun_amortized(x: Ref, mp: HashMap) {
     hashfun(x, mp) && ((
-      EC.error(((((max_hash_size-1) * len(mp))/2 - sum_n_m(0, len(mp)-1) ) / (val_size+1)))
+      EC.error(((((max_hash_size-1) * len(mp))/2.0 - sum_n_m(0, len(mp)-1) ) / (val_size+1)))
     ))
   }
 

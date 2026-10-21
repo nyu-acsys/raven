@@ -1,6 +1,6 @@
 // Division of Ints is integer division, Euclidean as in SMT-LIB, also in an inline func,
-// which is a definition in SMT-LIB. In a Real context, as in the permission 1/2, it is
-// real division.
+// which is a definition in SMT-LIB, and also where a Real is expected: an Int expression
+// is converted to Real as a whole. Division with a Real operand is real division.
 
 inline func trunc_div(a: Int, b: Int) returns (q: Int) {
   a >= 0 ? a / b : -((-a) / b)
@@ -25,9 +25,13 @@ proc real_context(x: Int)
   requires x == 7
 {
   var r: Real := x / 2;
-  assert r == 3.5;
+  assert r == 3.0;
+  var s: Real := x / 2.0;
+  assert s == 3.5;
   var p: Real := 1 / 2;
-  assert p == 0.5;
+  assert p == 0.0;
+  var q: Real := 1.0 / 2;
+  assert q == 0.5;
 }
 
 // The definition of half is consistent: false does not follow from it.

@@ -47,18 +47,6 @@ let rec contextual_type source target =
       end
   | _ -> target
 
-(* [expr] of type [Int] as a [Real], with the coercion pushed through arithmetic, so that a
-   division in a real context, as in the permission [1/2], is real division. *)
-let rec to_real expr =
-  let loc = Expr.to_loc expr in
-  match expr with
-  | Expr.App (((Plus | Minus | Mult | Div) as op), [ a; b ], _) ->
-      Expr.mk_app ~loc ~typ:Type.real op [ to_real a; to_real b ]
-  | Expr.App (Uminus, [ a ], _) -> Expr.mk_app ~loc ~typ:Type.real Uminus [ to_real a ]
-  | Expr.App (Ite, [ c; a; b ], _) ->
-      Expr.mk_app ~loc ~typ:Type.real Ite [ c; to_real a; to_real b ]
-  | _ -> Expr.mk_to_real ~loc expr
-
 (* Both types are expanded by the checker before reaching this entry point. *)
 let rec coerce_expanded expr target =
   let source = Expr.to_type expr in
@@ -70,7 +58,8 @@ let rec coerce_expanded expr target =
       let loc = Expr.to_loc expr in
       let target = Type.set_ghost (Type.is_ghost source) target in
       match (source, target) with
-      | Type.App (Int, [], _), Type.App (Real, [], _) -> Rewriter.return (to_real expr)
+      | Type.App (Int, [], _), Type.App (Real, [], _) ->
+          Rewriter.return (Expr.mk_to_real ~loc expr)
       | Type.App ((Map | FinSet), _, _), Type.App ((Map | FinSet), _, _) ->
           let domain = Type.map_dom target in
           let variable = Type.mk_var_decl (Ident.fresh loc "coerce_index") domain in

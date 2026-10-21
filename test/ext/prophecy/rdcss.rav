@@ -431,7 +431,7 @@ proc rdcss_inner(l_n: Ref, l_descr_ref: Ref,
       fold pending_state(token, l_descr', n1, proph_extract_winner(prophecies), winner, l_n, l_descr_ref);
       fold descr_inv(token, p, n1, l_n, l_descr_ref, l_descr, winner)[notDone := true, isPending := true];
       fold read_l_descr(l_descr_ref, l_descr')[q := 0.1];
-      fold rdcss_inv(l_n)[s := updatingState(l_descr_ref, l_descr, p), q1 := 1/4, token := token , tid_ghost_winner := winner];
+      fold rdcss_inv(l_n)[s := updatingState(l_descr_ref, l_descr, p), q1 := 0.25, token := token , tid_ghost_winner := winner];
 
       // CAS was successful; finish operation
       complete(l_descr_ref, l_n, l_descr, token, p, winner);
@@ -604,7 +604,7 @@ inv descr_inv(token: AtomicToken<rdcss> , p: Proph[(Bool, Proph[Int])], rdcss_re
     exists notDone: Bool :: notDone ? (
     // First disjunct: This contains either `pending` or `accepted` state.
       own(l_descr_ref.one_shot, private)
-      && own(l_n.n_loc, pending(l_descr_ref), 1/2) && (
+      && own(l_n.n_loc, pending(l_descr_ref), 0.5) && (
         exists isPending: Bool :: isPending ? 
           // `pending`
           pending_state(token, l_descr, rdcss_ret, proph_extract_winner(vs), tid_ghost_winner, l_n, l_descr_ref) 
