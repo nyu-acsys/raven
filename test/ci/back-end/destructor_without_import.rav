@@ -1,0 +1,35 @@
+// A destructor is looked up in the data type of the value it is applied to, also in an
+// assignment, a variable definition and a `match` statement, without importing the
+// data type's module.
+module Tree {
+  type T = data { case leaf; case node(left: T, value: Int, right: T) }
+}
+
+module IntList = Library.List[Int]
+
+proc root(t: Tree.T) returns (v: Int)
+  requires t is node
+  ensures v == t.value
+{
+  v := t.value;
+  var l := t.left;
+  var r: Tree.T := t.right;
+}
+
+proc head(l: IntList.T, d: Int) returns (x: Int)
+  ensures l is :: ==> x == l.hd
+{
+  match l {
+    case hd :: _ => { x := hd; }
+    case nil => { x := d; }
+  }
+}
+
+proc sum(t: Tree.T) returns (s: Int)
+  ensures t is leaf ==> s == 0
+{
+  match t {
+    case leaf => { s := 0; }
+    case node(l, v, r) => { s := v; }
+  }
+}

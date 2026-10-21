@@ -108,6 +108,32 @@ let disambiguate_and_check_expr ?(allow_proc_call = false) (expr : expr)
 
   processed_expr
 
+(** The field or destructor [field] of a read of [ref]: a destructor of [ref]'s data type,
+    as in [ExprTyping]'s [Read] case, or else as resolved in scope. `ref.M.value` for an
+    uninstantiated functor `M`, or an unqualified field or destructor imported from one,
+    is recovered from the deferred import and the type of [ref] (see
+    [ImplicitInstantiation.try_resolve_implicit_instantiation_destr]). *)
+let resolve_read_field ~is_ghost ref field disam_tbl =
+  let open Rewriter.Syntax in
+  let peek () =
+    disambiguate_and_check_expr ref (Type.any |> Type.set_ghost is_ghost) disam_tbl
+  in
+  let* own_destr =
+    if QualIdent.is_qualified field then Rewriter.return None
+    else
+      let* peeked_ref = peek () in
+      ExprTyping.destr_of_data_type (Expr.to_type peeked_ref) (QualIdent.unqualify field)
+  in
+  match own_destr with
+  | Some destr -> Rewriter.return destr
+  | None ->
+      ImplicitInstantiation.resolve_or_implicit field ~on_miss:(fun () ->
+          let* imported = Rewriter.find_import_target field in
+          let candidate = Base.Option.value imported ~default:field in
+          let* peeked_ref = peek () in
+          ImplicitInstantiation.try_resolve_implicit_instantiation_destr
+            ~field_ident:candidate ~arg_typ:(Expr.to_type peeked_ref))
+
 let disambiguate_and_check_field_read ~is_ghost ref field disam_tbl =
   let open Rewriter.Syntax in
   let* resolved_opt = Rewriter.resolve_and_find_opt field in
@@ -520,22 +546,7 @@ and check_var_def (var_def : Stmt.var_def) (call_decl : Callable.call_decl)
         | Some (App (Read, [ expr1; field_expr ], _)) ->
             let field_qual_ident = Expr.to_qual_ident field_expr in
             let* _, symbol =
-              (* `e.M.value` for an uninstantiated functor `M` (see
-                     [ImplicitInstantiation.try_resolve_implicit_instantiation_destr]). An
-                     unqualified field or destructor imported from one is recovered as in
-                     [ExprTyping]'s [Read] case: the deferred import first, then the type
-                     of `e`. *)
-              ImplicitInstantiation.resolve_or_implicit field_qual_ident
-                ~on_miss:(fun () ->
-                  let* imported = Rewriter.find_import_target field_qual_ident in
-                  let candidate = Base.Option.value imported ~default:field_qual_ident in
-                  let* peeked_expr1 =
-                    disambiguate_and_check_expr expr1
-                      (Type.any |> Type.set_ghost var_ghost)
-                      disam_tbl
-                  in
-                  ImplicitInstantiation.try_resolve_implicit_instantiation_destr
-                    ~field_ident:candidate ~arg_typ:(Expr.to_type peeked_expr1))
+              resolve_read_field ~is_ghost:var_ghost expr1 field_qual_ident disam_tbl
             in
             let+ symbol = Rewriter.Symbol.reify symbol in
             begin match symbol with
@@ -606,22 +617,8 @@ and check_assign (assign_desc : Stmt.assign_desc) (call_decl : Callable.call_dec
         (* Field read *)
         | App (Read, [ ref_expr; read_expr ], _) ->
             let read_expr_qi = Expr.to_qual_ident read_expr in
-
             let* read_expr_qi, read_symbol =
-              (* `ref_expr.M.value` for an uninstantiated functor `M`, or an unqualified
-                   field or destructor imported from one: recovered as in [ExprTyping]'s
-                   [Read] case. *)
-              ImplicitInstantiation.resolve_or_implicit read_expr_qi ~on_miss:(fun () ->
-                  let* imported = Rewriter.find_import_target read_expr_qi in
-                  let candidate = Base.Option.value imported ~default:read_expr_qi in
-                  let* peeked_ref_expr =
-                    disambiguate_and_check_expr ref_expr
-                      (Type.any |> Type.set_ghost is_ghost_assign)
-                      disam_tbl
-                  in
-                  ImplicitInstantiation.try_resolve_implicit_instantiation_destr
-                    ~field_ident:candidate
-                    ~arg_typ:(Expr.to_type peeked_ref_expr))
+              resolve_read_field ~is_ghost:is_ghost_assign ref_expr read_expr_qi disam_tbl
             in
             let* read_symbol = Rewriter.Symbol.reify read_symbol in
 
