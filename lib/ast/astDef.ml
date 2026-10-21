@@ -986,13 +986,16 @@ module Expr = struct
     | Binder (Compr, _, _, _, _) -> 0
     | Binder ((Forall | Exists), _, _, _, _) -> 18
 
+  (** The variable of the comprehension a map literal is desugared into. *)
+  let map_literal_key = "$key"
+
   (** The entries and the default of [e] if it is a desugared map literal: updates of the
-      comprehension over [$key] that the parser builds. *)
+      comprehension over [map_literal_key] that the parser builds. *)
   let map_literal e =
     let rec go entries = function
       | App (MapUpdate, [ map; k; v ], _) -> go ((k, v) :: entries) map
       | Binder (Compr, [ key ], [], default, _)
-        when String.equal (Ident.name key.Type.var_name) "$key" ->
+        when String.equal (Ident.name key.Type.var_name) map_literal_key ->
           Some (entries, default)
       | _ -> None
     in
@@ -3341,6 +3344,11 @@ module Module = struct
   and module_instr = SymbolDef of symbol | Import of import_directive
   and t = { mod_decl : module_decl; mod_def : module_instr list }
 
+  (** The suffix of the module holding the definitions of a sealed module without
+      parameters, [module M :> I { ... }], which the parser expands to `M$Impl : I` and
+      the sealed instance `module M :> I = M$Impl`. *)
+  let sealed_impl_suffix = "$Impl"
+
   (** Builds the printer family, parameterized by how to render [TypeExt]/[ExprExt]/
       [StmtExt] leaves (see [Type.make_printers]/[Expr.make_printers]/
       [Stmt.make_printers]/[Callable.make_printers], which this composes). *)
@@ -3432,7 +3440,7 @@ module Module = struct
           when Ident.equal t.qual_base impl.mod_decl.mod_decl_name
                && String.equal
                     (Ident.name impl.mod_decl.mod_decl_name)
-                    (Ident.name mod_inst_name ^ "$Impl") ->
+                    (Ident.name mod_inst_name ^ sealed_impl_suffix) ->
             let sealed =
               {
                 impl with

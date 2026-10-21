@@ -6,24 +6,24 @@ open Ast
 
 (* A mixfix expression becomes a call; a pattern can spell that call explicitly. *)
 let mixfix_application loc name base bounds arguments =
-  let loc = Loc.merge (Expr.to_loc base) loc in
-  let name = Ident.make loc name 0 in
-  let is_hole = function
-    | Expr.App (Var qi, [], _) -> QualIdent.is_local qi && Ident.name (QualIdent.unqualify qi) = "_"
-    | _ -> false
-  in
-  let target, args = match arguments with
-    | None -> QualIdent.from_ident name, base :: bounds
-    | Some args ->
-        begin match base with
+  match arguments with
+  | None -> Surface.Expr.mixfix ~loc name base bounds
+  | Some args ->
+      let loc = Loc.merge (Expr.to_loc base) loc in
+      let name = Ident.make loc name 0 in
+      let is_hole = function
+        | Expr.App (Var qi, [], _) -> QualIdent.is_local qi && Ident.name (QualIdent.unqualify qi) = "_"
+        | _ -> false
+      in
+      let target =
+        match base with
         | Expr.App (Var qi, [], _) when Ident.name (QualIdent.unqualify qi) = "_"
                                       && List.for_all is_hole bounds ->
-            (if QualIdent.is_local qi then QualIdent.from_ident name
-             else QualIdent.append (QualIdent.pop qi) name), args
+            if QualIdent.is_local qi then QualIdent.from_ident name
+            else QualIdent.append (QualIdent.pop qi) name
         | _ -> Error.syntax_error loc "Expected an operator pattern before this argument list"
-        end
-  in
-  Expr.mk_app ~typ:Type.any ~loc (Expr.Var target) args
+      in
+      Surface.Expr.call ~loc target args
 
 (* An enumeration delimiter, and whether it is written with a pipe. *)
 let checked_enumeration_name loc (opener, opener_piped) (closer, closer_piped) ~singleton =
@@ -42,6 +42,15 @@ let check_set_comprehension loc (opener, opener_piped) (closer, closer_piped) =
           && Bool.equal opener_piped closer_piped) then
     Error.syntax_error loc "This delimiter cannot form a set comprehension"
 
+(* The operator a MULTOP or ADDOP token stands for. *)
+let binop_of_constr : Expr.constr -> Surface.Expr.binop = function
+  | Mult -> Mult
+  | Div -> Div
+  | Mod -> Mod
+  | Plus -> Plus
+  | Minus -> Minus
+  | _ -> assert false
+
 (* A callable has at most one `opens` clause. *)
 let single_opens_clause = function
   | [] -> None
@@ -54,73 +63,6 @@ let inline_modifier ~loc (kind : Callable.call_kind) (is_inline : bool) : bool =
   match kind with
   | Invariant when is_inline -> Error.syntax_error loc "An invariant cannot be inline"
   | _ -> is_inline
-
-(* The indexed assignment `x[i] := v` is `x := x[i := v]`, and `x[i][j] := v` is
-   `x := x[i := x[i][j := v]]`. The type checker gives it its meaning: an update of a
-   map, or whatever an extension claims it to be. *)
-let rec index_assign base index value =
-  let loc = Loc.merge (Expr.to_loc base) (Expr.to_loc value) in
-  let update = Expr.mk_app ~typ:Type.any ~loc
-      (Var (QualIdent.from_ident (Ident.make loc "_[_:=_]" 0))) [ base; index; value ] in
-  match base with
-  | Expr.App (Var qual_ident, [], _) when QualIdent.is_local qual_ident ->
-      Stmt.Assign { assign_lhs = [ qual_ident ]; assign_rhs = update; assign_is_init = false }
-  | Expr.App (MapLookUp, [ base'; index' ], _) -> index_assign base' index' update
-  | Expr.App (Var name, [ base'; index' ], _)
-    when QualIdent.is_local name && Ident.name (QualIdent.unqualify name) = "_[_]" ->
-      index_assign base' index' update
-  | _ ->
-      Error.syntax_error (Expr.to_loc base)
-        "Expected a variable, possibly indexed, on the left-hand side of an indexed assignment"
-
-(* A sealed module without parameters, `module M :> I { ... }`, as the module `M$Impl : I`
-   with its body and the sealed instance `module M :> I = M$Impl`. *)
-let expand_sealed_module (member : Module.module_instr) : Module.module_instr list =
-  let open Module in
-  match member with
-  | SymbolDef (ModDef ({ mod_decl = decl; _ } as mod_def))
-    when decl.mod_decl_is_sealed && List.is_empty decl.mod_decl_formals
-         && not decl.mod_decl_is_interface -> (
-      match decl.mod_decl_returns with
-      | [ (iface, _) ] ->
-          let loc = decl.mod_decl_loc in
-          let impl_name =
-            Ident.make loc (decl.mod_decl_name.ident_name ^ ProgUtils.sealed_impl_suffix) 0
-          in
-          let impl =
-            ModDef { mod_def with
-                     mod_decl = { decl with mod_decl_name = impl_name; mod_decl_is_sealed = false } }
-          in
-          let view =
-            ModInst (mk_mod_inst ~name:decl.mod_decl_name ~typ:iface
-                       ~def:(QualIdent.from_ident impl_name, [])
-                       ~is_sealed:true ~loc ())
-          in
-          [ SymbolDef impl; SymbolDef view ]
-      | _ -> [ member ])
-  | _ -> [ member ]
-
-(* A local variable definition, followed by the assignment of its initial value, if any. *)
-let mk_local_var_def ~ghost ~const decl rhs_opt ~rhs_loc =
-  let decl =
-    Type.{ decl with
-           var_type = decl.var_type |> Type.set_ghost ghost;
-           var_ghost = ghost;
-           var_const = const;
-         }
-  in
-  match rhs_opt with
-  | Some rhs ->
-      let stmt, default_expr_optn = rhs ([Expr.from_var_decl decl], true) in
-      let var_init =
-        match stmt, default_expr_optn with
-        | Stmt.Basic (Assign assign_desc), None -> Some assign_desc.assign_rhs
-        | _, Some expr -> Some (Expr.set_loc expr rhs_loc)
-        | _ -> None
-      in
-      [Stmt.(Basic (VarDef { var_decl = decl; var_init; var_is_free = NotFree })); stmt]
-  | None ->
-      [Stmt.(Basic (VarDef { var_decl = decl; var_init = None; var_is_free = NotFree }))]
 
 %}
 
@@ -176,16 +118,7 @@ let mk_local_var_def ~ghost ~const decl rhs_opt ~rhs_loc =
 
 main:
 | files = includes; ms = member_def_list_opt; EOF {
-  let open Module in
-  let decl =
-    { empty_decl with
-      mod_decl_name = Ident.make (Loc.make $startpos(ms) $endpos(ms)) "$Program" 0;
-    }
-  in
-  files,
-  { mod_decl = decl;
-    mod_def = ms;
-  }
+  files, Surface.Module.program ~loc:(Loc.make $startpos(ms) $endpos(ms)) ms
 }
 ;
 
@@ -199,8 +132,7 @@ module_def:
 | is_interface = MODULE; decl = module_header; def = module_inst_or_impl_or_decl {
   let open Module in
   match def with
-  | ModDef impl ->
-      ModDef { impl with mod_decl = { decl with mod_decl_is_interface = is_interface } }
+  | ModDef impl -> Surface.Module.module_def ~interface:is_interface decl impl.mod_def
   | ModInst ma ->
       if decl.mod_decl_formals <> [] then
         Error.syntax_error (Loc.make $startpos(def) $startpos(def))
@@ -230,25 +162,16 @@ module_def:
               (Printf.sprintf !"Module %{Ident} has no body and no interface: write 'module %{Ident} : I' naming the interface it stands for"
                  decl.mod_decl_name decl.mod_decl_name)
         in
-        ModInst (mk_mod_inst ~name:decl.mod_decl_name ~typ:mod_inst_type
-                   ?def:ma.mod_inst_def ~is_interface
-                   ~is_sealed:decl.mod_decl_is_sealed ~loc:decl.mod_decl_loc ())
+        Surface.Module.instance ~loc:decl.mod_decl_loc ?def:ma.mod_inst_def
+          ~interface:is_interface ~sealed:decl.mod_decl_is_sealed decl.mod_decl_name
+          mod_inst_type
   | symbol -> symbol
 }
   
 module_header:
 | id = MODIDENT; mod_formals = module_param_list_opt; rt = return_type_opt {
-  let open Module in
-  let decl =
-    { empty_decl with
-      mod_decl_name = id;
-      mod_decl_formals = mod_formals;
-      mod_decl_returns = fst rt;
-      mod_decl_is_sealed = snd rt;
-      mod_decl_loc = Loc.make $startpos(id) $endpos(id);
-    }
-  in
-  decl
+  Surface.Module.header ~loc:(Loc.make $startpos(id) $endpos(id)) ~params:mod_formals
+    ~implements:(fst rt) ~sealed:(snd rt) id
 }
 
 (* Interfaces implemented by this module, and whether it is sealed. Several may
@@ -282,21 +205,16 @@ module_inst_or_impl_or_decl:
 }
 
 mod_inst_args:
-| LBRACKET tps = separated_list(COMMA, type_expr) RBRACKET {
-  List.map (function
-    | Type.App (Type.Var qi, [], _) -> Module.ModArg qi
-    | tp -> Module.TypeArg tp) tps
-}
+| LBRACKET tps = separated_list(COMMA, type_expr) RBRACKET { List.map Surface.Module.arg tps }
 | { [] }
     
 member_def_list_opt:
-| m = member_def_maybe_free; ms = member_def_list_opt { expand_sealed_module m @ ms }
+| m = member_def_maybe_free; ms = member_def_list_opt { Surface.Module.expand_sealed m @ ms }
 | (* empty *) { [] }
 
 member_def_maybe_free:
-| is_free = free symbol = member_def {
-  Module.SymbolDef (if is_free then Symbol.set_free symbol else symbol) }
-| imp = import_dir { Module.Import imp }
+| is_free = free symbol = member_def { Surface.Module.symbol ~free:is_free symbol }
+| imp = import_dir { Surface.Module.import_member imp }
 
 member_def:
 | def = field_def { Module.FieldDef def }
@@ -312,29 +230,15 @@ member_def:
 
 field_def:
 | g = ghost_modifier; FIELD x = plain_ident; COLON; t = type_expr {
-    let decl =
-      Module.{ field_name = x;
-               field_type = Type.mk_fld (Loc.make $startpos(t) $endpos(t)) t |> Type.set_ghost g;
-               field_is_ghost = g;
-               field_alias = None;
-               field_loc = Loc.make $symbolstartpos $endpos
-           }
-    in
-    decl
+    Surface.Module.field ~loc:(Loc.make $symbolstartpos $endpos) ~ghost:g
+      ~type_loc:(Loc.make $startpos(t) $endpos(t)) x t
   }
 (* Manifest field: `field f = M.g` denotes an existing field rather than
    declaring a new one, the counterpart of `rep type T = Int` for types. The
    type and ghost-ness are taken from the target and checked in Typing. *)
 | g = ghost_modifier; FIELD x = plain_ident; EQ; target = qual_ident {
-    let decl =
-      Module.{ field_name = x;
-               field_type = Type.mk_fld (Loc.make $startpos(target) $endpos(target)) Type.any |> Type.set_ghost g;
-               field_is_ghost = g;
-               field_alias = Some (Expr.to_qual_ident target);
-               field_loc = Loc.make $symbolstartpos $endpos
-           }
-    in
-    decl
+    Surface.Module.field_alias ~loc:(Loc.make $symbolstartpos $endpos) ~ghost:g
+      ~type_loc:(Loc.make $startpos(target) $endpos(target)) x (Expr.to_qual_ident target)
   }
 
 type_def:
@@ -346,16 +250,13 @@ type_def:
 type_def_expr:
 | t = type_expr { t }
 | DATA; LBRACE; decls = separated_list(option(SEMICOLON), variant_decl) RBRACE {
-  Type.mk_data (QualIdent.from_ident (Ident.make Loc.dummy "" 0)) decls (Loc.make $symbolstartpos $endpos)
+  Surface.Type.data ~loc:(Loc.make $symbolstartpos $endpos) decls
 }
 
 variant_decl:
 | CASE; id = decl_name args = option(variant_args) {
-  let args = Base.Option.value args ~default:[] in
-  Type.{ variant_name = id;
-         variant_loc = Loc.make $startpos(id) $endpos(id);
-         variant_args = args;
-       }
+  Surface.Type.variant ~loc:(Loc.make $startpos(id) $endpos(id)) id
+    (Base.Option.value args ~default:[])
 }
 
 variant_args:
@@ -364,55 +265,23 @@ variant_args:
     
 proc_def:
 | k = proc_kind; def = proc_decl; body = option(block) {
-  let open Callable in
-  let call_decl_kind, is_axiom, call_decl_is_auto = k in
-  let _  =
-    match is_axiom, body with
-    | true, Some _ ->
-        let loc = Loc.make $startpos(body) $endpos(body) in
-        Error.syntax_error loc "Axiom declarations cannot have bodies. Did you mean to declare a lemma?"
-    | _ -> () 
-  in
-  let def =
-    let ghostify_decls =
-      Base.List.map ~f:(fun decl -> Type.{ decl with var_ghost = true; var_type = set_ghost true decl.var_type })
-    in
-    let call_decl_returns =
-      match call_decl_kind with
-      | Lemma | Pred | Invariant ->
-          ghostify_decls def.call_decl.call_decl_returns
-      | _ ->
-          def.call_decl.call_decl_returns
-    in
-    { def with call_decl = { def.call_decl with call_decl_kind; call_decl_is_auto; call_decl_returns } } in
-  let proc_body = Option.map body ~f:(fun s ->
-    Stmt.{ stmt_desc = s; stmt_loc = Loc.make $startpos(body) $endpos(body) })
-  in
-  { def with call_def = ProcDef { proc_body } }
+  (match k, body with
+   | Surface.Callable.Axiom _, Some _ ->
+       let loc = Loc.make $startpos(body) $endpos(body) in
+       Error.syntax_error loc "Axiom declarations cannot have bodies. Did you mean to declare a lemma?"
+   | _ -> ());
+  let proc_body = Option.map body ~f:(Surface.Stmt.at ~loc:(Loc.make $startpos(body) $endpos(body))) in
+  Surface.Callable.proc k def.Callable.call_decl proc_body
 }
 
 proc_kind:
-| PROC { (Callable.Proc, false, false) }
-| is_auto = ioption(AUTO); LEMMA { (Callable.Lemma, false, is_auto <> None) }
-| is_auto = ioption(AUTO); AXIOM { (Callable.Lemma, true, is_auto <> None) }
+| PROC { Surface.Callable.Proc }
+| is_auto = ioption(AUTO); LEMMA { Surface.Callable.Lemma { is_auto = is_auto <> None } }
+| is_auto = ioption(AUTO); AXIOM { Surface.Callable.Axiom { is_auto = is_auto <> None } }
     
 func_def:
 | def = func_decl; body = option(delimited(LBRACE, expr, RBRACE)) {
-  let open Callable in
-  let implicify_decls =
-    Base.List.map ~f:(fun decl ->
-      Type.{ decl with var_ghost = true; var_implicit = true; var_type = set_ghost true decl.var_type })
-  in
-  let call_decl_returns =
-    match def.call_decl.call_decl_kind with
-    | Pred | Invariant ->
-        implicify_decls def.call_decl.call_decl_returns
-    | _ ->
-        def.call_decl.call_decl_returns
-  in
-  { call_decl = { def.call_decl with call_decl_returns };
-    call_def = FuncDef { func_body = body }
-  }
+  Surface.Callable.func def.Callable.call_decl body
 }
 
     
@@ -425,16 +294,12 @@ module_param_list_opt:
   
 module_param:
 | id = MODIDENT; COLON; t = mod_ident {
-  let decl =
-    Module.mk_mod_inst ~name:id ~typ:t ~loc:(Loc.make $symbolstartpos $endpos) ()
-  in
-  decl
+  Surface.Module.param ~loc:(Loc.make $symbolstartpos $endpos) id t
 }
 
 import_dir:
 | IMPORT; m = mod_ident; DOT; name = mixfix_name {
-  { import_name = QualIdent.append m name; import_all = false; import_prelude = false;
-    import_loc = Loc.make $symbolstartpos $endpos }
+  Surface.Module.import ~loc:(Loc.make $symbolstartpos $endpos) (QualIdent.append m name)
 }
 | IMPORT; id = qual_ident {
   let ident = Expr.to_qual_ident id in
@@ -444,22 +309,13 @@ import_dir:
   let import_name =
     if import_all then QualIdent.pop ident else ident
   in
-  { import_name; import_all; import_prelude = false;
-    import_loc = Loc.make $symbolstartpos $endpos }
+  Surface.Module.import ~loc:(Loc.make $symbolstartpos $endpos) ~all:import_all import_name
 }
-| IMPORT; id = mod_ident { { import_name = id; import_all = false; import_prelude = false;
-                              import_loc = Loc.make $symbolstartpos $endpos } }
+| IMPORT; id = mod_ident { Surface.Module.import ~loc:(Loc.make $symbolstartpos $endpos) id }
     
 type_decl:
 | m = type_mod; TYPE; id = MODIDENT {
-  let ta =
-    Module.{ type_def_name = id;
-             type_def_expr = None;
-             type_def_rep = m;
-             type_def_is_free = false;
-             type_def_loc = Loc.make $symbolstartpos $endpos }
-  in
-  ta
+  Surface.Module.type_def ~loc:(Loc.make $symbolstartpos $endpos) ~rep:m id None
 }
 
 
@@ -504,8 +360,8 @@ callable_decl:
   let precond, postcond, contract_ext, opens = cs in
   let opens = single_opens_clause opens in
   let loc_params, formals = formals in
-  Callable.mk_call_decl ~kind:Func ~name:id ~loc:(Loc.make $startpos(id) $endpos(id))
-    ~formals ~returns ~precond ~postcond ~contract_ext ?opens ~loc_params ()
+  Surface.Callable.decl ~kind:Func ~loc:(Loc.make $startpos(id) $endpos(id))
+    ~formals ~returns ~precond ~postcond ~contract_ext ?opens ~loc_params id
 }
 
 callable_decl_out_vars:
@@ -513,8 +369,8 @@ callable_decl_out_vars:
   let precond, postcond, contract_ext, opens = cs in
   let opens = single_opens_clause opens in
   let loc_params, formals = formals in
-  Callable.mk_call_decl ~kind:Func ~name:id ~loc:(Loc.make $startpos(id) $endpos(id))
-    ~formals ~returns ~precond ~postcond ~contract_ext ?opens ~loc_params ()
+  Surface.Callable.decl ~kind:Func ~loc:(Loc.make $startpos(id) $endpos(id))
+    ~formals ~returns ~precond ~postcond ~contract_ext ?opens ~loc_params id
 }
 
 
@@ -534,11 +390,7 @@ var_decls_with_modifiers:
 formal_with_loc:
 | m = var_modifier; decl = bound_var {
   let implicit, ghost = m in
-  `Var Type.{ decl with
-              var_type = decl.var_type |> Type.set_ghost ghost;
-              var_ghost = ghost;
-              var_implicit = implicit;
-            }
+  `Var (Surface.Type.with_modifiers ~ghost ~implicit decl)
 }
 | m = var_modifier; x = plain_ident; DOT; f = qual_ident {
   let implicit, ghost = m in
@@ -588,14 +440,7 @@ formals_with_loc:
 var_decl_with_modifiers:
 | m = var_modifier; decl = bound_var {
   let implicit, ghost = m in
-  let decl =
-    Type.{ decl with
-           var_type = decl.var_type |> Type.set_ghost ghost;
-           var_ghost = ghost;
-           var_implicit = implicit;
-         }
-  in
-  decl
+  Surface.Type.with_modifiers ~ghost ~implicit decl
 }
 ;
 
@@ -609,30 +454,10 @@ contracts:
 
 contract:
 | m = contract_mods; REQUIRES; e = expr {
-  let spec =
-    Stmt.{ spec_form = e;
-           spec_atomic = m;
-           spec_comment = None;
-           spec_name = None;
-           spec_error = [];
-           spec_source = None; spec_trigs = []; spec_state = [];
-         }
-  in
-  ([spec], [], [], [])
+  ([Surface.Stmt.spec ~atomic:m e], [], [], [])
 }
 | m = contract_mods; ENSURES; trigs = patterns; e = expr {
-  let spec =
-    Stmt.{ spec_form = e;
-           spec_atomic = m;
-           spec_comment = None;
-           spec_name = None;
-           spec_error = [];
-           spec_source = None;
-           spec_trigs = trigs;
-           spec_state = [];
-         }
-  in
-  ([], [spec], [], [])
+  ([], [Surface.Stmt.spec_with_triggers ~atomic:m ~triggers:trigs e], [], [])
 }
 | ce = contract_ext {
   ([], [], [ce], [])
@@ -675,7 +500,7 @@ opens_entry:
 (** Statements *)
 
 stmt:
-| ss = stmt_desc { List.map (fun s -> Stmt.{ stmt_desc = s; stmt_loc = Loc.make $symbolstartpos $endpos }) ss }
+| ss = stmt_desc { List.map (Surface.Stmt.at ~loc:(Loc.make $symbolstartpos $endpos)) ss }
 
 stmt_desc:
 | s = stmt_wo_trailing_substmt { s }
@@ -688,8 +513,8 @@ stmt_desc:
 
 stmt_no_short_if:
 | ss = stmt_no_short_if_desc {
-  Stmt.mk_block_stmt ~loc:(Loc.make $symbolstartpos $endpos) @@
-    List.map (fun s -> Stmt.{ stmt_desc = s; stmt_loc = Loc.make $symbolstartpos $endpos }) ss
+  Surface.Stmt.block_stmt ~loc:(Loc.make $symbolstartpos $endpos) @@
+    List.map (Surface.Stmt.at ~loc:(Loc.make $symbolstartpos $endpos)) ss
 }
     
     
@@ -707,85 +532,38 @@ stmt_wo_trailing_substmt:
 (* nested block *)
 | s = block { [s] }
 (* procedure call *)
-| e = call_expr; SEMICOLON {
-  let assign =
-    Stmt.{ assign_lhs = [];
-           assign_rhs = e;
-           assign_is_init = false;
-         }
-  in
-  [Stmt.(Basic (Assign assign))]
-}
+| e = call_expr; SEMICOLON { [Surface.Stmt.call e] }
 (* thread spawn *)
 | SPAWN; id = qual_ident; LPAREN; args = separated_list(COMMA, expr); RPAREN; SEMICOLON {
-  let open Stmt in
-  let call =
-    { call_lhs = [];
-      call_name = Expr.to_qual_ident id;
-      call_args = args;
-      call_is_spawn = true;
-      call_is_init = false;
-      call_precond_given = false;
-    }
-  in
-  [Basic (Call call)]
+  [Surface.Stmt.spawn (Expr.to_qual_ident id) args]
 }
 (* assignment / allocation / cas ... *)
 | es = separated_nonempty_list(COMMA, expr); COLONEQ; rhs = assign_rhs; SEMICOLON {
-  [let stmt, _def_arg = rhs (es, false) in stmt] 
+  [Surface.Stmt.assign es rhs]
 }
 (* bind *)
 | es = separated_nonempty_list(COMMA, expr); COLONPIPE; e = expr; SEMICOLON {
-  let vs = List.map (function
-    | Expr.(App (Var qual_ident, [], _))
-      when QualIdent.is_local qual_ident -> qual_ident
-    | e -> Error.syntax_error (Expr.to_loc e) "Expected single field location or local variables on left-hand side of assignment")
-      es 
-  in
-  let bind =
-    Stmt.{ bind_lhs = vs;
-           bind_rhs = mk_spec e;
-         }
-  in
-  [Stmt.(Basic (Bind bind))]
+  [Surface.Stmt.bind es e]
 }
 (* havoc *)
-| HAVOC; id = qual_ident; SEMICOLON { 
-  [Stmt.(Basic (Havoc { havoc_var = (Expr.to_qual_ident id); havoc_is_init = false; } ))]
-}
+| HAVOC; id = qual_ident; SEMICOLON { [Surface.Stmt.havoc (Expr.to_qual_ident id)] }
 
 (* assume / assert / inhale / exhale *)
 | goal = spec_goal; SEMICOLON {
   let sk, spec = goal in
-  [Stmt.Basic (Stmt.Spec (sk, spec))]
+  [Surface.Stmt.spec_stmt sk spec]
 }
 (* return *)
 | RETURN; es = separated_list(COMMA, expr); SEMICOLON {
-  let e = match es with
-  | [e] -> e
-  | es -> Expr.mk_tuple ~loc:(Loc.make $startpos(es) $endpos(es)) es
-  in
-  [Stmt.(Basic (Return e))]
+  [Surface.Stmt.return ~loc:(Loc.make $startpos(es) $endpos(es)) es]
 }
 (* unfold / fold / openInv / closeInv *)
 | use_kind = USE; id = qual_ident; LPAREN; es = separated_list(COMMA, expr); RPAREN; SEMICOLON {
-  [Stmt.(Basic (Use {
-    use_kind = use_kind; 
-    use_name = Expr.to_qual_ident id; 
-    use_args = es;
-        use_witnesses_or_binds = [];
-    use_spec_error = []
-  }))]
+  [Surface.Stmt.use use_kind (Expr.to_qual_ident id) es]
 }
 | use_kind = USE; id = qual_ident; LPAREN; es = separated_list(COMMA, expr); RPAREN;
   LBRACKET wtns = separated_list(COMMA, existential_witness_or_bind) RBRACKET SEMICOLON {
-  [Stmt.(Basic (Use {
-    use_kind = use_kind; 
-    use_name = Expr.to_qual_ident id; 
-    use_args = es;
-        use_witnesses_or_binds = wtns;
-    use_spec_error = []
-  }))]
+  [Surface.Stmt.use use_kind (Expr.to_qual_ident id) ~witnesses:wtns es]
 }
 | f = stmt_ext { f }
 ;
@@ -797,72 +575,32 @@ existential_witness_or_bind:
 }
 
 %public spec_goal:
-| sk = SPEC; e = expr { (sk, Stmt.mk_spec e) }
+| sk = SPEC; e = expr { (sk, Surface.Stmt.spec e) }
 | sk = SPEC; name = plain_ident; COLON; e = expr {
   if sk <> Stmt.Assert then
     Error.syntax_error (Loc.make $startpos(name) $endpos(name))
       "A name is only allowed in assert statements";
-  (sk, Stmt.mk_spec ~name:name.Ident.ident_name e)
+  (sk, Surface.Stmt.spec ~name:name.Ident.ident_name e)
 }
 
 %public assign_rhs:
 | NEW LPAREN fes = separated_list(COMMA, pair(qual_ident, option(preceded(COLON, expr)))) RPAREN {
-  function
-    | [Expr.App(Expr.Var x, _, _)], assign_is_init ->
-        let new_descr = Stmt.{
-          new_lhs = x;
-          new_args = List.map (fun (f, e_opt) -> (Expr.to_qual_ident f, e_opt)) fes;
-          new_is_init = assign_is_init;
-        }
-        in
-        Stmt.(Basic (New new_descr)), Some (Expr.mk_null ())
-    | es, _ -> Error.syntax_error (es |> List.hd |> Expr.to_loc) ("Result of allocation must be assigned to a single variable")
+  Surface.Stmt.new_rhs (List.map (fun (f, e_opt) -> (Expr.to_qual_ident f, e_opt)) fes)
 }
-| e = expr {
-  function 
-    | [Expr.(App (Read, [field_write_ref; App (Var field_write_field, [], _)], _))], _ ->
-        Basic (FieldWrite { field_write_ref; field_write_field; field_write_val = e }), None
-    | [Expr.(App (MapLookUp, [base; index], _))], _ ->
-        Basic (index_assign base index e), None
-    | [Expr.(App (Var name, [base; index], _))], _
-      when QualIdent.is_local name && Ident.name (QualIdent.unqualify name) = "_[_]" ->
-        Basic (index_assign base index e), None
-    | es, assign_is_init ->
-        let vs = List.map (function
-          | Expr.(App (Var qual_ident, [], _))
-            when QualIdent.is_local qual_ident -> qual_ident
-          | e -> Error.syntax_error (Expr.to_loc e) "Expected a single field location, a single indexed location, or local variables on left-hand side of assignment")
-            es 
-        in
-        Basic (Assign { assign_lhs = vs; assign_rhs = e; assign_is_init }), None
-}
+| e = expr { Surface.Stmt.expr_rhs e }
 
 local_var_def:
 | g = ghost_modifier; v = VAR; decl = bound_var_opt_type; e = option(preceded(COLONEQ, assign_rhs)) {
-  mk_local_var_def ~ghost:g ~const:v decl e ~rhs_loc:(Loc.make $startpos(e) $endpos(e))
+  Surface.Stmt.local_var_def ~ghost:g ~const:v decl e ~rhs_loc:(Loc.make $startpos(e) $endpos(e))
 }
 
     
 var_def:
 | g = ghost_modifier; v = VAR; decl = bound_var_opt_type; e = option(preceded(EQ, expr)) {
-  let decl =
-    Type.{ decl with
-           var_type = decl.var_type |> Type.set_ghost g;
-           var_ghost = g;
-           var_const = v;
-         }
-  in
-  Stmt.{ var_decl = decl; var_init = e; var_is_free = NotFree }
+  Surface.Module.var_def ~ghost:g ~const:v decl e
 }
 | g = ghost_modifier; v = VAR; decl = bound_var_opt_type; COLONEQ; e = expr {
-  let decl =
-    Type.{ decl with
-           var_type = decl.var_type |> Type.set_ghost g;
-           var_ghost = g;
-           var_const = v;
-         }
-  in
-  Stmt.{ var_decl = decl; var_init = Some e; var_is_free = NotFree }
+  Surface.Module.var_def ~ghost:g ~const:v decl (Some e)
 }
 
 
@@ -880,12 +618,12 @@ var_def:
 
   
 %public block:
-| LBRACE; stmts = list(stmt); RBRACE { Stmt.mk_block (List.flatten stmts) }
+| LBRACE; stmts = list(stmt); RBRACE { Surface.Stmt.block (List.flatten stmts) }
 ;
 
 ghost_block:
 | LGHOSTBRACE; stmts = list(stmt); RGHOSTBRACE {
-  [Stmt.mk_block ~kind:Stmt.Ghost (List.flatten stmts)]
+  [Surface.Stmt.ghost_block (List.flatten stmts)]
 }
 ;
 
@@ -895,7 +633,7 @@ ghost_block:
    *logical* atomicity of a callable and is checked. *)
 atomic_block:
 | ATOMIC; LBRACE; stmts = list(stmt); RBRACE {
-  [Stmt.mk_block ~kind:Stmt.Atomic (List.flatten stmts)]
+  [Surface.Stmt.atomic_block (List.flatten stmts)]
 }
 ;
 
@@ -915,80 +653,38 @@ assign_lhs:
     
 if_then_stmt:
 | IF; LPAREN; e = expr; RPAREN; st = stmt  {
-  let cond =
-    Stmt.{ cond_test = Some e;
-           cond_then = Stmt.mk_block_stmt ~loc:(Loc.make $startpos(st) $endpos(st)) st;
-           cond_else = mk_skip ~loc:(Loc.make $endpos $endpos);
-           cond_if_assumes_false = false;
-         }
-  in
-  [Stmt.(Cond cond)]
+  [Surface.Stmt.cond e (Surface.Stmt.block_stmt ~loc:(Loc.make $startpos(st) $endpos(st)) st)
+     (Surface.Stmt.skip ~loc:(Loc.make $endpos $endpos))]
 }
 ;
 
 if_then_else_stmt:
 | IF; LPAREN; e = expr; RPAREN; st = stmt_no_short_if; ELSE; se = stmt { 
-  let cond =
-    Stmt.{ cond_test = Some e;
-           cond_then = st;
-           cond_else = Stmt.mk_block_stmt ~loc:(Loc.make $startpos(se) $endpos(se)) se;
-           cond_if_assumes_false = false;
-         }
-  in
-  [Stmt.(Cond cond)]
+  [Surface.Stmt.cond e st (Surface.Stmt.block_stmt ~loc:(Loc.make $startpos(se) $endpos(se)) se)]
 }
 ;
 
 if_then_else_stmt_no_short_if:
 | IF; LPAREN; e = expr; RPAREN; st = stmt_no_short_if; ELSE; se = stmt_no_short_if { 
-  let cond =
-    Stmt.{ cond_test = Some e;
-           cond_then = st;
-           cond_else = se;
-           cond_if_assumes_false = false;
-         }
-  in
-  [Stmt.(Cond cond)]
+  [Surface.Stmt.cond e st se]
 }
 ;
   
 while_stmt:
 | WHILE; LPAREN; e = expr; RPAREN; cs = loop_contract_list; s = block {
-  let loop_contract, loop_contract_ext = cs in
-  let loop =
-    Stmt.{ loop_contract;
-           loop_contract_ext;
-           loop_prebody = mk_skip ~loc:(Loc.make $startpos $startpos);
-           loop_test = e;
-           loop_postbody = { stmt_desc = s; stmt_loc = Loc.make $startpos(s) $endpos(s) };
-         }
-  in
-  [Stmt.Loop loop]
+  let invariants, contract_ext = cs in
+  [Surface.Stmt.while_ ~loc:(Loc.make $startpos $endpos) ~invariants ~contract_ext e
+     (Surface.Stmt.at ~loc:(Loc.make $startpos(s) $endpos(s)) s)]
 }
 | WHILE; LPAREN; e = expr; RPAREN; s = stmt {
-  let loop =
-    Stmt.{ loop_contract = [];
-           loop_contract_ext = [];
-           loop_prebody = mk_skip ~loc:(Loc.make $startpos $startpos);
-           loop_test = e;
-           loop_postbody = Stmt.mk_block_stmt ~loc:(Loc.make $startpos(s) $endpos(s)) s;
-         }
-  in
-  [Stmt.Loop loop]
+  [Surface.Stmt.while_ ~loc:(Loc.make $startpos $endpos) e
+     (Surface.Stmt.block_stmt ~loc:(Loc.make $startpos(s) $endpos(s)) s)]
 }
 ;
 
 while_stmt_no_short_if:
 | WHILE; LPAREN; e = expr; RPAREN; s = stmt_no_short_if {
-  let loop =
-    Stmt.{ loop_contract = [];
-           loop_contract_ext = [];
-           loop_prebody = mk_skip ~loc:(Loc.make $startpos $startpos);
-           loop_test = e;
-           loop_postbody = s;
-         }
-  in
-  [Stmt.Loop loop]
+  [Surface.Stmt.while_ ~loc:(Loc.make $startpos $endpos) e s]
 }
 ;
 
@@ -1007,9 +703,9 @@ loop_contract_list:
 ;
 
 loop_contract:
-| INVARIANT; e = expr { `Invariant (Stmt.mk_spec e) }
+| INVARIANT; e = expr { `Invariant (Surface.Stmt.spec e) }
 | INVARIANT; name = plain_ident; COLON; e = expr {
-  `Invariant (Stmt.mk_spec ~name:name.Ident.ident_name e)
+  `Invariant (Surface.Stmt.spec ~name:name.Ident.ident_name e)
 }
 | ce = contract_ext { `Ext ce }
 ;
@@ -1017,12 +713,12 @@ loop_contract:
 (** Expressions *)
 
 primary:
-| c = CONSTVAL { Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) c []) }
+| c = CONSTVAL { Surface.Expr.constant ~loc:(Loc.make $symbolstartpos $endpos) c }
 | LPAREN; es = separated_list(COMMA, expr); RPAREN {
-  Expr.mk_tuple ~loc:(Loc.make $symbolstartpos $endpos) es
+  Surface.Expr.tuple ~loc:(Loc.make $symbolstartpos $endpos) es
 }
 | LPAREN; e = expr; COLON; t = type_expr; RPAREN {
-  Expr.set_type_annot e (Some t)
+  Surface.Expr.annotated e t
 }
 | e = compr_expr { e }
 | e = dot_expr { e }
@@ -1051,13 +747,13 @@ enumeration_close:
     let loc = Loc.make $symbolstartpos $endpos in
     ignore (checked_enumeration_name loc opener closer ~singleton:false);
     match args with
-    | None -> Expr.(mk_app ~typ:Type.any ~loc (Enumeration (fst opener)) es)
+    | None -> Surface.Expr.enumeration ~loc (fst opener) es
     | Some args ->
         let singleton = match es with [e] when is_enumeration_hole e -> true | _ -> false in
         if not (List.is_empty es || singleton) then
           Error.syntax_error loc "Only empty and singleton constructor patterns can be called";
         let name = checked_enumeration_name loc opener closer ~singleton in
-        Expr.(mk_app ~typ:Type.any ~loc (Var (QualIdent.from_ident name)) args)
+        Surface.Expr.call ~loc (QualIdent.from_ident name) args
   }
 | opener = enumeration_open; entries = map_entries; closer = enumeration_close {
     let loc = Loc.make $symbolstartpos $endpos in
@@ -1065,26 +761,13 @@ enumeration_close:
      | ("{", false), ("}", false) -> ()
      | _ -> Error.syntax_error loc "A map literal is delimited by braces");
     let entries, default = entries in
-    (* A comprehension of the default, whose key type comes from the updates or the
-       expected type. *)
-    let key =
-      Type.{ var_name = Ident.make loc "$key" 0;
-             var_type = Type.mk_any loc;
-             var_loc = loc;
-             var_const = false;
-             var_ghost = false;
-             var_implicit = false;
-           }
-    in
-    let constant = Expr.mk_binder ~loc ~typ:Type.any Compr [ key ] default in
-    Stdlib.List.fold_left (fun map (k, v) ->
-        Expr.mk_app ~typ:Type.any ~loc MapUpdate [ map; k; v ]) constant entries
+    Surface.Expr.map_literal ~loc entries default
   }
 | opener = enumeration_open; v = bound_var; COLONCOLON; e = expr;
   closer = enumeration_close {
     let loc = Loc.make $symbolstartpos $endpos in
     check_set_comprehension loc opener closer;
-    Expr.(mk_binder ~loc ~typ:Type.(mk_set loc bot) Compr [v] e)
+    Surface.Expr.set_compr ~loc v e
   }
 ;
   
@@ -1107,20 +790,20 @@ dot_expr:
 
 own_expr:
 | OWN; LPAREN; es = expr_list; RPAREN {
-  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Own es)
+  Surface.Expr.own ~loc:(Loc.make $symbolstartpos $endpos) es
 }
 
 au_expr:
 | AU; LT; qid = qual_ident; GT; LPAREN; es = expr_list; RPAREN {
-  Expr.(mk_app ~typ:Type.perm ~loc:(Loc.make $symbolstartpos $endpos) (AUPred (Expr.to_qual_ident qid)) es)
+  Surface.Expr.au ~loc:(Loc.make $symbolstartpos $endpos) (Expr.to_qual_ident qid) es
 }
 | AUCOMMIT LT qid=qual_ident GT LPAREN es=expr_list; RPAREN {
-  Expr.(mk_app ~typ:Type.perm ~loc:(Loc.make $symbolstartpos $endpos) (AUPredCommit (Expr.to_qual_ident qid)) es)
+  Surface.Expr.au_commit ~loc:(Loc.make $symbolstartpos $endpos) (Expr.to_qual_ident qid) es
 }
 
 call_expr:
 | p = qual_ident_expr; es = call {
-  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) (Expr.Var (Expr.to_qual_ident p)) es)
+  Surface.Expr.call ~loc:(Loc.make $symbolstartpos $endpos) (Expr.to_qual_ident p) es
 }
   
 call:
@@ -1130,32 +813,34 @@ call:
    the extra parens the standalone `(e: T)` form (see `primary`) would require. *)
 call_arg:
 | e = expr { e }
-| e = expr; COLON; t = type_expr { Expr.set_type_annot e (Some t) }
+| e = expr; COLON; t = type_expr { Surface.Expr.annotated e t }
   
 call_opt:
 | es = call { 
   fun p ->
-    let p_ident = Expr.to_qual_ident p in
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.merge (to_loc p) (Loc.make $symbolstartpos $endpos)) (Var p_ident) es)
+    Surface.Expr.call ~loc:(Loc.merge (Expr.to_loc p) (Loc.make $symbolstartpos $endpos))
+      (Expr.to_qual_ident p) es
 }
 | (* empty *) { fun e -> e }
   
 qual_ident_expr:
 | x = qual_ident { x }
 | p = primary DOT x = qual_ident {
-  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Read [p; x])
+  Surface.Expr.field ~loc:(Loc.make $symbolstartpos $endpos) ~field_loc:(Expr.to_loc x) p
+    (Expr.to_qual_ident x)
 }
 | p = primary DOT LPAREN x = qual_ident RPAREN {
-  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Read [p; x])
+  Surface.Expr.field ~loc:(Loc.make $symbolstartpos $endpos) ~field_loc:(Expr.to_loc x) p
+    (Expr.to_qual_ident x)
 }
 
 %public qual_ident:
 | x = ident { x }
 | m = mod_ident; DOT; x = enumeration_name {
-  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) (Var (QualIdent.append m x)) [])
+  Surface.Expr.var ~loc:(Loc.make $symbolstartpos $endpos) (QualIdent.append m x)
 }
 | m = mod_ident; DOT; x = expression_name {
-  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) (Var (QualIdent.append m x)) [])
+  Surface.Expr.var ~loc:(Loc.make $symbolstartpos $endpos) (QualIdent.append m x)
 }
 
 mod_ident:
@@ -1220,8 +905,7 @@ callable_name:
 | x = enumeration_name { x }
 
 %public ident:
-| x = expression_name {
-  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) (Var (QualIdent.from_ident x)) []) }
+| x = expression_name { Surface.Expr.ident ~loc:(Loc.make $symbolstartpos $endpos) x }
 ;
 
 expression_name:
@@ -1261,46 +945,47 @@ lookup_expr:
     cont e1_lookup
 }
 | n = HASH {
-  let e2 = Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos(n) $endpos(n)) (Expr.Int n) []) in
-  fun e1 -> Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) TupleLookUp [e1; e2])
+  fun e1 ->
+    Surface.Expr.tuple_get ~loc:(Loc.make $symbolstartpos $endpos)
+      ~index_loc:(Loc.make $startpos(n) $endpos(n)) e1 (Int64.to_int n)
 }
 
   
 %public unary_expr:
 | e = lookup_or_update_expr { e }
 (*| e = ident { e }*)
-| MINUS; e = unary_expr {
-  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Uminus [e]) }
+| MINUS; e = unary_expr { Surface.Expr.neg ~loc:(Loc.make $symbolstartpos $endpos) e }
 | e = unary_expr_not_plus_minus { e }
 ;
 
 unary_expr_not_plus_minus:
-| NOT; e = unary_expr  { Expr.mk_app ~loc:(Loc.make $symbolstartpos $endpos) ~typ:Type.any Expr.Not [e] }
+| NOT; e = unary_expr  { Surface.Expr.not_ ~loc:(Loc.make $symbolstartpos $endpos) e }
 ;
 
+(* An operator, with its location. *)
 mult_op:
-| op = MULTOP { op }
-| INTER { Expr.Var (QualIdent.from_ident (Ident.make (Loc.make $symbolstartpos $endpos) "**" 0)) }
-| op = MULTOPSYM { Expr.Var (QualIdent.from_ident op) }
+| op = MULTOP { (binop_of_constr op, Loc.make $symbolstartpos $endpos) }
+| INTER { (Surface.Expr.Inter, Loc.make $symbolstartpos $endpos) }
+| op = MULTOPSYM { (Surface.Expr.User op, Loc.make $symbolstartpos $endpos) }
 
 mult_expr:
 | e = unary_expr { e }
 | e1 = mult_expr; op = mult_op; e2 = unary_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) op [e1; e2])
+    Surface.Expr.binary ~loc:(Loc.make $symbolstartpos $endpos) ~op_loc:(snd op) (fst op) e1 e2
   }
 ;
 
 add_op:
-| op = ADDOP { op }
-| UNION { Expr.Var (QualIdent.from_ident (Ident.make (Loc.make $symbolstartpos $endpos) "++" 0)) }
-| DIFF { Expr.Var (QualIdent.from_ident (Ident.make (Loc.make $symbolstartpos $endpos) "--" 0)) }
-| MINUS { Expr.Minus }
-| op = ADDOPSYM { Expr.Var (QualIdent.from_ident op) }
+| op = ADDOP { (binop_of_constr op, Loc.make $symbolstartpos $endpos) }
+| UNION { (Surface.Expr.Union, Loc.make $symbolstartpos $endpos) }
+| DIFF { (Surface.Expr.Diff, Loc.make $symbolstartpos $endpos) }
+| MINUS { (Surface.Expr.Minus, Loc.make $symbolstartpos $endpos) }
+| op = ADDOPSYM { (Surface.Expr.User op, Loc.make $symbolstartpos $endpos) }
 
 add_expr:
 | e = mult_expr { e }
 | e1 = add_expr; op = add_op; e2 = mult_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) op [e1; e2])
+    Surface.Expr.binary ~loc:(Loc.make $symbolstartpos $endpos) ~op_loc:(snd op) (fst op) e1 e2
   }
 ;
 
@@ -1315,37 +1000,35 @@ add_expr:
 | COLONCOLON { Ident.make (Loc.make $symbolstartpos $endpos) "::" 0 }
 
 %public right_assoc_binary_op:
-| op = right_assoc_binary_op_ident { Expr.Var (QualIdent.from_ident op) }
+| op = right_assoc_binary_op_ident { Surface.Expr.User op }
 
 right_assoc_binary_op_expr:
 | e = add_expr { e }
 | e1 = add_expr; op = right_assoc_binary_op; e2 = right_assoc_binary_op_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) op [e1; e2])
+    Surface.Expr.binary ~loc:(Loc.make $symbolstartpos $endpos) op e1 e2
 }
     
 %public rel_expr:
 | c = comp_seq {
   match c with
   | e, [] -> e
-  | _, comps -> Base.List.reduce_exn comps ~f:(fun e1 e2 -> Expr.mk_and ~loc:(Loc.merge (Expr.to_loc e1) (Expr.to_loc e2)) [e1; e2])
+  | _, comps -> Base.List.reduce_exn comps ~f:(fun e1 e2 -> Surface.Expr.conj ~loc:(Loc.merge (Expr.to_loc e1) (Expr.to_loc e2)) [e1; e2])
 }
 | e1 = rel_expr; IN; e2 = right_assoc_binary_op_expr {
-    let loc = Loc.make $symbolstartpos $endpos in
-    Expr.(mk_app ~typ:Type.any ~loc (Var (QualIdent.from_ident (Ident.make loc "in" 0))) [e1; e2])
+    Surface.Expr.binary ~loc:(Loc.make $symbolstartpos $endpos) In e1 e2
   } 
 | e1 = rel_expr; NOTIN; e2 = right_assoc_binary_op_expr {
-    let loc = Loc.make $symbolstartpos $endpos in
-    Expr.(mk_app ~typ:Type.any ~loc Not [mk_app ~typ:Type.any ~loc (Var (QualIdent.from_ident (Ident.make loc "in" 0))) [e1; e2]])
+    Surface.Expr.binary ~loc:(Loc.make $symbolstartpos $endpos) Not_in e1 e2
   }
 ;
 
 comp_op:
-| LT { Expr.Var (QualIdent.from_ident (Ident.make (Loc.make $symbolstartpos $endpos) "<" 0)) }
-| GT { Gt }
-| LEQ { Expr.Var (QualIdent.from_ident (Ident.make (Loc.make $symbolstartpos $endpos) "<=" 0)) }
-| GEQ { Geq }
-| SUBSETEQ { Expr.Var (QualIdent.from_ident (Ident.make (Loc.make $symbolstartpos $endpos) "subseteq" 0)) }
-| op = RELOPSYM { Expr.Var (QualIdent.from_ident op) }
+| LT { (Surface.Expr.Lt, Loc.make $symbolstartpos $endpos) }
+| GT { (Surface.Expr.Gt, Loc.make $symbolstartpos $endpos) }
+| LEQ { (Surface.Expr.Leq, Loc.make $symbolstartpos $endpos) }
+| GEQ { (Surface.Expr.Geq, Loc.make $symbolstartpos $endpos) }
+| SUBSETEQ { (Surface.Expr.Subseteq, Loc.make $symbolstartpos $endpos) }
+| op = RELOPSYM { (Surface.Expr.User op, Loc.make $symbolstartpos $endpos) }
 ;
 
 comp_seq:
@@ -1354,7 +1037,7 @@ comp_seq:
   let e2, comps = cseq in
   let loc1 = Expr.to_loc e1 in
   let loc2 = Expr.to_loc e2 in
-  (e1, Expr.(mk_app ~typ:Type.any ~loc:(Loc.merge loc1 loc2) op [e1; e2]) :: comps)
+  (e1, Surface.Expr.binary ~loc:(Loc.merge loc1 loc2) ~op_loc:(snd op) (fst op) e1 e2 :: comps)
 }
 ;
   
@@ -1366,33 +1049,33 @@ comp_seq:
 %public eq_expr:
 | e = rel_expr { e }
 | e1 = eq_expr; EQEQ; e2 = eq_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Eq [e1; e2])
+    Surface.Expr.binary ~loc:(Loc.make $symbolstartpos $endpos) Eq e1 e2
   }
 | e1 = eq_expr; NEQ; e2 = eq_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Not [mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Eq [e1; e2]])
+    Surface.Expr.binary ~loc:(Loc.make $symbolstartpos $endpos) Neq e1 e2
   }
 | e1 = eq_expr; op = EQOPSYM; e2 = eq_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) (Var (QualIdent.from_ident op)) [e1; e2])
+    Surface.Expr.binary ~loc:(Loc.make $symbolstartpos $endpos) (User op) e1 e2
   }
 ;
 
 and_expr:
 | e = eq_expr { e }
 | e1 = and_expr; AND; e2 = eq_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) And [e1; e2])
+    Surface.Expr.binary ~loc:(Loc.make $symbolstartpos $endpos) And e1 e2
   }
 | e1 = and_expr; op = ANDOPSYM; e2 = eq_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) (Var (QualIdent.from_ident op)) [e1; e2])
+    Surface.Expr.binary ~loc:(Loc.make $symbolstartpos $endpos) (User op) e1 e2
   }
 ;
 
 or_expr:
 | e = and_expr { e }
 | e1 = or_expr; OR; e2 = and_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Or [e1; e2])
+    Surface.Expr.binary ~loc:(Loc.make $symbolstartpos $endpos) Or e1 e2
   }
 | e1 = or_expr; op = OROPSYM; e2 = and_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) (Var (QualIdent.from_ident op)) [e1; e2])
+    Surface.Expr.binary ~loc:(Loc.make $symbolstartpos $endpos) (User op) e1 e2
   }
 ;
 
@@ -1401,14 +1084,14 @@ or_expr:
 impl_expr:
 | e = or_expr { e }
 | e1 = or_expr; IMPLIES; e2 = impl_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Impl [e1; e2])
+    Surface.Expr.binary ~loc:(Loc.make $symbolstartpos $endpos) Impl e1 e2
   }
 ;
 
 iff_expr:
 | e = impl_expr { e }
 | e1 = iff_expr IFF e2 = iff_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Eq [e1; e2])
+    Surface.Expr.binary ~loc:(Loc.make $symbolstartpos $endpos) Iff e1 e2
   }
 ;
 
@@ -1416,7 +1099,7 @@ iff_expr:
 ite_expr:
 | e = iff_expr { e }
 | e1 = iff_expr; QMARK; e2 = ite_expr; COLON; e3 = ite_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Ite [e1; e2; e3])
+    Surface.Expr.ite ~loc:(Loc.make $symbolstartpos $endpos) e1 e2 e3
   }
 ;
     
@@ -1426,65 +1109,29 @@ quant_var:
 
 bound_var:
 | x = plain_ident; COLON; t = type_expr {
-    let decl =
-      Type.{ var_name = x;
-             var_type = t;
-             var_loc = Loc.make $symbolstartpos $endpos;
-             var_const = false;
-             var_ghost = false;
-             var_implicit = false;
-           }
-    in
-    decl
+    Surface.Type.var_decl ~loc:(Loc.make $symbolstartpos $endpos) x t
   }
 ;
 
 bound_var_opt_type:
-| x = plain_ident {
-  let decl =
-    Type.{ var_name = x;
-           var_type = Type.mk_any Loc.dummy;
-           var_loc = Loc.make $symbolstartpos $endpos;
-           var_const = true;
-           var_ghost = false;
-           var_implicit = false;
-         }
-  in
-  decl
-}
+| x = plain_ident { Surface.Type.local_decl ~loc:(Loc.make $symbolstartpos $endpos) x None }
 | x = plain_ident; COLON; t = type_expr {
-  let decl =
-    Type.{ var_name = x;
-           var_type = t;
-           var_loc = Loc.make $symbolstartpos $endpos;
-           var_const = true;
-           var_ghost = false;
-           var_implicit = false;
-         }
-  in
-  decl
+  Surface.Type.local_decl ~loc:(Loc.make $symbolstartpos $endpos) x (Some t)
 } 
 ;
 
 %public type_expr:
-| ct = CONSTTYPE { Type.mk_app ~loc:(Loc.make $symbolstartpos $endpos) ct [] }
-| ATOMICTOKEN LT qid = qual_ident GT { Type.mk_atomic_token (Loc.make $symbolstartpos $endpos) (Expr.to_qual_ident qid) }
-//| x = IDENT { Type.mk_var (QualIdent.from_ident x) }
+| ct = CONSTTYPE { Surface.Type.constant ~loc:(Loc.make $symbolstartpos $endpos) ct }
+| ATOMICTOKEN LT qid = qual_ident GT {
+  Surface.Type.atomic_token ~loc:(Loc.make $symbolstartpos $endpos) (Expr.to_qual_ident qid) }
 | ct = TYPECONSTR LBRACKET ts = separated_list(COMMA, type_expr) RBRACKET {
-  let loc = Loc.make $symbolstartpos $endpos in
-  if List.length ts <> snd ct then
-    Error.syntax_error loc (Printf.sprintf "This type constructor expects %d argument(s)" (snd ct))
-  else begin
-    match ct, ts with
-    | (Type.Map, 1), [t] ->
-        Type.mk_set loc t
-    | (c, _), _ -> Type.mk_app ~loc c ts
-  end
+  Surface.Type.constr ~loc:(Loc.make $symbolstartpos $endpos) ct ts
   }
-| x = mod_ident { Type.mk_var x }
-| LPAREN ts = separated_list(COMMA, type_expr) RPAREN { Type.mk_prod (Loc.make $symbolstartpos $endpos) ts }
+| x = mod_ident { Surface.Type.named ~loc:(Loc.make $symbolstartpos $endpos) x [] }
+| LPAREN ts = separated_list(COMMA, type_expr) RPAREN {
+  Surface.Type.tuple ~loc:(Loc.make $symbolstartpos $endpos) ts }
 | x = mod_ident LBRACKET; ts = type_expr_list; RBRACKET {
-  Type.(App(Var x, ts, Type.mk_attr (Loc.make $symbolstartpos $endpos))) }
+  Surface.Type.named ~loc:(Loc.make $symbolstartpos $endpos) x ts }
     
   
 type_expr_list:
@@ -1503,7 +1150,7 @@ quant_vars:
 quant_expr: 
 | e = ite_expr { e }
 | q = QUANT; vs = quant_vars; COLONCOLON; trigs = patterns; e = quant_expr {
-    Expr.(mk_binder ~loc:(Loc.make $symbolstartpos $endpos) ~trigs q vs e)
+    Surface.Expr.quant ~loc:(Loc.make $symbolstartpos $endpos) ~triggers:trigs q vs e
   }
 ;
 

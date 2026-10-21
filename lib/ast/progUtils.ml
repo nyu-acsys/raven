@@ -31,10 +31,7 @@ let rec is_pointwise_body (x : ident) (body : expr) : bool =
   | App (MapLookUp, [ m; index ], _) when is_x index -> is_bool body && not (mentions_x m)
   | e -> is_bool e && not (mentions_x e)
 
-(** The suffix of the module holding the definitions of a sealed module without
-    parameters, [module M :> I { ... }], which the parser expands to `M$Impl : I` and the
-    sealed instance `module M :> I = M$Impl`. *)
-let sealed_impl_suffix = "$Impl"
+let sealed_impl_suffix = AstDef.Module.sealed_impl_suffix
 
 (** The name of a module as written in the program: [M] for the module [M$Impl] holding
     the definitions of a sealed module [M]. *)
