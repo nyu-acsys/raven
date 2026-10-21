@@ -71,6 +71,14 @@ while leaving `n`/`c` to be inferred. In natural-deduction terms, this whole sec
 automated **existential introduction**. You (usually implicitly) already have a specific witness
 in hand, and Raven's job is to prove that the body holds for it.
 
+When the search finds no witness for an existential of a `fold`, Raven falls back to the value
+it had at the `unfold` of the same instance: the predicate with the same input arguments,
+unfolded earlier on every path to the fold, with none of the arguments' variables assigned in
+between. This covers the common pattern of opening a predicate or invariant, taking a step that
+leaves part of its state alone, and closing it again. Only existentials outside a `forall` fall
+back, and an explicit `[x := e]` still takes precedence. If the fold fails, the note says which
+unfold the value came from, which usually points at the step that changed it.
+
 ## The bind statement (`x :| ...`) {#sec:bind-statement}
 
 `:|` is the dual of witness computation, not another name for it. Folding *proves* an

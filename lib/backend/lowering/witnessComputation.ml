@@ -10,6 +10,61 @@ open HeapNames
 type conditions = Expr.t list
 type universal_quants = { univ_vars : (ident * var_decl) list; triggers : expr list list }
 
+(** The prefix of the variables that an unfold binds the existentials of a predicate
+    instance to. A later fold of the instance uses them as its witnesses where the user
+    gives none; witness computation replaces them by computed witnesses where it finds
+    some. *)
+let fallback_prefix = "$unfolded$"
+
+let is_fallback (x : Ident.t) = String.is_prefix x.ident_name ~prefix:fallback_prefix
+
+(** The prefix of the existentials that a fold's fallback witnesses become again, apart
+    from every name of the program. *)
+let abstracted_prefix = "$abstracted$"
+
+(** The name of the existential [x], as the user wrote it. *)
+let source_name (x : Ident.t) =
+  Option.value
+    (String.chop_prefix (Ident.name x) ~prefix:abstracted_prefix)
+    ~default:(Ident.name x)
+
+(** [expr] with the existentials [vds] bound where the original existentials were: around
+    the smallest part of it, through conjunctions, conditionals and implications, that
+    contains all occurrences of each. *)
+let rec requantify ~loc (vds : var_decl list) (expr : expr) : expr =
+  let occurs e (vd : var_decl) = Set.mem (Expr.local_vars e) vd.var_name in
+  let here vds e = match vds with [] -> e | _ -> Expr.mk_binder ~loc Exists vds e in
+  let vds = List.filter vds ~f:(occurs expr) in
+  match (vds, expr) with
+  | [], _ -> expr
+  | _, App (Ite, [ c; a; b ], attr) ->
+      let shared, rest =
+        List.partition_tf vds ~f:(fun vd -> occurs c vd || (occurs a vd && occurs b vd))
+      in
+      here shared
+        (App
+           ( Ite,
+             [
+               c;
+               requantify ~loc (List.filter rest ~f:(occurs a)) a;
+               requantify ~loc (List.filter rest ~f:(occurs b)) b;
+             ],
+             attr ))
+  | _, App (And, args, attr) ->
+      let shared, rest =
+        List.partition_tf vds ~f:(fun vd -> List.count args ~f:(fun a -> occurs a vd) > 1)
+      in
+      here shared
+        (App
+           ( And,
+             List.map args ~f:(fun a ->
+                 requantify ~loc (List.filter rest ~f:(occurs a)) a),
+             attr ))
+  | _, App (Impl, [ c; b ], attr) ->
+      let shared, rest = List.partition_tf vds ~f:(occurs c) in
+      here shared (App (Impl, [ c; requantify ~loc rest b ], attr))
+  | _ -> here vds expr
+
 let ident_to_skolem_fn_ident ~loc ident =
   Ident.fresh_member loc ("$skolem_" ^ Ident.to_string ident)
 
@@ -224,32 +279,42 @@ let resolve_dependencies (vars : var_decl list) (outer_conds : conditions)
 (* The result of eliminating existentials: the expression, the [assume]s that bind their
    witnesses, and, for each existential without a witness, a note for the error that is
    reported if the enclosing statement fails. *)
-let rec find_witnesses_elim_exists (expr : expr) :
-    (expr * expr list * Error.t list) Rewriter.t =
-  elim_a { univ_vars = []; triggers = [] } [] expr
 
-and elim_a (universal_quants : universal_quants) (conds : conditions) (expr : expr) :
+(** [expr] with its existentials eliminated by witnesses, the witnesses' definitions, and
+    notes on existentials whose witnesses are unknown or fall back to [fallbacks]. *)
+let rec find_witnesses_elim_exists ?(fallbacks = []) (expr : expr) :
     (expr * expr list * Error.t list) Rewriter.t =
+  elim_a ~fallbacks { univ_vars = []; triggers = [] } [] expr
+
+(** [fallbacks] are witnesses of existentials outside any universal quantifier, used where
+    none is computed. *)
+and elim_a ?(fallbacks = []) (universal_quants : universal_quants) (conds : conditions)
+    (expr : expr) : (expr * expr list * Error.t list) Rewriter.t =
   let open Rewriter.Syntax in
   if%bind ProgUtils.is_expr_pure expr then Rewriter.return (expr, [], [])
   else
     match expr with
     | App (Ite, [ c; e1; e2 ], expr_attr) ->
-        let* e1, wtns_specs1, notes1 = elim_a universal_quants (c :: conds) e1 in
+        let* e1, wtns_specs1, notes1 =
+          elim_a ~fallbacks universal_quants (c :: conds) e1
+        in
 
         let not_c = Expr.mk_not ~loc:(Expr.to_loc c) c in
-        let* e2, wtns_specs2, notes2 = elim_a universal_quants (not_c :: conds) e2 in
+        let* e2, wtns_specs2, notes2 =
+          elim_a ~fallbacks universal_quants (not_c :: conds) e2
+        in
 
         Rewriter.return
           ( Expr.App (Ite, [ c; e1; e2 ], expr_attr),
             wtns_specs1 @ wtns_specs2,
             notes1 @ notes2 )
     | App (Impl, [ c; e2 ], expr_attr) ->
-        let+ e2, wtns_specs, notes = elim_a universal_quants (c :: conds) e2 in
+        let+ e2, wtns_specs, notes = elim_a ~fallbacks universal_quants (c :: conds) e2 in
         (Expr.App (Impl, [ c; e2 ], expr_attr), wtns_specs, notes)
     | App (And, e_list, expr_attr) ->
         let* e_wtns_specs_list =
-          Rewriter.List.map e_list ~f:(fun e -> elim_a universal_quants conds e)
+          Rewriter.List.map e_list ~f:(fun e ->
+              elim_a ~fallbacks universal_quants conds e)
         in
 
         let e_list, wtns_specs, notes = List.unzip3 e_wtns_specs_list in
@@ -276,10 +341,10 @@ and elim_a (universal_quants : universal_quants) (conds : conditions) (expr : ex
 
         Rewriter.return
           (Expr.Binder (Forall, var_decls, trgs, e, expr_attr), wtns_specs, notes)
-    | _ -> elim_a1 universal_quants conds expr
+    | _ -> elim_a1 ~fallbacks universal_quants conds expr
 
-and elim_a1 (univ_vars : universal_quants) (univ_conds : conditions) (expr : expr) :
-    (expr * expr list * Error.t list) Rewriter.t =
+and elim_a1 ?(fallbacks = []) (univ_vars : universal_quants) (univ_conds : conditions)
+    (expr : expr) : (expr * expr list * Error.t list) Rewriter.t =
   let open Rewriter.Syntax in
   (* Flattens multiple existentials *)
   let normalize_expr expr =
@@ -391,6 +456,45 @@ and elim_a1 (univ_vars : universal_quants) (univ_conds : conditions) (expr : exp
                     choices
                     @ List.map data ~f:(fun (conds, witness) ->
                         (uncovered @ conds, witness))))
+      in
+
+      (* An existential that the unfold of the same predicate instance bound keeps that
+         value where no computed witness applies. *)
+      let fallen_back =
+        if not (List.is_empty univ_vars.univ_vars) then []
+        else
+          List.filter_map var_decls ~f:(fun var_decl ->
+              let unsolved =
+                match Map.find witnesses var_decl.var_name with
+                | None -> true
+                | Some choices ->
+                    List.for_all choices ~f:(fun (conds, _) -> not (List.is_empty conds))
+              in
+              Option.bind
+                (List.find fallbacks ~f:(fun (x, _, _) -> Ident.(x = var_decl.var_name)))
+                ~f:(fun fallback -> Option.some_if unsolved (var_decl, fallback)))
+      in
+      let witnesses =
+        List.fold fallen_back ~init:witnesses
+          ~f:(fun witnesses (var_decl, (_, value, _)) ->
+            Map.update witnesses var_decl.var_name ~f:(function
+              | None -> [ ([], value) ]
+              | Some choices ->
+                  let uncovered =
+                    List.map choices ~f:(fun (conds, _) ->
+                        Expr.mk_not ~loc (Expr.mk_chained_and ~loc conds))
+                  in
+                  choices @ [ (uncovered, value) ]))
+      in
+      let fallback_notes =
+        List.map fallen_back ~f:(fun (var_decl, (_, _, unfold_loc)) ->
+            ( Error.RelatedLoc,
+              var_decl.var_loc,
+              Printf.sprintf
+                "No witness could be computed for %s, so the value from the unfold at \
+                 line %d was used"
+                (source_name var_decl.var_name)
+                (Loc.start_line unfold_loc) ))
       in
 
       let witnesses = resolve_dependencies var_decls univ_conds witnesses in
@@ -621,7 +725,7 @@ and elim_a1 (univ_vars : universal_quants) (univ_conds : conditions) (expr : exp
                 note ))
       in
       let skolem_fn_records, notes = List.unzip skolem_fn_records in
-      let notes = List.filter_opt notes in
+      let notes = List.filter_opt notes @ fallback_notes in
 
       let* skolemized_exprs = generate_skolem_functions skolem_fn_records in
 
@@ -1200,8 +1304,53 @@ let rec rewrite_stmt (stmt : Stmt.t) : Stmt.t Rewriter.t =
   let loc = Stmt.to_loc stmt in
   match stmt.stmt_desc with
   | Basic (Spec (Exhale, spec)) ->
-      let exhale_expr = spec.spec_form in
-      let* elim_expr, wtns_specs, notes = find_witnesses_elim_exists exhale_expr in
+      (* The fallback witnesses of a fold become existentials again, which keep them
+         where no witness is computed. *)
+      let* exhale_expr, fallbacks =
+        let fallback_vars =
+          Set.to_list (Set.filter (Expr.local_vars spec.spec_form) ~f:is_fallback)
+        in
+        if List.is_empty fallback_vars then Rewriter.return (spec.spec_form, [])
+        else
+          let* abstracted =
+            Rewriter.List.map fallback_vars ~f:(fun x ->
+                let* symbol = Rewriter.find (QualIdent.from_ident x) in
+                let+ fallback = Rewriter.Symbol.reify_var_decl symbol in
+                let name = String.chop_prefix_exn x.ident_name ~prefix:fallback_prefix in
+                let existential =
+                  {
+                    fallback with
+                    var_name = Ident.fresh loc (abstracted_prefix ^ name);
+                    var_loc = loc;
+                  }
+                in
+                (x, fallback, existential))
+          in
+          (* Declared, as the bound variables of predicate bodies are. *)
+          let+ () =
+            Rewriter.List.iter abstracted ~f:(fun (_, _, var_decl) ->
+                let+ _ =
+                  Rewriter.introduce_symbol
+                    (Module.VarDef { var_decl; var_init = None; var_is_free = NotFree })
+                in
+                ())
+          in
+          let renaming =
+            List.fold abstracted
+              ~init:(Map.empty (module QualIdent))
+              ~f:(fun map (x, _, existential) ->
+                Map.set map ~key:(QualIdent.from_ident x)
+                  ~data:(Expr.from_var_decl existential))
+          in
+          ( requantify ~loc
+              (List.map abstracted ~f:(fun (_, _, e) -> e))
+              (Expr.alpha_renaming spec.spec_form renaming),
+            List.map abstracted ~f:(fun (_, fallback, existential) ->
+                (existential.var_name, Expr.from_var_decl fallback, fallback.var_loc)) )
+      in
+      let* elim_expr, wtns_specs, notes =
+        find_witnesses_elim_exists ~fallbacks exhale_expr
+      in
 
       let* () =
         Rewriter.Logs.debug (fun printers m ->

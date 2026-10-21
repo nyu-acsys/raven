@@ -1,0 +1,53 @@
+// A fold keeps the values that the unfold of the same instance bound its existentials
+// to, where witness computation finds none: here `k`, which only bounds `v`.
+
+field f: Int
+
+pred bounded(x: Ref) {
+  exists v: Int, k: Int :: own(x.f, v) && v <= k
+}
+
+proc read(x: Ref) returns (r: Int)
+  requires bounded(x)
+  ensures bounded(x)
+{
+  unfold bounded(x);
+  r := x.f;
+  fold bounded(x);
+}
+
+// `v` changes and is computed from the heap; `k` falls back.
+proc lower(x: Ref)
+  requires bounded(x)
+  ensures bounded(x)
+{
+  unfold bounded(x);
+  var v: Int := x.f;
+  x.f := v - 1;
+  fold bounded(x);
+}
+
+// The fallback survives a branch on which both arms agree.
+proc branch(x: Ref, b: Bool)
+  requires bounded(x)
+  ensures bounded(x)
+{
+  unfold bounded(x);
+  if (b) {
+    var v: Int := x.f;
+  }
+  fold bounded(x);
+}
+
+inv shared(x: Ref) {
+  exists v: Int, k: Int :: own(x.f, v, 0.5) && v <= k
+}
+
+proc read_shared(x: Ref) returns (r: Int)
+  requires shared(x)
+  ensures shared(x)
+{
+  unfold shared(x);
+  r := x.f;
+  fold shared(x);
+}

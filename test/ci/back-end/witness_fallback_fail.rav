@@ -1,0 +1,32 @@
+// A fold whose fallback no longer fits: the note says where its value came from.
+
+field f: Int
+
+pred bounded(x: Ref) {
+  exists v: Int, k: Int :: own(x.f, v) && v <= k
+}
+
+proc raise(x: Ref)
+  requires bounded(x)
+  ensures bounded(x)
+{
+  unfold bounded(x);
+  var v: Int := x.f;
+  x.f := v + 1;
+  fold bounded(x);
+}
+
+// An assignment to the instance's argument ends the fallback.
+proc other(x: Ref, y: Ref)
+  requires bounded(x) && bounded(y)
+  ensures bounded(x) && bounded(y)
+{
+  var z: Ref := x;
+  unfold bounded(z);
+  z := y;
+  unfold bounded(z);
+  z := x;
+  fold bounded(z);
+  z := y;
+  fold bounded(z);
+}
