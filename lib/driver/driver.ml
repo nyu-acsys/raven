@@ -621,40 +621,35 @@ let check_program ?on_typed ?on_scheduled ?on_progress ?library_snapshots ?cance
         lower_cu ~ext_hooks ~diagnostics tbl md lowered_out_chan)
   in
 
-  begin
-    (* Logs.debug (fun m -> m "Final symboltbl.tbl_symbols: %a" (Util.Print.pr_list_comma QualIdent.pr) (Map.keys tbl.tbl_symbols)); *)
-    (match processed with
-    | [] -> (* `--typeonly`: nothing left to backend-check *) ()
-    | _ ->
-        (* Only now -- once both the library and the main program have been fully
+  (* Logs.debug (fun m -> m "Final symboltbl.tbl_symbols: %a" (Util.Print.pr_list_comma QualIdent.pr) (Map.keys tbl.tbl_symbols)); *)
+  begin match processed with
+  | [] -> (* `--typeonly`: nothing left to backend-check *) ()
+  | _ ->
+      (* Only now -- once both the library and the main program have been fully
         elaborated -- do we know every tuple sort ([$tuple_n]) the program actually
         needs (see Smt.TupleArities), so this is the earliest point at which we
         can declare them. *)
-        let arities = Smt.TupleArities.of_symbols (Map.data tbl.tbl_symbols) in
-        let solver_session =
-          Smt.SmtSolver.init ~logging:external_logging ?cancellation config.smt_timeout
-        in
-        Stdlib.Fun.protect ~finally:(fun () -> Smt.SmtSolver.stop solver_session)
-        @@ fun () ->
-        Backend.SmtPreamble.initialize solver_session ~diagnostics:config.smt_diagnostics
-          ~timeout:config.smt_timeout;
-        Backend.SmtPreamble.declare_tuple_sorts solver_session arities;
-        let fingerprinting =
-          if config.fingerprints || Option.is_some config.cache_dir then
-            Some (fingerprinting ~ext_hooks solver_session ~report:config.fingerprints)
-          else None
-        in
-        let cache = Option.map config.cache_dir ~f:Backend.VerificationCache.load in
-        let context =
-          Backend.CheckerContext.create ?focus ~counterexamples:config.counterexamples
-            ?fingerprinting ?cache ?on_scheduled ?on_progress ~diagnostics solver_session
-        in
-        let (_ : Backend.CheckerContext.context) =
-          backend_check_cu tbl context processed
-        in
-        ());
-
-    Logs.app (fun m -> m "Verification successful.")
+      let arities = Smt.TupleArities.of_symbols (Map.data tbl.tbl_symbols) in
+      let solver_session =
+        Smt.SmtSolver.init ~logging:external_logging ?cancellation config.smt_timeout
+      in
+      Stdlib.Fun.protect ~finally:(fun () -> Smt.SmtSolver.stop solver_session)
+      @@ fun () ->
+      Backend.SmtPreamble.initialize solver_session ~diagnostics:config.smt_diagnostics
+        ~timeout:config.smt_timeout;
+      Backend.SmtPreamble.declare_tuple_sorts solver_session arities;
+      let fingerprinting =
+        if config.fingerprints || Option.is_some config.cache_dir then
+          Some (fingerprinting ~ext_hooks solver_session ~report:config.fingerprints)
+        else None
+      in
+      let cache = Option.map config.cache_dir ~f:Backend.VerificationCache.load in
+      let context =
+        Backend.CheckerContext.create ?focus ~counterexamples:config.counterexamples
+          ?fingerprinting ?cache ?on_scheduled ?on_progress ~diagnostics solver_session
+      in
+      let (_ : Backend.CheckerContext.context) = backend_check_cu tbl context processed in
+      ()
   end
 
 (** Parses and checks the program in the files [file_names], as [check_program] does; the
