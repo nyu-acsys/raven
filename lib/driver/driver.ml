@@ -397,42 +397,11 @@ let focus_of members groups (name : string) : Backend.CheckerContext.focus =
       Error.error Loc.dummy
         (Printf.sprintf "There is no member, module or named assertion %s to verify" name)
 
-(** Parse and check all compilation units in files [file_names]. [extension_mode] picks
-    the `--extension` chain: [`Explicit ext] uses [ext] outright; [`Auto] detects it from
-    the parsed program's own extension-specific syntax (see [Ext.detect_extension]) before
-    the library -- whose sources the choice picks -- is parsed. That's why the program is
-    parsed here ahead of the library, the reverse of the order *type-checking* needs (see
-    [type_cu]'s doc comment): parsing has no dependency on the library's symbol table,
-    only type-checking does. [on_typed] is called once the program is type-checked without
-    errors, if it is verified next, [on_scheduled] with the procedures still to be checked
-    once it is known which are, and [on_progress] with those left after each check. The
-    sites of the run's includes are recorded in [includes]. With [library_snapshots], the
-    type-checked library is kept there and reused by later runs. [cancellation] is how the
-    solver learns that the run is cancelled. *)
-let parse_and_check_all ?on_typed ?on_scheduled ?on_progress ?library_snapshots
-    ?cancellation ~includes ~extension_mode ~diagnostics config file_names =
-  Ident.restore ();
-  Hashtbl.clear includes;
-  (* Variable which controls whether the
-    - `front_end_output.log` (the elaborated program)
-    - `lowered_output.log` (the lowered program)
-    - `log.smt2`
-    files are created.
-    At present create them only when in Debug mode and also not in lsp_mode.
-   *)
-  let external_logging =
-    match config.log_level with
-    | Some Logs.Debug -> if config.lsp_mode then false else true
-    | _ -> false
-  in
-
-  let debug_out_chan file_name =
-    if external_logging then Some (Stdio.Out_channel.create file_name) else None
-  in
-  let front_end_out_chan = debug_out_chan "front_end_output.log" in
-  let lowered_out_chan = debug_out_chan "lowered_output.log" in
-
-  (* Parse and check actual input program *)
+(** Parses the files [file_names] and those they include, as a program; the files
+    themselves are trusted, as included files are, if [free]. The sites of the includes
+    are recorded in [includes]. *)
+let parse_program ?(free = false) ~includes ~diagnostics config file_names : Ast.Module.t
+    =
   let rec parse_prog parsed to_parse prog =
     match to_parse with
     | [] -> prog
@@ -476,21 +445,52 @@ let parse_and_check_all ?on_typed ?on_scheduled ?on_progress ?library_snapshots
           parse_prog parsed to_parse1 prog)
   in
 
-  let md =
-    parse_prog
-      (Set.empty (module String))
-      (List.rev_map
-         ~f:(fun file_name ->
-           let norm_dir = normalizeFilename (Unix.getcwd ()) config.base_dir in
-           let norm_file_name = normalizeFilename norm_dir file_name in
-           let file_dir =
-             if String.(config.base_dir <> "") then norm_dir
-             else Stdlib.Filename.dirname norm_file_name
-           in
-           (file_dir, file_name, false))
-         file_names)
-      empty_prog
+  parse_prog
+    (Set.empty (module String))
+    (List.rev_map
+       ~f:(fun file_name ->
+         let norm_dir = normalizeFilename (Unix.getcwd ()) config.base_dir in
+         let norm_file_name = normalizeFilename norm_dir file_name in
+         let file_dir =
+           if String.(config.base_dir <> "") then norm_dir
+           else Stdlib.Filename.dirname norm_file_name
+         in
+         (file_dir, file_name, free))
+       file_names)
+    empty_prog
+
+(** Checks the parsed program [md]. [extension_mode] picks the `--extension` chain:
+    [`Explicit ext] uses [ext] outright; [`Auto] detects it from the program's own
+    extension-specific syntax (see [Ext.detect_extension]) before the library -- whose
+    sources the choice picks -- is parsed. That's why the program is parsed ahead of the
+    library, the reverse of the order *type-checking* needs (see [type_cu]'s doc comment):
+    parsing has no dependency on the library's symbol table, only type-checking does.
+    [on_typed] is called once the program is type-checked without errors, if it is
+    verified next, [on_scheduled] with the procedures still to be checked once it is known
+    which are, and [on_progress] with those left after each check. With
+    [library_snapshots], the type-checked library is kept there and reused by later runs.
+    [cancellation] is how the solver learns that the run is cancelled. The sites of the
+    library's includes are recorded in [includes]. *)
+let check_program ?on_typed ?on_scheduled ?on_progress ?library_snapshots ?cancellation
+    ~includes ~extension_mode ~diagnostics config (md : Ast.Module.t) =
+  (* Variable which controls whether the
+    - `front_end_output.log` (the elaborated program)
+    - `lowered_output.log` (the lowered program)
+    - `log.smt2`
+    files are created.
+    At present create them only when in Debug mode and also not in lsp_mode.
+   *)
+  let external_logging =
+    match config.log_level with
+    | Some Logs.Debug -> if config.lsp_mode then false else true
+    | _ -> false
   in
+
+  let debug_out_chan file_name =
+    if external_logging then Some (Stdio.Out_channel.create file_name) else None
+  in
+  let front_end_out_chan = debug_out_chan "front_end_output.log" in
+  let lowered_out_chan = debug_out_chan "lowered_output.log" in
 
   (* [EXT] Resolve which extension is activated for this run and build the hooks the
      rest of the pipeline dispatches through -- see lib/ext/ext.ml and
@@ -656,3 +656,13 @@ let parse_and_check_all ?on_typed ?on_scheduled ?on_progress ?library_snapshots
 
     Logs.app (fun m -> m "Verification successful.")
   end
+
+(** Parses and checks the program in the files [file_names], as [check_program] does; the
+    sites of the run's includes are recorded in [includes]. *)
+let parse_and_check_all ?on_typed ?on_scheduled ?on_progress ?library_snapshots
+    ?cancellation ~includes ~extension_mode ~diagnostics config file_names =
+  Ident.restore ();
+  Hashtbl.clear includes;
+  let md = parse_program ~includes ~diagnostics config file_names in
+  check_program ?on_typed ?on_scheduled ?on_progress ?library_snapshots ?cancellation
+    ~includes ~extension_mode ~diagnostics config md

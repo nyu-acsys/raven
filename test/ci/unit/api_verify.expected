@@ -1,0 +1,28 @@
+raven.api version 1
+
+field f: Int
+
+proc incr(x: Ref)
+  
+  requires own(x.f, 0, 1.0)
+  ensures own(x.f, 1, 1.0)
+  /*locals ()*/
+  /* mask: <none> */
+ {
+   x.f := 1;
+ }
+verified: true
+
+field f: Int
+
+proc incr(x: Ref)
+  
+  requires own(x.f, 0, 1.0)
+  ensures own(x.f, 2, 1.0)
+  /*locals ()*/
+  /* mask: <none> */
+ {
+   x.f := 1;
+ }
+verified: false
+verification at line 2: A postcondition may not hold at this return point
