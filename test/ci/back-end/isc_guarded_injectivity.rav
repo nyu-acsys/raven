@@ -1,0 +1,34 @@
+// An iterated separating conjunction whose index is injective only within its guard:
+// the entries of a sequence are distinct only where it says so.
+
+field f: Int
+
+func distinct(s: Seq[Ref]) returns (ret: Bool) {
+  forall i: Int, j: Int :: {s[i], s[j]}
+    0 <= i < Seq.length(s) && 0 <= j < Seq.length(s) && s[i] == s[j] ==> i == j
+}
+
+pred cells(s: Seq[Ref]) {
+  distinct(s)
+  && (forall i: Int :: {s[i]} 0 <= i < Seq.length(s) && distinct(s) ==> own((s[i]).f, i))
+}
+
+proc read(s: Seq[Ref], i: Int) returns (v: Int)
+  requires cells(s) && 0 <= i < Seq.length(s)
+  ensures cells(s) && v == i
+{
+  unfold cells(s);
+  val c: Ref := s[i];
+  v := c.f;
+  fold cells(s);
+}
+
+proc write(s: Seq[Ref], i: Int)
+  requires cells(s) && 0 <= i < Seq.length(s)
+  ensures cells(s)
+{
+  unfold cells(s);
+  val c: Ref := s[i];
+  c.f := i;
+  fold cells(s);
+}

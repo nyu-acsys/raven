@@ -20,6 +20,7 @@ All notable changes to this project will be documented in this file.
 - `match` statements, whose arms are blocks, as in `case ok(n) => { v := n; }`.
 - Field constraints, as in `field count: Int where nonneg`, which owning the field implies.
 - A fold falls back to the existentials' values at the unfold of the same instance.
+- Iterated separating conjunctions may index locations injectively only within their guard.
 
 ### Changed
 

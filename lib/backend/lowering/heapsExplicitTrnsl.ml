@@ -68,6 +68,22 @@ let mk_pred_new_chunk ~loc (call_decl_kind : Callable.call_kind)
         [ Expr.mk_tuple out_args ]
   | _ -> Error.internal_error loc "Expected a predicate or invariant definition"
 
+(** Whether [expr] holds each of the variables of [universal_quants] as a component, which
+    makes it injective in them regardless of any guard. *)
+let trivially_injective (universal_quants : universal_quants) (expr : expr) =
+  let univ_vars = List.map universal_quants.univ_vars ~f:snd in
+  let is_univ_var e =
+    match e with
+    | Expr.App (Var qi, [], _) ->
+        List.exists univ_vars ~f:(fun v ->
+            QualIdent.equal qi (QualIdent.from_ident v.var_name))
+    | _ -> false
+  in
+  let components = match expr with Expr.App (Tuple, es, _) -> es | e -> [ e ] in
+  List.for_all univ_vars ~f:(fun v ->
+      List.exists components ~f:(fun e ->
+          is_univ_var e && Set.mem (Expr.symbols e) (QualIdent.from_ident v.var_name)))
+
 let generate_injectivity_assertions ~loc (universal_quants : universal_quants)
     (conditions : conditions) ~env_local_var_decls (expr : expr) : Stmt.t Rewriter.t =
   (* Running example :
@@ -169,21 +185,8 @@ let generate_injectivity_assertions ~loc (universal_quants : universal_quants)
       assert_expr
   in
 
-  (* An expression that holds each of a, b as a component is injective. *)
-  let is_univ_var e =
-    match e with
-    | Expr.App (Var qi, [], _) ->
-        List.exists univ_vars ~f:(fun v ->
-            QualIdent.equal qi (QualIdent.from_ident v.var_name))
-    | _ -> false
-  in
-  let components = match expr with Expr.App (Tuple, es, _) -> es | e -> [ e ] in
-  let trivially_injective =
-    List.for_all univ_vars ~f:(fun v ->
-        List.exists components ~f:(fun e ->
-            is_univ_var e && Set.mem (Expr.symbols e) (QualIdent.from_ident v.var_name)))
-  in
-  Rewriter.return (if trivially_injective then Stmt.mk_skip ~loc else assert_stmt)
+  Rewriter.return
+    (if trivially_injective universal_quants expr then Stmt.mk_skip ~loc else assert_stmt)
 
 let compute_env_local_var_decls ~loc (expr : expr) (conds : conditions)
     (universal_quants : universal_quants) : var_decl list Rewriter.t =
@@ -225,87 +228,16 @@ let compute_env_local_var_decls ~loc (expr : expr) (conds : conditions)
   in
   Rewriter.return local_var_decls
 
-(* Dead code, retained for potential future reuse -- not called anywhere.
-
-   [generate_inv_function] below states the ISC inverse function's "left-inverse"
-   axiom (what it currently calls [postcond2]) and proves the injectivity it relies on
-   *unconditionally* -- i.e. for all values of the quantified variable(s), not just
-   those satisfying the ISC's own guard/condition ([conds]). That's a strictly
-   stronger (and in general unsound) statement: it's only valid when the ISC's index
-   expression is injective on its whole domain, not merely within the guard.
-
-   It was made unconditional deliberately, after measuring a real problem with the
-   guarded form: when the guard *doesn't* hold, the guarded axiom's implication is
-   vacuously true, giving Z3 no equality to close off a matching loop between this
-   axiom and the "right-inverse" axiom ([postcond1]) -- each instantiation re-creates a
-   fresh application of the other's trigger, so E-matching can keep re-firing both
-   without bound. Dropping the guard turns every instantiation into a genuine unit
-   equality, which collapses the loop via congruence closure immediately. Measured on
-   the array benchmarks in `test/arrays`: Z3 quantifier instantiations dropped from ~98,551
-   (guarded) to ~41,945 (unconditional, below even the ~51,956 baseline from before
-   this ISC-sharing machinery existed at all); `test/ext/prophecy/dist_counter.rav`
-   went from ~45s (and documented flakiness) to a stable ~2s. The entire `dune runtest`
-   suite verifies identically either way, i.e. every ISC index expression in the
-   current codebase happens to be unconditionally injective -- but that's an empirical
-   observation about today's tests, not a property the compiler checks or guarantees
-   for arbitrary future Raven programs. A program whose ISC genuinely relies on its
-   guard for injectivity will simply fail to verify (the injectivity assertion is a
-   real, checked proof obligation either way -- this can't produce a silent unsoundness,
-   only a spurious verification failure).
-
-   To revive guard-dependent handling: in [generate_inv_function], replace the
-   [postcond2] block's body with [GuardedIscInvAxioms.postcond2 ~loc ~inv_fn_qual_ident
-   ~ret_type inv_expr env_local_var_decls universal_quants conds], and change the
-   [generate_injectivity_assertions] call a few lines below back to passing [conds]
-   instead of [[]] (so the proof obligation matches what this weaker axiom needs).
-
-   A cheaper middle ground than reverting wholesale: a syntactic check for
-   unconditional injectivity (e.g. recognizing index expressions built from injective
-   constructors/free functions independent of any bound), falling back to this guarded
-   form only where that check fails. Deliberately not implemented speculatively --
-   nothing so far demonstrates it's needed in practice. *)
-module GuardedIscInvAxioms = struct
-  let postcond2 ~loc ~(inv_fn_qual_ident : qual_ident) ~(ret_type : Type.t)
-      (inv_expr : expr) (env_local_var_decls : var_decl list)
-      (universal_quants : universal_quants) (conds : conditions) : Stmt.spec =
-    let inverted_expr_with_inv_expr =
-      Expr.mk_app ~loc ~typ:ret_type (Var inv_fn_qual_ident)
-        (inv_expr :: List.map env_local_var_decls ~f:Expr.from_var_decl)
-    in
-    let spec_expr2 =
-      let ret_var_decls =
-        List.map universal_quants.univ_vars ~f:(fun (_, vd) ->
-            Type.mk_var_decl ~const:true (Ident.fresh loc "$ret") ~loc vd.var_type)
-      in
-      (* x ~> ret0;; y ~> ret1 *)
-      let ret_renam_map =
-        List.fold2_exn universal_quants.univ_vars ret_var_decls
-          ~init:(Map.empty (module QualIdent))
-          ~f:(fun mp (_, vd) ret_vd ->
-            Map.add_exn mp
-              ~key:(QualIdent.from_ident vd.var_name)
-              ~data:(Expr.from_var_decl ret_vd))
-      in
-      Expr.mk_binder Forall ~loc
-        (ret_var_decls @ env_local_var_decls)
-        ~trigs:[ [ Expr.alpha_renaming inverted_expr_with_inv_expr ret_renam_map ] ]
-        (Expr.mk_impl ~loc
-           (Expr.mk_chained_and ~loc
-              (List.map conds ~f:(fun e -> Expr.alpha_renaming e ret_renam_map)))
-           (Expr.mk_eq ~loc
-              (Expr.mk_tuple ~loc
-                 (List.map ret_var_decls ~f:(fun ret_vd -> Expr.from_var_decl ret_vd)))
-              (Expr.alpha_renaming inverted_expr_with_inv_expr ret_renam_map)))
-    in
-    let error =
-      ( Error.Verification Error.Injectivity,
-        loc,
-        "This iterated separating conjunction may not be injective on the quantified \
-         variable(s) within its guard" )
-    in
-    Stmt.mk_spec ~spec_error:[ (fun _ _ -> error) ] spec_expr2
-end
-
+(* The inverse function of an iterated separating conjunction
+   [forall x :: p(x) ==> own(l(x).f, v(x))]: [inv(r)] is the [x] with [l(x) == r], which
+   the right inverse states within the guard. Where [l] holds every bound variable as a
+   component, it is injective regardless of the guard, and the left inverse
+   [inv(l(x)) == x] holds unconditionally. Otherwise [l] may be injective only within the
+   guard, and the left inverse is stated for keys [key(x) = (p(x), l(x), p(x) ? c : x)],
+   which are injective everywhere given injectivity within the guard: [inv(r)] is the
+   inverse of the key [(true, r, c)]. Both left inverses are equalities for every [x],
+   so neither leaves [inv(l(x))] unconstrained outside the guard, which would let it
+   feed the right inverse in a matching loop. *)
 let generate_inv_function ~loc (universal_quants : universal_quants) (conds : conditions)
     (inv_expr : expr) ~(arg_expr : expr) : expr Rewriter.t =
   (* Logs.debug (fun m -> m "heapsExplicitTrnsl.generate_inv_function: Generating inv function for %a" Expr.pr inv_expr);
@@ -380,6 +312,57 @@ let generate_inv_function ~loc (universal_quants : universal_quants) (conds : co
 
     let inv_fn_def =
       Module.CallDef Callable.{ call_decl; call_def = FuncDef { func_body = None } }
+    in
+
+    (* The functions of the left inverse by keys: [kinv] from keys to the quantified
+       variables, [key] from these to keys, and the constant [c] of keys within the
+       guard. *)
+    let key_type = Type.mk_prod loc [ Type.bool; arg_type; ret_type ] in
+    let fresh_var name typ =
+      {
+        Type.var_name = Ident.fresh loc name;
+        var_loc = loc;
+        var_type = typ |> Type.set_ghost false;
+        var_const = true;
+        var_ghost = false;
+        var_implicit = false;
+      }
+    in
+    let abstract_fn prefix ~formals ~ret =
+      let ident =
+        Ident.fresh_member loc (prefix ^ ProgUtils.serialize (Expr.to_string inv_expr))
+      in
+      let call_decl =
+        Callable.mk_call_decl ~kind:Func ~name:ident ~loc ~formals
+          ~returns:[ fresh_var "$ret" ret ]
+          ~needs_mask:[] ~grants_mask:[] ()
+      in
+      ( ident,
+        Module.CallDef Callable.{ call_decl; call_def = FuncDef { func_body = None } } )
+    in
+    let env_formals () =
+      List.map env_local_var_decls ~f:(fun vd ->
+          fresh_var vd.var_name.ident_name vd.var_type)
+    in
+    let kinv_fn_ident, kinv_fn_def =
+      abstract_fn "$kinv_"
+        ~formals:(fresh_var "key" key_type :: env_formals ())
+        ~ret:ret_type
+    in
+    let key_fn_ident, key_fn_def =
+      abstract_fn "$key_"
+        ~formals:
+          (List.map universal_quants.univ_vars ~f:(fun (_, vd) ->
+               fresh_var vd.var_name.ident_name vd.var_type)
+          @ env_formals ())
+        ~ret:key_type
+    in
+    let none_fn_ident, none_fn_def = abstract_fn "$key_none_" ~formals:[] ~ret:ret_type in
+    let* kinv_fn_qual_ident, key_fn_qual_ident, none_fn_qual_ident =
+      let+ module_qual_ident = Rewriter.current_module_name in
+      ( QualIdent.append module_qual_ident kinv_fn_ident,
+        QualIdent.append module_qual_ident key_fn_ident,
+        QualIdent.append module_qual_ident none_fn_ident )
     in
 
     let inverted_expr =
@@ -471,56 +454,92 @@ let generate_inv_function ~loc (universal_quants : universal_quants) (conds : co
           Stmt.mk_spec ~spec_error:[ (fun _ _ -> error) ] spec_expr1
         in
 
-        let postcond2 =
-          (* inv(l(x, y, env1), env1, env2) *)
-          let inverted_expr_with_inv_expr =
+        (* The left inverses, for locations and for keys (see above). *)
+        let ret_var_decls =
+          List.map universal_quants.univ_vars ~f:(fun (_, vd) ->
+              Type.mk_var_decl ~const:true (Ident.fresh loc "$ret") ~loc vd.var_type)
+        in
+        (* x ~> ret0;; y ~> ret1 *)
+        let ret_renam_map =
+          List.fold2_exn universal_quants.univ_vars ret_var_decls
+            ~init:(Map.empty (module QualIdent))
+            ~f:(fun mp (_, vd) ret_vd ->
+              Map.add_exn mp
+                ~key:(QualIdent.from_ident vd.var_name)
+                ~data:(Expr.from_var_decl ret_vd))
+        in
+        let rets = Expr.mk_tuple ~loc (List.map ret_var_decls ~f:Expr.from_var_decl) in
+        let env_exprs = List.map env_local_var_decls ~f:Expr.from_var_decl in
+        let guard =
+          Expr.mk_chained_and ~loc
+            (List.map conds ~f:(fun e -> Expr.alpha_renaming e ret_renam_map))
+        in
+        let none = Expr.mk_app ~loc ~typ:ret_type (Var none_fn_qual_ident) [] in
+        let key_of xs = Expr.mk_app ~loc ~typ:key_type (Var key_fn_qual_ident) xs in
+        let kinv_of k =
+          Expr.mk_app ~loc ~typ:ret_type (Var kinv_fn_qual_ident) (k :: env_exprs)
+        in
+        let spec e = Stmt.mk_spec e in
+        (* inv(res, env) == kinv((true, res, c), env) *)
+        let by_key =
+          let inv_res =
             Expr.mk_app ~loc ~typ:ret_type (Var inv_fn_qual_ident)
-              (inv_expr :: List.map env_local_var_decls ~f:Expr.from_var_decl)
+              (List.map formal_var_decls ~f:Expr.from_var_decl)
           in
-          let spec_expr2 =
-            let ret_var_decls =
-              List.map universal_quants.univ_vars ~f:(fun (_, vd) ->
-                  Type.mk_var_decl ~const:true (Ident.fresh loc "$ret") ~loc vd.var_type)
-            in
-
-            (* x ~> ret0;; y ~> ret1 *)
-            let ret_renam_map =
-              List.fold2_exn universal_quants.univ_vars ret_var_decls
-                ~init:(Map.empty (module QualIdent))
-                ~f:(fun mp (_, vd) ret_vd ->
-                  Map.add_exn mp
-                    ~key:(QualIdent.from_ident vd.var_name)
-                    ~data:(Expr.from_var_decl ret_vd))
-            in
-
-            (* Unconditional -- no [conds] guard. See [GuardedIscInvAxioms] above for
-               the guarded form this was weakened from, and why. *)
-            Expr.mk_binder Forall ~loc
-              (ret_var_decls @ env_local_var_decls)
-              ~trigs:[ [ Expr.alpha_renaming inverted_expr_with_inv_expr ret_renam_map ] ]
-              (Expr.mk_eq ~loc
-                 (Expr.mk_tuple ~loc
-                    (List.map ret_var_decls ~f:(fun ret_vd -> Expr.from_var_decl ret_vd)))
-                 (Expr.alpha_renaming inverted_expr_with_inv_expr ret_renam_map))
+          Expr.mk_binder Forall ~loc formal_var_decls ~trigs:[ [ inv_res ] ]
+            (Expr.mk_eq ~loc inv_res
+               (kinv_of
+                  (Expr.mk_tuple ~loc
+                     [ Expr.mk_bool ~loc true; Expr.from_var_decl arg_var_decl; none ])))
+        in
+        (* key(x, env) == (p(x), l(x), p(x) ? c : x) *)
+        let key_def =
+          let key_x = key_of (List.map ret_var_decls ~f:Expr.from_var_decl @ env_exprs) in
+          Expr.mk_binder Forall ~loc
+            (ret_var_decls @ env_local_var_decls)
+            ~trigs:[ [ key_x ] ]
+            (Expr.mk_eq ~loc key_x
+               (Expr.mk_tuple ~loc
+                  [
+                    guard;
+                    Expr.alpha_renaming inv_expr ret_renam_map;
+                    Expr.mk_ite ~loc guard none rets;
+                  ]))
+        in
+        (* kinv(key(x, env), env) == x, whenever inv(l(x), env) arises *)
+        let left_inverse =
+          let inv_l =
+            Expr.mk_app ~loc ~typ:ret_type (Var inv_fn_qual_ident)
+              (Expr.alpha_renaming inv_expr ret_renam_map :: env_exprs)
           in
-          let error =
-            ( Error.Verification Error.Injectivity,
-              loc,
-              "This iterated separating conjunction may not be injective on the \
-               quantified variable(s)" )
-          in
-          Stmt.mk_spec ~spec_error:[ (fun _ _ -> error) ] spec_expr2
+          Expr.mk_binder Forall ~loc
+            (ret_var_decls @ env_local_var_decls)
+            ~trigs:[ [ inv_l ] ]
+            (Expr.mk_eq ~loc
+               (kinv_of
+                  (key_of (List.map ret_var_decls ~f:Expr.from_var_decl @ env_exprs)))
+               rets)
         in
 
-        ([], [ postcond1; postcond2 ])
+        (* Where [inv_expr] is injective regardless of the guard, the left inverse holds
+           for locations directly. *)
+        let direct_left_inverse =
+          let inv_l =
+            Expr.mk_app ~loc ~typ:ret_type (Var inv_fn_qual_ident)
+              (Expr.alpha_renaming inv_expr ret_renam_map :: env_exprs)
+          in
+          Expr.mk_binder Forall ~loc
+            (ret_var_decls @ env_local_var_decls)
+            ~trigs:[ [ inv_l ] ] (Expr.mk_eq ~loc rets inv_l)
+        in
+        if trivially_injective universal_quants inv_expr then
+          ([], [ postcond1; spec direct_left_inverse ])
+        else ([], [ postcond1; spec by_key; spec key_def; spec left_inverse ])
       in
 
       let+ injectivity_assertion =
-        (* [] rather than [conds]: proves injectivity of [inv_expr] unconditionally,
-           matching postcond2's now-unconditional axiom above. See
-           [GuardedIscInvAxioms] for the guarded pairing ([conds] passed here) this was
-           weakened from. *)
-        generate_injectivity_assertions ~loc universal_quants [] ~env_local_var_decls
+        (* Within the guard, which is all that [key] needs to be injective. *)
+        generate_injectivity_assertions ~loc universal_quants conds ~env_local_var_decls
           inv_expr
       in
 
@@ -543,6 +562,9 @@ let generate_inv_function ~loc (universal_quants : universal_quants) (conds : co
     in
 
     let* _ = Rewriter.introduce_symbol inv_fn_def in
+    let* _ = Rewriter.introduce_symbol kinv_fn_def in
+    let* _ = Rewriter.introduce_symbol key_fn_def in
+    let* _ = Rewriter.introduce_symbol none_fn_def in
     let+ _ =
       Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.check_symbol
         inv_fn_auto_lemma_def

@@ -1,0 +1,16 @@
+// The guard does not make the index injective: two entries of the sequence may be the
+// same location.
+
+field f: Int
+
+pred cells(s: Seq[Ref]) {
+  forall i: Int :: {s[i]} 0 <= i < Seq.length(s) ==> own((s[i]).f, i)
+}
+
+proc open(s: Seq[Ref])
+  requires cells(s)
+  ensures cells(s)
+{
+  unfold cells(s);
+  fold cells(s);
+}
