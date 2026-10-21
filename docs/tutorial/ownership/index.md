@@ -164,6 +164,13 @@ nothing Raven-specific about this. It holds because `(v, 0.5)` composed with `(v
 algebra with that fact, the same way it matched up disjoint resources in
 {{ref sec:separating-conjunction}}.
 
+A field can also restrict its values. With `func nonneg(x: Int) returns (b: Bool) { x >= 0 }`,
+the declaration `field count: Int where nonneg` makes `nonneg` part of what it means for the
+field's resource to be valid. So any `own(c.count, v)` implies `nonneg(v)`, without reading the
+field, while `new` and every write to `count` must establish `nonneg` of the value stored. The
+constraint is a func from the field's type to `Bool`. It is only allowed on fields whose type
+is not a resource algebra, since an algebra's validity is its own to define.
+
 ## Procedure contracts, revisited {#sec:proc-contracts-revisited}
 
 Taken together, {{ref sec:own-resource-not-fact}}–{{ref sec:fractional-permissions}} mean that a

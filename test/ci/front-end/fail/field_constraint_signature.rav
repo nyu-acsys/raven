@@ -1,0 +1,3 @@
+func g(x: Bool) returns (b: Bool) { x }
+
+field f: Int where g

@@ -18,6 +18,7 @@ All notable changes to this project will be documented in this file.
 - Map literals list entries and the value at every other key, as in `{1 := 5, else 4}`.
 - The library `raven-ivl.api` lets other tools build programs and verify them.
 - `match` statements, whose arms are blocks, as in `case ok(n) => { v := n; }`.
+- Field constraints, as in `field count: Int where nonneg`, which owning the field implies.
 
 ### Changed
 

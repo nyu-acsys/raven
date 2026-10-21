@@ -507,14 +507,15 @@ end
 module Module = struct
   type member = Module.module_instr
 
-  (** The field [name] of type [typ]. *)
-  let field ~loc ?(ghost = false) ~(type_loc : Loc.t) (name : Ident.t) (typ : Type.t) :
-      Module.field_def =
+  (** The field [name] of type [typ], whose values satisfy the func [where] if given. *)
+  let field ~loc ?(ghost = false) ?where ~(type_loc : Loc.t) (name : Ident.t)
+      (typ : Type.t) : Module.field_def =
     {
       field_name = name;
       field_type = AstDef.Type.mk_fld type_loc typ |> AstDef.Type.set_ghost ghost;
       field_is_ghost = ghost;
       field_alias = None;
+      field_constraint = where;
       field_loc = loc;
     }
 
@@ -527,6 +528,7 @@ module Module = struct
         AstDef.Type.mk_fld type_loc AstDef.Type.any |> AstDef.Type.set_ghost ghost;
       field_is_ghost = ghost;
       field_alias = Some target;
+      field_constraint = None;
       field_loc = loc;
     }
 

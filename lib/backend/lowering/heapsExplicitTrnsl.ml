@@ -1496,7 +1496,7 @@ module ScalarResource = struct
         let encoding =
           match chunk with
           | App (DataConstr constructor, [ value; amount ], _)
-            when QualIdent.(origin = Predefs.lib_frac_mod_qual_ident)
+            when Predefs.is_lib_frac_mod origin
                  && Ident.(
                       QualIdent.unqualify constructor
                       = Predefs.lib_frac_chunk_constr_ident) ->
@@ -4236,7 +4236,7 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
 
           let* orig_ra_name, ra_def, _ = Rewriter.find field_ra in
 
-          if QualIdent.(orig_ra_name = Predefs.lib_frac_mod_qual_ident) then
+          if Predefs.is_lib_frac_mod orig_ra_name then
             let field_ra_type = ProgUtils.get_ra_rep_type field_ra in
 
             let field_heap_name = field_heap_name field_name in
@@ -4301,7 +4301,7 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
 
           let* orig_ra_name, ra_def, _ = Rewriter.find field_ra in
 
-          if QualIdent.(orig_ra_name = Predefs.lib_frac_mod_qual_ident) then
+          if Predefs.is_lib_frac_mod orig_ra_name then
             let field_ra_type = ProgUtils.get_ra_rep_type field_ra in
 
             let field_heap_name = field_heap_name field_name in
@@ -4351,8 +4351,29 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
                    [ field_heap_expr; ref_expr; new_val ])
             in
 
+            (* The heap stays valid: under a field's constraint, a write is a
+               frame-preserving update only if the value satisfies it. *)
+            let valid_stmts =
+              if QualIdent.(orig_ra_name = Predefs.lib_constrained_frac_mod_qual_ident)
+              then
+                let error =
+                  ( Error.Verification Error.Frame_preserving_update,
+                    s.stmt_loc,
+                    "The value written may not satisfy the constraint of this field" )
+                in
+                [
+                  Stmt.mk_assert_expr ~loc:s.stmt_loc
+                    ~spec_error:[ Stmt.mk_const_spec_error error ]
+                    (Expr.mk_app ~loc:s.stmt_loc ~typ:Type.bool
+                       (Expr.Var (ProgUtils.get_ra_valid_fn_qual_ident field_ra))
+                       [ new_val ]);
+                ]
+              else []
+            in
+
             Rewriter.return
-              (Stmt.mk_block_stmt ~loc:s.stmt_loc [ assert_stmt; assign_stmt ])
+              (Stmt.mk_block_stmt ~loc:s.stmt_loc
+                 ((assert_stmt :: valid_stmts) @ [ assign_stmt ]))
           else Error.type_error s.stmt_loc "Expected a FracRA type."
       end
   | _ ->

@@ -2164,6 +2164,7 @@ module Module = struct
             field_def with
             field_type;
             field_alias = Base.Option.map field_def.field_alias ~f;
+            field_constraint = Base.Option.map field_def.field_constraint ~f;
           }
     | CallDef call_def ->
         let* _ = enter_callable call_def in

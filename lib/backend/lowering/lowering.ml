@@ -901,9 +901,22 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) : Module.symbol Rewrit
           | _ -> Error.type_error f.field_loc "Expected field identifier."
         in
 
-        let* tp_module =
-          ProgUtils.intros_type_module ~loc:f.field_loc ~f:Typing.check_symbol
-            field_underlying_tp
+        (* A field with a constraint gets the fractional algebra whose validity includes it. *)
+        let* frac_def =
+          match f.field_constraint with
+          | None ->
+              let+ tp_module =
+                ProgUtils.intros_type_module ~loc:f.field_loc ~f:Typing.check_symbol
+                  field_underlying_tp
+              in
+              (Predefs.lib_frac_mod_qual_ident, [ Module.ModArg tp_module ])
+          | Some constr ->
+              let+ constraint_module =
+                ProgUtils.intros_constraint_module ~loc:f.field_loc ~f:Typing.check_symbol
+                  f.field_name field_underlying_tp constr
+              in
+              ( Predefs.lib_constrained_frac_mod_qual_ident,
+                [ Module.ModArg constraint_module ] )
         in
 
         let instantiated_frac_module =
@@ -912,8 +925,7 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) : Module.symbol Rewrit
                ~name:
                  (ProgUtils.frac_field_to_frac_mod_ident ~loc:f.field_loc f.field_name
                     field_type)
-               ~typ:Predefs.lib_cancellative_ra_mod_qual_ident
-               ~def:(Predefs.lib_frac_mod_qual_ident, [ Module.ModArg tp_module ])
+               ~typ:Predefs.lib_cancellative_ra_mod_qual_ident ~def:frac_def
                ~loc:f.field_loc ())
         in
 

@@ -67,6 +67,7 @@ let _ =
       ("unfold", USE Stmt.Unfold);
       ("val", VAR true);
       ("var", VAR false);
+      ("where", WHERE);
       ("with", WITH);
       ("while", WHILE);
       (* ProphecyExt *)

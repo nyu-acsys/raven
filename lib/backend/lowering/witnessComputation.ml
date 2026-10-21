@@ -1006,7 +1006,7 @@ and core_witness_comp ?(ra_hint : qual_ident option = None) ?(fraction_fallback 
               (* Error.error_simple "unimplemented" *)
             else Rewriter.return (Map.empty (module Ident))
         | _ -> Error.type_error (Expr.to_loc given_expr) "Expected a data constructor."
-      else if QualIdent.(orig_name = Predefs.lib_frac_mod_qual_ident) then
+      else if Predefs.is_lib_frac_mod orig_name then
         match given_expr with
         | App (DataConstr constr_ident, exprs, _) -> (
             if

@@ -267,7 +267,9 @@ end
 module Member : sig
   type t
 
-  val field : loc:Loc.t -> ?ghost:bool -> Ident.t -> Type.t -> t
+  val field : loc:Loc.t -> ?ghost:bool -> ?where:Name.t -> Ident.t -> Type.t -> t
+  (** The field [name] of type [typ], whose values satisfy the func [where] if given:
+      owning the field implies it, and allocations and writes must establish it. *)
 
   val type_ : loc:Loc.t -> ?rep:bool -> Ident.t -> Type.t option -> t
   (** The type [name], defined as [def] if given, a representation type if [rep]. *)

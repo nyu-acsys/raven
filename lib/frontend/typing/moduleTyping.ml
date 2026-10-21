@@ -131,12 +131,48 @@ let check_alias_field (field : Module.field_def) (target : qual_ident) : Module.
     (Module.FieldDef
        { field with field_type = target_field.field_type; field_alias = Some target })
 
+(* The constraint [p] of [field], as in `field f: T where p`: a func from `T` to `Bool`,
+   for a field whose type is not a resource algebra. *)
+let check_field_constraint (field : Module.field_def) (p : qual_ident) =
+  let open Rewriter.Syntax in
+  let value_type = Type.field_val field.field_type in
+  let* is_ra = lift (ProgUtils.is_ra_type value_type) in
+  let _ = if is_ra then field_constraint_ra_error (QualIdent.to_loc p) field.field_name in
+  let* resolved, symbol = Rewriter.resolve_and_find p in
+  let* symbol = Rewriter.Symbol.reify symbol in
+  let expanded t =
+    let+ t = lift (!Rewriter.expand_type_expr_ref t) in
+    Type.set_ghost false t
+  in
+  let* value_type = expanded value_type in
+  let* signature =
+    match symbol with
+    | Module.CallDef c ->
+        begin match Callable.to_decl c with
+        | {
+         call_decl_kind = Func;
+         call_decl_formals = [ x ];
+         call_decl_returns = [ r ];
+         _;
+        } ->
+            let* x = expanded x.var_type in
+            let+ r = expanded r.var_type in
+            Some (x, r)
+        | _ -> Rewriter.return None
+        end
+    | _ -> Rewriter.return None
+  in
+  match signature with
+  | Some (x, r) when Type.equal x value_type && Type.equal r Type.bool ->
+      Rewriter.return resolved
+  | _ -> field_constraint_error (QualIdent.to_loc p) field.field_name p value_type
+
 let check_field (field : Module.field_def) : Module.symbol t =
   let open Rewriter.Syntax in
   match field.field_alias with
   | Some target -> check_alias_field field target
   | None ->
-      let+ tp_expr =
+      let* tp_expr =
         match field.field_type with
         | App (Var qual_ident, [], tp_attr) -> (
             let* fully_qualified_qual_ident, symbol =
@@ -150,7 +186,10 @@ let check_field (field : Module.field_def) : Module.symbol t =
       in
 
       let field = { field with field_type = tp_expr } in
-      Module.(FieldDef field)
+      let+ field_constraint =
+        Rewriter.Option.map field.field_constraint ~f:(check_field_constraint field)
+      in
+      Module.(FieldDef { field with field_constraint })
 
 let check_var (var : Stmt.var_def) : Module.symbol t =
   let open Rewriter.Syntax in

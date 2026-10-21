@@ -3298,6 +3298,11 @@ module Module = struct
             (heaps are keyed by field name, see [HeapNames.field_heap_name]). Passes that
             generate per-field artifacts must therefore skip it. *)
     field_alias : QualIdent.t option;
+    field_constraint : QualIdent.t option;
+        (** The func that every value of the field satisfies, as [p] in
+            [field f: Int where p]: part of the validity of the field's fractional
+            resource algebra, so owning the field implies it and writes must establish it.
+            Only for fields whose type is not a resource algebra. *)
     field_loc : Loc.t;
   }
 
@@ -3492,9 +3497,11 @@ module Module = struct
           let field_type =
             match field_def.field_type with App (Fld, [ typ ], _) -> typ | typ -> typ
           in
-          fprintf ppf "@[%sfield %a: %a@]"
+          fprintf ppf "@[%sfield %a: %a%a@]"
             (if field_def.field_is_ghost then "ghost " else "")
             Ident.pr field_def.field_name Type.pr field_type
+            (fun ppf -> Option.iter ~f:(fprintf ppf " where %a" QualIdent.pr))
+            field_def.field_constraint
       | VarDef vdef -> Stmt.pr_var_def ppf vdef
       | CallDef cdef -> Callable.pr ppf cdef
     in
@@ -3790,6 +3797,20 @@ module Predefs = struct
 
   let lib_frac_mod_qual_ident =
     QualIdent.from_list [ lib_ident; Ident.make Loc.dummy "Frac" 0 ]
+
+  (* The resource algebra of a field with a constraint, and its parameter's interface. *)
+  let lib_constrained_frac_mod_qual_ident =
+    QualIdent.from_list [ lib_ident; Ident.make Loc.dummy "ConstrainedFrac" 0 ]
+
+  let lib_value_constraint_mod_qual_ident =
+    QualIdent.from_list [ lib_ident; Ident.make Loc.dummy "ValueConstraint" 0 ]
+
+  let lib_value_constraint_holds_ident = Ident.make Loc.dummy "holds" 0
+
+  (** Whether [qi] is a fractional resource algebra of fields: [Frac] or
+      [ConstrainedFrac], which have the same chunks. *)
+  let is_lib_frac_mod qi =
+    QualIdent.(qi = lib_frac_mod_qual_ident || qi = lib_constrained_frac_mod_qual_ident)
 
   (* [Library.WordSized] declares nothing but a representation type; what makes it mean
      anything is a structural check the front end runs on whatever type an

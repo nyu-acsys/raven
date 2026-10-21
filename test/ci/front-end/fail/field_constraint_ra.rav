@@ -1,0 +1,5 @@
+module A = Library.Agree[Int]
+
+func g(x: A) returns (b: Bool) { true }
+
+ghost field f: A where g

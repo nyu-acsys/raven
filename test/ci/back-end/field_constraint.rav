@@ -1,0 +1,45 @@
+// A field whose values satisfy a constraint: owning the field implies it, and
+// allocations and writes must establish it.
+
+func nonneg(x: Int) returns (b: Bool) { x >= 0 }
+
+field count: Int where nonneg
+
+proc read(c: Ref, implicit ghost n: Int)
+  requires own(c.count, n)
+  ensures own(c.count, n) && n >= 0
+{}
+
+proc bump(c: Ref, implicit ghost n: Int)
+  requires own(c.count, n)
+  ensures own(c.count, n + 1)
+{
+  var v: Int := c.count;
+  c.count := v + 1;
+}
+
+proc create() returns (c: Ref)
+  ensures own(c.count, 3)
+{
+  c := new(count: 3);
+}
+
+// Owning a value outside the constraint is impossible.
+proc vacuous(c: Ref)
+  requires own(c.count, -1)
+{
+  assert false;
+}
+
+// Through an interface, a functor's clients get the constraint of its field.
+interface Counter {
+  func positive(x: Int) returns (b: Bool) { x > 0 }
+  field ticks: Int where positive
+}
+
+module Clients[C: Counter] {
+  proc client(c: Ref, implicit ghost n: Int)
+    requires own(c.C.ticks, n)
+    ensures own(c.C.ticks, n) && n > 0
+  {}
+}

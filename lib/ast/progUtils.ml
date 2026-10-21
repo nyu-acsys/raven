@@ -190,6 +190,61 @@ let tp_mod_ident_prefix = "TypeMod$$"
 let with_type_display ~(rep : ident) (tp : AstDef.type_expr) (id : ident) : ident =
   Ident.with_display ~text:(AstDef.Type.to_string_user tp) ~rep:(Ident.name rep) id
 
+(** Introduces a module implementing Library.ValueConstraint for the field [field_name]
+    with values of type [tp] and the constraint [constr]: its `holds(x)` is `constr(x)`.
+    ~f is expected to be Typing.check_symbol. *)
+let intros_constraint_module ~(loc : location)
+    ~(f : AstDef.Module.symbol -> AstDef.Module.symbol t) (field_name : ident)
+    (tp : AstDef.type_expr) (constr : qual_ident) : qual_ident t =
+  let rep = Predefs.lib_type_rep_type_ident in
+  let rep_type = AstDef.Type.mk_var ~loc (QualIdent.from_ident rep) in
+  let x = Ident.make loc "x" 0 and ret = Ident.make loc "ret" 0 in
+  let var_decl name typ = AstDef.Type.mk_var_decl ~loc name typ in
+  let holds =
+    let decl =
+      AstDef.Callable.mk_call_decl ~kind:Func
+        ~name:Predefs.lib_value_constraint_holds_ident ~loc
+        ~formals:[ var_decl x rep_type ]
+        ~returns:[ var_decl ret AstDef.Type.bool ]
+        ~precond:[] ~postcond:[] ~contract_ext:[] ~loc_params:[] ()
+    in
+    let body =
+      AstDef.Expr.mk_app ~loc ~typ:AstDef.Type.bool (Var constr)
+        [ AstDef.Expr.mk_var ~typ:rep_type (QualIdent.from_ident x) ]
+    in
+    { AstDef.Callable.call_decl = decl; call_def = FuncDef { func_body = Some body } }
+  in
+  let mod_decl =
+    {
+      AstDef.Module.mod_decl_name =
+        Ident.make loc (serialize ("Constraint$" ^ Ident.to_string field_name)) 0;
+      mod_decl_formals = [];
+      mod_decl_returns = [ (Predefs.lib_value_constraint_mod_qual_ident, []) ];
+      mod_decl_is_sealed = false;
+      mod_decl_interfaces = Set.empty (module QualIdent);
+      mod_decl_rep = Some rep;
+      mod_decl_is_ra = false;
+      mod_decl_is_interface = false;
+      mod_decl_status = MachineFree;
+      mod_decl_loc = loc;
+    }
+  in
+  let mod_def : AstDef.Module.module_instr list =
+    [
+      SymbolDef
+        (TypeDef
+           {
+             type_def_name = rep;
+             type_def_expr = Some tp;
+             type_def_rep = true;
+             type_def_loc = loc;
+             type_def_is_free = false;
+           });
+      SymbolDef (CallDef holds);
+    ]
+  in
+  introduce_typecheck_symbol ~loc ~f (AstDef.Module.ModDef { mod_decl; mod_def })
+
 (** Takes a type expression `tp` and introduces a module that implements Library.Type
     whose rep type T is `tp`. ~f here is expected to be Typing.check_symbol, but it's not
     hardcoded to prevent recursive dependencies *)

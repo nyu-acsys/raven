@@ -95,7 +95,7 @@ let inline_modifier ~loc (kind : Callable.call_kind) (is_inline : bool) : bool =
 %token IF ELSE WHILE SPAWN
 %token <Ast.Callable.call_kind> FUNC
 %token PROC AXIOM LEMMA FREE
-%token CASE DATA ATOMICTOKEN FIELD
+%token CASE DATA ATOMICTOKEN FIELD WHERE
 %token ATOMIC GHOST IMPLICIT REP AUTO INLINE WITH
 %token <bool> VAR
 %token <bool> MODULE
@@ -229,8 +229,10 @@ member_def:
 | { false }
 
 field_def:
-| g = ghost_modifier; FIELD x = plain_ident; COLON; t = type_expr {
+| g = ghost_modifier; FIELD x = plain_ident; COLON; t = type_expr;
+  where = option(preceded(WHERE, qual_ident)) {
     Surface.Module.field ~loc:(Loc.make $symbolstartpos $endpos) ~ghost:g
+      ?where:(Option.map where ~f:Expr.to_qual_ident)
       ~type_loc:(Loc.make $startpos(t) $endpos(t)) x t
   }
 (* Manifest field: `field f = M.g` denotes an existing field rather than

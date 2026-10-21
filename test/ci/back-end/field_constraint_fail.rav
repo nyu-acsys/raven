@@ -1,0 +1,16 @@
+// Writes and allocations that may break a field's constraint.
+
+func nonneg(x: Int) returns (b: Bool) { x >= 0 }
+
+field count: Int where nonneg
+
+proc decrement(c: Ref, implicit ghost n: Int)
+  requires own(c.count, n)
+{
+  var v: Int := c.count;
+  c.count := v - 1;
+}
+
+proc create() returns (c: Ref) {
+  c := new(count: -5);
+}

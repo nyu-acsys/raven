@@ -518,6 +518,20 @@ let manifest_field_ghost_error loc field_name ~ghost target ~target_ghost =
        target
        (if target_ghost then "ghost" else "non-ghost"))
 
+let field_constraint_ra_error loc field_name =
+  Error.type_error loc
+    (Printf.sprintf
+       !"Field %{Ident#user} has a resource algebra as its type, so it cannot have a \
+         constraint; build the constraint into the algebra's validity"
+       field_name)
+
+let field_constraint_error loc field_name constraint_name value_type =
+  Error.type_error loc
+    (Printf.sprintf
+       !"The constraint %{QualIdent#user} of field %{Ident#user} must be a func taking \
+         one %{Type#user} and returning a Bool"
+       constraint_name field_name value_type)
+
 let var_member_error loc =
   Error.type_error loc "Modules and interfaces cannot have var members"
 

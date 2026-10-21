@@ -399,6 +399,63 @@ module Frac[X: Type] : CancellativeResourceAlgebra {
     }
 }
 
+// The values of a field with a constraint, `field f: T where p`: those satisfying `holds`.
+interface ValueConstraint : Type {
+    func holds(x: T) returns (ret: Bool)
+}
+
+// Frac, valid only for the values satisfying `C.holds`: the resource algebra of a field
+// with a constraint, so that owning the field implies the constraint.
+module ConstrainedFrac[C: ValueConstraint] : CancellativeResourceAlgebra {
+    rep type T = data {
+        case frac_null
+        case frac_chunk(frac_proj1: C, frac_proj2: Real)
+        case frac_top
+    }
+
+    val id: T = frac_null
+
+    func valid(n:T)
+        returns (ret:Bool)
+    {
+        match n {
+            case frac_null => true
+            case frac_chunk(v, q) => q > 0.0 && q <= 1.0 && C.holds(v)
+            case frac_top => false
+        }
+    }
+
+    func comp(a:T, b:T) returns (ret:T) {
+        a == frac_null ? b :
+        (b == frac_null ? a :
+        (valid(a) && valid(b) ?
+            (a.frac_proj1 == b.frac_proj1 && a.frac_proj2 + b.frac_proj2 > 0.0 && a.frac_proj2 + b.frac_proj2 <= 1.0 ?
+                frac_chunk(a.frac_proj1, a.frac_proj2 + b.frac_proj2) :
+                frac_top) :
+            frac_top
+        )
+        )
+    }
+
+    func frame(a:T, b:T) returns (ret:T) {
+        b == frac_null ? a :
+
+        (a is frac_chunk && b is frac_chunk && valid(a) && valid(b) ?
+            (a.frac_proj1 == b.frac_proj1 && a.frac_proj2 - b.frac_proj2 >= 0.0 ?
+                (a.frac_proj2 == b.frac_proj2 ? frac_null : frac_chunk(a.frac_proj1, a.frac_proj2 - b.frac_proj2)) :
+                frac_top
+            ) :
+            frac_top
+        )
+    }
+
+    func fpuAllowed(a:T, b:T) returns (ret:Bool) {
+        (a is frac_chunk ?
+            a.frac_proj2 == 1.0 && valid(b) :
+        (a == frac_top ? true : false))
+    }
+}
+
 module FracRA[M: ResourceAlgebra] : ResourceAlgebra {
     rep type T = data {
         case identity

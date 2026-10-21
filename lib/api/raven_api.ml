@@ -260,8 +260,8 @@ end
 module Member = struct
   type t = Ast.Module.module_instr
 
-  let field ~loc ?(ghost = false) name typ =
-    S.Module.symbol (FieldDef (S.Module.field ~loc ~ghost ~type_loc:loc name typ))
+  let field ~loc ?(ghost = false) ?where name typ =
+    S.Module.symbol (FieldDef (S.Module.field ~loc ~ghost ?where ~type_loc:loc name typ))
 
   let type_ ~loc ?(rep = false) name def =
     S.Module.symbol (TypeDef (S.Module.type_def ~loc ~rep name def))
