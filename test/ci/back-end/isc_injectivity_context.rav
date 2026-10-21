@@ -1,0 +1,23 @@
+// An iterated separating conjunction whose index is injective by a fact conjoined with
+// it, outside its guard.
+
+field f: Int
+
+func distinct(s: Seq[Ref]) returns (ret: Bool) {
+  forall i: Int, j: Int :: {s[i], s[j]}
+    0 <= i < Seq.length(s) && 0 <= j < Seq.length(s) && s[i] == s[j] ==> i == j
+}
+
+pred cells(s: Seq[Ref]) {
+  distinct(s) && (forall i: Int :: {s[i]} 0 <= i < Seq.length(s) ==> own((s[i]).f, i))
+}
+
+proc write(s: Seq[Ref], i: Int)
+  requires cells(s) && 0 <= i < Seq.length(s)
+  ensures cells(s)
+{
+  unfold cells(s);
+  val c: Ref := s[i];
+  c.f := i;
+  fold cells(s);
+}

@@ -24,7 +24,14 @@ type conditionals = Expr.t list * Expr.t list
 type conditions = Expr.t list
 (* Two componends in conditionals are used to keep track of conditionals given before existential quants, and ones given after existential quants *)
 
-type universal_quants = { univ_vars : (ident * var_decl) list; triggers : expr list list }
+type universal_quants = {
+  univ_vars : (ident * var_decl) list;
+  triggers : expr list list;
+  context : expr list;
+      (** Pure facts conjoined with the quantified formula that do not mention its
+          variables, as [distinct(s)] next to [forall i :: ... own(s[i].f, ...)]: they
+          hold wherever it does, so the injectivity of its index may rely on them. *)
+}
 
 type existential_quant_record = {
   var_decl : var_decl;
@@ -83,6 +90,11 @@ let trivially_injective (universal_quants : universal_quants) (expr : expr) =
   List.for_all univ_vars ~f:(fun v ->
       List.exists components ~f:(fun e ->
           is_univ_var e && Set.mem (Expr.symbols e) (QualIdent.from_ident v.var_name)))
+
+(** The context that the injectivity of [expr] in the variables of [universal_quants] may
+    rely on: none where it is injective regardless. *)
+let injectivity_context (universal_quants : universal_quants) (expr : expr) =
+  if trivially_injective universal_quants expr then [] else universal_quants.context
 
 let generate_injectivity_assertions ~loc (universal_quants : universal_quants)
     (conditions : conditions) ~env_local_var_decls (expr : expr) : Stmt.t Rewriter.t =
@@ -240,6 +252,8 @@ let compute_env_local_var_decls ~loc (expr : expr) (conds : conditions)
    feed the right inverse in a matching loop. *)
 let generate_inv_function ~loc (universal_quants : universal_quants) (conds : conditions)
     (inv_expr : expr) ~(arg_expr : expr) : expr Rewriter.t =
+  (* Injectivity may rely on the context, which holds wherever the guard is used. *)
+  let conds = conds @ injectivity_context universal_quants inv_expr in
   (* Logs.debug (fun m -> m "heapsExplicitTrnsl.generate_inv_function: Generating inv function for %a" Expr.pr inv_expr);
      Logs.debug (fun m -> m "arg_expr: %a" Expr.pr arg_expr);
      Logs.debug (fun m -> m "inv_expr_type: %a; arg_expr_type: %a" Type.pr (Expr.to_type inv_expr) Type.pr (Expr.to_type arg_expr)); *)
@@ -1319,12 +1333,14 @@ let get_or_generate_inv_function ~loc (universal_quants : universal_quants)
   let open Rewriter.Syntax in
   if List.is_empty universal_quants.univ_vars then Rewriter.return (inv_expr, [])
   else
+    (* The template includes the context, as the inverse function's conditions do. *)
+    let template_conds = conds @ injectivity_context universal_quants inv_expr in
     let mint_fresh () =
       let* inv_fn_expr =
         generate_inv_function ~loc universal_quants conds inv_expr ~arg_expr
       in
       let+ env_local_var_decls =
-        compute_env_local_var_decls ~loc inv_expr conds universal_quants
+        compute_env_local_var_decls ~loc inv_expr template_conds universal_quants
       in
       (inv_fn_expr, env_local_var_decls)
     in
@@ -1346,7 +1362,7 @@ let get_or_generate_inv_function ~loc (universal_quants : universal_quants)
                       {
                         isc_inv_fn_qual_ident = inv_fn_qual_ident;
                         isc_univ_vars = universal_quants.univ_vars;
-                        isc_conds = conds;
+                        isc_conds = template_conds;
                         isc_inv_expr = inv_expr;
                         isc_env_var_decls = env_local_var_decls;
                       }
@@ -1363,7 +1379,7 @@ let get_or_generate_inv_function ~loc (universal_quants : universal_quants)
             let occurrence_forall =
               Expr.mk_binder Forall
                 (List.map universal_quants.univ_vars ~f:snd)
-                (Expr.mk_tuple (conds @ [ inv_expr ]))
+                (Expr.mk_tuple (template_conds @ [ inv_expr ]))
             in
             match
               match_up_expr ~printers template_forall occurrence_forall
@@ -1389,8 +1405,9 @@ let get_or_generate_inv_function ~loc (universal_quants : universal_quants)
 
 module ParseAssertionLang = struct
   let rec parse_a ?cmnt ?spec_error ?spec_source ~loc
-      ?(universal_quants : universal_quants = { univ_vars = []; triggers = [] })
-      (conds : conditions) (expr : expr) ~parse_a0 : Stmt.t Rewriter.t =
+      ?(universal_quants : universal_quants =
+        { univ_vars = []; triggers = []; context = [] }) (conds : conditions)
+      (expr : expr) ~parse_a0 : Stmt.t Rewriter.t =
     let open Rewriter.Syntax in
     let parse_a = parse_a ?cmnt ~loc ?spec_error ?spec_source ~parse_a0 in
     match expr with
@@ -1403,6 +1420,26 @@ module ParseAssertionLang = struct
         Rewriter.return (Stmt.mk_block_stmt ~loc [ stmt1; stmt2 ])
     | App (Impl, [ c; e2 ], expr_attr) -> parse_a ~universal_quants (c :: conds) e2
     | App (And, e_list, expr_attr) ->
+        (* The pure conjuncts that do not mention the quantified variables are context of
+           the others. *)
+        (* Conjunctions nest, so the facts are those of the whole conjunction. *)
+        let rec conjuncts = function
+          | Expr.App (And, es, _) -> List.concat_map es ~f:conjuncts
+          | e -> [ e ]
+        in
+        let* facts =
+          Rewriter.List.map (List.concat_map e_list ~f:conjuncts) ~f:(fun e ->
+              let free = Expr.local_vars e in
+              if List.exists universal_quants.univ_vars ~f:(fun (x, _) -> Set.mem free x)
+              then Rewriter.return None
+              else
+                let+ pure = ProgUtils.is_expr_pure e in
+                Option.some_if pure e)
+        in
+        let facts = List.filter_opt facts in
+        let universal_quants =
+          { universal_quants with context = universal_quants.context @ facts }
+        in
         let* stmts_list =
           Rewriter.List.map e_list ~f:(fun e -> parse_a ~universal_quants conds e)
         in
@@ -1414,6 +1451,7 @@ module ParseAssertionLang = struct
             List.map var_decls ~f:(fun var_decl -> (var_decl.var_name, var_decl))
           in
           {
+            universal_quants with
             univ_vars = universal_quants.univ_vars @ new_quants;
             triggers =
               (match universal_quants.triggers with
@@ -2060,7 +2098,7 @@ module TrnslInhale = struct
         | Inhale ->
             let* e =
               skolemize_inhale_expr
-                { univ_vars = []; triggers = [] }
+                { univ_vars = []; triggers = []; context = [] }
                 (Map.empty (module QualIdent))
                 spec.spec_form
             in
@@ -2079,7 +2117,7 @@ module TrnslInhale = struct
         | Assume ->
             let* e =
               skolemize_inhale_expr
-                { univ_vars = []; triggers = [] }
+                { univ_vars = []; triggers = []; context = [] }
                 (Map.empty (module QualIdent))
                 spec.spec_form
             in
