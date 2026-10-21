@@ -1669,7 +1669,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
                           let error =
                             ( Error.Verification Error.Commit,
                               loc,
-                              "An atomic postcondition may not hold at this commit point."
+                              "An atomic postcondition may not hold at this commit point"
                             )
                           in
                           Some
