@@ -1,3 +1,10 @@
+21 oct, 2026:
+- [ ] A data type nested in an instance of itself, such as
+    `type T = data { case node(v: Int, children: List[T]) }`, crashes when a
+    constructor is called: Z3 rejects the datatype declarations ("unknown sort
+    'Rose.TypeMod$$Library_Type$$Rose_T.T'"). The type and the instance
+    `List[T]` need to be declared together, as mutually recursive datatypes.
+
 20 oct, 2026:
 - [ ] Infer implicit ghost arguments from invariants in the precondition: for
     `proc acquire(l: Ref, implicit ghost r: Ref) requires lock_inv(l, r)`, a
