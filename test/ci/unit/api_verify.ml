@@ -49,7 +49,7 @@ let report program =
     result.diagnostics
 
 let () =
-  Printf.printf "raven.api version %d\n\n" version;
+  Printf.printf "raven-ivl.api version %d\n\n" version;
   report (program ~result:1);
   print_newline ();
   report (program ~result:2)

@@ -2,5 +2,5 @@
 
 (library
  (name raven_api)
- (public_name raven.api)
+ (public_name raven-ivl.api)
  (libraries base unix raven))

@@ -63,4 +63,4 @@
 (test
  (name api_verify)
  (modules api_verify)
- (libraries raven.api))
+ (libraries raven-ivl.api))
