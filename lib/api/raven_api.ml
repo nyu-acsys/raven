@@ -66,6 +66,8 @@ end
 module Expr = struct
   type t = Ast.Expr.t
 
+  let to_string = Ast.Expr.to_string
+  let alpha_equal e1 e2 = Ast.Expr.alpha_equal e1 e2
   let int = S.Expr.int
   let real = S.Expr.real
   let bool = S.Expr.bool

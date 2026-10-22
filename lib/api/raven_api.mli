@@ -79,6 +79,13 @@ end
 module Expr : sig
   type t
 
+  val to_string : t -> string
+  (** The expression as Raven source. *)
+
+  val alpha_equal : t -> t -> bool
+  (** Whether two expressions are the same up to renaming of their bound variables,
+      regardless of locations and type annotations. *)
+
   val int : loc:Loc.t -> int -> t
   val real : loc:Loc.t -> float -> t
   val bool : loc:Loc.t -> bool -> t
