@@ -197,45 +197,28 @@ let source_text loc : string option =
         Some (String.sub content ~pos ~len)
       else None)
 
+(** The line of [loc]'s start, with the part [loc] spans underlined; nothing if the source
+    cannot be read, as for a location of a program built through the API. *)
 let context loc =
-  let rec in_channel_line ic (line_num : int) =
-    let next_line =
-      match Stdio.In_channel.input_line ic with
-      | None -> Printf.sprintf "Cannot find line %s" (to_string_simple loc)
-      | Some s -> s
-    in
-
-    if line_num = 0 then next_line
-    else (
-      assert (line_num > 0);
-      in_channel_line ic (line_num - 1))
+  let line =
+    Opt.bind
+      (source_content (file_name loc))
+      ~f:(fun content -> List.nth (String.split_lines content) (start_line loc - 1))
   in
-  let ctx =
-    List.find_map (Library.sources @ !registered_sources)
-      ~f:(fun (lib_file_name, lib_source) ->
-        if String.(file_name loc = lib_file_name) then
-          let lib_source_str = String.split_lines lib_source in
-          let ctx = List.nth_exn lib_source_str (start_line loc - 1) in
-          Some ctx
-        else None)
-    |> Opt.lazy_value ~default:(fun () ->
-        let ic = Stdio.In_channel.create (file_name loc) in
-        let ctx = in_channel_line ic (start_line loc - 1) in
-        let _ = Stdio.In_channel.close ic in
-        ctx)
-  in
-
-  let highlight_prefix_len =
-    1 + String.length (Int.to_string @@ start_line loc) + 2 + start_col loc
-  in
-  let highlight_suffix_len =
-    max 1
-    @@ (if start_line loc = end_line loc then end_col loc else String.length ctx)
-       - start_col loc
-  in
-  Printf.sprintf "%d | %s\n%s%s\n" (start_line loc) ctx
-    (String.make highlight_prefix_len ' ')
-    (String.make highlight_suffix_len '^')
+  match line with
+  | None -> ""
+  | Some ctx ->
+      let highlight_prefix_len =
+        1 + String.length (Int.to_string @@ start_line loc) + 2 + start_col loc
+      in
+      let highlight_suffix_len =
+        max 1
+        @@ (if start_line loc = end_line loc then end_col loc else String.length ctx)
+           - start_col loc
+      in
+      Printf.sprintf "%d | %s\n%s%s\n" (start_line loc) ctx
+        (String.make highlight_prefix_len ' ')
+        (String.make highlight_suffix_len '^')
 
 let to_string loc =
   if loc.loc_start.pos_lnum = loc.loc_end.pos_lnum then

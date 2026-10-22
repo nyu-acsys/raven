@@ -161,9 +161,15 @@ module Expr = struct
         app ~loc MapUpdate [ map; k; v ])
 
   (** The mixfix operator [name] applied to [base] and [bounds], as [_[_]] in [e[i]]; the
-      call's location spans from [base]. *)
+      call's location spans from [base] if it is in the same file, which it need not be in
+      a program built through the API. *)
   let mixfix ~loc (name : string) (base : t) (bounds : t list) : t =
-    let loc = Loc.merge (Expr.to_loc base) loc in
+    let base_loc = Expr.to_loc base in
+    let loc =
+      if String.equal (Loc.file_name base_loc) (Loc.file_name loc) then
+        Loc.merge base_loc loc
+      else loc
+    in
     call ~loc (QualIdent.from_ident (Ident.make loc name 0)) (base :: bounds)
 
   let index ~loc e i = mixfix ~loc "_[_]" e [ i ]
