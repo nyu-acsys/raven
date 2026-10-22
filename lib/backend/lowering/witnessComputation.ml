@@ -1299,7 +1299,10 @@ let with_witness_notes (notes : Error.t list) (spec : Stmt.spec) : Stmt.spec =
   | spec_error ->
       { spec with spec_error = spec_error @ List.map notes ~f:Stmt.mk_const_spec_error }
 
-let rec rewrite_stmt (stmt : Stmt.t) : Stmt.t Rewriter.t =
+(** [stmt], an exhale or assertion, with the witnesses of its existentials computed, where
+    [follows_assert] is the assertion right before it, if any, and its parts rewritten by
+    [rewrite_stmt] otherwise. *)
+let rewrite_one ~follows_assert ~rewrite_stmt (stmt : Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
   let loc = Stmt.to_loc stmt in
   match stmt.stmt_desc with
@@ -1348,6 +1351,44 @@ let rec rewrite_stmt (stmt : Stmt.t) : Stmt.t Rewriter.t =
             List.map abstracted ~f:(fun (_, fallback, existential) ->
                 (existential.var_name, Expr.from_var_decl fallback, fallback.var_loc)) )
       in
+      (* The existentials of an exhale that matches up with the assertion before it are
+         those of the assertion, as the heap translation finds for those not abstracted. *)
+      let* printers = Rewriter.current_printers in
+      let exhale_expr =
+        let rec existentials (expr : expr) =
+          match expr with
+          | Binder (Exists, vds, _, e, _) -> vds @ existentials e
+          | Binder (_, _, _, e, _) -> existentials e
+          | App (_, es, _) -> List.concat_map es ~f:existentials
+        in
+        match
+          Option.bind follows_assert ~f:(fun assertion ->
+              HeapsExplicitTrnsl.match_up_expr ~printers exhale_expr assertion
+                (existentials exhale_expr))
+        with
+        | None -> exhale_expr
+        | Some matched ->
+            let values =
+              Map.fold matched
+                ~init:(Map.empty (module QualIdent))
+                ~f:(fun ~key ~data:(_, value) map ->
+                  Map.set map ~key:(QualIdent.from_ident key) ~data:value)
+            in
+            let rec substitute (expr : expr) =
+              match expr with
+              | Binder (Exists, vds, trgs, e, attr) -> begin
+                  let e = Expr.alpha_renaming (substitute e) values in
+                  match
+                    List.filter vds ~f:(fun vd -> not (Map.mem matched vd.var_name))
+                  with
+                  | [] -> e
+                  | vds -> Binder (Exists, vds, trgs, e, attr)
+                end
+              | Binder (b, vds, trgs, e, attr) -> Binder (b, vds, trgs, substitute e, attr)
+              | App (c, es, attr) -> App (c, List.map es ~f:substitute, attr)
+            in
+            substitute exhale_expr
+      in
       let* elim_expr, wtns_specs, notes =
         find_witnesses_elim_exists ~fallbacks exhale_expr
       in
@@ -1387,3 +1428,20 @@ let rec rewrite_stmt (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
       Rewriter.return (Stmt.mk_block_stmt ~loc (wtns_specs_stmts @ [ assert_stmt ]))
   | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_stmt
+
+(** [stmt] with the witnesses of the existentials of its exhales and assertions computed.
+    An exhale that matches up with the assertion right before it leaves the existentials
+    no witness is computed for to the heap translation, which witnesses them from the
+    assertion, rather than falling back to the values of an unfold. *)
+let rewrite_stmt (stmt : Stmt.t) : Stmt.t Rewriter.t =
+  let previous_assert = ref None in
+  let rec rewrite_stmt stmt =
+    let follows_assert = !previous_assert in
+    begin match stmt.Stmt.stmt_desc with
+    | Basic (Spec (Assert, spec)) -> previous_assert := Some spec.spec_form
+    | Basic _ -> previous_assert := None
+    | _ -> ()
+    end;
+    rewrite_one ~follows_assert ~rewrite_stmt stmt
+  in
+  rewrite_stmt stmt

@@ -1,0 +1,25 @@
+// The assertion right before a fold witnesses its existentials, rather than the values
+// the unfold of the same instance bound them to: here `v`, which the write changes.
+
+ghost field f: Int
+
+pred inner(x: Ref, v: Int) {
+  own(x.f, v)
+}
+
+pred outer(x: Ref) {
+  exists v: Int :: inner(x, v)
+}
+
+proc incr(x: Ref)
+  requires outer(x)
+  ensures outer(x)
+{
+  ghost var v0: Int;
+  unfold outer(x)[v0 := v];
+  unfold inner(x, v0);
+  x.f := v0 + 1;
+  fold inner(x, v0 + 1);
+  assert inner(x, v0 + 1);
+  fold outer(x);
+}
