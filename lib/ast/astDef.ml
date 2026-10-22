@@ -464,6 +464,7 @@ module Type = struct
             pr_variant_decl_list decls
     and pr ppf t =
       match t with
+      | App (Prod, [], _) -> Stdlib.Format.fprintf ppf "()"
       | App (t1, [], attr) -> Stdlib.Format.fprintf ppf "%a" pr_constr t1
       | App (Map, [ t1; App (Bool, _, _) ], _) ->
           Stdlib.Format.fprintf ppf "Set[%a]" pr t1
