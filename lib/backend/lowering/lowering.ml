@@ -217,14 +217,40 @@ let rec rewrite_new_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
   | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_new_stmts
 
 type unfolded = {
-  instance : string;
+  pred : string;
+  instances : string list;
+  inputs : string list;
   mentions : (Ident.t, Ident.comparator_witness) Set.t;
   bound : (Ident.t * Expr.t * Loc.t) list;
 }
-(** A predicate instance that an unfold opened: its name and arguments, the variables
-    these mention, and the variables bound to its existentials, with the unfold's
-    location. A fold of the same instance falls back to these values for the existentials
-    that witness computation finds no witness for. *)
+(** A predicate instance that an unfold opened: the predicate, the instance's spellings,
+    as the predicate and arguments, which a copy of the arguments adds to, the arguments,
+    the variables these mention, and the variables bound to its existentials, with the
+    unfold's location. A fold of the same instance falls back to these values for the
+    existentials that witness computation finds no witness for. *)
+
+let instance_name pred args = Printf.sprintf "%s(%s)" pred (String.concat ~sep:", " args)
+let is_instance instance u = List.mem u.instances instance ~equal:String.equal
+
+(** [u], also spelled with the components of [x] if [stmt] copies its arguments to [x], as
+    the atomicity analysis does when it opens an invariant. *)
+let add_copy (stmt : Stmt.t) (u : unfolded) : unfolded =
+  match stmt.stmt_desc with
+  | Basic (Assign { assign_lhs = [ x ]; assign_rhs; _ }) ->
+      let copied = match assign_rhs with App (Tuple, es, _) -> es | e -> [ e ] in
+      let n = List.length u.inputs in
+      if
+        n <= List.length copied
+        && List.equal String.equal u.inputs
+             (List.map (List.take copied n) ~f:Expr.to_string)
+      then
+        let copy = Expr.mk_var ~typ:(Expr.to_type assign_rhs) x in
+        let components =
+          List.init n ~f:(fun i -> Expr.to_string (Expr.mk_tuple_lookup copy i))
+        in
+        { u with instances = instance_name u.pred components :: u.instances }
+      else u
+  | _ -> u
 
 (** The existentials of [expr] outside any universal quantifier and negation, with their
     types: those an unfold can bind to variables. *)
@@ -277,23 +303,28 @@ and track_unfolds (unfolded : unfolded list) (stmt : Stmt.t) :
   | Cond cond ->
       let* cond_then, after_then = track_unfolds unfolded cond.cond_then in
       let+ cond_else, after_else = track_unfolds unfolded cond.cond_else in
-      (* Instances open after both arms, with the same bindings. *)
+      (* Instances open after both arms, with the same bindings, or after the else arm
+         if the then arm does not continue. *)
       let joined =
-        List.filter after_then ~f:(fun u ->
-            List.exists after_else ~f:(fun v ->
-                String.equal u.instance v.instance
-                && List.equal
-                     (fun (x, e, _) (y, f, _) ->
-                       Ident.(x = y) && String.equal (Expr.to_string e) (Expr.to_string f))
-                     u.bound v.bound))
+        if cond.cond_if_assumes_false then after_else
+        else
+          List.filter after_then ~f:(fun u ->
+              List.exists after_else ~f:(fun v ->
+                  List.equal String.equal u.instances v.instances
+                  && List.equal
+                       (fun (x, e, _) (y, f, _) ->
+                         Ident.(x = y)
+                         && String.equal (Expr.to_string e) (Expr.to_string f))
+                       u.bound v.bound))
       in
       ({ stmt with stmt_desc = Cond { cond with cond_then; cond_else } }, joined)
   | Basic _ ->
       let assigned = assigned_vars stmt in
       Rewriter.return
         ( stmt,
-          List.filter unfolded ~f:(fun u ->
-              not (List.exists assigned ~f:(fun x -> Set.mem u.mentions x))) )
+          List.filter_map unfolded ~f:(fun u ->
+              if List.exists assigned ~f:(fun x -> Set.mem u.mentions x) then None
+              else Some (add_copy stmt u)) )
   | Loop _ | StmtExt _ ->
       let+ stmt =
         Rewriter.Stmt.descend stmt ~f:(fun s ->
@@ -491,13 +522,11 @@ and rewrite_use (unfolded : unfolded list) (stmt : Stmt.t) (use_desc : Stmt.use_
           List.take use_desc.use_args (List.length pred_decl.call_decl_formals)
         in
         let instance =
-          Printf.sprintf "%s(%s)"
+          instance_name
             (QualIdent.to_string pred_qual_ident)
-            (String.concat ~sep:", " (List.map inputs ~f:Expr.to_string))
+            (List.map inputs ~f:Expr.to_string)
         in
-        let others =
-          List.filter unfolded ~f:(fun u -> not (String.equal u.instance instance))
-        in
+        let others = List.filter unfolded ~f:(fun u -> not (is_instance instance u)) in
 
         let user_witness_renam_map =
           List.fold user_exist_witnesses
@@ -514,7 +543,7 @@ and rewrite_use (unfolded : unfolded list) (stmt : Stmt.t) (use_desc : Stmt.use_
           match use_desc.use_kind with
           | Unfold -> user_witness_renam_map
           | Fold -> (
-              match List.find unfolded ~f:(fun u -> String.equal u.instance instance) with
+              match List.find unfolded ~f:(is_instance instance) with
               | None -> user_witness_renam_map
               | Some u ->
                   List.fold u.bound ~init:user_witness_renam_map
@@ -641,7 +670,14 @@ and rewrite_use (unfolded : unfolded list) (stmt : Stmt.t) (use_desc : Stmt.use_
                   ~init:(Set.empty (module Ident))
                   ~f:(fun vars e -> Set.union vars (Expr.local_vars e))
               in
-              { instance; mentions; bound } :: others
+              {
+                pred = QualIdent.to_string pred_qual_ident;
+                instances = [ instance ];
+                inputs = List.map inputs ~f:Expr.to_string;
+                mentions;
+                bound;
+              }
+              :: others
         in
         Rewriter.return (new_stmt, after)
     end

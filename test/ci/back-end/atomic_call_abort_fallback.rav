@@ -1,0 +1,32 @@
+// An invariant open around an atomic call closes again if the call aborts with the
+// values its unfold bound the existentials to, where witness computation finds none:
+// here `k`, of which the heap only holds the square. The ghost write makes the call check
+// that the invariant closes on abort.
+
+import Library.IntAtomics._
+
+field c: Int
+ghost field g: Int
+
+inv square(x: Ref) {
+  exists k: Int :: own(x.c, k * k, 1.0) && own(x.g, 0, 1.0)
+}
+
+proc keep(x: Ref, implicit ghost n: Int)
+  atomic requires own(x.c, n, 1.0)
+  atomic ensures own(x.c, n, 1.0)
+{
+  ghost var phi := bindAU();
+  ghost var n0: Int := openAU(phi);
+  var old_val: Int := faa(x.c, 0);
+  commitAU(phi, ());
+}
+
+proc user(x: Ref)
+  requires square(x)
+{
+  unfold square(x);
+  x.g := 0;
+  keep(x);
+  fold square(x);
+}

@@ -1413,9 +1413,11 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
                         stmt_desc = Basic (Use { use_desc with use_args = full_args });
                       }
                     in
+                    (* The snapshot follows the unfold, which lowering then knows it
+                       copies the instance's arguments. *)
                     Rewriter.return
                       (Stmt.mk_block_stmt ~loc
-                         (bind_stmts @ open_asserts @ snap_stmts @ flag_stmts @ [ stmt ]))
+                         (bind_stmts @ open_asserts @ flag_stmts @ [ stmt ] @ snap_stmts))
                 | Fold -> (
                     (* Multiple instances of the same declaration can be open
                        at once, so this needs to identify which one; see
