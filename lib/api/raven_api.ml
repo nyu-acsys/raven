@@ -221,7 +221,7 @@ module Callable = struct
     { opens_entries = entries; opens_loc = loc }
 
   let proc ~loc ?(kind = Proc) ?(auto = false) ?formals ?returns ?(requires = [])
-      ?(ensures = []) ?opens name body =
+      ?(ensures = []) ?opens ?(decreases = []) name body =
     let kind : S.Callable.proc_kind =
       match kind with
       | Proc -> Proc
@@ -235,6 +235,14 @@ module Callable = struct
       S.Callable.decl ~loc ~kind:Func ?formals ?returns ~precond:requires
         ~postcond:ensures
         ?opens:(Option.map opens ~f:opens_clause)
+        ~contract_ext:
+          (match decreases with
+          | [] -> []
+          | measures ->
+              [
+                Ext.DecreasesExtInstance.Decreases
+                  (List.map measures ~f:(fun e -> Spec.make e));
+              ])
         name
     in
     S.Callable.proc kind decl (Option.map body ~f:(S.Stmt.block_stmt ~loc))

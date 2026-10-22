@@ -246,12 +246,14 @@ module Callable : sig
     ?requires:Spec.t list ->
     ?ensures:Spec.t list ->
     ?opens:Loc.t * (Name.t * Expr.t list) list ->
+    ?decreases:Expr.t list ->
     Ident.t ->
     Stmt.t list option ->
     t
   (** The procedure, lemma or axiom [name] and its body; [auto] makes a lemma or axiom
       apply where its postconditions are needed. [opens] lists the invariants it may open,
-      with arguments of which trailing ones may be [_]. *)
+      with arguments of which trailing ones may be [_]; [decreases] is the measure that
+      its recursive calls decrease. *)
 
   type func_kind = Func | Pred | Inv
 
