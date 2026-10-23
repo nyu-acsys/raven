@@ -1,0 +1,14 @@
+proc alias_on_one_branch(choice: Bool, foreign: AtomicToken<alias_on_one_branch>)
+  atomic requires true
+  atomic ensures true
+{
+  ghost var first := bindAU();
+  ghost var second: AtomicToken<alias_on_one_branch>;
+  if (choice) {
+    second := bindAU();
+  } else {
+    second := foreign;
+  }
+  openAU(first);
+  commitAU(second, ());
+}

@@ -1,0 +1,9 @@
+proc alias_open_result(implicit ghost replacement: AtomicToken<alias_open_result>)
+  atomic requires replacement == replacement
+  atomic ensures true
+{
+  ghost var first := bindAU();
+  ghost var second := bindAU();
+  first := openAU(second);
+  commitAU(first, ());
+}

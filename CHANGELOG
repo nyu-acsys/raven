@@ -30,8 +30,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Atomic update operations recognize repeated bindings and aliases of the same token.
 - Atomic-call abort checks restore the atomic precondition with fresh existential witnesses.
-
 - Atomic calls inside an open atomic update now check that it stays abortable.
 - An atomic call and its abort check give up the same resources for its ordinary precondition.
 - An invariant still open at a call or a loop's next iteration is reported as a missing fold.

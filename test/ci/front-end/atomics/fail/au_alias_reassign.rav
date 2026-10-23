@@ -1,0 +1,10 @@
+proc alias_reassigned(foreign: AtomicToken<alias_reassigned>)
+  atomic requires true
+  atomic ensures true
+{
+  ghost var first := bindAU();
+  ghost var second := bindAU();
+  openAU(first);
+  second := foreign;
+  commitAU(second, ());
+}

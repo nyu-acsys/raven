@@ -1,0 +1,71 @@
+proc alias_commit()
+  atomic requires true
+  atomic ensures true
+{
+  ghost var first := bindAU();
+  {
+    ghost var second := bindAU();
+    openAU(first);
+    commitAU(second, ());
+  }
+}
+
+proc alias_abort()
+  atomic requires true
+  atomic ensures true
+{
+  ghost var first := bindAU();
+  ghost var second := bindAU();
+  openAU(first);
+  abortAU(second);
+  openAU(second);
+  commitAU(first, ());
+}
+
+proc assignment_alias()
+  atomic requires true
+  atomic ensures true
+{
+  ghost var first := bindAU();
+  ghost var second: AtomicToken<assignment_alias>;
+  second := first;
+  openAU(first);
+  commitAU(second, ());
+}
+
+proc alias_bound_after_open()
+  atomic requires true
+  atomic ensures true
+{
+  ghost var first := bindAU();
+  openAU(first);
+  ghost var second := bindAU();
+  commitAU(second, ());
+}
+
+proc alias_scope()
+  atomic requires true
+  atomic ensures true
+{
+  ghost var first := bindAU();
+  {
+    ghost var second := bindAU();
+    openAU(second);
+  }
+  commitAU(first, ());
+}
+
+proc alias_branches(choice: Bool)
+  atomic requires true
+  atomic ensures true
+{
+  ghost var first := bindAU();
+  if (choice) {
+    ghost var second := bindAU();
+    openAU(second);
+  } else {
+    ghost var third := bindAU();
+    openAU(third);
+  }
+  commitAU(first, ());
+}
