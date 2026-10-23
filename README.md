@@ -23,7 +23,6 @@ Raven ships with a [library](lib/library/resource_algebra.rav) of standard resou
 Raven's underlying meta-theory is based on the [Iris](https://iris-project.org/) separation logic framework. We simplify the Iris logic by carefully restricting its features (like higher-order quantification, impredicativity, and step-indexing). At the same time, we add complementary features like the higher-order module system to regain expressivity. The resulting logic is sufficiently expressive to verify complex concurrent algorithms, yet, amenable to robust SMT-based automation. The mechanization of Raven's program logic as an instance of the Iris framework is part of ongoing work.
 
 ## Contents
-- [Portable Usage (via Docker)](#portable-usage-via-docker)
 - [Installation](#installation)
 - [Usage](#usage)
 - [Examples](#examples)
@@ -34,7 +33,19 @@ Raven's underlying meta-theory is based on the [Iris](https://iris-project.org/)
 - [Scientific Background](#scientific-background)
 
 
-## Portable Usage (via Docker):
+## Installation
+
+### Visual Studio Code
+The [Raven extension](https://marketplace.visualstudio.com/items?itemName=nyu-acsys.raven-verifier) for Visual Studio Code bundles the verifier and Z3 for Linux, macOS and Windows, so nothing else needs to be installed. Its source is at [nyu-acsys/raven-lang](https://github.com/nyu-acsys/raven-lang).
+
+### Prebuilt binaries
+Each [release](https://github.com/nyu-acsys/raven/releases) comes with binaries for Linux (`linux-x64`, `linux-arm64`), macOS (`darwin-x64`, `darwin-arm64`) and Windows (`win32-x64`). They need [Z3](https://github.com/Z3Prover/z3) (>= 4.13.0) on the path. For example:
+```
+$ curl -L https://github.com/nyu-acsys/raven/releases/latest/download/raven-linux-x64.tar.gz | tar xz
+$ ./raven --version
+```
+
+### Docker
 Each [release](https://github.com/nyu-acsys/raven/releases) comes with a Docker image of Raven that can be run without installing anything else. Download the archive for your architecture (`amd64`, or `arm64` for e.g. Apple Silicon) and load it:
 
 ```bash
@@ -90,8 +101,8 @@ Verification successful.
 The image can also be built from a checkout of this repository with `docker build -t raven .`.
 
 
-## Installation
-To install Raven locally, it requires [`opam`](https://opam.ocaml.org/) (>= 2.1.0), OCaml (5.x; CI uses 5.1), and [Z3](https://github.com/Z3Prover/z3) (>= 4.13.0). Z3 is pulled in automatically as an opam dependency; if that build fails, consult the [`z3` opam package](https://opam.ocaml.org/packages/z3/) for its system-level prerequisites (a C++ toolchain and Python are typically needed). See [`dune-project`](dune-project) for the full list of OCaml library dependencies. Raven and all its dependencies other than `opam` can be installed by running the following sequence of commands.
+### From source
+Building Raven requires [`opam`](https://opam.ocaml.org/) (>= 2.1.0), OCaml (5.x; CI uses 5.1), and [Z3](https://github.com/Z3Prover/z3) (>= 4.13.0). Z3 is pulled in automatically as an opam dependency; if that build fails, consult the [`z3` opam package](https://opam.ocaml.org/packages/z3/) for its system-level prerequisites (a C++ toolchain and Python are typically needed). See [`dune-project`](dune-project) for the full list of OCaml library dependencies. Raven and all its dependencies other than `opam` can be installed by running the following sequence of commands.
 ```
 $ git clone https://github.com/nyu-acsys/raven.git
 $ cd ./raven
@@ -100,8 +111,6 @@ $ eval $(opam env)
 $ opam install . --deps-only --with-test
 $ dune build; dune install; dune runtest
 ```
-
-A [Visual Studio Code extension](https://github.com/nyu-acsys/raven-lang) for IDE integration is also available.
 
 
 ## Usage

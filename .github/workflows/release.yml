@@ -171,7 +171,11 @@ jobs:
             case "$name" in
               # Already a gzipped `docker save` archive; `docker load` takes it as is.
               raven-docker-*) cp "$dir/${name}.tar.gz" release/ ;;
-              *) tar -C "$dir" -czf "release/${name}.tar.gz" . ;;
+              # Artifacts lose their file modes, so the binary is made executable again.
+              *)
+                if [ -f "$dir/raven" ]; then chmod 755 "$dir/raven"; fi
+                tar -C "$dir" -czf "release/${name}.tar.gz" .
+                ;;
             esac
           done
           ls -la release
