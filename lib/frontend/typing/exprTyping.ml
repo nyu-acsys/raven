@@ -794,8 +794,6 @@ and check_au_pred (call_name : qual_ident) (token : expr) (args_tuple : expr)
   let loc = Expr.to_loc expr in
   let* call_name, symbol = Rewriter.resolve_and_find call_name in
 
-  let args_list = Expr.unfold_tuple args_tuple in
-
   let* callable_decl =
     let+ symbol = Rewriter.Symbol.reify symbol in
     match symbol with
@@ -804,6 +802,10 @@ and check_au_pred (call_name : qual_ident) (token : expr) (args_tuple : expr)
     | _ -> expected_callable_error loc
   in
 
+  let arity =
+    List.count callable_decl.call_decl_formals ~f:(fun v -> not v.var_implicit)
+  in
+  let args_list = Expr.unfold_tuple_for_arity arity args_tuple in
   if not (Callable.is_atomic callable_decl) then expected_atomic_procedure_error loc
   else
     let* token = check token (Type.atomic_token call_name) in
@@ -821,8 +823,6 @@ and check_au_pred_commit (call_name : qual_ident) (token : expr) (args_tuple : e
   let loc = Expr.to_loc expr in
   let* call_name, symbol = Rewriter.resolve_and_find call_name in
 
-  let args_list = Expr.unfold_tuple args_tuple in
-
   let* callable_decl =
     let+ symbol = Rewriter.Symbol.reify symbol in
     match symbol with
@@ -831,6 +831,10 @@ and check_au_pred_commit (call_name : qual_ident) (token : expr) (args_tuple : e
     | _ -> expected_procedure_error loc
   in
 
+  let arity =
+    List.count callable_decl.call_decl_formals ~f:(fun v -> not v.var_implicit)
+  in
+  let args_list = Expr.unfold_tuple_for_arity arity args_tuple in
   if not (Callable.is_atomic callable_decl) then expected_atomic_procedure_error loc
   else
     let* token = check token (Type.atomic_token call_name) in

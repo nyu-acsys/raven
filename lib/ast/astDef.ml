@@ -1394,6 +1394,10 @@ module Expr = struct
 
   let unfold_tuple expr = match expr with App (Tuple, es, _) -> es | _ -> [ expr ]
 
+  (* A singleton product is its element, which may itself be a tuple. *)
+  let unfold_tuple_for_arity arity expr =
+    if arity = 1 then [ expr ] else unfold_tuple expr
+
   (** Map all identifiers occuring in expression [e] to new identifiers according to
       function [fct] *)
   let map_idents fct e =

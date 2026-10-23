@@ -31,6 +31,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - Atomic update operations recognize repeated bindings and aliases of the same token.
+- Atomic update operations preserve tuple and unit values supplied as a single argument or result.
 - Atomic-call abort checks restore the atomic precondition with fresh existential witnesses.
 - Atomic calls inside an open atomic update now check that it stays abortable.
 - An atomic call and its abort check give up the same resources for its ordinary precondition.

@@ -1,0 +1,35 @@
+proc unit_arg(input: ()) returns (result: Int)
+  atomic requires true
+  atomic ensures result == 0
+{
+  ghost var token := bindAU();
+  openAU(token, ());
+  commitAU(token, (), 0);
+  return 0;
+}
+
+lemma help_unit(token: AtomicToken<unit_arg>)
+  requires au<unit_arg>(token, ())
+  ensures auCommit<unit_arg>(token, (), 0)
+{
+  openAU(token, ());
+  commitAU(token, (), 0);
+}
+
+proc tuple_arg(input: (Int, Int)) returns (result: (Int, Int))
+  atomic requires true
+  atomic ensures result == input
+{
+  ghost var token := bindAU();
+  openAU(token, input);
+  commitAU(token, input, input);
+  return input;
+}
+
+lemma help_tuple(token: AtomicToken<tuple_arg>)
+  requires au<tuple_arg>(token, (1, 2))
+  ensures auCommit<tuple_arg>(token, (1, 2), (1, 2))
+{
+  openAU(token, (1, 2));
+  commitAU(token, (1, 2), (1, 2));
+}

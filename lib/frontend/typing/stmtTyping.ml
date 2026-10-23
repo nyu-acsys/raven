@@ -335,7 +335,11 @@ let check_au_action (call_decl : Callable.call_decl) (assign_lhs : qual_ident li
             let* in_args_tuple =
               disambiguate_and_check_expr in_args_tuple tuple_tp disam_tbl
             in
-            let in_args = Expr.unfold_tuple in_args_tuple in
+            let in_args =
+              Expr.unfold_tuple_for_arity
+                (List.length proc_concrete_in_args)
+                in_args_tuple
+            in
             Rewriter.return in_args
         | false ->
             let* curr_callable_qi = Rewriter.current_scope_id in
@@ -386,8 +390,11 @@ let check_au_action (call_decl : Callable.call_decl) (assign_lhs : qual_ident li
         (* commitAU *)
         let returns_tuple = List.last_exn args in
         let* returns =
-          Rewriter.List.map (Expr.unfold_tuple returns_tuple) ~f:(fun e ->
-              disambiguate_expr e disam_tbl)
+          Rewriter.List.map
+            (Expr.unfold_tuple_for_arity
+               (List.length proc_call_decl.call_decl_returns)
+               returns_tuple)
+            ~f:(fun e -> disambiguate_expr e disam_tbl)
         in
         let* proc =
           Rewriter.find_and_reify_callable proc_qual_ident |+> fun c -> c.call_decl
