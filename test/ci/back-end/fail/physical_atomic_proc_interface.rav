@@ -1,0 +1,7 @@
+interface Atomic {
+  atomic proc f()
+}
+
+module Weak : Atomic {
+  proc f() { }
+}

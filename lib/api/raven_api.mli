@@ -240,6 +240,7 @@ module Callable : sig
   val proc :
     loc:Loc.t ->
     ?kind:proc_kind ->
+    ?atomic:bool ->
     ?auto:bool ->
     ?formals:Var.t list ->
     ?returns:Var.t list ->
@@ -250,10 +251,12 @@ module Callable : sig
     Ident.t ->
     Stmt.t list option ->
     t
-  (** The procedure, lemma or axiom [name] and its body; [auto] makes a lemma or axiom
-      apply where its postconditions are needed. [opens] lists the invariants it may open,
-      with arguments of which trailing ones may be [_]; [decreases] is the measure that
-      its recursive calls decrease. *)
+  (** The procedure, lemma or axiom [name] and its body; [atomic] makes a procedure
+      physically atomic, so its call counts as one step. It is separate from logically
+      atomic [Spec.make ~atomic:true] clauses, which may not be mixed with it. [auto]
+      makes a lemma or axiom apply where its postconditions are needed. [opens] lists the
+      invariants it may open, with arguments of which trailing ones may be [_];
+      [decreases] is the measure that its recursive calls decrease. *)
 
   type func_kind = Func | Pred | Inv
 

@@ -174,6 +174,36 @@ Other flags useful during development: `--typeonly` (type-check only), `--verbos
 
 ## Raven Verifier Manual
 
+### Physically atomic procedures
+
+An `atomic proc` declares that its entire body executes as one physical atomic
+block. Its ordinary `requires` and `ensures` clauses are checked around that block:
+
+```raven
+field count: Int
+
+atomic proc increment(x: Ref, implicit ghost before: Int)
+  requires own(x.count, before)
+  ensures own(x.count, before + 1)
+{
+  x.count := x.count + 1;
+}
+```
+
+Callers use this guarantee from the declaration, including through module
+interfaces. A synchronous call counts as one physical step and needs no abort
+restoration branch; ownership, invariant masks, and reentrancy checks still apply.
+An implementation of an `atomic proc` interface member must also be declared
+`atomic proc`. An opaque interface view, or a functor parameter whose interface
+declares only `proc`, does not expose physical atomicity. Direct calls through a
+transparent module can use its concrete `atomic proc` declaration.
+
+A regular `proc` with `atomic requires`/`atomic ensures` has a logically atomic
+specification and may take multiple physical steps, using the AU protocol to
+commit its operation. An `atomic proc` uses ordinary contract clauses and has no
+AU protocol of its own. Logical atomic clauses on an `atomic proc` are rejected.
+
+
 ### Command-line options
 
 Run `raven --help` for the full, authoritative option list. A few of the most commonly used flags:

@@ -1,0 +1,76 @@
+field f: Int
+
+inv cell(c: Ref) { own(c.f, 0, 1.0) }
+
+atomic proc restore_cell(c: Ref)
+  requires cell(c)
+  ensures cell(c)
+{
+  unfold cell(c)
+  c.f := 1
+  c.f := 0
+  fold cell(c)
+}
+
+atomic proc restore(c: Ref)
+  requires own(c.f, 0, 1.0)
+  ensures own(c.f, 0, 1.0)
+{
+  c.f := 1
+  c.f := 0
+}
+
+atomic proc restore_ghost(c: Ref)
+  returns (ghost result: Int)
+  requires own(c.f, 0, 1.0)
+  ensures own(c.f, 0, 1.0) && result == 0
+{
+  c.f := 1
+  c.f := 0
+  result := 0
+}
+
+proc caller(c: Ref)
+  requires cell(c)
+{
+  unfold cell(c)
+  restore(c)
+  fold cell(c)
+}
+
+proc caller_ghost(c: Ref)
+  requires cell(c)
+{
+  unfold cell(c)
+  ghost val result := restore_ghost(c)
+  fold cell(c)
+}
+
+interface Ordinary {
+  proc f()
+}
+
+module Strong : Ordinary {
+  atomic proc f() { }
+}
+
+interface Physical {
+  atomic proc restore(c: Ref)
+    requires own(c.f, 0, 1.0)
+    ensures own(c.f, 0, 1.0)
+}
+
+module Sealed :> Physical {
+  atomic proc restore(c: Ref) {
+    c.f := 1
+    c.f := 0
+  }
+}
+
+proc caller_interface(c: Ref)
+  requires cell(c)
+{
+  unfold cell(c)
+  Sealed.restore(c)
+  fold cell(c)
+}

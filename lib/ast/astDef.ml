@@ -2859,6 +2859,8 @@ module Callable = struct
 
   type call_decl = {
     call_decl_kind : call_kind;  (** kind of declaration *)
+    call_decl_physical_atomic : bool;
+        (** Whether a procedure call is one physical atomic step. *)
     call_decl_name : ident;  (** internal declaration identity *)
     call_decl_source_name : ident option;  (** source name when different from identity *)
     call_decl_formals : var_decl list;  (** formal parameter list *)
@@ -2976,6 +2978,7 @@ module Callable = struct
         | Lemma -> if has_body then "lemma" else "axiom"
         | Invariant -> "inv"
       in
+      let kind = if call_decl.call_decl_physical_atomic then "atomic " ^ kind else kind in
       let pr_returns ppf = function
         | [] -> ()
         | rs -> fprintf ppf "returns (@[<0>%a@])" Expr.pr_var_decl_list rs
@@ -3039,9 +3042,17 @@ module Callable = struct
             (pr_call_decl (Option.is_some fdef.func_body))
             call_decl (pr_fn_body Expr.pr) fdef.func_body
       | { call_decl; call_def = ProcDef pdef } ->
+          let body =
+            match pdef.proc_body with
+            | Some
+                ({ stmt_desc = Block ({ block_kind = Atomic; _ } as block); _ } as stmt)
+              when call_decl.call_decl_physical_atomic ->
+                Some { stmt with stmt_desc = Block { block with block_kind = Regular } }
+            | body -> body
+          in
           fprintf ppf "%a%a"
-            (pr_call_decl (Option.is_some pdef.proc_body))
-            call_decl (pr_proc_body Stmt.pr) pdef.proc_body
+            (pr_call_decl (Option.is_some body))
+            call_decl (pr_proc_body Stmt.pr) body
     in
     (pr_call_decl_specs, pr_call_decl, pr)
 
@@ -3069,10 +3080,12 @@ module Callable = struct
       [None]. *)
   let mk_call_decl ~(kind : call_kind) ~(name : ident) ~(loc : location) ?(formals = [])
       ?(returns = []) ?(locals = []) ?(precond = []) ?(postcond = []) ?(contract_ext = [])
-      ?(status = NotFree) ?(is_auto = false) ?(is_inline = false) ?needs_mask ?grants_mask
-      ?opens ?(loc_params = []) () : call_decl =
+      ?(status = NotFree) ?(is_auto = false) ?(is_inline = false)
+      ?(physical_atomic = false) ?needs_mask ?grants_mask ?opens ?(loc_params = []) () :
+      call_decl =
     {
       call_decl_kind = kind;
+      call_decl_physical_atomic = physical_atomic;
       call_decl_name = name;
       call_decl_source_name = None;
       call_decl_formals = formals;

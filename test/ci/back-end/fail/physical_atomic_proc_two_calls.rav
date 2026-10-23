@@ -1,0 +1,19 @@
+field f: Int
+inv cell(c: Ref) { own(c.f, 0, 1.0) }
+
+atomic proc restore(c: Ref)
+  requires own(c.f, 0, 1.0)
+  ensures own(c.f, 0, 1.0)
+{
+  c.f := 1
+  c.f := 0
+}
+
+proc caller(c: Ref)
+  requires cell(c)
+{
+  unfold cell(c)
+  restore(c)
+  restore(c)
+  fold cell(c)
+}

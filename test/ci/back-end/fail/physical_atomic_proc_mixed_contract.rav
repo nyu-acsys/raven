@@ -1,0 +1,4 @@
+atomic proc mixed()
+  atomic requires true
+  atomic ensures true
+{ }

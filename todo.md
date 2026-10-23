@@ -1,3 +1,7 @@
+23 oct, 2026:
+- [ ] Update the tutorial discussion of atomic operations and the Atomics library
+    to use `atomic proc`.
+
 21 oct, 2026:
 - [ ] The printer emits a fold, unfold, openInv or closeInv without witnesses
     with an empty witness list and trailing spaces, as `fold lseg(c, l)[]  ;`;

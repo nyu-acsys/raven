@@ -122,6 +122,14 @@ let check_implements_callable (call_def : Callable.t) (orig_call_def : Callable.
   then
     redeclared_as_other_kind_error loc (Symbol.kind orig_symbol) ident interface_ident
       (Symbol.kind symbol)
+  else if
+    orig_call_def.call_decl.call_decl_physical_atomic
+    && not call_def.call_decl.call_decl_physical_atomic
+  then
+    Error.type_error loc
+      (Printf.sprintf
+         "Procedure %s implements an atomic proc declaration but is not atomic"
+         (Ident.name ident))
   else
     let* sm =
       make_subst call_def.call_decl.call_decl_formals

@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Physically atomic procedures use `atomic proc` with ordinary preconditions and postconditions.
 - Report all errors instead of only the first, up to `--max-errors` (default 20).
 - `--only NAME` verifies a single member, module or named assertion.
 - `--counterexamples` shows the values of variables and fields where a check fails.

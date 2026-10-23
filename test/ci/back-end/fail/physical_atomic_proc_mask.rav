@@ -1,0 +1,18 @@
+field f: Int
+inv cell(c: Ref) { own(c.f, 0, 1.0) }
+
+atomic proc inspect(c: Ref)
+  requires cell(c)
+  ensures cell(c)
+  opens cell(c)
+{
+  unfold cell(c)
+  fold cell(c)
+}
+
+proc caller(c: Ref, other: Ref)
+  requires cell(c) && cell(other)
+  opens cell(c)
+{
+  inspect(other)
+}

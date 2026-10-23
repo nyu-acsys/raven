@@ -266,20 +266,22 @@ variant_args:
 
     
 proc_def:
-| k = proc_kind; def = proc_decl; body = option(block) {
+| ka = proc_kind; def = proc_decl; body = option(block) {
+  let k, atomic = ka in
   (match k, body with
    | Surface.Callable.Axiom _, Some _ ->
        let loc = Loc.make $startpos(body) $endpos(body) in
        Error.syntax_error loc "Axiom declarations cannot have bodies. Did you mean to declare a lemma?"
    | _ -> ());
   let proc_body = Option.map body ~f:(Surface.Stmt.at ~loc:(Loc.make $startpos(body) $endpos(body))) in
-  Surface.Callable.proc k def.Callable.call_decl proc_body
+  Surface.Callable.proc ~atomic k def.Callable.call_decl proc_body
 }
 
 proc_kind:
-| PROC { Surface.Callable.Proc }
-| is_auto = ioption(AUTO); LEMMA { Surface.Callable.Lemma { is_auto = is_auto <> None } }
-| is_auto = ioption(AUTO); AXIOM { Surface.Callable.Axiom { is_auto = is_auto <> None } }
+| PROC { (Surface.Callable.Proc, false) }
+| ATOMIC; PROC { (Surface.Callable.Proc, true) }
+| is_auto = ioption(AUTO); LEMMA { (Surface.Callable.Lemma { is_auto = is_auto <> None }, false) }
+| is_auto = ioption(AUTO); AXIOM { (Surface.Callable.Axiom { is_auto = is_auto <> None }, false) }
     
 func_def:
 | def = func_decl; body = option(delimited(LBRACE, expr, RBRACE)) {

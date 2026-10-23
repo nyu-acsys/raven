@@ -1,0 +1,18 @@
+field value: Int
+inv cell(c: Ref) { own(c.value, 0, 1.0) }
+
+interface Ordinary {
+  proc f()
+}
+
+module Strong :> Ordinary {
+  atomic proc f() { }
+}
+
+proc caller(c: Ref)
+  requires cell(c)
+{
+  unfold cell(c)
+  Strong.f()
+  fold cell(c)
+}

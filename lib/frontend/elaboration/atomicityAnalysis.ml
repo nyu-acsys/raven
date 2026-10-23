@@ -1286,7 +1286,13 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
                   }
         in
 
-        if
+        if call_decl.call_decl_physical_atomic && not call_desc.call_is_spawn then
+          let atomicity_state = take_atomic_step ~loc atomicity_state in
+          let* _ = Rewriter.set_user_state atomicity_state in
+          Rewriter.return
+            (Stmt.mk_block_stmt ~loc
+               (availability_asserts @ reentrancy_asserts @ [ stmt ]))
+        else if
           (is_call_lhs_ghost && not (List.is_empty call_desc.call_lhs))
           || Poly.(call_decl.call_decl_kind = Lemma)
         then
@@ -1307,7 +1313,8 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
                (availability_asserts @ reentrancy_asserts @ abort_stmts @ [ stmt ]))
         else
           let atomicity_state, flag_stmts =
-            (if Callable.is_atomic call_decl then take_atomic_step ~loc atomicity_state
+            (if Callable.is_atomic call_decl && not call_decl.call_decl_physical_atomic
+             then take_atomic_step ~loc atomicity_state
              else take_non_atomic_step ~loc atomicity_state)
             |> mark_ghost_update ~loc
           in

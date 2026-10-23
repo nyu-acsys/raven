@@ -106,6 +106,16 @@ let check (callable : Callable.t) : Module.symbol t =
   let* _ = Rewriter.enter_callable callable in
   let disam_tbl = DisambiguationTbl.push [] in
   let call_decl = Callable.to_decl callable in
+  let () =
+    if call_decl.call_decl_physical_atomic then begin
+      if Poly.(call_decl.call_decl_kind <> Proc) then
+        Error.type_error call_decl.call_decl_loc
+          "Only procedures may be physically atomic";
+      if Callable.is_atomic call_decl then
+        Error.type_error call_decl.call_decl_loc
+          "An atomic proc cannot have atomic requires or atomic ensures clauses"
+    end
+  in
   (* The implicit parameters of a predicate follow its `;`. *)
   let () =
     if Poly.(call_decl.call_decl_kind = Pred) then
@@ -296,9 +306,15 @@ let check (callable : Callable.t) : Module.symbol t =
 
         func_def
     | ProcDef proc_def ->
+        let proc_body =
+          if call_decl.call_decl_physical_atomic then
+            Option.map proc_def.proc_body ~f:(fun stmt ->
+                Stmt.mk_block_stmt ~loc:stmt.stmt_loc ~kind:Atomic [ stmt ])
+          else proc_def.proc_body
+        in
         let+ proc_body =
-          Rewriter.recover ~fallback:proc_def.proc_body
-          @@ Rewriter.Option.map proc_def.proc_body ~f:(fun stmt ->
+          Rewriter.recover ~fallback:proc_body
+          @@ Rewriter.Option.map proc_body ~f:(fun stmt ->
               Logs.debug (fun m ->
                   m "CallableTyping.check: Callable: %a" Ident.pr
                     callable.call_decl.call_decl_name);

@@ -463,7 +463,8 @@ module Callable = struct
 
   (** A procedure, lemma or axiom with [decl] and [body]; the results of a lemma are
       ghost. An axiom has no body. *)
-  let proc (kind : proc_kind) (decl : Callable.call_decl) (body : Stmt.t option) : t =
+  let proc ?(atomic = false) (kind : proc_kind) (decl : Callable.call_decl)
+      (body : Stmt.t option) : t =
     let call_decl_kind, call_decl_is_auto =
       match kind with
       | Proc -> (AstDef.Callable.Proc, false)
@@ -482,8 +483,24 @@ module Callable = struct
       | Lemma | Pred | Invariant -> ghostify decl.call_decl_returns
       | Proc | Func -> decl.call_decl_returns
     in
+    if atomic && not Poly.(call_decl_kind = Proc) then
+      Error.syntax_error decl.call_decl_loc "Only procedures may be physically atomic";
+    if
+      atomic
+      && List.exists (decl.call_decl_precond @ decl.call_decl_postcond) ~f:(fun spec ->
+          spec.spec_atomic)
+    then
+      Error.syntax_error decl.call_decl_loc
+        "An atomic proc cannot have atomic requires or atomic ensures clauses";
     {
-      call_decl = { decl with call_decl_kind; call_decl_is_auto; call_decl_returns };
+      call_decl =
+        {
+          decl with
+          call_decl_kind;
+          call_decl_is_auto;
+          call_decl_returns;
+          call_decl_physical_atomic = atomic;
+        };
       call_def = ProcDef { proc_body = body };
     }
 
