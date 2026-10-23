@@ -1,0 +1,24 @@
+ghost field value: Int
+inv cell(c: Ref) { own(c.value, 0) }
+
+proc reset(c: Ref, implicit ghost before: Int) returns (ghost result: Int)
+  atomic requires own(c.value, before)
+  atomic ensures own(c.value, 0) && result == before
+{
+  ghost val token := bindAU()
+  atomic {
+    ghost val previous: Int := openAU(token)
+    c.value := 0
+    result := previous
+    commitAU(token, result)
+  }
+}
+
+proc caller(c: Ref)
+  requires cell(c)
+{
+  unfold cell(c)
+  c.value := 1
+  ghost val previous := reset(c)
+  fold cell(c)
+}

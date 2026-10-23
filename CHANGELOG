@@ -31,6 +31,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Procedures assigned to ghost variables retain their atomicity and abort-restoration checks.
 - Atomic update operations recognize repeated bindings and aliases of the same token.
 - Atomic update operations preserve tuple and unit values supplied as a single argument or result.
 - Atomic-call abort checks restore the atomic precondition with fresh existential witnesses.

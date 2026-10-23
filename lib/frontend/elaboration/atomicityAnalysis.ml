@@ -1239,8 +1239,8 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
            local mask credit, the same way a local [fold] would? (See
            [Callable.call_decl_grants_mask]'s doc comment.) Applied
            uniformly regardless of which branch below is taken --
-           including the ghost-lhs/[Lemma]
-           one, which otherwise never touches [atomicity_state] at all,
+           including logical function and lemma calls, which otherwise
+           never touch [atomicity_state] at all,
            since a lemma can still fold a fresh invariant and hand its
            credit onward exactly like a proc can. Substituted through both
            the actual call arguments (the callee's own formals) and the
@@ -1293,8 +1293,10 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
             (Stmt.mk_block_stmt ~loc
                (availability_asserts @ reentrancy_asserts @ [ stmt ]))
         else if
-          (is_call_lhs_ghost && not (List.is_empty call_desc.call_lhs))
-          || Poly.(call_decl.call_decl_kind = Lemma)
+          Poly.(call_decl.call_decl_kind = Lemma)
+          || Poly.(call_decl.call_decl_kind = Func)
+             && is_call_lhs_ghost
+             && not (List.is_empty call_desc.call_lhs)
         then
           let atomicity_state, flag_stmts = mark_ghost_update ~loc atomicity_state in
           let* _ = Rewriter.set_user_state atomicity_state in

@@ -1,0 +1,74 @@
+field value: Int
+inv cell(c: Ref) { own(c.value, 0) }
+
+func identity(n: Int) returns (r: Int) { n }
+
+lemma witness(c: Ref) returns (proof: Int)
+  requires own(c.value, 0)
+  ensures own(c.value, 0) && proof == 0
+{
+  proof := 0
+}
+
+proc logical(c: Ref, implicit ghost before: Int) returns (ghost result: Int)
+  atomic requires own(c.value, before)
+  atomic ensures own(c.value, before) && result == before
+{
+  ghost val token := bindAU()
+  atomic {
+    ghost val previous: Int := openAU(token)
+    result := previous
+    commitAU(token, result)
+  }
+}
+
+atomic proc physical(c: Ref) returns (ghost result: Int)
+  requires own(c.value, 0)
+  ensures own(c.value, 0) && result == 0
+{
+  c.value := 1
+  c.value := 0
+  result := 0
+}
+
+proc ordinary(c: Ref) returns (ghost result: Int)
+  requires own(c.value, 0)
+  ensures own(c.value, 0) && result == 0
+{
+  c.value := 1
+  c.value := 0
+  result := 0
+}
+
+proc caller_logical(c: Ref)
+  requires cell(c)
+  ensures cell(c)
+{
+  unfold cell(c)
+  ghost val before := witness(c)
+  ghost val result := logical(c)
+  ghost val after := witness(c)
+  ghost val copy := identity(result)
+  assert before == copy && after == copy
+  fold cell(c)
+}
+
+proc caller_physical(c: Ref)
+  requires cell(c)
+  ensures cell(c)
+{
+  unfold cell(c)
+  ghost val before := witness(c)
+  ghost val result := physical(c)
+  ghost val after := witness(c)
+  assert before == result && after == result
+  fold cell(c)
+}
+
+proc caller_ordinary(c: Ref)
+  requires own(c.value, 0)
+  ensures own(c.value, 0)
+{
+  ghost val result := ordinary(c)
+  assert result == 0
+}

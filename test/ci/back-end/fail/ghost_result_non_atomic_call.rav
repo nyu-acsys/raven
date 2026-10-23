@@ -1,0 +1,46 @@
+field value: Int
+inv cell(c: Ref) { own(c.value, 0) }
+
+proc restore(c: Ref) returns (ghost witness: Int)
+  requires own(c.value, 0)
+  ensures own(c.value, 0) && witness == 0
+{
+  c.value := 1
+  c.value := 0
+  witness := 0
+}
+
+proc restore_value(c: Ref) returns (witness: Int)
+  requires own(c.value, 0)
+  ensures own(c.value, 0) && witness == 0
+{
+  c.value := 1
+  c.value := 0
+  witness := 0
+}
+
+proc caller_ghost_result(c: Ref)
+  requires cell(c)
+{
+  unfold cell(c)
+  ghost val witness := restore(c)
+  fold cell(c)
+}
+
+proc caller_ghost_target(c: Ref)
+  requires cell(c)
+{
+  unfold cell(c)
+  ghost val witness := restore_value(c)
+  fold cell(c)
+}
+
+proc caller_open_update(c: Ref)
+  atomic requires own(c.value, 0)
+  atomic ensures own(c.value, 0)
+{
+  ghost val token := bindAU()
+  openAU(token)
+  ghost val witness := restore(c)
+  commitAU(token, ())
+}
