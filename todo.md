@@ -1,4 +1,12 @@
 23 oct, 2026:
+- [ ] Make inhale/exhale fusion insensitive to contract conjunction grouping:
+    normalize conjunctive assertions before matching resource transfers, preserving
+    order, guards, source locations, and diagnostics. A fractional read with
+    `requires own(x.contents, v, q) && q > 0.0` and
+    `ensures own(x.contents, v, q) && r == v` currently fails to fuse, while
+    separate clauses with adjacent ownership transfers fuse. Add a regression
+    covering both forms; consider dependency-safe fusion across intervening pure
+    assertions separately.
 - [ ] Update the tutorial discussion of atomic operations and the Atomics library
     to use `atomic proc`.
 
