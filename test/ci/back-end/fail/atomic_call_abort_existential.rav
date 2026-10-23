@@ -1,0 +1,29 @@
+field value: Int
+
+inv zero(x: Ref) {
+  own(x.value, 0)
+}
+
+lemma touch(x: Ref)
+  requires own(x.value, 0)
+  ensures own(x.value, 0)
+{}
+
+proc reset(x: Ref)
+  atomic requires exists n: Int :: own(x.value, n)
+  atomic ensures own(x.value, 0)
+{
+  ghost var token := bindAU();
+  openAU(token);
+  x.value := 0;
+  commitAU(token, ());
+}
+
+proc client(x: Ref)
+  requires zero(x)
+{
+  unfold zero(x);
+  touch(x);
+  reset(x);
+  fold zero(x);
+}

@@ -450,11 +450,11 @@ let au_renaming (callable_decl : Callable.call_decl) (au : au_token) :
       Map.add_exn acc_map ~key:(QualIdent.from_ident formal_arg.var_name) ~data:actual_arg)
 
 (* A logically atomic callee may abort, handing back its atomic precondition but
-   keeping its ordinary one. The open atomic update must then still be abortable and
-   every instance open around the call closable. So the ordinary precondition is given up
-   before the call, which then gives up only the atomic one, and a branch in between
-   aborts the update, folds the instances, and ends in [assume false]. The branch and the
-   call share what the precondition gives up. If the ordinary precondition is pure, only an update or
+   keeping its ordinary one. Both preconditions are given up once before branching,
+   sharing the selected frame with the call. The checking branch inhales only the
+   atomic precondition before restoring the open AU and invariant instances: its
+   internal existential witnesses may differ from those given up. The call itself
+   does not give up either precondition again. If the ordinary precondition is pure, only an update or
    instance with a ghost update since it was opened is checked; any other is as
    closable as at its [openAU] or [unfold].
    Implicit arguments the call omits are bound first, as the call itself would bind them,
@@ -521,11 +521,17 @@ let abort_check ~loc (call_decl : Callable.call_decl) (call_desc : Stmt.call_des
           ]
     in
     let* callee = Rewriter.resolve call_desc.call_name in
-    let exhale_stmts =
+    let exhale_preconditions atomic =
       List.filter_mapi call_decl.call_decl_precond ~f:(fun i spec ->
-          Option.some_if (not spec.spec_atomic)
+          Option.some_if
+            (Bool.equal spec.spec_atomic atomic)
             (Stmt.mk_exhale_expr ~loc ?name:spec.spec_name ~spec_error:spec.spec_error
                ~spec_source:(callee, i) (instantiate spec)))
+    in
+    let exhale_stmts = exhale_preconditions false @ exhale_preconditions true in
+    let inhale_atomic_stmts =
+      List.filter_map call_decl.call_decl_precond ~f:(fun spec ->
+          Option.some_if spec.spec_atomic (Stmt.mk_inhale_expr ~loc (instantiate spec)))
     in
     (* Each refolded instance is asserted, which lets a later refold find witnesses in
        it. *)
@@ -652,7 +658,7 @@ let abort_check ~loc (call_decl : Callable.call_decl) (call_desc : Stmt.call_des
       Stmt.mk_cond ~loc ~cond_if_assumes_false:true
         (Some (Expr.from_var_decl abort))
         (Stmt.mk_block_stmt ~loc
-           (refold_stmts @ abort_au_stmts @ fold_stmts
+           (inhale_atomic_stmts @ refold_stmts @ abort_au_stmts @ fold_stmts
            @ [ Stmt.mk_assume_expr ~loc (Expr.mk_bool false) ]))
         (Stmt.mk_block_stmt ~loc [])
     in

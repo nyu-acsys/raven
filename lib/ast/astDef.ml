@@ -1814,9 +1814,9 @@ module Stmt = struct
     call_is_spawn : bool;
     call_is_init : bool;
     call_precond_given : bool;
-        (** Whether the ordinary precondition of the logically atomic callee is given up
-            before the call, which then gives up only the atomic one (see
-            [AtomicityAnalysis.abort_check]). *)
+        (** Whether both preconditions of the logically atomic callee have already been
+            given up before its abort-check branch. The call must not select another frame
+            by giving them up again (see [AtomicityAnalysis.abort_check]). *)
   }
 
   type fpu_desc = {
