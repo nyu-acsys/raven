@@ -23,9 +23,12 @@ let print md =
 let check_printer ~pr ~print ~to_string value =
   let expected = to_string value in
   assert (String.equal expected (Stdlib.Format.asprintf "%a" pr value));
-  let path, channel = Stdlib.Filename.open_temp_file "raven-api-printing" ".txt" in
+  let path, channel =
+    Stdlib.Filename.open_temp_file ~mode:[ Stdlib.Open_binary ] "raven-api-printing"
+      ".txt"
+  in
   print channel value;
-  let input = Stdlib.open_in path in
+  let input = Stdlib.open_in_bin path in
   let actual = Stdlib.really_input_string input (Stdlib.in_channel_length input) in
   Stdlib.close_in input;
   (* The channel stays open and the formatter has already flushed its output. *)
