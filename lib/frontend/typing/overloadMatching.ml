@@ -172,8 +172,9 @@ let inherited_application ctx instances (mi : Module.module_inst) =
                 Rewriter.return
                   (Ok (CandidateTypes.rewrite_type ~f:(rename_instance instances) typ))
             | Module.ModArg module_qi ->
-                CandidateTypes.normalize ~lookup:(lookup ctx)
-                  (Type.var (rename_instance instances module_qi)))
+                CandidateTypes.normalize
+                  ~lookup:(fun qi -> lookup ctx (rename_instance instances qi))
+                  (Type.var module_qi))
         in
         begin match Result.all argument_types with
         | Error _ -> None

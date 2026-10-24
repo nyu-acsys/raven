@@ -14,7 +14,7 @@
     `module OuterInt = Outer[Int]` followed by
     `module InnerBool = OuterInt.Inner[Bool]` reports "expects 0 arguments"
     even though `Outer[E]` declares `module Inner[F: Library.Type]`.
-- [ ] Match doubly nested generic types across sealed signatures:
+- [x] Match doubly nested generic types across sealed signatures:
     `get(b: Box[Box[E]])` in a sealed implementation fails to match the same
     declaration in its interface before any client call is checked.
 

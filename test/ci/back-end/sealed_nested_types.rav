@@ -1,0 +1,49 @@
+module Box[T: Library.Type] {
+  rep type S = data { case box(value: T) }
+}
+
+interface DeepSpec[E: Library.Type] {
+  func get(b: Box[Box[E]]) returns (r: E)
+    ensures r == b.value.value
+  func copy(b: Box[Box[E]]) returns (r: Box[Box[E]])
+    ensures r == b
+  func wrap(e: E) returns (r: Box[Box[E]])
+    ensures r == Box.box(Box.box(e))
+  func get(b: Bool) returns (r: Bool)
+    ensures r == b
+}
+
+module Deep[E: Library.Type] :> DeepSpec[E] {
+  func get(b: Box[Box[E]]) returns (r: E) { b.value.value }
+  func copy(b: Box[Box[E]]) returns (r: Box[Box[E]]) { b }
+  func wrap(e: E) returns (r: Box[Box[E]]) { Box.box(Box.box(e)) }
+  func get(b: Bool) returns (r: Bool) { b }
+}
+
+module DeepInt = Deep[Int]
+module GenericClient[E: Library.Type] {
+  func copy(b: Box[Box[E]]) returns (r: Box[Box[E]]) { Deep.copy(b) }
+}
+
+lemma client() {
+  val inner: Box[Int] := Box.box(3);
+  val outer: Box[Box[Int]] := Box.box(inner);
+  assert Deep.get(outer) == 3;
+  assert DeepInt.get(true);
+  assert Deep.copy(outer) == outer;
+  assert Deep.wrap(4) == Box.box(Box.box(4));
+}
+
+interface TripleSpec[E: Library.Type] {
+  func get(b: Box[Box[Box[E]]]) returns (r: E)
+    ensures r == b.value.value.value
+}
+
+module Triple[E: Library.Type] :> TripleSpec[E] {
+  func get(b: Box[Box[Box[E]]]) returns (r: E) { b.value.value.value }
+}
+
+lemma triple_client() {
+  val b: Box[Box[Box[Int]]] := Box.box(Box.box(Box.box(7)));
+  assert Triple.get(b) == 7;
+}

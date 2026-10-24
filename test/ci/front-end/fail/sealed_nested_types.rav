@@ -1,0 +1,33 @@
+module Box[T: Library.Type] {
+  rep type S = data { case box(value: T) }
+}
+
+interface DeepSpec[E: Library.Type] {
+  func get(b: Box[Box[E]]) returns (r: E)
+}
+module WrongDepth[E: Library.Type] :> DeepSpec[E] {
+  func get(b: Box[E]) returns (r: E) { b.value }
+}
+
+interface IntSpec {
+  func get(b: Box[Box[Int]]) returns (r: Int)
+}
+module WrongElement :> IntSpec {
+  func get(b: Box[Box[Bool]]) returns (r: Int) { 0 }
+}
+
+module NamedInt : Library.Type { rep type T = Int }
+interface NamedElementSpec {
+  func get(b: Box[Box[NamedInt]]) returns (r: Int)
+}
+module WrongNamedElement :> NamedElementSpec {
+  func get(b: Box[Box[Int]]) returns (r: Int) { b.value.value }
+}
+
+module NamedBox = Box[Int]
+interface NamedBoxSpec {
+  func get(b: Box[NamedBox]) returns (r: Int)
+}
+module WrongNamedBox : NamedBoxSpec {
+  func get(b: Box[Box[Int]]) returns (r: Int) { b.value.value }
+}
