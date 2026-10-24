@@ -294,7 +294,7 @@ let check_module_type mod_ident int_ident =
   and+ qual_int_ident, int_symbol = Rewriter.resolve_and_find int_ident in
   (* Extract all interfaces implemented by M and check whether it is fully instantiated *)
   let interfaces, mod_is_instance =
-    Rewriter.Symbol.extract mod_symbol ~f:(fun is_instance _ -> function
+    Rewriter.Symbol.extract mod_symbol ~f:(fun _ _ -> function
       | Ast.Module.ModDef mod_def ->
           let interfaces =
             Set.map
@@ -307,14 +307,17 @@ let check_module_type mod_ident int_ident =
                     if QualIdent.equal interface source then interface
                     else QualIdent.requalify [ (source, target) ] interface))
           in
-          (interfaces, List.is_empty mod_def.mod_decl.mod_decl_formals || is_instance)
+          ( interfaces,
+            List.is_empty mod_def.mod_decl.mod_decl_formals
+            || Rewriter.Symbol.is_module_instance mod_symbol )
       | _ -> (Set.empty (module QualIdent), true))
   in
   (* Check whether I is fully instantiated *)
   let int_is_instance =
-    Rewriter.Symbol.extract int_symbol ~f:(fun is_instance _subst -> function
+    Rewriter.Symbol.extract int_symbol ~f:(fun _ _subst -> function
       | Ast.Module.ModDef mod_def ->
-          List.is_empty mod_def.mod_decl.mod_decl_formals || is_instance
+          List.is_empty mod_def.mod_decl.mod_decl_formals
+          || Rewriter.Symbol.is_module_instance int_symbol
       | _ -> true)
   in
   (* Check if I is one of M's interfaces *)
@@ -681,9 +684,10 @@ let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_iden
         let* qual_interface_ident, interface_symbol = Rewriter.resolve_and_find mid in
         (* The formals of the parent; an instance has none left. *)
         let formals =
-          Rewriter.Symbol.extract interface_symbol ~f:(fun is_instance _ -> function
+          Rewriter.Symbol.extract interface_symbol ~f:(fun _ _ -> function
             | Module.ModDef parent ->
-                if is_instance then [] else parent.mod_decl.mod_decl_formals
+                if Rewriter.Symbol.is_module_instance interface_symbol then []
+                else parent.mod_decl.mod_decl_formals
             | symbol ->
                 parent_not_module_error (QualIdent.to_loc mid) (Symbol.kind symbol) mid)
         in

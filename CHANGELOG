@@ -32,6 +32,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Nested functors retain their parameters when their enclosing module is instantiated.
 - Keep generated instances with mixed local and global arguments inside the functor scopes they depend on.
 - Infer generic parameters inside nested type applications when resolving overloaded calls.
 - Implicitly instantiated sealed modules accept nested generic argument types from their public interfaces.

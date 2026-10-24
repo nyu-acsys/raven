@@ -633,8 +633,15 @@ let generic_target ~loc generic =
     Option.value_exn
       (OverloadResolution.of_symbol ~identity:name ~generic_parameters:parameters symbol)
   in
+  let* _, functor_symbol = Rewriter.resolve_and_find generic.functor_name in
+  let scope =
+    QualIdent.append
+      (Rewriter.Symbol.orig_qid functor_symbol)
+      generic.declaration.call_decl.call_decl_name
+  in
   let+ candidate =
-    map_candidate_types candidate ~f:(normalize_candidate_type ~generic ~scope:name ~loc)
+    Rewriter.in_scope_of scope
+      (map_candidate_types candidate ~f:(normalize_candidate_type ~generic ~scope ~loc))
   in
   { name; symbol = None; generic = Some generic; candidate; primitive = None }
 

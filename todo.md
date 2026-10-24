@@ -10,7 +10,7 @@
     a scope where all arguments are visible: `Pair.first(e, true)` inside
     `Generic[E]`, with `e: E`, creates `Pair[E, Bool]` outside `Generic` and
     fails with "Unknown identifier Generic.E". This also affects unsealed functors.
-- [ ] Allow applying a nested functor through an instantiated outer module:
+- [x] Allow applying a nested functor through an instantiated outer module:
     `module OuterInt = Outer[Int]` followed by
     `module InnerBool = OuterInt.Inner[Bool]` reports "expects 0 arguments"
     even though `Outer[E]` declares `module Inner[F: Library.Type]`.

@@ -941,9 +941,14 @@ let resolve_generic_functor (qi : qual_ident) : (qual_ident * AstDef.Module.t) o
   | None -> Rewriter.return None
   | Some (fully_qual_ident, symbol) -> (
       match Rewriter.Symbol.orig_symbol symbol with
-      | AstDef.Module.ModDef m when not (Rewriter.Symbol.is_instance symbol) ->
-          let+ is_generic = is_generic_functor m.mod_decl in
-          if is_generic then Some (fully_qual_ident, m) else None
+      | AstDef.Module.ModDef _ when not (Rewriter.Symbol.is_module_instance symbol) ->
+          let* reified = Rewriter.Symbol.reify symbol in
+          begin match reified with
+          | AstDef.Module.ModDef m ->
+              let+ is_generic = is_generic_functor m.mod_decl in
+              if is_generic then Some (fully_qual_ident, m) else None
+          | _ -> return None
+          end
       | _ -> Rewriter.return None)
 
 let inst_mod_ident_prefix = "GenInst$$"
@@ -1139,10 +1144,11 @@ let existing_module_for_rep_type ~(interface_qual_ident : qual_ident) ~(rep_iden
       | None -> return None
       | Some (mod_qi, mod_symbol) ->
           let interfaces, mod_is_instance =
-            Rewriter.Symbol.extract mod_symbol ~f:(fun is_instance _subst -> function
+            Rewriter.Symbol.extract mod_symbol ~f:(fun _ _subst -> function
               | AstDef.Module.ModDef mod_def ->
                   ( mod_def.mod_decl.mod_decl_interfaces,
-                    Base.List.is_empty mod_def.mod_decl.mod_decl_formals || is_instance )
+                    Base.List.is_empty mod_def.mod_decl.mod_decl_formals
+                    || Rewriter.Symbol.is_module_instance mod_symbol )
               | _ -> (Set.empty (module QualIdent), true))
           in
           if
@@ -1326,10 +1332,9 @@ let rec instantiate_functor_at_modules ~(loc : location)
     find_insertion_scope_for_symbols (Set.of_list (module QualIdent) arg_module_qis)
   in
   let* functor_def =
-    let+ symbol = Rewriter.find functor_qual_ident in
-    match Rewriter.Symbol.orig_symbol symbol with
-    | AstDef.Module.ModDef m -> Some m
-    | _ -> None
+    let* symbol = Rewriter.find functor_qual_ident in
+    let+ symbol = Rewriter.Symbol.reify symbol in
+    match symbol with AstDef.Module.ModDef m -> Some m | _ -> None
   in
   let functor_rep =
     Base.Option.bind functor_def ~f:(fun m ->
@@ -1396,10 +1401,13 @@ and shared_instances ~loc ~(functor_qual_ident : qual_ident)
   let+ iface_shared =
     Rewriter.List.map functor_def.mod_decl.mod_decl_returns ~f:(fun (iface, iface_args) ->
         let* iface_qual_ident, iface_symbol = Rewriter.resolve_and_find iface in
-        let iface_def =
-          Rewriter.Symbol.extract iface_symbol ~f:(fun is_instance _ -> function
-            | AstDef.Module.ModDef iface_def when not is_instance -> Some iface_def
-            | _ -> None)
+        let* iface_def =
+          if Rewriter.Symbol.is_module_instance iface_symbol then return None
+          else
+            let+ iface = Rewriter.Symbol.reify iface_symbol in
+            match iface with
+            | AstDef.Module.ModDef iface_def -> Some iface_def
+            | _ -> None
         in
         let iface_arg_qis =
           Base.List.filter_map iface_args ~f:(function

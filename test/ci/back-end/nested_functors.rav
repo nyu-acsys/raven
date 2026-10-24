@@ -1,0 +1,69 @@
+module Pair[A: Library.Type, B: Library.Type] : Library.Type {
+  rep type T = data { case pair(first: A, second: B) }
+}
+
+module Outer[E: Library.Type] {
+  module Inner[F: Library.Type] : Library.Type {
+    rep type T = data { case inner(outer: E, value: F) }
+    func make(e: E, f: F) returns (r: T) { inner(e, f) }
+    func pair(e: E, f: F) returns (r: Pair[E, F]) { Pair.pair(e, f) }
+    func read(x: T) returns (r: F) { x.value }
+    func read(x: Bool) returns (r: Int) { 0 }
+    func head(xs: Library.List[F]) returns (r: F) { xs.hd }
+  }
+}
+
+module OuterInt = Outer[Int]
+module InnerBool = OuterInt.Inner[Bool]
+
+lemma explicit_inner() {
+  val x: InnerBool := InnerBool.make(1, true);
+  assert x.outer == 1 && x.value;
+  assert OuterInt.Inner.read(x);
+  val p: Pair[Int, Bool] := InnerBool.pair(2, true);
+  assert p.first == 2 && p.second;
+  val xs: Library.List[Bool] := Library.List.::(true, Library.List.nil);
+  assert InnerBool.head(xs);
+}
+
+lemma inferred_inner() {
+  val x := OuterInt.Inner.make(3, true);
+  assert x.outer == 3 && x.value;
+  val p: Pair[Int, Bool] := OuterInt.Inner.pair(4, true);
+  assert p.first == 4 && p.second;
+  val xs: Library.List[Bool] := Library.List.::(true, Library.List.nil);
+  assert OuterInt.Inner.head(xs);
+}
+module OuterBool = Outer[Bool]
+module BoolInnerInt = OuterBool.Inner[Int]
+lemma other_outer() {
+  val x: BoolInnerInt := BoolInnerInt.make(true, 6);
+  assert x.outer && x.value == 6;
+}
+
+module SealedOuter[E: Library.Type] {
+  interface PairSpec[A: Library.Type, B: Library.Type] : Library.Type {
+    rep type T
+    func make(a: A, b: B) returns (r: T)
+    func first(x: T) returns (r: A)
+    func second(x: T) returns (r: B)
+    auto lemma made(a: A, b: B)
+      ensures {make(a, b)} first(make(a, b)) == a && second(make(a, b)) == b
+  }
+
+  module Inner[F: Library.Type] :> PairSpec[E, F] {
+    rep type T = data { case pair(a: E, b: F) }
+    func make(a: E, b: F) returns (r: T) { pair(a, b) }
+    func first(x: T) returns (r: E) { x.a }
+    func second(x: T) returns (r: F) { x.b }
+    lemma made(a: E, b: F)
+      ensures first(make(a, b)) == a && second(make(a, b)) == b
+    {}
+  }
+}
+module SealedOuterInt = SealedOuter[Int]
+module SealedInnerBool = SealedOuterInt.Inner[Bool]
+lemma sealed_inner() {
+  val x: SealedInnerBool := SealedInnerBool.make(7, true);
+  assert SealedInnerBool.first(x) == 7 && SealedInnerBool.second(x);
+}

@@ -1,0 +1,18 @@
+module Outer[E: Library.Type] {
+  module Inner[F: Library.Type] : Library.Type {
+    rep type T = data { case inner(outer: E, value: F) }
+  }
+}
+
+module OuterInt = Outer[Int]
+module Left = OuterInt.Inner[Bool]
+module Right = OuterInt.Inner[Bool]
+
+lemma reject_named_inner_coercion(x: Left) {
+  val y: Right := x;
+}
+
+module OtherOuterInt = Outer[Int]
+lemma distinct_outer_contexts(x: OuterInt.Inner[Bool]) {
+  val y: OtherOuterInt.Inner[Bool] := x;
+}

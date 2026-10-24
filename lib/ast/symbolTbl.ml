@@ -24,6 +24,22 @@ let qid_subst (_, _, ss) = ss
    chain produces, it must come after it in the list, not before. *)
 let extend_subst s (b1, b2, ss) = (b1, b2, ss @ [ s ])
 
+(** A binding for this identifier itself, allowing preceding ancestor renamings. *)
+let has_binding name subst =
+  let _, bound =
+    List.fold (qid_subst subst) ~init:(name, false)
+      ~f:(fun (name, bound) ((source, _) as rule) ->
+        (QualIdent.requalify [ rule ] name, bound || QualIdent.equal source name))
+  in
+  bound
+
+(** Whether this module's own formals, rather than its ancestors', were bound. *)
+let module_is_instantiated name (decl : Module.module_decl) subst =
+  if List.is_empty decl.mod_decl_formals then has_binding name subst
+  else
+    List.for_all decl.mod_decl_formals ~f:(fun formal ->
+        has_binding (QualIdent.append name formal.mod_inst_name) subst)
+
 type entry =
   | Symbol of QualIdent.t
   | Alias of bool * QualIdent.t * QualIdent.subst
@@ -394,8 +410,17 @@ let resolve_candidates ?(canonical_aliases = false) ?(read_only = false) name (t
                   subst1 @ target_subst )
               in
               let new_inst_scopes =
+                (* Carry nested applications through their enclosing aliases. *)
+                let source = fully_qualify first_id scope tbl in
+                let rebased =
+                  Set.fold inst_scopes ~init:inst_scopes ~f:(fun scopes instantiated ->
+                      Set.add scopes
+                        (QualIdent.requalify
+                           [ (source, QualIdent.to_list target_qual_ident) ]
+                           instantiated))
+                in
                 if is_abstract && Set.is_empty inst_scopes then inst_scopes
-                else Set.add inst_scopes target_qual_ident
+                else Set.add rebased target_qual_ident
               in
               (* Jump back to the root scope because the remainder of the path to be traversed has been requalified relative to target_qual_ident, which is a fully qualified id. *)
               go_forward new_inst_scopes tbl.tbl_root subst new_path
@@ -987,14 +1012,18 @@ let add_symbol ?(scope : scope option = None) ~diagnostics symbol tbl =
         let mod_inst_qual_ident, subst, sealed =
           match mod_inst.mod_inst_def with
           | Some (mod_inst_func, mod_inst_args) -> (
-              let _, mod_inst_func, mod_inst_symbol, subst1 =
+              let declaration, mod_inst_func, mod_inst_symbol, subst1 =
                 resolve_and_find_exn mod_inst_func tbl
+              in
+              let own_instance =
+                match mod_inst_symbol with
+                | Module.ModDef m -> module_is_instantiated declaration m.mod_decl subst1
+                | _ -> is_instance subst1
               in
               let formals =
                 match mod_inst_symbol with
                 | Module.ModDef mdef ->
-                    if not @@ is_instance subst1 then mdef.mod_decl.mod_decl_formals
-                    else []
+                    if not own_instance then mdef.mod_decl.mod_decl_formals else []
                 | _ ->
                     Error.type_error
                       (QualIdent.to_loc mod_inst_func)
@@ -1061,9 +1090,16 @@ let add_symbol ?(scope : scope option = None) ~diagnostics symbol tbl =
                   in
                   match sealed_iface with
                   | Some (iface_ident, iface_args)
-                    when (not @@ is_instance subst1) && not inside_functor ->
+                    when (not own_instance) && not inside_functor ->
                       (* Outside a sealed functor, an instance is a view of its
                          interface, applied to the functor's interface arguments. *)
+                      let requalify = QualIdent.requalify (qid_subst subst1) in
+                      let iface_ident = requalify iface_ident in
+                      let iface_args =
+                        List.map iface_args ~f:(function
+                          | Module.ModArg qi -> Module.ModArg (requalify qi)
+                          | Module.TypeArg _ as arg -> arg)
+                      in
                       let _, iface_ident, iface_symbol, _ =
                         resolve_and_find_exn iface_ident tbl
                       in

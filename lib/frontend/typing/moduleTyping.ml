@@ -647,13 +647,13 @@ and check_instr (m : Module.t) (instr : Module.module_instr) : Module.module_ins
                     Rewriter.resolve_and_find mod_inst_func
                   in
                   (* Get formal parameters of F *)
+                  let* functor_definition = Rewriter.Symbol.reify functor_symbol in
                   let formals =
-                    Rewriter.Symbol.extract functor_symbol
-                      ~f:(fun is_instance subst -> function
-                      | Ast.Module.ModDef mod_def when not is_instance ->
-                          List.map mod_def.mod_decl.mod_decl_formals ~f:(fun formal ->
-                              (formal, subst formal.mod_inst_type))
-                      | _ -> [])
+                    match functor_definition with
+                    | Ast.Module.ModDef mod_def ->
+                        List.map mod_def.mod_decl.mod_decl_formals ~f:(fun formal ->
+                            (formal, formal.mod_inst_type))
+                    | _ -> []
                   in
                   (* Pair up `args` and formals *)
                   let* args_and_formals =
@@ -691,10 +691,11 @@ and check_instr (m : Module.t) (instr : Module.module_instr) : Module.module_ins
                         Rewriter.resolve qi)
                   in
                   let functor_def =
-                    Rewriter.Symbol.extract functor_symbol
-                      ~f:(fun is_instance _ -> function
-                      | Ast.Module.ModDef mod_def when not is_instance -> Some mod_def
-                      | _ -> None)
+                    match functor_definition with
+                    | Ast.Module.ModDef mod_def
+                      when not (Rewriter.Symbol.is_module_instance functor_symbol) ->
+                        Some mod_def
+                    | _ -> None
                   in
                   let+ shared =
                     match functor_def with

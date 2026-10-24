@@ -1,0 +1,8 @@
+module Outer[E: Library.Type] {
+  module Inner[F: Library.Type] : Library.Type {
+    rep type T = data { case inner(outer: E, value: F) }
+  }
+}
+module OuterInt = Outer[Int]
+module NeedsType[X: Library.Type] { }
+module Bad = NeedsType[OuterInt.Inner]

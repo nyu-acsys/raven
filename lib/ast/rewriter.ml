@@ -2203,7 +2203,12 @@ module Module = struct
 end
 
 module Symbol = struct
-  let reify (name, symbol, subst) =
+  let is_module_instance (name, symbol, subst) =
+    match symbol with
+    | AstDef.Module.ModDef m -> SymbolTbl.module_is_instantiated name m.mod_decl subst
+    | _ -> SymbolTbl.is_instance subst
+
+  let reify ((name, symbol, subst) as resolved) =
     (*Logs.debug (fun m ->
         m "Rewriter.Symbol.reify %a; %a" AstDef.Symbol.pr symbol
           (Print.pr_list_comma (fun ppf (q, i_l) ->
@@ -2230,9 +2235,11 @@ module Symbol = struct
                 {
                   mod_def.mod_decl with
                   mod_decl_formals =
-                    (if SymbolTbl.is_instance subst then []
+                    (if is_module_instance resolved then []
                      else mod_def.mod_decl.mod_decl_formals);
-                  mod_decl_is_interface = SymbolTbl.is_abstract subst;
+                  mod_decl_is_interface =
+                    (if SymbolTbl.has_binding name subst then SymbolTbl.is_abstract subst
+                     else mod_def.mod_decl.mod_decl_is_interface);
                 }
               in
               AstDef.Module.ModDef { mod_def with mod_decl }

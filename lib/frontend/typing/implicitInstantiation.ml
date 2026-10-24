@@ -26,6 +26,38 @@ type generated_application = {
   arguments : type_expr list;
 }
 
+(** A generated member viewed through an instantiated enclosing module. *)
+let generated_symbol name =
+  let open Rewriter.Syntax in
+  let* direct = Rewriter.find_absolute name in
+  match direct with
+  | Some _ -> Rewriter.return direct
+  | None ->
+      let* parent = Rewriter.resolve_and_find_opt ~read_only:true (QualIdent.pop name) in
+      begin match parent with
+      | None -> Rewriter.return None
+      | Some (_, parent) ->
+          let member =
+            Rewriter.Symbol.extract parent ~f:(fun _ requalify -> function
+              | Module.ModDef { mod_def; _ } ->
+                  List.find_map mod_def ~f:(function
+                    | Module.SymbolDef symbol
+                      when Ident.equal (Symbol.to_name symbol) (QualIdent.unqualify name)
+                      ->
+                        Some (requalify, symbol)
+                    | _ -> None)
+              | _ -> None)
+          in
+          begin match member with
+          | None -> Rewriter.return None
+          | Some (requalify, symbol) ->
+              let+ symbol =
+                lift (Rewriter.Module.rewrite_qual_idents_in_symbol ~f:requalify symbol)
+              in
+              Some symbol
+          end
+      end
+
 (** Unwrap generated type adapters, retaining the identity of named module arguments. *)
 let module_argument_type argument rep =
   let open Rewriter.Syntax in
@@ -34,7 +66,7 @@ let module_argument_type argument rep =
       String.is_prefix
         (Ident.name (QualIdent.unqualify argument))
         ~prefix:ProgUtils.tp_mod_ident_prefix
-    then Rewriter.find_absolute argument
+    then generated_symbol argument
     else Rewriter.return None
   in
   let wrapped =
@@ -80,7 +112,7 @@ let generated_application qi =
            ~prefix:ProgUtils.inst_mod_ident_prefix)
     then Rewriter.return None
     else
-      let* symbol = Rewriter.find_absolute instance in
+      let* symbol = generated_symbol instance in
       match symbol with
       | Some (Module.ModInst { mod_inst_def = Some (functor_name, arguments); _ }) ->
           let* functor_ = lift (ProgUtils.resolve_generic_functor functor_name) in
@@ -170,6 +202,27 @@ and resolves_to_instantiation_of ~(functor_qual_ident : qual_ident) (qi : qual_i
     from the symbol table. *)
 and instantiation_formal_module ~(functor_qual_ident : qual_ident) (qi : qual_ident) :
     (ident -> qual_ident) option t =
+  let open Rewriter.Syntax in
+  let* direct = Rewriter.find_absolute qi in
+  let* bindings =
+    match direct with
+    | Some (Module.ModInst { mod_inst_def = Some (functor_name, args); _ })
+      when QualIdent.equal functor_name functor_qual_ident ->
+        let+ functor_ = lift (ProgUtils.resolve_generic_functor functor_qual_ident) in
+        Option.bind functor_ ~f:(fun (_, m) ->
+            List.map2_exn m.mod_decl.mod_decl_formals args ~f:(fun formal -> function
+              | Module.ModArg qi -> Some (formal.Module.mod_inst_name, qi)
+              | Module.TypeArg _ -> None)
+            |> Option.all)
+    | _ -> Rewriter.return None
+  in
+  match bindings with
+  | Some bindings ->
+      Rewriter.return
+        (Some (fun formal -> List.Assoc.find_exn bindings formal ~equal:Ident.equal))
+  | None -> instantiation_formal_module_resolved ~functor_qual_ident qi
+
+and instantiation_formal_module_resolved ~(functor_qual_ident : qual_ident) qi =
   let open Rewriter.Syntax in
   let* resolved = Rewriter.resolve_and_find_opt ~read_only:true qi in
   match resolved with
