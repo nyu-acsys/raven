@@ -32,6 +32,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Infer data constructors from expected type aliases while preserving the selected module instance.
 - Verify recursive data types containing generic containers such as `List[T]`.
 - Match nested generic type applications across interface and implementation signatures.
 - Nested functors retain their parameters when their enclosing module is instantiated.

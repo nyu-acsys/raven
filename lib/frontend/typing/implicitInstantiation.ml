@@ -269,6 +269,7 @@ and resolve_existing_instantiation ~(functor_qual_ident : qual_ident) (m : Modul
   | None -> Rewriter.return None
   | Some rep_ident -> (
       let* typ = TypeExpr.check typ in
+      let* typ = TypeExpr.expand_type_head typ in
       match typ with
       | App (Var qi, [], _)
         when Ident.equal (QualIdent.unqualify qi) rep_ident
@@ -634,26 +635,43 @@ and try_resolve_implicit_instantiation ~(check_expr : expr -> type_expr -> expr 
       | _ :: _ :: _ as members ->
           ambiguous_member_error loc member_ident (List.length members)
       | [ (declaration_ident, member_formals, return_type_opt, loc_params) ] -> (
-          let* signature = discover_functor_signature ~functor_qual_ident m in
-          let* inferred =
-            infer_single_instantiation ~check_expr ~claimed_location ~loc ~qual_ident
-              ~functor_qual_ident m ~signature ~member_formals ~return_type_opt
-              ~loc_params ~arg_exprs ~expected_typ
+          let is_constructor =
+            List.exists m.mod_def ~f:(function
+              | Module.SymbolDef (ConstrDef c) ->
+                  Ident.equal c.constr_name declaration_ident
+              | _ -> false)
           in
-          match inferred with
-          | Ok solution ->
-              let+ instance =
-                instantiate_solution ~loc ~functor_qual_ident m ~signature solution
+          let* existing =
+            if is_constructor then
+              resolve_existing_instantiation ~functor_qual_ident m expected_typ
+            else Rewriter.return None
+          in
+          match existing with
+          | Some instance ->
+              Rewriter.return (Some (QualIdent.append instance declaration_ident))
+          | None -> (
+              let* signature = discover_functor_signature ~functor_qual_ident m in
+              let* inferred =
+                infer_single_instantiation ~check_expr ~claimed_location ~loc ~qual_ident
+                  ~functor_qual_ident m ~signature ~member_formals ~return_type_opt
+                  ~loc_params ~arg_exprs ~expected_typ
               in
-              Some (QualIdent.append instance declaration_ident)
-          | Error formal_ident ->
-              let* speculative = is_speculative in
-              if speculative then Rewriter.return None
-              else if
-                List.Assoc.mem signature.field_formals formal_ident ~equal:Ident.equal
-              then
-                field_argument_without_location_error loc formal_ident functor_qual_ident
-              else type_argument_inference_error loc formal_ident functor_qual_ident))
+              match inferred with
+              | Ok solution ->
+                  let+ instance =
+                    instantiate_solution ~loc ~functor_qual_ident m ~signature solution
+                  in
+                  Some (QualIdent.append instance declaration_ident)
+              | Error formal_ident ->
+                  let* speculative = is_speculative in
+                  if speculative then Rewriter.return None
+                  else if
+                    List.Assoc.mem signature.field_formals formal_ident ~equal:Ident.equal
+                  then
+                    field_argument_without_location_error loc formal_ident
+                      functor_qual_ident
+                  else type_argument_inference_error loc formal_ident functor_qual_ident))
+      )
 
 (** [ProgUtils.instantiate_type_functor] for a functor with at least one field-typed
     formal: each formal's argument module comes either from wrapping its solved type (as

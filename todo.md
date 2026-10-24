@@ -17,7 +17,7 @@
 - [x] Match doubly nested generic types across sealed signatures:
     `get(b: Box[Box[E]])` in a sealed implementation fails to match the same
     declaration in its interface before any client call is checked.
-- [ ] Construct values of nested type aliases in generic instances without
+- [x] Construct values of nested type aliases in generic instances without
     spurious nominal mismatches: with `Rose[E]` declaring `type Forest = List[T]`
     and `type NestedForest = List[Forest]`, assigning
     `List.::(forest, List.nil)` to `IntRose.NestedForest` reports two incompatible

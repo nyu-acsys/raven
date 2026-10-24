@@ -1,0 +1,72 @@
+module Named = Library.List[Int]
+type Numbers = Named.T
+type MoreNumbers = Numbers
+
+lemma expected_named_aliases() {
+  val empty: MoreNumbers := Library.List.nil;
+  val one: MoreNumbers := Library.List.::(1, empty);
+  val two: Numbers := Library.List.::(2, one);
+  assert Named.len(two) == 2;
+}
+
+lemma no_expected_type() {
+  val inferred := Library.List.::(3, Library.List.nil);
+  val canonical: Library.List[Int] := inferred;
+  assert Library.List.len(canonical) == 1;
+}
+
+module Infix {
+  import Library.List._
+  lemma aliases() {
+    val xs: MoreNumbers := 1 :: nil;
+    assert Named.len(xs) == 1;
+  }
+}
+
+module Rose[E: Library.Type] : Library.Type {
+  rep type T = data { case leaf(value: E) case node(children: Library.List[T]) }
+  type Forest = Library.List[T]
+  type NestedForest = Library.List[Forest]
+
+  func empty() returns (r: NestedForest) { Library.List.nil }
+  func single(e: E) returns (r: NestedForest) {
+    Library.List.::(Library.List.::(leaf(e), Library.List.nil), Library.List.nil)
+  }
+}
+
+module IntRose = Rose[Int]
+module BoolRose = Rose[Bool]
+
+lemma instantiated_aliases() {
+  val empty: IntRose.NestedForest := Library.List.nil;
+  val forest: IntRose.Forest := Library.List.::(IntRose.leaf(4), Library.List.nil);
+  val nested: IntRose.NestedForest := Library.List.::(forest, empty);
+  assert nested.hd.hd.value == 4;
+  assert IntRose.single(5).hd.hd.value == 5;
+  val bools: BoolRose.NestedForest := BoolRose.single(true);
+  assert bools.hd.hd.value;
+}
+
+module Bag[E: Library.Type] {
+  rep type S = data { case item(value: E) }
+  type Items = Library.List[S]
+  func empty() returns (r: Items) { Library.List.nil }
+  func single(e: E) returns (r: Items) {
+    Library.List.::(item(e), Library.List.nil)
+  }
+}
+module IntBag = Bag[Int]
+
+lemma renamed_rep() {
+  val empty: IntBag.Items := Library.List.nil;
+  val xs: IntBag.Items := Library.List.::(IntBag.item(7), empty);
+  assert xs.hd.value == 7;
+  assert IntBag.single(8).hd.value == 8;
+}
+
+type ItemAlias = IntBag.S
+type ItemAliasChain = ItemAlias
+lemma named_item_alias() {
+  val item: ItemAliasChain := Bag.item(9);
+  assert item.value == 9;
+}

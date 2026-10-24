@@ -1,0 +1,12 @@
+module Named = Library.List[Int]
+type Alias = Named.T
+lemma wrong_element() {
+  val xs: Alias := Library.List.::(true, Library.List.nil);
+}
+lemma wrong_tail() {
+  val canonical: Library.List[Int] := Library.List.::(1, Library.List.nil);
+  val xs: Alias := Library.List.::(2, canonical);
+}
+lemma explicit_instance() {
+  val canonical: Library.List[Int] := Named.::(1, Named.nil);
+}
