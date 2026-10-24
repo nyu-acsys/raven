@@ -233,48 +233,173 @@ let generate_skolem_functions (skolem_fns : skolem_function_def list) =
 
   ret_exprs
 
+(** Normalized guard literals, with contradictory paths removed syntactically. *)
+let normalize_conditions conditions =
+  let rec flatten positive expr =
+    match (positive, expr) with
+    | _, App (Not, [ expr ], _) -> flatten (not positive) expr
+    | true, App (And, args, _) | false, App (Or, args, _) ->
+        List.concat_map args ~f:(flatten positive)
+    | _, App (Bool value, [], _) ->
+        if Bool.equal positive value then [] else [ (true, Expr.mk_bool false) ]
+    | _ -> [ (positive, expr) ]
+  in
+  let literals = List.concat_map conditions ~f:(flatten true) in
+  let same (positive, expr) (other_positive, other) =
+    Bool.equal positive other_positive && Expr.alpha_equal expr other
+  in
+  let literals =
+    List.fold literals ~init:[] ~f:(fun distinct literal ->
+        if List.exists distinct ~f:(same literal) then distinct else literal :: distinct)
+    |> List.rev
+  in
+  let known expr =
+    Option.map
+      (List.find literals ~f:(fun (_, other) -> Expr.alpha_equal expr other))
+      ~f:fst
+  in
+  let rec truth expr =
+    let computed =
+      match expr with
+      | App (Bool value, [], _) -> Some value
+      | App (Not, [ expr ], _) -> Option.map (truth expr) ~f:not
+      | App (And, args, _) -> combine false args
+      | App (Or, args, _) -> combine true args
+      | _ -> None
+    in
+    Option.first_some computed (known expr)
+  and combine decisive args =
+    let values = List.map args ~f:truth in
+    if List.exists values ~f:(Option.value_map ~default:false ~f:(Bool.equal decisive))
+    then Some decisive
+    else if List.for_all values ~f:Option.is_some then Some (not decisive)
+    else None
+  in
+  let inconsistent =
+    List.exists literals ~f:(fun (positive, expr) ->
+        List.exists literals ~f:(fun (other_positive, other) ->
+            (not (Bool.equal positive other_positive)) && Expr.alpha_equal expr other)
+        || Option.value_map (truth expr) ~default:false ~f:(fun value ->
+            not (Bool.equal positive value)))
+  in
+  if inconsistent then None
+  else
+    Some
+      (List.map literals ~f:(fun (positive, expr) ->
+           if positive then expr else Expr.mk_not ~loc:(Expr.to_loc expr) expr))
+
+let conditions_imply context conditions =
+  match normalize_conditions context with
+  | None -> true
+  | Some context ->
+      List.for_all conditions ~f:(fun condition ->
+          match normalize_conditions [ condition ] with
+          | None -> false
+          | Some literals ->
+              List.for_all literals ~f:(fun literal ->
+                  List.exists context ~f:(Expr.alpha_equal literal)))
+
 let resolve_dependencies (vars : var_decl list) (outer_conds : conditions)
     (candidates : (conditions * expr) list ident_map) =
   let existential_vars =
     Set.of_list (module Ident) (List.map vars ~f:(fun v -> v.Type.var_name))
   in
   let dependencies (conds, witness) =
-    List.fold (outer_conds @ conds) ~init:(Expr.local_vars witness) ~f:(fun vars cond ->
+    List.fold conds ~init:(Expr.local_vars witness) ~f:(fun vars cond ->
         Set.union vars (Expr.local_vars cond))
     |> Set.inter existential_vars
   in
-  let initially_resolved =
-    Set.filter existential_vars ~f:(fun var -> not (Map.mem candidates var))
+  let same_choice (conditions, value) (other_conditions, other_value) =
+    Expr.alpha_equal value other_value
+    && List.length conditions = List.length other_conditions
+    && conditions_imply conditions other_conditions
   in
-  let rec resolve resolved pending witnesses =
-    let ready =
-      Map.filter_map pending ~f:(fun choices ->
-          let choices =
-            List.filter choices ~f:(fun choice ->
-                Set.is_subset (dependencies choice) ~of_:resolved)
-          in
-          let unconditional =
-            List.filter choices ~f:(fun (conds, _) -> List.is_empty conds)
-          in
-          let choices = if List.is_empty unconditional then choices else unconditional in
-          if List.is_empty choices then None else Some choices)
-    in
-    let unconditional =
-      Map.filter ready ~f:(List.exists ~f:(fun (conds, _) -> List.is_empty conds))
-    in
-    let ready = if Map.is_empty unconditional then ready else unconditional in
-    if Map.is_empty ready then witnesses
+  let deduplicate choices =
+    List.fold choices ~init:[] ~f:(fun distinct choice ->
+        if List.exists distinct ~f:(same_choice choice) then distinct
+        else choice :: distinct)
+    |> List.rev
+  in
+  (* Expand each branch independently so opposite dependency orders cannot form a
+     cycle through the global skolem substitution. *)
+  let rec resolve visiting context var =
+    if Set.mem visiting var then []
     else
-      let resolved, pending, witnesses =
-        Map.fold ready ~init:(resolved, pending, witnesses)
-          ~f:(fun ~key ~data (resolved, pending, witnesses) ->
-            (Set.add resolved key, Map.remove pending key, Map.set witnesses ~key ~data))
-      in
-      resolve resolved pending witnesses
+      match Map.find candidates var with
+      | None ->
+          let vd = List.find_exn vars ~f:(fun vd -> Ident.equal vd.var_name var) in
+          [ ([], Expr.from_var_decl vd) ]
+      | Some choices ->
+          let visiting = Set.add visiting var in
+          let covered, conditional =
+            List.partition_tf choices ~f:(fun (conds, _) ->
+                conditions_imply context conds)
+          in
+          let expanded =
+            List.concat_map covered ~f:(expand visiting context) |> deduplicate
+          in
+          let total =
+            List.filter expanded ~f:(fun (conds, _) -> conditions_imply context conds)
+          in
+          if not (List.is_empty total) then total
+          else
+            deduplicate
+              (expanded @ List.concat_map conditional ~f:(expand visiting context))
+  and expand visiting context (conds, witness) =
+    match normalize_conditions (outer_conds @ conds) with
+    | None -> []
+    | Some conds ->
+        let vars = Set.to_list (dependencies (conds, witness)) in
+        let rec substitute conds witness = function
+          | [] -> [ (conds, witness) ]
+          | var :: rest ->
+              begin match normalize_conditions (context @ conds) with
+              | None -> []
+              | Some active ->
+                  begin match resolve visiting active var with
+                  | [] -> []
+                  | choices ->
+                      (* A piecewise dependency avoids enumerating products of
+                         independent branch choices. Its guard retains coverage. *)
+                      let value =
+                        let default = snd (List.last_exn choices) in
+                        List.fold_right choices ~init:default
+                          ~f:(fun (guard, value) rest ->
+                            Expr.mk_ite (Expr.mk_chained_and guard) value rest)
+                      in
+                      let required =
+                        if
+                          List.exists choices ~f:(fun (guard, _) ->
+                              conditions_imply active guard)
+                        then []
+                        else
+                          [
+                            Expr.mk_or
+                              (List.map choices ~f:(fun (guard, _) ->
+                                   Expr.mk_chained_and guard));
+                          ]
+                      in
+                      let substitution =
+                        Map.singleton (module QualIdent) (QualIdent.from_ident var) value
+                      in
+                      let conds =
+                        List.map (conds @ required) ~f:(fun condition ->
+                            Expr.alpha_renaming condition substitution)
+                      in
+                      let witness = Expr.alpha_renaming witness substitution in
+                      begin match normalize_conditions conds with
+                      | None -> []
+                      | Some conds -> substitute conds witness rest
+                      end
+                  end
+              end
+        in
+        substitute conds witness vars
   in
-  (* Binding assumptions must have a solution; values and guards cannot depend
-     cyclically on the existentials they determine. *)
-  resolve initially_resolved candidates (Map.empty (module Ident))
+  Map.filter_mapi candidates ~f:(fun ~key ~data:_ ->
+      match resolve (Set.empty (module Ident)) outer_conds key with
+      | [] -> None
+      | choices -> Some choices)
 
 (* The result of eliminating existentials: the expression, the [assume]s that bind their
    witnesses, and, for each existential without a witness, a note for the error that is
@@ -498,6 +623,17 @@ and elim_a1 ?(fallbacks = []) (univ_vars : universal_quants) (univ_conds : condi
       in
 
       let witnesses = resolve_dependencies var_decls univ_conds witnesses in
+      let selected = Set.of_list (module Ident) (Map.keys witnesses) in
+      let* () =
+        if
+          Map.exists witnesses ~f:(fun choices ->
+              List.exists choices ~f:(fun (conds, witness) ->
+                  List.exists (witness :: conds) ~f:(fun expr ->
+                      not (Set.is_empty (Set.inter selected (Expr.local_vars expr))))))
+        then
+          Error.internal_error loc "Witness resolution left dependent selected witnesses"
+        else Rewriter.return ()
+      in
 
       let existential_vars =
         Set.of_list (module Ident) (List.map var_decls ~f:(fun vd -> vd.var_name))
@@ -606,12 +742,9 @@ and elim_a1 ?(fallbacks = []) (univ_vars : universal_quants) (univ_conds : condi
       in
 
       let skolem_vars_alpha_renaming_map =
-        (* Selected candidates are acyclic; expand their arguments before insertion. *)
-        let rec expand expr =
-          if Set.is_empty (Set.inter existential_vars (Expr.local_vars expr)) then expr
-          else expand (Expr.alpha_renaming expr skolem_vars_alpha_renaming_map)
-        in
-        Map.map skolem_vars_alpha_renaming_map ~f:expand
+        (* Only unselected existential leaves remain in candidate arguments. *)
+        Map.map skolem_vars_alpha_renaming_map ~f:(fun expr ->
+            Expr.alpha_renaming expr skolem_vars_alpha_renaming_map)
       in
 
       let* () =
@@ -661,8 +794,7 @@ and elim_a1 ?(fallbacks = []) (univ_vars : universal_quants) (univ_conds : condi
               | Some witness_arg_exprs ->
                   let postconds =
                     List.map witness_arg_exprs ~f:(fun (optn_arg, conds, e) ->
-                        Expr.mk_impl
-                          (Expr.mk_chained_and (univ_conds @ conds))
+                        Expr.mk_impl (Expr.mk_chained_and conds)
                           (Expr.mk_eq (Expr.from_var_decl var_decl)
                              (Expr.from_var_decl optn_arg)))
                   in
@@ -677,7 +809,7 @@ and elim_a1 ?(fallbacks = []) (univ_vars : universal_quants) (univ_conds : condi
                                   if index_outer >= index_inner then accum
                                   else
                                     Expr.mk_impl
-                                      (Expr.mk_chained_and (univ_conds @ conds1 @ conds2))
+                                      (Expr.mk_chained_and (conds1 @ conds2))
                                       (Expr.mk_eq
                                          (Expr.from_var_decl optn_arg1)
                                          (Expr.from_var_decl optn_arg2))

@@ -1,0 +1,39 @@
+field value: Int
+
+pred wrong(cell: Ref, flag: Bool)
+  returns (implicit ghost result: Int)
+{
+  flag ? result == 0 :
+    (exists child: Int :: result == child + 1 && child == 8 && own(cell.value, child))
+}
+
+proc wrong_constraint(cell: Ref)
+  requires own(cell.value, 7)
+{
+  fold wrong(cell, false);
+}
+
+pred missing(cell: Ref, flag: Bool)
+  returns (implicit ghost result: Int)
+{
+  flag ? result == 0 :
+    (exists child: Int :: result == child + 1 && own(cell.value, child))
+}
+
+proc missing_ownership(cell: Ref)
+{
+  fold missing(cell, false);
+}
+
+pred cyclic(cell: Ref, flag: Bool)
+  returns (implicit ghost x: Int, implicit ghost y: Int)
+{
+  flag ? x == 0 && y == 0 :
+    x == y + 1 && y == x + 1 && own(cell.value, 7)
+}
+
+proc inconsistent_cycle(cell: Ref)
+  requires own(cell.value, 7)
+{
+  fold cyclic(cell, false);
+}

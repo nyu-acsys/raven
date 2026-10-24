@@ -1,0 +1,105 @@
+field value: Int
+
+pred wrapped(cell: Ref, flag: Bool)
+  returns (implicit ghost result: Int)
+{
+  flag ? result == 0 :
+    (exists child: Int :: result == child + 1 && own(cell.value, child))
+}
+
+proc conditional_output(cell: Ref, flag: Bool)
+  requires own(cell.value, 7)
+  ensures wrapped(cell, flag)
+{
+  fold wrapped(cell, flag);
+}
+
+pred nested(cell: Ref, outer: Bool, inner: Bool)
+  returns (implicit ghost result: Int)
+{
+  outer ? result == 0 :
+    (inner ? result == 1 :
+      (exists child: Int :: result == child + 2 && own(cell.value, child)))
+}
+
+proc nested_output(cell: Ref, outer: Bool, inner: Bool)
+  requires own(cell.value, 7)
+  ensures nested(cell, outer, inner)
+{
+  fold nested(cell, outer, inner);
+}
+
+pred opposite(cell: Ref, flag: Bool)
+  returns (implicit ghost x: Int, implicit ghost y: Int)
+{
+  flag ? x == y + 1 && own(cell.value, y) :
+    y == x + 1 && own(cell.value, x)
+}
+
+proc opposite_order(cell: Ref, flag: Bool)
+  requires own(cell.value, 7)
+  ensures opposite(cell, flag)
+{
+  fold opposite(cell, flag);
+}
+
+lemma overlapping_guards(cell: Ref, first: Bool, second: Bool)
+  requires own(cell.value, 7)
+  ensures exists x: Int, y: Int ::
+    own(cell.value, y) &&
+    (first ==> x == y + 1) &&
+    (first || second ==> x == y + 1) &&
+    (!first && !second ==> x == 0)
+{}
+
+type Node = data { case nil case next(payload: Int, successor: Ref) }
+field contents: Node
+
+pred built(first: Ref, limit: Ref, items: Library.List[Int])
+  returns (implicit ghost cells: Library.List[Ref]) {
+  items == Library.List.nil ?
+    first == limit && cells == Library.List.::(limit, Library.List.nil) :
+    (exists following: Ref, rest: Library.List[Ref] ::
+      cells == Library.List.::(first, rest) &&
+      own(first.contents, next(items.hd, following)) &&
+      built(following, limit, items.tl, rest))
+}
+
+proc build(items: Library.List[Int], limit: Ref) returns (first: Ref)
+  requires own(limit.contents, nil)
+  ensures own(limit.contents, nil) && built(first, limit, items)
+{
+  if (items == Library.List.nil) {
+    first := limit;
+  } else {
+    val following := build(items.tl, limit);
+    first := new(contents: next(items.hd, following));
+  }
+  fold built(first, limit, items);
+}
+
+lemma quantified_guarded_output(enabled: Bool, flag: Bool, distinguished: Ref)
+  requires enabled ==> (forall cell: Ref :: cell != null ==> own(cell.value, 7))
+  ensures enabled ==> (forall cell: Ref :: cell != null ==>
+    (exists result: Int ::
+      flag || cell == distinguished ? result == 0 && own(cell.value, 7) :
+        (exists child: Int :: result == child + 1 && own(cell.value, child))))
+{}
+
+pred combined(first_cell: Ref, second_cell: Ref, first_flag: Bool, second_flag: Bool)
+  returns (implicit ghost x: Int, implicit ghost y: Int, implicit ghost total: Int)
+{
+  (first_flag ? x == 0 :
+    (exists first_value: Int :: x == first_value + 1 && own(first_cell.value, first_value))) &&
+  (second_flag ? y == 0 :
+    (exists second_value: Int :: y == second_value + 2 && own(second_cell.value, second_value))) &&
+  total == x + y
+}
+
+proc independent_combinations(first_cell: Ref, second_cell: Ref,
+    first_flag: Bool, second_flag: Bool)
+  requires own(first_cell.value, 7) && own(second_cell.value, 11)
+  ensures combined(first_cell, second_cell, first_flag, second_flag)
+{
+  fold combined(first_cell, second_cell, first_flag, second_flag);
+}
