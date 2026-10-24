@@ -1,0 +1,11 @@
+module S = Library.Seq[Int]
+
+lemma wrong_empty_length() {
+  val xs: Library.List[Int] := Library.List.nil;
+  assert S.length(S.of_list(xs)) == 1;
+}
+
+lemma wrong_order() {
+  val xs: Library.List[Int] := Library.List.::(3, Library.List.::(7, Library.List.nil));
+  assert S.index(S.of_list(xs), 0) == 7;
+}

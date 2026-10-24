@@ -1,3 +1,10 @@
+24 oct, 2026:
+- [ ] Infer generic module arguments occurring inside another instance in a sealed
+    signature: `Library.Seq.of_list(xs)` for `xs: Library.List[Int]` retains
+    `Library.List[Library.SeqSpec.E]` instead of inferring `Seq[Int]`.
+    Explicit `module S = Library.Seq[Int]` and `S.of_list(xs)` work. Account for
+    interface-generated instances when exporting and inferring generic signatures.
+
 23 oct, 2026:
 - [ ] Make inhale/exhale fusion insensitive to contract conjunction grouping:
     normalize conjunctive assertions before matching resource transfers, preserving

@@ -1,0 +1,70 @@
+module GenericClient[E: Library.Type] {
+  module S = Library.Seq[E]
+
+  lemma laws(xs: Library.List[E], h: E, t: Library.List[E]) {
+    assert S.of_list(Library.List.nil) == S.empty;
+    assert S.of_list(Library.List.::(h, t)) ==
+      S.append(S.singleton(h), S.of_list(t));
+    assert S.length(S.of_list(xs)) == Library.List.len(xs);
+  }
+}
+
+interface ConversionSpec[E: Library.Type] : Library.Type {
+  rep type T
+  func convert(xs: Library.List[E]) returns (r: T)
+  func length(s: T) returns (r: Int)
+  auto lemma conversion_length()
+    ensures forall xs: Library.List[E] :: {length(convert(xs))}
+      length(convert(xs)) == Library.List.len(xs)
+}
+
+module Conversion[E: Library.Type] :> ConversionSpec[E] {
+  module S = Library.Seq[E]
+  rep type T = S.T
+  func convert(xs: Library.List[E]) returns (r: T) { S.of_list(xs) }
+  func length(s: T) returns (r: Int) { S.length(s) }
+  lemma conversion_length() {}
+}
+
+module IntConversion = Conversion[Int]
+module NestedConversion = Conversion[Library.List[Int]]
+module IntSeq = Library.Seq[Int]
+module NestedSeq = Library.Seq[Library.List[Int]]
+module RefSeq = Library.Seq[Ref]
+
+lemma concrete_int_lists() {
+  val empty: Library.List[Int] := Library.List.nil;
+  val single: Library.List[Int] := Library.List.::(7, empty);
+  val pair: Library.List[Int] := Library.List.::(3, single);
+
+  assert IntSeq.of_list(empty) == IntSeq.empty;
+  assert IntSeq.length(IntSeq.of_list(empty)) == 0;
+  assert IntSeq.of_list(single) == IntSeq.singleton(7);
+  assert IntSeq.length(IntSeq.of_list(single)) == 1;
+  assert IntSeq.index(IntSeq.of_list(single), 0) == 7;
+  assert IntSeq.length(IntSeq.of_list(pair)) == 2;
+  assert IntSeq.index(IntSeq.of_list(pair), 0) == 3;
+  assert IntSeq.index(IntSeq.of_list(pair), 1) == 7;
+  assert IntConversion.length(IntConversion.convert(pair)) == 2;
+}
+
+lemma concrete_nested_lists() {
+  val inner_empty: Library.List[Int] := Library.List.nil;
+  val inner_single: Library.List[Int] := Library.List.::(3, inner_empty);
+  val outer_empty: Library.List[Library.List[Int]] := Library.List.nil;
+  val outer_single: Library.List[Library.List[Int]] :=
+    Library.List.::(inner_single, outer_empty);
+
+  assert NestedSeq.of_list(outer_empty) == NestedSeq.empty;
+  assert NestedSeq.of_list(outer_single) == NestedSeq.singleton(inner_single);
+  assert NestedSeq.length(NestedSeq.of_list(outer_single)) == 1;
+  assert NestedSeq.index(NestedSeq.of_list(outer_single), 0) == inner_single;
+  assert NestedConversion.length(NestedConversion.convert(outer_single)) == 1;
+}
+
+lemma reference_lists(x: Ref, y: Ref) {
+  val xs: Library.List[Ref] := Library.List.::(x, Library.List.::(y, Library.List.nil));
+  assert RefSeq.length(RefSeq.of_list(xs)) == 2;
+  assert RefSeq.index(RefSeq.of_list(xs), 0) == x;
+  assert RefSeq.index(RefSeq.of_list(xs), 1) == y;
+}

@@ -184,6 +184,18 @@ interface SeqSpec[E: Type] : Type {
       (s0 == empty ==> append(s0, s1) == s1) &&
       (s1 == empty ==> append(s0, s1) == s0)
 
+  func of_list(xs: List[E]) returns (ret: T)
+
+  auto lemma of_list_nil()
+    ensures of_list(List.nil) == empty
+
+  auto lemma of_list_cons()
+    ensures forall h: E, t: List[E] :: {of_list(List.::(h, t))}
+      of_list(List.::(h, t)) == append(singleton(h), of_list(t))
+
+  auto lemma of_list_length(xs: List[E])
+    ensures {length(of_list(xs))} length(of_list(xs)) == List.len(xs)
+
   // Written `s[i]`.
   func index(s: T, i: Int) returns (ret: E)
 
@@ -391,6 +403,15 @@ module Seq[E: Type] :> SeqSpec[E] {
     decreases s1
   {
     s1 == nil ? s2 : s1.hd :: append(s1.tl, s2)
+  }
+
+  func of_list(xs: List[E]) returns (ret: T)
+    decreases xs
+  {
+    match xs {
+      case nil => empty
+      case h :: t => append(singleton(h), of_list(t))
+    }
   }
 
   func index(s: T, i: Int) returns (ret: E)
@@ -674,6 +695,20 @@ module Seq[E: Type] :> SeqSpec[E] {
       (s0 == empty ==> append(s0, s1) == s1) &&
       (s1 == empty ==> append(s0, s1) == s0) with {
       append_nil_rec(s0);
+    }
+  }
+
+  lemma of_list_nil() {}
+
+  lemma of_list_cons() {}
+
+  lemma of_list_length(xs: List[E])
+    ensures length(of_list(xs)) == List.len(xs)
+    decreases xs
+  {
+    if (xs != List.nil) {
+      of_list_length(xs.tl);
+      append_length_rec(singleton(xs.hd), of_list(xs.tl));
     }
   }
 

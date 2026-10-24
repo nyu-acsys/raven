@@ -43,7 +43,7 @@ its declaration, for hovers and going to definitions in an editor.
   21:24 v -> v (variable, lsp_references.rav:14): ghost v: Int
   25:5 client -> client (procedure, lsp_references.rav:25): proc client(s: Seq[Int]) returns (n: Int) { … }
   25:12 s -> s (variable, lsp_references.rav:25): s: Library.Seq[Int]
-  25:15 Seq -> Library.Seq (module, base_types.rav:372): module Seq
+  25:15 Seq -> Library.Seq (module, base_types.rav:384): module Seq
   25:34 n -> n (variable, lsp_references.rav:25): n: Int
   26:2 n -> n (variable, lsp_references.rav:25): n: Int
   26:9 double -> M.double (function, lsp_references.rav:4): func double(x: Int) returns (y: Int)
