@@ -1069,7 +1069,45 @@ let find_insertion_scope_for_symbols (symbols : (qual_ident, _) Set.t) :
           (scope, scope)
         else Rewriter.return (name, qi)
   in
-  find_concrete_scope largest_prefix
+  (* A common prefix can lie outside a functor whose parameters the arguments use. *)
+  let rec required_functor_scope qi =
+    let* found = Rewriter.resolve_and_find_opt ~read_only:true qi in
+    match found with
+    | Some (_, symbol)
+      when (not (Rewriter.Symbol.is_instance symbol))
+           &&
+           match Rewriter.Symbol.orig_symbol symbol with
+           | AstDef.Module.ModDef { mod_decl; _ } ->
+               not (Base.List.is_empty mod_decl.mod_decl_formals)
+           | _ -> false ->
+        let+ scope = find_concrete_scope qi in
+        Some scope
+    | _ when Base.List.is_empty (QualIdent.path qi) -> return None
+    | _ -> required_functor_scope (QualIdent.pop qi)
+  in
+  let encloses outer inner =
+    Base.List.is_prefix (QualIdent.to_list inner) ~prefix:(QualIdent.to_list outer)
+      ~equal:Ident.equal
+  in
+  let* required =
+    Rewriter.List.fold_left (Set.to_list symbols) ~init:None ~f:(fun required symbol ->
+        let+ scope = required_functor_scope (QualIdent.pop symbol) in
+        match (required, scope) with
+        | None, scope | scope, None -> scope
+        | Some (outer, _), Some (inner, _) when encloses outer inner -> scope
+        | Some (inner, _), Some (outer, _) when encloses outer inner -> required
+        | Some (left, _), Some (right, _) ->
+            Error.type_error (QualIdent.to_loc symbol)
+              (Printf.sprintf
+                 !"Type arguments require incompatible scopes %{QualIdent} and \
+                   %{QualIdent}"
+                 left right))
+  in
+  let+ insertion, reference = find_concrete_scope largest_prefix in
+  match required with
+  | Some ((required_scope, _) as required) when not (encloses required_scope insertion) ->
+      required
+  | _ -> (insertion, reference)
 
 let type_symbols (tps : AstDef.type_expr list) : (qual_ident, _) Set.t =
   Base.List.fold tps
@@ -1459,6 +1497,7 @@ and shared_body_instances ~(loc : location) ~(functor_qual_ident : qual_ident)
               || Set.exists (AstDef.Type.symbols substituted) ~f:is_local
             then return (subst, shared)
             else
+              let* substituted = !Rewriter.expand_type_expr_ref substituted in
               let* insert_scope, reference_scope =
                 find_insertion_scope_for_types [ substituted ]
               in

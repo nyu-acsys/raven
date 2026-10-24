@@ -1,0 +1,58 @@
+module Pair[A: Library.Type, B: Library.Type] : Library.Type {
+  rep type T = data { case pair(first: A, second: B) }
+  func take_first(a: A, b: B) returns (r: A) { a }
+  func take_first_reversed(b: B, a: A) returns (r: A) { a }
+}
+
+module Generic[E: Library.Type] {
+  func first(e: E) returns (r: E) { Pair.take_first(e, true) }
+  func reversed(e: E) returns (r: E) { Pair.take_first_reversed(true, e) }
+  func make(e: E) returns (r: Pair[E, Bool]) { Pair.pair(e, true) }
+}
+
+module GenericInt = Generic[Int]
+module GenericIntAgain = Generic[Int]
+module NamedInt : Library.Type { rep type T = Int }
+module GenericNamed = Generic[NamedInt]
+lemma use_global_and_generic() {
+  assert GenericInt.first(17) == 17;
+  assert GenericInt.reversed(18) == 18;
+  val p: Pair[Int, Bool] := GenericInt.make(19);
+  val q: Pair[Int, Bool] := GenericIntAgain.make(20);
+  val named: Pair[NamedInt, Bool] := GenericNamed.make(21);
+  assert p.first == 19;
+  assert p.second;
+  assert q.first == 20;
+  assert named.first == 21;
+}
+
+module Outer[E: Library.Type] {
+  module Inner[F: Library.Type] {
+    func outer(e: E, f: F) returns (r: E) { Pair.take_first(e, f) }
+    func inner(f: F, e: E) returns (r: F) { Pair.take_first(f, e) }
+    func make(e: E, f: F) returns (r: Pair[E, F]) { Pair.pair(e, f) }
+    func global(e: E) returns (r: E) { Pair.take_first(e, true) }
+  }
+}
+module OuterInt = Outer[Int]
+
+type Color = data { case red case blue }
+module Composite[E: Library.Type] {
+  func make(e: E) returns (r: Library.List[(E, Color)]) {
+    Library.List.::((e, red), Library.List.nil)
+  }
+}
+module CompositeInt = Composite[Int]
+lemma composite() {
+  val xs: Library.List[(Int, Color)] := CompositeInt.make(22);
+  assert xs.hd == (22, red);
+}
+
+interface Cell { module Value: Library.Type field f: Value }
+module FieldOp[E: Library.Type, A: Cell] {
+  func identity(x.A.f, e: E) returns (r: E) { e }
+}
+field global: Int
+module FieldClient[E: Library.Type] {
+  lemma check(x: Ref, e: E) { assert FieldOp.identity(x.global, e) == e; }
+}

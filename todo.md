@@ -6,10 +6,14 @@
     `F.get(b)` for `b: Box[Int]` fails with "No applicable overload" when
     `F[E]` declares both `get(b: Box[E])` and `get(b: Bool)`. This also affects
     unsealed functors; single-function inference handles the nested argument.
-- [ ] Place generated instances with mixed global and functor-local arguments in
+- [x] Place generated instances with mixed global and functor-local arguments in
     a scope where all arguments are visible: `Pair.first(e, true)` inside
     `Generic[E]`, with `e: E`, creates `Pair[E, Bool]` outside `Generic` and
     fails with "Unknown identifier Generic.E". This also affects unsealed functors.
+- [ ] Allow applying a nested functor through an instantiated outer module:
+    `module OuterInt = Outer[Int]` followed by
+    `module InnerBool = OuterInt.Inner[Bool]` reports "expects 0 arguments"
+    even though `Outer[E]` declares `module Inner[F: Library.Type]`.
 - [ ] Match doubly nested generic types across sealed signatures:
     `get(b: Box[Box[E]])` in a sealed implementation fails to match the same
     declaration in its interface before any client call is checked.

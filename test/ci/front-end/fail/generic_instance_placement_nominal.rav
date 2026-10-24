@@ -1,0 +1,11 @@
+module Pair[A: Library.Type, B: Library.Type] : Library.Type {
+  rep type T = data { case pair(first: A, second: B) }
+}
+module Generic[E: Library.Type] {
+  func make(e: E) returns (r: Pair[E, Bool]) { Pair.pair(e, true) }
+}
+module NamedInt : Library.Type { rep type T = Int }
+module GenericNamed = Generic[NamedInt]
+lemma check() {
+  val wrong: Pair[Int, Bool] := GenericNamed.make(1);
+}
