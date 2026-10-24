@@ -1,0 +1,12 @@
+module Rose {
+  rep type T = data {
+    case leaf(value: Int)
+    case node(children: Library.List[T])
+  }
+}
+
+lemma reject_false_selector() {
+  val child: Rose := Rose.leaf(1);
+  val parent: Rose := Rose.node(Library.List.::(child, Library.List.nil));
+  assert parent.children.hd.value == 2;
+}

@@ -1,0 +1,75 @@
+module NodeOnly {
+  type T = data { case node(v: Int, children: Library.List[T]) }
+  lemma leaf() {
+    val t: T := node(1, Library.List.nil);
+    assert t.v == 1;
+  }
+}
+
+module DirectRose {
+  rep type T = data {
+    case leaf(leaf_value: Int)
+    case node(value: Int, children: Library.List[T])
+  }
+
+  func singleton(x: Int) returns (r: T) {
+    node(x, Library.List.::(leaf(x + 1), Library.List.nil))
+  }
+}
+
+lemma rose_list_constructor() {
+  val r: DirectRose := DirectRose.singleton(10);
+  assert r.value == 10;
+  assert r.children.hd.leaf_value == 11;
+}
+
+module NestedRose {
+  rep type T = data {
+    case leaf(value: Int)
+    case nested(nested_children: Library.List[Library.List[T]])
+    case annotated(annotated_children: Library.List[(T, Int)])
+  }
+
+  func nest(x: Int) returns (r: T) {
+    nested(Library.List.::(Library.List.::(leaf(x), Library.List.nil),
+                           Library.List.nil))
+  }
+
+  func annotate(x: Int) returns (r: T) {
+    annotated(Library.List.::((leaf(x), x + 1), Library.List.nil))
+  }
+}
+
+lemma nested_fields() {
+  val n: NestedRose := NestedRose.nest(2);
+  assert n.nested_children.hd.hd.value == 2;
+  val a: NestedRose := NestedRose.annotate(3);
+  assert a.annotated_children.hd == (NestedRose.leaf(3), 4);
+}
+
+module Rose[E: Library.Type] : Library.Type {
+  rep type T = data {
+    case leaf(value: E)
+    case node(children: Library.List[T])
+  }
+  type Forest = Library.List[T]
+  type NestedForest = Library.List[Forest]
+  func single(e: E) returns (r: T) {
+    node(Library.List.::(leaf(e), Library.List.nil))
+  }
+  func flatten(xs: NestedForest) returns (r: Forest) { xs.hd }
+}
+
+module IntRose = Rose[Int]
+module BoolRose = Rose[Bool]
+
+lemma generic_instances() {
+  val i: IntRose := IntRose.single(4);
+  assert i.children.hd.value == 4;
+  val b: BoolRose := BoolRose.single(true);
+  assert b.children.hd.value;
+}
+
+lemma alias_client(xs: IntRose.NestedForest) {
+  assert IntRose.flatten(xs) == xs.hd;
+}

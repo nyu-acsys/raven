@@ -451,10 +451,26 @@ let is_macro (g : Dependencies.Graph.t) (qual_name : qual_ident)
            qual_name)
   | _ -> false
 
-(** The symbol [qual_name] names, as an instance's member if it is one. *)
+(** Reifies a symbol and expands type aliases introduced by instantiation. *)
 let reify (tbl : SymbolTbl.t) (qual_name : qual_ident) : Module.symbol =
+  let open Rewriter.Syntax in
+  let normalize_definition = function
+    | Type.App (Data _, _, _) as tp ->
+        Rewriter.Type.descend ~f:!Rewriter.expand_type_expr_ref tp
+    | tp -> !Rewriter.expand_type_expr_ref tp
+  in
+  let reify_symbol =
+    let* symbol = Rewriter.find_and_reify qual_name in
+    match symbol with
+    | Module.TypeDef typ ->
+        let+ type_def_expr =
+          Rewriter.Option.map typ.type_def_expr ~f:normalize_definition
+        in
+        Module.TypeDef { typ with type_def_expr }
+    | _ -> Rewriter.return symbol
+  in
   let tbl1 = SymbolTbl.goto qual_name tbl in
-  snd (Rewriter.eval ~update:false (Rewriter.find_and_reify qual_name) tbl1)
+  snd (Rewriter.eval ~update:false reify_symbol tbl1)
 
 (** Records the statuses of the obligation [qual_name], verified before with the
     [fingerprint], and of its named assertions, without checking it. *)

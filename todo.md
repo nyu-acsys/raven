@@ -17,6 +17,12 @@
 - [x] Match doubly nested generic types across sealed signatures:
     `get(b: Box[Box[E]])` in a sealed implementation fails to match the same
     declaration in its interface before any client call is checked.
+- [ ] Construct values of nested type aliases in generic instances without
+    spurious nominal mismatches: with `Rose[E]` declaring `type Forest = List[T]`
+    and `type NestedForest = List[Forest]`, assigning
+    `List.::(forest, List.nil)` to `IntRose.NestedForest` reports two incompatible
+    types both printed as `List[List[Rose.T]]`. Passing an existing value of the
+    alias to a function works; investigate constructor instantiation inference.
 
 23 oct, 2026:
 - [ ] Make inhale/exhale fusion insensitive to contract conjunction grouping:
@@ -34,11 +40,10 @@
 - [x] The printer emits a fold, unfold, openInv or closeInv without witnesses
     with an empty witness list and trailing spaces, as `fold lseg(c, l)[]  ;`;
     it should print `fold lseg(c, l)`.
-- [ ] A data type nested in an instance of itself, such as
-    `type T = data { case node(v: Int, children: List[T]) }`, crashes when a
-    constructor is called: Z3 rejects the datatype declarations ("unknown sort
-    'Rose.TypeMod$$Library_Type$$Rose_T.T'"). The type and the instance
-    `List[T]` need to be declared together, as mutually recursive datatypes.
+- [x] Expand generated aliases when emitting recursive datatype declarations:
+    `type T = data { case node(v: Int, children: List[T]) }` refers to an alias
+    introduced by instantiation. The datatypes are already grouped together;
+    their fields must reference the datatype sorts before the aliases are declared.
 
 20 oct, 2026:
 - [ ] Infer implicit ghost arguments from invariants in the precondition: for
