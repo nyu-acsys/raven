@@ -113,6 +113,30 @@ module Hash {
   { }
 
 
+  // Equal lengths yield equal credit amounts without expanding the potential.
+  func potential(h: Int, k: Int, range: Int) returns (ret: Real) {
+    (((h-1)*k)/2.0 - sum_n_m(0,k-1)) / range
+  }
+
+  lemma credit_step(h: Int, k: Int, range: Int)
+    requires 0 <= k < h && 0 < range
+    ensures 0.0 <= potential(h, k, range)
+    ensures 0.0 <= potential(h, k+1, range)
+    ensures potential(h, k, range) + (h-1)/(2.0*range)
+      == k/(1.0*range) + potential(h, k+1, range)
+  {
+    if (k == 0) {
+      assert sum_n_m(0,k-1) == 0;
+    } else {
+      sum_n_m_val(0,k-1);
+    }
+    sum_n_m_val(0,k);
+    assert potential(h, k, range) == (k*(h-k))/(2.0*range);
+    assert potential(h, k+1, range) == ((k+1)*(h-k-1))/(2.0*range);
+    assert 0 <= k*(h-k);
+    assert 0 <= (k+1)*(h-k-1);
+  }
+
   proc compute_hash(x: Ref, v: Int, implicit ghost mp: HashMap) returns (mp': HashMap, ret: Int)
     requires coll_free_hashfun_amortized(x, mp)
     requires !OptInt.is_some(lookUpHashMap(mp, v)) ==> (
@@ -136,24 +160,7 @@ module Hash {
 
     if (opt_int == OptInt.none()) {
 
-      {!
-      // if (!OptInt.is_some(lookUpHashMap(mp, v))) {
-        ghost var eps: Real := (((max_hash_size-1) * len(mp)) / 2.0 - sum_n_m(0, len(mp)-1)) / (val_size + 1);
-
-        ghost var eps'': Real := (((max_hash_size-1) * (1+len(mp)))/2.0 - sum_n_m(0, len(mp))) / (val_size + 1);
-
-        ghost var v := val_size+1;
-        ghost var k := len(mp);
-        ghost var h := max_hash_size;
-
-        if (k == 0) {
-          // For some reason need to assert the following fact about Reals;
-          assert (
-            (h-1) / (2.0*v)  ==  ((h-1) / 2.0) / v
-          );
-        }
-      // }
-      !}
+      credit_step(max_hash_size, len(mp), val_size+1);
 
       proj_2_preserves_len(mp);
       var b := EC.rand(1+val_size; ECList: !in IntListOps.proj2(mp));
@@ -218,9 +225,7 @@ module Hash {
   // }
 
   inline pred hashfun_amortized(x: Ref, mp: HashMap) {
-    hashfun(x, mp) && ((
-      EC.error(((((max_hash_size-1) * len(mp))/2.0 - sum_n_m(0, len(mp)-1) ) / (val_size+1)))
-    ))
+    hashfun(x, mp) && EC.error(potential(max_hash_size, len(mp), val_size+1))
   }
 
   inline pred coll_free_hashfun(x: Ref, mp: HashMap) {
