@@ -78,10 +78,10 @@ module ErrorCreditsExt (Cont : Ext) = struct
   let expr_ext_to_string expr_ext =
     match expr_ext with ErrorCreds -> "EC.error" | _ -> Cont.expr_ext_to_string expr_ext
 
-  let pr_expr_ext ~pr ppf expr_ext args =
+  let pr_expr_ext ~names ~pr ppf expr_ext args =
     match (expr_ext, args) with
     | ErrorCreds, [ e ] -> Stdlib.Format.fprintf ppf "EC.error(%a)" pr e
-    | _ -> Cont.pr_expr_ext ~pr ppf expr_ext args
+    | _ -> Cont.pr_expr_ext ~names ~pr ppf expr_ext args
 
   let pr_basic_stmt_ext (printers : Stmt.ext_printers) ppf ext expr_list =
     let open Stdlib.Format in

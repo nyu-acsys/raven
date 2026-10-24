@@ -84,7 +84,7 @@ module ArrayExt (Cont : Ext) = struct
     | ArrayUpdate -> "array update"
     | other -> Cont.expr_ext_to_string other
 
-  let pr_expr_ext ~pr ppf (expr_ext : Expr.expr_ext) args =
+  let pr_expr_ext ~names ~pr ppf (expr_ext : Expr.expr_ext) args =
     let open Stdlib.Format in
     let pr_base ppf e =
       if Expr.to_prio e > 1 then fprintf ppf "(%a)" pr e else pr ppf e
@@ -93,7 +93,7 @@ module ArrayExt (Cont : Ext) = struct
     | ArrayEntry, [ base; index ] -> fprintf ppf "%a[%a]" pr_base base pr index
     | ArrayUpdate, [ base; index; value ] ->
         fprintf ppf "%a[%a := %a]" pr_base base pr index pr value
-    | _ -> Cont.pr_expr_ext ~pr ppf expr_ext args
+    | _ -> Cont.pr_expr_ext ~names ~pr ppf expr_ext args
 
   let expr_ext_is_recognized (expr_ext : Expr.expr_ext) : bool =
     match expr_ext with
@@ -103,14 +103,14 @@ module ArrayExt (Cont : Ext) = struct
   let pr_basic_stmt_ext (printers : Stmt.ext_printers) ppf (stmt_ext : Stmt.stmt_ext)
       (expr_list : expr list) =
     let open Stdlib.Format in
-    let pr_lhs = Util.Print.pr_list_comma QualIdent.pr in
+    let pr_lhs = Util.Print.pr_list_comma (SourceNames.pr_qual_ident printers.names) in
     let pr = printers.pr_expr in
     match (stmt_ext, expr_list) with
     | ArrayRead { lhs; _ }, [ base; index ] ->
         fprintf ppf "@[<2>%a@ :=@ %a[%a]@]" pr_lhs lhs pr base pr index
     | ArrayWrite { lhs; _ }, [ base; index; value ] ->
         fprintf ppf "@[<2>%a@ :=@ %a[%a@ :=@ %a]@]" pr_lhs lhs pr base pr index pr value
-    | ArrayVarDef var_def, [] -> Stmt.pr_basic_stmt ppf (VarDef var_def)
+    | ArrayVarDef var_def, [] -> printers.pr_basic_stmt ppf (VarDef var_def)
     | (ArrayRead _ | ArrayWrite _ | ArrayVarDef _), _ ->
         Error.internal_error Loc.dummy "ArrayExt: wrong number of operands"
     | _ -> Cont.pr_basic_stmt_ext printers ppf stmt_ext expr_list

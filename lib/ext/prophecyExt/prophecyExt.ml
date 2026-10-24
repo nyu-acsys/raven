@@ -103,11 +103,11 @@ module ProphecyExt (Cont : Ext) = struct
     | ProphResource _ -> "Proph.proph"
     | _ -> Cont.expr_ext_to_string expr_ext
 
-  let pr_expr_ext ~pr ppf expr_ext args =
+  let pr_expr_ext ~names ~pr ppf expr_ext args =
     match (expr_ext, args) with
     | ProphResource _, [ proph_id; proph_val ] ->
         Stdlib.Format.fprintf ppf "Proph.proph(%a, %a)" pr proph_id pr proph_val
-    | _ -> Cont.pr_expr_ext ~pr ppf expr_ext args
+    | _ -> Cont.pr_expr_ext ~names ~pr ppf expr_ext args
 
   (* Standard format for printer functions. *)
   let pr_basic_stmt_ext (printers : Stmt.ext_printers) ppf ext expr_list =

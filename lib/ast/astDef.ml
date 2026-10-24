@@ -35,7 +35,17 @@ module Ident = struct
   include T
   include Comparable.Make (T)
 
-  let pr ppf id = Stdlib.Format.fprintf ppf "%s" (to_string id)
+  (* Lowercase keyword names already have an identifier spelling via a zero index. *)
+  let to_source_string id =
+    if
+      Int.equal id.ident_num 0
+      && (not (String.is_empty id.ident_name))
+      && Char.is_lowercase id.ident_name.[0]
+      && SourceKeywords.is_keyword id.ident_name
+    then id.ident_name ^ "^0"
+    else to_string id
+
+  let pr ppf id = Stdlib.Format.fprintf ppf "%s" (to_source_string id)
   let pr_list ppf ids = Print.pr_list_comma pr ppf ids
 
   let pr_ident_map pr_x ppf =
@@ -220,7 +230,9 @@ module QualIdent = struct
   (* let pr ppf qid = Print.pr_list_sep "." Ident.pr ppf (qid.qual_path @ [qid.qual_base]) *)
 
   let pr_list ppf qids = Print.pr_list_comma pr ppf qids
-  let to_string qid = Print.string_of_format pr qid
+
+  let to_string qid =
+    String.concat ~sep:"." (List.map (shown_path qid) ~f:Ident.to_string)
 
   (** The name as written in the program, without the indices of its parts. A generated
       module stands for the path up to it, and for its rep type when that follows. *)
@@ -314,6 +326,19 @@ module QualIdent = struct
 
   let sanitize subst qid =
     from_list (List.map ~f:(fun iden -> Ident.sanitize subst iden) (to_list qid))
+end
+
+module SourceNames = struct
+  type t = { ident_to_string : Ident.t -> string }
+
+  let default = { ident_to_string = Ident.to_source_string }
+  let pr_ident names ppf id = Stdlib.Format.pp_print_string ppf (names.ident_to_string id)
+
+  let pr_qual_ident names ppf qi =
+    Print.pr_list_sep "." (pr_ident names) ppf (QualIdent.shown_path qi)
+
+  let qual_ident_to_string names qi =
+    String.concat ~sep:"." (List.map (QualIdent.shown_path qi) ~f:names.ident_to_string)
 end
 
 type qual_ident = QualIdent.t [@@deriving compare]
@@ -442,7 +467,8 @@ module Type = struct
     | Perm -> perm_type_string
     | Data (id, _) -> qual_ident_to_string id
     | Var id -> qual_ident_to_string id
-    | AtomicToken id -> Printf.sprintf !"%s<%{QualIdent}>" atomic_token_type_string id
+    | AtomicToken id ->
+        Printf.sprintf "%s<%s>" atomic_token_type_string (qual_ident_to_string id)
     | Prod -> prod_type_string
     | TypeExt type_ext -> type_ext_to_name type_ext
 
@@ -452,16 +478,20 @@ module Type = struct
       [TypeExt] leaves. [make_printers ~type_ext_to_name:default_type_ext_to_name] below
       is what every caller gets by default; an extension-aware set is built the same way
       from the extension's own [type_ext_to_name]. *)
-  let make_printers_with ~qual_ident_to_string ~type_ext_to_name =
+  let make_printers_with ~names ~qual_ident_to_string ~type_ext_to_name =
+    let module Ident = struct
+      include Ident
+
+      let pr = SourceNames.pr_ident names
+    end in
     let to_name = make_to_name ~qual_ident_to_string ~type_ext_to_name in
     let rec pr_constr ppf t =
       match t with
       | Int | Real | Num | Bool | Any | Bot | Ref | Perm | Var _ | AtomicToken _ | Map
       | FinSet | Fld | Prod | TypeExt _ ->
           Stdlib.Format.fprintf ppf "%s" (to_name t)
-      | Data (id, decls) ->
-          Stdlib.Format.fprintf ppf "data %a {@\n  @[%a@]@\n}" QualIdent.pr id
-            pr_variant_decl_list decls
+      | Data (_, decls) ->
+          Stdlib.Format.fprintf ppf "data {@\n  @[%a@]@\n}" pr_variant_decl_list decls
     and pr ppf t =
       match t with
       | App (Prod, [], _) -> Stdlib.Format.fprintf ppf "()"
@@ -505,8 +535,13 @@ module Type = struct
       pr_list,
       to_string )
 
+  let make_printers_with_names ~names ~type_ext_to_name =
+    make_printers_with ~names
+      ~qual_ident_to_string:(SourceNames.qual_ident_to_string names)
+      ~type_ext_to_name
+
   let make_printers ~type_ext_to_name =
-    make_printers_with ~qual_ident_to_string:QualIdent.to_string ~type_ext_to_name
+    make_printers_with_names ~names:SourceNames.default ~type_ext_to_name
 
   let ( pr_constr,
         pr,
@@ -523,7 +558,8 @@ module Type = struct
   (** [t] as written in the program, with generated modules shown in their source form. *)
   let to_string_user t =
     let _, _, _, _, _, _, _, _, _, to_string =
-      make_printers_with ~qual_ident_to_string:QualIdent.to_string_user
+      make_printers_with ~names:SourceNames.default
+        ~qual_ident_to_string:QualIdent.to_string_user
         ~type_ext_to_name:default_type_ext_to_name
     in
     to_string t
@@ -861,6 +897,7 @@ module Expr = struct
   let default_expr_ext_to_string : expr_ext -> string = fun _ -> "[ExprExt]"
 
   type pr_expr_ext =
+    names:SourceNames.t ->
     pr:(Stdlib.Format.formatter -> t -> unit) ->
     Stdlib.Format.formatter ->
     expr_ext ->
@@ -870,7 +907,7 @@ module Expr = struct
       for its subexpressions. *)
 
   let default_pr_expr_ext : pr_expr_ext =
-   fun ~pr ppf expr_ext args ->
+   fun ~names:_ ~pr ppf expr_ext args ->
     Stdlib.Format.fprintf ppf "%s(%a)"
       (default_expr_ext_to_string expr_ext)
       (Print.pr_list_comma pr) args
@@ -895,7 +932,8 @@ module Expr = struct
     let opening, closing = enumeration_delimiters opener in
     opening ^ (if singleton then "_" else "") ^ closing
 
-  let make_constr_to_string ~expr_ext_to_string = function
+  let make_constr_to_string ?(qual_ident_to_string = QualIdent.to_string)
+      ~expr_ext_to_string = function
     (* function symbols *)
     | Bool b -> Printf.sprintf "%b" b
     | Int i -> Int64.to_string i
@@ -905,9 +943,9 @@ module Expr = struct
         if String.is_suffix s ~suffix:"." then s ^ "0" else s
     | Null -> "null"
     | Tuple -> "()"
-    | DataConstr id | DataDestr id -> QualIdent.to_string id
-    | DataTest id -> "is " ^ QualIdent.to_string id
-    (*| Call (id, _) -> "call " ^ QualIdent.to_string id*)
+    | DataConstr id | DataDestr id -> qual_ident_to_string id
+    | DataTest id -> "is " ^ qual_ident_to_string id
+    (*| Call (id, _) -> "call " ^ qual_ident_to_string id*)
     | Read -> "read"
     | Uminus -> "-"
     | ToReal -> "to_real"
@@ -935,31 +973,74 @@ module Expr = struct
     | Or -> "||"
     | Impl -> "==>"
     (* variables / uninterpreted symbols *)
-    | Var id -> QualIdent.to_string id
+    | Var id -> qual_ident_to_string id
     (* ownership predicates *)
     | Own -> "own"
-    | AUPred id -> "au<" ^ QualIdent.to_string id ^ ">"
-    | AUPredCommit id -> "auCommit<" ^ QualIdent.to_string id ^ ">"
+    | AUPred id -> "au<" ^ qual_ident_to_string id ^ ">"
+    | AUPredCommit id -> "auCommit<" ^ qual_ident_to_string id ^ ">"
     | ExprExt expr_ext -> expr_ext_to_string expr_ext
 
   let constr_to_string c =
     make_constr_to_string ~expr_ext_to_string:default_expr_ext_to_string c
 
   (** How the callee [id] of an application is written: in infix form if it is a binary
-      operator, in prefix form if a unary one, and with its arguments in the places of its
-      [_]s if it is a mixfix operator, such as [_[_]]. *)
-  type operator_form = Infix of string | Prefix of string | Mixfix of string list
+      operator, and with its arguments in the places of its [_]s if it is a mixfix
+      operator, such as [_[_]]. *)
+  type operator_form = Infix of string | Mixfix of string list
 
   let operator_form (id : QualIdent.t) arity =
     let name = Ident.name id.qual_base in
-    let symbolic c = not (Char.is_alphanum c || Char.equal c '_' || Char.equal c '$') in
-    let keyword = List.mem [ "in"; "!in"; "subseteq" ] name ~equal:String.equal in
-    if not (List.is_empty id.qual_path) then None
-    else if String.mem name '_' && String.exists name ~f:symbolic then
+    let symbolic c = String.mem "+-*%.:?><=&|!" c in
+    let named =
+      List.mem
+        [ "in"; "subseteq"; "<"; "<="; "++"; "**"; "--"; "::" ]
+        name ~equal:String.equal
+    in
+    let reserved =
+      List.mem
+        [
+          "==>";
+          "<=>";
+          "=";
+          "==";
+          "!=";
+          ">=";
+          ">";
+          "||";
+          "&&";
+          "!";
+          "+";
+          "-";
+          "*";
+          "%";
+          ":=";
+          ":";
+          ":>";
+          "?";
+          ":|";
+          "=>";
+          ".";
+          "..";
+        ]
+        name ~equal:String.equal
+    in
+    let mixfix =
+      List.mem
+        [ "_[_]"; "_[_:=_]"; "_[_.._]"; "_[.._]"; "_[_..]" ]
+        name ~equal:String.equal
+    in
+    let operator =
+      named
+      || (not reserved)
+         && (not (String.is_empty name))
+         && String.for_all name ~f:symbolic
+         && (String.mem "+-*%<>=!&|" name.[0] || String.is_suffix name ~suffix:":")
+    in
+    if (not (List.is_empty id.qual_path)) || id.qual_base.ident_num <> 0 then None
+    else if mixfix then
       let parts = String.split name ~on:'_' in
       Option.some_if (List.length parts = arity + 1) (Mixfix parts)
-    else if keyword || ((not (String.is_empty name)) && String.for_all name ~f:symbolic)
-    then match arity with 2 -> Some (Infix name) | 1 -> Some (Prefix name) | _ -> None
+    else if operator then if arity = 2 then Some (Infix name) else None
     else None
 
   let constr_to_prio = function
@@ -1011,10 +1092,20 @@ module Expr = struct
       [TypeExt]/[ExprExt] leaves. [make_printers] applied to the default stubs (below) is
       what every caller gets by default; an extension-aware set is built the same way from
       the extension's own hooks. *)
-  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext =
-    let constr_to_string = make_constr_to_string ~expr_ext_to_string in
+  let make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext =
+    let module QualIdent = struct
+      include QualIdent
+
+      let pr = SourceNames.pr_qual_ident names
+      let pr_list ppf ids = Print.pr_list_comma pr ppf ids
+    end in
+    let constr_to_string =
+      make_constr_to_string
+        ~qual_ident_to_string:(SourceNames.qual_ident_to_string names)
+        ~expr_ext_to_string
+    in
     let _, type_pr, _, _, _, _, type_pr_ident, _, _, _ =
-      Type.make_printers ~type_ext_to_name
+      Type.make_printers_with_names ~names ~type_ext_to_name
     in
     let module Type = struct
       include Type
@@ -1042,7 +1133,7 @@ module Expr = struct
       | App (MapLookUp, [ e1; e2 ], _) ->
           fprintf ppf "(%a[%a@] \027[35m :%a \027[0m)" pr e1 pr e2 Type.pr (to_type e)
       | App (MapUpdate, [ e1; e2; e3 ], _) ->
-          fprintf ppf "(%a[%a@ :=@ %a] \027[35m :%a \027[0m)" pr e1 pr e2 pr e3 Type.pr
+          fprintf ppf "(%a[%a :=@ %a] \027[35m :%a \027[0m)" pr e1 pr e2 pr e3 Type.pr
             (to_type e)
       | App
           ( ((Minus | Plus | Mult | Div | Mod | Eq | Leq | Geq | Lt | Gt | And | Or | Impl)
@@ -1073,7 +1164,7 @@ module Expr = struct
       | App (Enumeration opener, [], _) ->
           let opening, closing = enumeration_delimiters opener in
           fprintf ppf "%s%s" opening closing
-      | App (ExprExt expr_ext, es, _) -> pr_expr_ext ~pr ppf expr_ext es
+      | App (ExprExt expr_ext, es, _) -> pr_expr_ext ~names ~pr ppf expr_ext es
       | App (c, [], _) -> fprintf ppf "%a" pr_constr c
       | App (Var id, (_ :: _ as es), _)
         when Option.is_some (operator_form id (List.length es)) -> (
@@ -1083,7 +1174,6 @@ module Expr = struct
           match (operator_form id (List.length es), es) with
           | Some (Infix op), [ e1; e2 ] ->
               fprintf ppf "%a %s %a" pr_operand e1 op pr_operand e2
-          | Some (Prefix op), [ e1 ] -> fprintf ppf "%s%a" op pr_operand e1
           | Some (Mixfix (first :: parts)), _ ->
               (* Operator symbols between operands are spaced, so that they do not run
                  into an operand's own, as `:=` into `-1`. An operand outside the
@@ -1112,6 +1202,9 @@ module Expr = struct
           if List.is_empty field.qual_path then
             fprintf ppf "%a.%a" pr_e1 e1 QualIdent.pr field
           else fprintf ppf "%a.(%a)" pr_e1 e1 QualIdent.pr field
+      | App (TupleLookUp, [ e; App (Int index, [], _) ], _) ->
+          let pr_operand = if to_prio e > 1 then pr_paran else pr in
+          fprintf ppf "%a#%Ld" pr_operand e index
       | App (MapLookUp, [ e1; e2 ], _) ->
           let pr_e1 = if to_prio e1 > 1 then pr_paran else pr in
           fprintf ppf "%a[%a]" pr_e1 e1 pr e2
@@ -1205,6 +1298,10 @@ module Expr = struct
       pr_var_decl,
       pr_var_decl_list,
       to_string )
+
+  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext =
+    make_printers_with_names ~names:SourceNames.default ~type_ext_to_name
+      ~expr_ext_to_string ~pr_expr_ext
 
   let ( pr_constr,
         pr_verbose,
@@ -1970,6 +2067,8 @@ module Stmt = struct
   (** Pretty printing statements *)
 
   type ext_printers = {
+    names : SourceNames.t;
+    pr_basic_stmt : Formatter.t -> basic_stmt_desc -> unit;
     pr_type : Formatter.t -> Type.t -> unit;
     pr_expr : Formatter.t -> Expr.t -> unit;
     pr_stmt : Formatter.t -> t -> unit;
@@ -1988,16 +2087,30 @@ module Stmt = struct
 
   (** Builds the mutually-recursive statement printer family, parameterized by how to
       render [TypeExt]/[ExprExt]/[StmtExt]/[contract_ext] leaves. *)
-  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext
-      ~pr_stmt_ext ~contract_ext_to_string =
-    let _, type_pr, _, _, _, _, _, _, _, _ = Type.make_printers ~type_ext_to_name in
+  let make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext
+      ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
+    let module Ident = struct
+      include Ident
+
+      let pr = SourceNames.pr_ident names
+    end in
+    let module QualIdent = struct
+      include QualIdent
+
+      let pr = SourceNames.pr_qual_ident names
+      let pr_list ppf ids = Print.pr_list_comma pr ppf ids
+    end in
+    let _, type_pr, _, _, _, _, _, _, _, _ =
+      Type.make_printers_with_names ~names ~type_ext_to_name
+    in
     let module Type = struct
       include Type
 
       let pr = type_pr
     end in
     let _, _, _, expr_pr, expr_pr_list, _, _, _, _, _, _, _ =
-      Expr.make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext
+      Expr.make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string
+        ~pr_expr_ext
     in
     let module Expr = struct
       include Expr
@@ -2016,10 +2129,11 @@ module Stmt = struct
         (if Type.is_const_var vdef.var_decl then "val" else "var")
         Ident.pr vdef.var_decl.var_name pr_type
         (Type.set_ghost false vdef.var_decl.var_type)
-        (fun ppf -> function Some e -> fprintf ppf "@ :=@ %a" Expr.pr e | None -> ())
+        (fun ppf -> function Some e -> fprintf ppf " :=@ %a" Expr.pr e | None -> ())
         vdef.var_init
     and pr_spec_name ppf = function
-      | Some name -> Stdlib.Format.fprintf ppf "%s: " name
+      | Some name ->
+          Stdlib.Format.fprintf ppf "%a: " Ident.pr (Ident.make Loc.dummy name 0)
       | None -> ()
     and pr_spec_list stype ppf =
       let open Stdlib.Format in
@@ -2056,36 +2170,41 @@ module Stmt = struct
               | App (Var callee, [], _) -> fprintf ppf "%a()" QualIdent.pr callee
               | rhs -> Expr.pr ppf rhs)
           | vs ->
-              fprintf ppf "@[<2>%a@ :=@ %a@]" QualIdent.pr_list vs Expr.pr astm.assign_rhs
-          )
+              fprintf ppf "@[<2>%a :=@ %a@]" QualIdent.pr_list vs Expr.pr astm.assign_rhs)
       | Bind bstm -> (
           match bstm.bind_lhs with
           | [] -> Expr.pr ppf bstm.bind_rhs.spec_form
           | es ->
-              fprintf ppf "@[<2>%a@ :|@ %a@]" QualIdent.pr_list es Expr.pr
+              fprintf ppf "@[<2>%a :|@ %a@]" QualIdent.pr_list es Expr.pr
                 bstm.bind_rhs.spec_form)
       | FieldRead fr ->
-          fprintf ppf "@[<2>%a@ :=@ %a.%a@]" QualIdent.pr fr.field_read_lhs Expr.pr
+          fprintf ppf "@[<2>%a :=@ %a.%a@]" QualIdent.pr fr.field_read_lhs Expr.pr
             fr.field_read_ref QualIdent.pr fr.field_read_field
       | FieldWrite fw ->
-          fprintf ppf "@[<2>%a.%a@ :=@ %a@]" Expr.pr fw.field_write_ref QualIdent.pr
+          fprintf ppf "@[<2>%a.%a :=@ %a@]" Expr.pr fw.field_write_ref QualIdent.pr
             fw.field_write_field Expr.pr fw.field_write_val
       | Havoc hvc ->
           fprintf ppf "@[<2>havoc@ %a%s@]" QualIdent.pr hvc.havoc_var
             (if hvc.havoc_is_init then " (init)" else "")
       | New nstm ->
-          fprintf ppf "@[<2>%a@ :=@ new(@[%a@])@]" QualIdent.pr nstm.new_lhs
+          fprintf ppf "@[<2>%a :=@ new(@[%a@])@]" QualIdent.pr nstm.new_lhs
             (Print.pr_list_comma (fun ppf -> function
               | f, Some e -> fprintf ppf "%a:@ %a" QualIdent.pr f Expr.pr e
               | f, None -> QualIdent.pr ppf f))
             nstm.new_args
       | Spec (spec_kind, sf) -> pr_spec_list (spec_kind_to_string spec_kind) ppf [ sf ]
       | Use use_desc ->
-          fprintf ppf "@[<2>%s %a(@[%a@])[%a]  @]"
+          let pr_witnesses ppf = function
+            | [] -> ()
+            | witnesses ->
+                fprintf ppf "[%a]"
+                  (Util.Print.pr_list_comma (fun ppf (i, e) ->
+                       fprintf ppf "%a := %a" Ident.pr i Expr.pr e))
+                  witnesses
+          in
+          fprintf ppf "@[<2>%s %a(@[%a@])%a@]"
             (use_kind_to_string use_desc.use_kind)
-            QualIdent.pr use_desc.use_name Expr.pr_list use_desc.use_args
-            (Util.Print.pr_list_comma (fun ppf (i, e) ->
-                 Stdlib.Format.fprintf ppf "%a := %a" Ident.pr i Expr.pr e))
+            QualIdent.pr use_desc.use_name Expr.pr_list use_desc.use_args pr_witnesses
             use_desc.use_witnesses_or_binds
       | Return e -> fprintf ppf "@[<2>return@ %a@]" Expr.pr e
       | Call cstm -> (
@@ -2095,7 +2214,7 @@ module Stmt = struct
                 (if cstm.call_is_spawn then "spawn " else "")
                 QualIdent.pr cstm.call_name Expr.pr_list cstm.call_args
           | _ ->
-              fprintf ppf "@[<2>%a@ :=@ @[%a(@[%a@])@]@]" QualIdent.pr_list cstm.call_lhs
+              fprintf ppf "@[<2>%a :=@ @[%a(@[%a@])@]@]" QualIdent.pr_list cstm.call_lhs
                 QualIdent.pr cstm.call_name Expr.pr_list cstm.call_args)
       | AUAction { auaction_kind = BindAU token } ->
           fprintf ppf "@[<2>%a := %s()@]" QualIdent.pr token
@@ -2120,7 +2239,8 @@ module Stmt = struct
             fpu_desc.fpu_old_val Expr.pr fpu_desc.fpu_new_val
       | BasicStmtExt (stmt_ext, exprs) ->
           pr_basic_stmt_ext (ext_printers ()) ppf stmt_ext exprs
-    and ext_printers () = { pr_type = Type.pr; pr_expr = Expr.pr; pr_stmt = pr }
+    and ext_printers () =
+      { names; pr_type = Type.pr; pr_expr = Expr.pr; pr_stmt = pr; pr_basic_stmt }
     and pr ppf stmt =
       let open Stdlib.Format in
       match stmt.stmt_desc with
@@ -2179,13 +2299,13 @@ module Stmt = struct
         let decl = { vdef with var_init = None } in
         match init with
         | Basic (New nstm) ->
-            fprintf ppf "@[<2>%a@ :=@ new(@[%a@])@]" pr_var_def decl
+            fprintf ppf "@[<2>%a :=@ new(@[%a@])@]" pr_var_def decl
               (Print.pr_list_comma (fun ppf -> function
                 | f, Some e -> fprintf ppf "%a:@ %a" QualIdent.pr f Expr.pr e
                 | f, None -> QualIdent.pr ppf f))
               nstm.new_args
         | Basic (Assign astm) ->
-            fprintf ppf "@[<2>%a@ :=@ %a@]" pr_var_def decl Expr.pr astm.assign_rhs
+            fprintf ppf "@[<2>%a :=@ %a@]" pr_var_def decl Expr.pr astm.assign_rhs
         | _ -> pr_var_def ppf vdef
       in
       (* Simple statements end with `;`: a line break does not end one after a `}`, as
@@ -2204,6 +2324,12 @@ module Stmt = struct
     let to_string s = Print.string_of_format pr s in
     let print chan s = Print.print_of_format pr s chan in
     (pr_var_def, pr_spec_list, pr_basic_stmt, pr, pr_block, to_string, print)
+
+  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext
+      ~pr_stmt_ext ~contract_ext_to_string =
+    make_printers_with_names ~names:SourceNames.default ~type_ext_to_name
+      ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext
+      ~contract_ext_to_string
 
   let pr_var_def, pr_spec_list, pr_basic_stmt, pr, pr_block, to_string, print =
     make_printers ~type_ext_to_name:Type.default_type_ext_to_name
@@ -2919,10 +3045,22 @@ module Callable = struct
   (** Builds the printer family, parameterized by how to render [TypeExt]/[ExprExt]/
       [StmtExt] leaves (see [Type.make_printers]/[Expr.make_printers]/
       [Stmt.make_printers], which this composes). *)
-  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext
-      ~pr_stmt_ext ~contract_ext_to_string =
+  let make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext
+      ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
+    let module Ident = struct
+      include Ident
+
+      let pr = SourceNames.pr_ident names
+    end in
+    let module QualIdent = struct
+      include QualIdent
+
+      let pr = SourceNames.pr_qual_ident names
+      let pr_list ppf ids = Print.pr_list_comma pr ppf ids
+    end in
     let _, _, _, expr_pr, _, _, _, _, _, expr_pr_var_decl, expr_pr_var_decl_list, _ =
-      Expr.make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext
+      Expr.make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string
+        ~pr_expr_ext
     in
     let module Expr = struct
       include Expr
@@ -2932,8 +3070,8 @@ module Callable = struct
       let pr_var_decl_list = expr_pr_var_decl_list
     end in
     let _, stmt_pr_spec_list, _, stmt_pr, _, _, _ =
-      Stmt.make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext
-        ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string
+      Stmt.make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string
+        ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string
     in
     let module Stmt = struct
       include Stmt
@@ -3055,6 +3193,12 @@ module Callable = struct
             call_decl (pr_proc_body Stmt.pr) body
     in
     (pr_call_decl_specs, pr_call_decl, pr)
+
+  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext
+      ~pr_stmt_ext ~contract_ext_to_string =
+    make_printers_with_names ~names:SourceNames.default ~type_ext_to_name
+      ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext
+      ~contract_ext_to_string
 
   let pr_call_decl_specs, pr_call_decl, pr =
     make_printers ~type_ext_to_name:Type.default_type_ext_to_name
@@ -3374,10 +3518,21 @@ module Module = struct
   (** Builds the printer family, parameterized by how to render [TypeExt]/[ExprExt]/
       [StmtExt] leaves (see [Type.make_printers]/[Expr.make_printers]/
       [Stmt.make_printers]/[Callable.make_printers], which this composes). *)
-  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext
-      ~pr_stmt_ext ~contract_ext_to_string =
+  let make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext
+      ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
+    let module Ident = struct
+      include Ident
+
+      let pr = SourceNames.pr_ident names
+    end in
+    let module QualIdent = struct
+      include QualIdent
+
+      let pr = SourceNames.pr_qual_ident names
+      let pr_list ppf ids = Print.pr_list_comma pr ppf ids
+    end in
     let _, type_pr, _, _, _, _, _, _, type_pr_list, _ =
-      Type.make_printers ~type_ext_to_name
+      Type.make_printers_with_names ~names ~type_ext_to_name
     in
     let module Type = struct
       include Type
@@ -3386,8 +3541,8 @@ module Module = struct
       let pr_list = type_pr_list
     end in
     let stmt_pr_var_def, _, _, _, _, _, _ =
-      Stmt.make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext
-        ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string
+      Stmt.make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string
+        ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string
     in
     let module Stmt = struct
       include Stmt
@@ -3395,8 +3550,8 @@ module Module = struct
       let pr_var_def = stmt_pr_var_def
     end in
     let _, _, callable_pr =
-      Callable.make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext
-        ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string
+      Callable.make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string
+        ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string
     in
     let module Callable = struct
       include Callable
@@ -3524,6 +3679,12 @@ module Module = struct
       | CallDef cdef -> Callable.pr ppf cdef
     in
     (pr, pr_instr, pr_instr_list, pr_symbol)
+
+  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext
+      ~pr_stmt_ext ~contract_ext_to_string =
+    make_printers_with_names ~names:SourceNames.default ~type_ext_to_name
+      ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext
+      ~contract_ext_to_string
 
   let pr, pr_instr, pr_instr_list, pr_symbol =
     make_printers ~type_ext_to_name:Type.default_type_ext_to_name
@@ -3745,14 +3906,20 @@ module Symbol = struct
 
   let set_free = Module.set_symbol_free
 
-  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext
-      ~pr_stmt_ext ~contract_ext_to_string =
+  let make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext
+      ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
     let _, _, _, pr_symbol =
-      Module.make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext
-        ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string
+      Module.make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string
+        ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string
     in
     let to_string m = Print.string_of_format pr_symbol m in
     (pr_symbol, to_string)
+
+  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext
+      ~pr_stmt_ext ~contract_ext_to_string =
+    make_printers_with_names ~names:SourceNames.default ~type_ext_to_name
+      ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext
+      ~contract_ext_to_string
 
   let pr, to_string =
     make_printers ~type_ext_to_name:Type.default_type_ext_to_name

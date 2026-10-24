@@ -79,6 +79,12 @@ end
 module Expr : sig
   type t
 
+  val pr : Format.formatter -> t -> unit
+  (** The expression as Raven source on a caller-owned formatter, without flushing it. *)
+
+  val print : out_channel -> t -> unit
+  (** Print to the channel and flush, leaving it open, without adding a newline. *)
+
   val to_string : t -> string
   (** The expression as Raven source. *)
 
@@ -326,8 +332,17 @@ module Program : sig
 
   val make : loc:Loc.t -> Member.t list -> t
 
+  val pr : Format.formatter -> t -> unit
+  (** The surface program as Raven source on a caller-owned formatter, without flushing
+      it. Names outside Raven's source syntax use consistent collision-free aliases in the
+      output; the program is unchanged. *)
+
+  val print : out_channel -> t -> unit
+  (** Print to the channel and flush, leaving it open, without adding a newline or
+      allocating a string containing the whole program. *)
+
   val to_string : t -> string
-  (** The program as Raven source. *)
+  (** The same source as [pr], rendered to a string. *)
 end
 
 (** {1 Verifying programs} *)
@@ -381,8 +396,15 @@ module Diagnostic : sig
     related : related list;
   }
 
+  val pr : Format.formatter -> t -> unit
+  (** The diagnostic as Raven reports it on the command line, without flushing the
+      formatter. *)
+
+  val print : out_channel -> t -> unit
+  (** Print to the channel and flush, leaving it open, without adding a newline. *)
+
   val to_string : t -> string
-  (** The diagnostic as Raven reports it on the command line. *)
+  (** The same diagnostic as [pr], rendered to a string. *)
 end
 
 type extension = Default | Eris

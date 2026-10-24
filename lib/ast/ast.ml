@@ -1,6 +1,7 @@
 (** External interface to AST-related modules *)
 
 include AstDef
+module SourceKeywords = SourceKeywords
 
 module SymbolTbl = struct
   include SymbolTbl

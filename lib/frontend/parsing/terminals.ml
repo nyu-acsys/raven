@@ -1,95 +1,114 @@
 open Ast
 open Parser
 
+let keyword_token (keyword : Ast.SourceKeywords.t) : Parser.token =
+  match keyword with
+  | Assert -> SPEC Stmt.Assert
+  | Assume -> SPEC Stmt.Assume
+  | Au -> AU
+  | AuCommit -> AUCOMMIT
+  | Atomic -> ATOMIC
+  | Axiom -> AXIOM
+  | AtomicToken -> ATOMICTOKEN
+  | Auto -> AUTO
+  | Inline -> INLINE
+  | Bool -> CONSTTYPE Type.Bool
+  | Case -> CASE
+  | Choose -> CHOOSE
+  | Data -> DATA
+  | Else -> ELSE
+  | Ensures -> ENSURES
+  | Exhale -> SPEC Stmt.Exhale
+  | Exists -> QUANT Expr.Exists
+  | False -> CONSTVAL (Expr.Bool false)
+  | Field -> FIELD
+  | Forall -> QUANT Expr.Forall
+  | Fold -> USE Stmt.Fold
+  | Free -> FREE
+  | Func -> FUNC Func
+  | Ghost -> GHOST
+  | Havoc -> HAVOC
+  | If -> IF
+  | Int -> CONSTTYPE Type.Int
+  | Include -> INCLUDE
+  | Inhale -> SPEC Stmt.Inhale
+  | Interface -> MODULE true
+  | Inv -> FUNC Invariant
+  | Invariant -> INVARIANT
+  | Import -> IMPORT
+  | Implicit -> IMPLICIT
+  | Lemma -> LEMMA
+  | Rep -> REP
+  | Map -> TYPECONSTR (Type.Map, 2)
+  | Module -> MODULE false
+  | New -> NEW
+  | Null -> CONSTVAL Expr.Null
+  | Opens -> OPENS
+  | Own -> OWN
+  | Perm -> CONSTTYPE Type.Perm
+  | Pred -> FUNC Pred
+  | Proc -> PROC
+  | Ref -> CONSTTYPE Type.Ref
+  | Real -> CONSTTYPE Type.Real
+  | Requires -> REQUIRES
+  | Return -> RETURN
+  | Returns -> RETURNS
+  | Subseteq -> SUBSETEQ
+  | Underscore -> UNDERSCORE
+  | Set -> TYPECONSTR (Type.Map, 1)
+  | FinSet -> TYPECONSTR (Type.FinSet, 1)
+  | Spawn -> SPAWN
+  | True -> CONSTVAL (Expr.Bool true)
+  | Type -> TYPE
+  | Unfold -> USE Stmt.Unfold
+  | Val -> VAR true
+  | Var -> VAR false
+  | Where -> WHERE
+  | With -> WITH
+  | While -> WHILE
+  | Proph_type -> PROPH
+  | Resolve -> RESOLVE
+  | Proph -> PROPHPRED
+  | Decreases -> DECREASES
+  | EC -> EC
+  | Contra -> ECCONTRA
+  | Error -> ECERROR
+  | ECFn -> ECFN
+  | ECList -> ECLIST
+  | ECVal -> ECVAL
+  | Rand -> RAND
+  | RandEven -> RANDEVEN
+  | Is -> IS
+  | Match -> MATCH
+  | In -> IN
+
 let keyword_table = Hashtbl.create 128
 
-let _ =
+let () =
   List.iter
-    (fun (kwd, tok) -> Hashtbl.add keyword_table kwd tok)
-    [
-      ("assert", SPEC Stmt.Assert);
-      ("assume", SPEC Stmt.Assume);
-      ("au", AU);
-      ("auCommit", AUCOMMIT);
-      ("atomic", ATOMIC);
-      ("axiom", AXIOM);
-      ("AtomicToken", ATOMICTOKEN);
-      ("auto", AUTO);
-      ("inline", INLINE);
-      ("Bool", CONSTTYPE Type.Bool);
-      ("case", CASE);
-      ("choose", CHOOSE);
-      ("data", DATA);
-      ("else", ELSE);
-      ("ensures", ENSURES);
-      ("exhale", SPEC Stmt.Exhale);
-      ("exists", QUANT Expr.Exists);
-      ("false", CONSTVAL (Expr.Bool false));
-      ("field", FIELD);
-      ("forall", QUANT Expr.Forall);
-      ("fold", USE Stmt.Fold);
-      ("free", FREE);
-      ("func", FUNC Func);
-      ("ghost", GHOST);
-      ("havoc", HAVOC);
-      ("if", IF);
-      ("Int", CONSTTYPE Type.Int);
-      ("include", INCLUDE);
-      ("inhale", SPEC Stmt.Inhale);
-      ("interface", MODULE true);
-      ("inv", FUNC Invariant);
-      ("invariant", INVARIANT);
-      ("import", IMPORT);
-      ("implicit", IMPLICIT);
-      ("lemma", LEMMA);
-      ("rep", REP);
-      ("Map", TYPECONSTR (Type.Map, 2));
-      ("module", MODULE false);
-      ("new", NEW);
-      ("null", CONSTVAL Expr.Null);
-      ("opens", OPENS);
-      ("own", OWN);
-      ("Perm", CONSTTYPE Type.Perm);
-      ("pred", FUNC Pred);
-      ("proc", PROC);
-      ("Ref", CONSTTYPE Type.Ref);
-      ("Real", CONSTTYPE Type.Real);
-      ("requires", REQUIRES);
-      ("return", RETURN);
-      ("returns", RETURNS);
-      ("subseteq", SUBSETEQ);
-      ("_", UNDERSCORE);
-      ("Set", TYPECONSTR (Type.Map, 1));
-      ("FinSet", TYPECONSTR (Type.FinSet, 1));
-      ("spawn", SPAWN);
-      ("true", CONSTVAL (Expr.Bool true));
-      ("type", TYPE);
-      ("unfold", USE Stmt.Unfold);
-      ("val", VAR true);
-      ("var", VAR false);
-      ("where", WHERE);
-      ("with", WITH);
-      ("while", WHILE);
-      (* ProphecyExt *)
-      ("Proph", PROPH);
-      ("resolve", RESOLVE);
-      ("proph", PROPHPRED);
-      (* DecreasesExt *)
-      ("decreases", DECREASES);
-      (* ErrorCreditsExt *)
-      ("EC", EC);
-      ("contra", ECCONTRA);
-      ("error", ECERROR);
-      ("ECFn", ECFN);
-      ("ECList", ECLIST);
-      ("ECVal", ECVAL);
-      ("rand", RAND);
-      (* SampleExt *)
-      ("randEven", RANDEVEN);
-      (* MatchExt *)
-      ("is", IS);
-      ("match", MATCH);
-    ]
+    (fun (name, keyword) -> Hashtbl.add keyword_table name (keyword_token keyword))
+    Ast.SourceKeywords.entries
+
+let negated_keyword_token (keyword : Ast.SourceKeywords.t) =
+  match keyword with In -> Some NOTIN | _ -> None
+
+let negated_keywords =
+  List.filter_map
+    (fun (name, keyword) ->
+      Base.Option.map (negated_keyword_token keyword) ~f:(fun token -> (name, token)))
+    Ast.SourceKeywords.entries
+
+(* A word may continue past a negated keyword, as in [!inside]. *)
+let negated_keyword_prefix word =
+  List.fold_left
+    (fun found (prefix, token) ->
+      let length = String.length prefix in
+      if not (Base.String.is_prefix word ~prefix) then found
+      else
+        match found with
+        | Some (previous, _) when previous >= length -> found
+        | _ -> Some (length, token))
+    None negated_keywords
 
 let operator_table = Hashtbl.create 64
 
@@ -108,12 +127,9 @@ let _ =
       (">", GT);
       ("||", OR);
       ("&&", AND);
-      ("in", IN);
-      ("!in", NOTIN);
       ("!", NOT);
       ("++", UNION);
       ("--", DIFF);
-      ("subseteq", SUBSETEQ);
       ("**", INTER);
       ("+", ADDOP Expr.Plus);
       ("-", MINUS);

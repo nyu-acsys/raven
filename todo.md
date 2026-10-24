@@ -11,7 +11,7 @@
     to use `atomic proc`.
 
 21 oct, 2026:
-- [ ] The printer emits a fold, unfold, openInv or closeInv without witnesses
+- [x] The printer emits a fold, unfold, openInv or closeInv without witnesses
     with an empty witness list and trailing spaces, as `fold lseg(c, l)[]  ;`;
     it should print `fold lseg(c, l)`.
 - [ ] A data type nested in an instance of itself, such as

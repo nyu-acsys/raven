@@ -8,6 +8,11 @@ module S = Ast.Surface
 
 let version = 1
 
+let print_to_channel pr channel value =
+  let ppf = Stdlib.Format.formatter_of_out_channel channel in
+  pr ppf value;
+  Stdlib.Format.pp_print_flush ppf ()
+
 module Loc = struct
   type t = Loc.t
 
@@ -66,7 +71,9 @@ end
 module Expr = struct
   type t = Ast.Expr.t
 
-  let to_string = Ast.Expr.to_string
+  let pr = Ast.Expr.pr
+  let print = print_to_channel pr
+  let to_string e = Stdlib.Format.asprintf "%a" pr e
   let alpha_equal e1 e2 = Ast.Expr.alpha_equal e1 e2
   let int = S.Expr.int
   let real = S.Expr.real
@@ -311,12 +318,12 @@ module Program = struct
 
   let make ~loc members = S.Module.program ~loc (S.Module.members members)
 
-  let to_string (program : t) =
+  let pr ppf (program : t) =
     let (module E) = Ext.module_map Ext.ProphecyExt in
-    let printers =
-      Ast.Rewriter.printers_of_ext_hooks (Ext.to_ext_hooks (module E : ExtApi.Ext))
-    in
-    Stdlib.Format.asprintf "%a" printers.pr_module_instrs program.mod_def
+    SourcePrinting.pr ~hooks:(Ext.to_ext_hooks (module E : ExtApi.Ext)) ppf program
+
+  let print = print_to_channel pr
+  let to_string program = Stdlib.Format.asprintf "%a" pr program
 end
 
 module Diagnostic = struct
@@ -422,11 +429,15 @@ module Diagnostic = struct
     | Error, Internal -> Internal
     | Error, Other -> Generic
 
-  let to_string d =
-    String.concat ~sep:"\n"
-      (Error.to_string (error_kind d, d.loc, d.message)
-      :: List.map d.related ~f:(fun r ->
-          Error.to_string (RelatedLoc, r.related_loc, r.related_message)))
+  let pr ppf d =
+    Stdlib.Format.pp_print_string ppf (Error.to_string (error_kind d, d.loc, d.message));
+    List.iter d.related ~f:(fun r ->
+        Stdlib.Format.pp_print_char ppf '\n';
+        Stdlib.Format.pp_print_string ppf
+          (Error.to_string (RelatedLoc, r.related_loc, r.related_message)))
+
+  let print = print_to_channel pr
+  let to_string d = Stdlib.Format.asprintf "%a" pr d
 
   (** The diagnostics of Raven's [errors]: each error with the related locations,
       counterexamples and branches that follow it. *)

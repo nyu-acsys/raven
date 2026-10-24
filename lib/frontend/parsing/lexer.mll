@@ -66,14 +66,10 @@ let lexical_error lexbuf msg =
      than the comparison operator LT/GT ordinarily do, so a statement ending in [AtomicToken<P>]
      can have [last_token_can_end_stmt] set on its '>' the same as a closing paren/bracket would.
 
-   One case needs a single token of lookahead rather than being decidable from [lex_state] alone:
-   a multi-line ternary split right after '?' and again right after ':' can leave a branch
-   expression (e.g. a bare identifier) looking like a complete statement in its own right, even
-   though the following line's leading ':' shows it was only the first half of the ternary. Since
-   ':' can never legally start a statement, seeing it is an unambiguous signal to suppress
-   insertion regardless of what preceded the newline. [on_newline] and [make_token] handle the
-   mechanics of this lookahead (see their comments below); every other decision in this file
-   remains a pure function of [lex_state] and the current token. *)
+   Two cases need a token of lookahead: a leading ':' may continue a multi-line ternary
+   rather than begin a new statement, and 'atomic' before 'proc' is a declaration
+   modifier rather than the start of a contract or block. [on_newline] and [make_token]
+   share the token buffer for these decisions. *)
 
 type scope_kind = Group | Literal | Loop_header | Match_arms | Module_list | Stmt_list | Trigger
 
@@ -335,7 +331,7 @@ let newline = '\r'? '\n'
    the same way `;` already is, for exactly this reason. *)
 let operator_char = ['+''-''*''%''.'':''?''>''<''=''&''|''!']
 let operator_start = ['+''-''*''%'':''?''>''<''=''&''|''!']
-let operator = '/' | ';' | ',' | operator_start operator_char* | "." | ".." | "in" | "!in" | "subseteq"
+let operator = '/' | ';' | ',' | operator_start operator_char* | "." | ".."
 let digit_char = ['0'-'9']
 let ident_char = ['A'-'Z''a'-'z''_']
 let lowercase_char = ['a'-'z''_']
@@ -455,6 +451,15 @@ rule token_lex st = parse
 | "!}" { emit st RGHOSTBRACE }
 | '\\' { emit st BACKSLASH }
 | "\"" (( ("\\" _) | [^ '"'] )* as str) "\"" { emit st (STRINGVAL (Scanf.unescaped str)) }
+| '!' (ident as word) {
+    match Terminals.negated_keyword_prefix word with
+    | Some (length, token) ->
+        retreat lexbuf (String.length word - length);
+        emit st token
+    | None ->
+        retreat lexbuf (String.length word);
+        emit_operator st lexbuf "!"
+  }
 | operator as op
     {
       (* A user-declarable symbolic operator: not one of the reserved strings in
@@ -504,16 +509,15 @@ and comments level st = parse
    ([Lexing.lexbuf -> Parser.token]), starting from [initial_state]. Calling it again (e.g. for
    the next file) starts over with a fresh state -- there is no global state to reset.
 
-   The one token of state carried between calls beyond [lex_state] itself is a possible buffered
-   token: [on_newline] occasionally has to look one token ahead to decide whether to insert a
-   semicolon, which unavoidably consumes that lookahead token from the buffer; when that happens
-   it is stashed here, along with its own source positions, and replayed on the following call
-   instead of lexing afresh. Restoring those positions is what keeps the inserted semicolon's
-   own position (the line break -- see the ['\n'] rule) from displacing the lookahead's.
+   Buffered tokens retain their lexical state and source positions. Both semicolon
+   insertion and declaration-modifier lookahead use this buffer; replaying a token
+   restores its own span before it is returned to the parser.
 
-   [warn] receives the deprecated uses of pipes in set and sequence literals. *)
-let make_token ~warn () =
-  let state = ref (initial_state, None) in
+   [warn] receives the deprecated uses of pipes in set and sequence literals.
+   [on_token] receives saved spelling when lookahead displaced [Lexing.lexeme],
+   or [None] when the caller can still read the current lexeme directly. *)
+let make_token ?(on_token = fun _ -> ()) ~warn () =
+  let state = ref (initial_state, []) in
   let warn_deprecated lexbuf (tok : Parser.token) =
     let warn_pipes opening closing =
       warn
@@ -526,19 +530,45 @@ let make_token ~warn () =
     | LBRACKETPIPE | ENUM_OPEN "[" -> warn_pipes "[" "]"
     | _ -> ()
   in
+  let take lexbuf =
+    match !state with
+    | _, (st', tok, start_p, curr_p, text) :: pending ->
+        state := (st', pending);
+        lexbuf.lex_start_p <- start_p;
+        lexbuf.lex_curr_p <- curr_p;
+        (tok, Some text)
+    | st, [] ->
+        let st', tok, pending = token_lex st lexbuf in
+        begin match pending with
+        | None ->
+            state := (st', []);
+            (tok, None)
+        | Some (next_state, next, start_p, curr_p) ->
+            state := (st', [next_state, next, start_p, curr_p, Lexing.lexeme lexbuf]);
+            (tok, Some ";")
+        end
+  in
   fun lexbuf ->
-    let tok =
-      match !state with
-      | _, Some (st', tok, start_p, curr_p) ->
-          state := (st', None);
+    let tok, text = take lexbuf in
+    let tok, text =
+      match tok with
+      | ATOMIC ->
+          let text = Option.value text ~default:(Lexing.lexeme lexbuf) in
+          let atomic_state, _ = !state in
+          let start_p, curr_p = lexbuf.lex_start_p, lexbuf.lex_curr_p in
+          let following, following_text = take lexbuf in
+          let following_text = Option.value following_text ~default:(Lexing.lexeme lexbuf) in
+          let following_state, pending = !state in
+          state :=
+            (atomic_state,
+             (following_state, following, lexbuf.lex_start_p, lexbuf.lex_curr_p,
+              following_text) :: pending);
           lexbuf.lex_start_p <- start_p;
           lexbuf.lex_curr_p <- curr_p;
-          tok
-      | st, None ->
-          let st', tok, pending = token_lex st lexbuf in
-          state := (st', pending);
-          tok
+          ((match following with PROC -> ATOMIC_PROC | _ -> ATOMIC), Some text)
+      | _ -> (tok, text)
     in
+    on_token text;
     warn_deprecated lexbuf tok;
     tok
 }

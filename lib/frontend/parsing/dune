@@ -47,4 +47,4 @@
   assertWithExt_parser
   matchExt_parser)
  (merge_into parser)
- (flags --explain))
+ (flags --strict --explain))

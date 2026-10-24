@@ -783,34 +783,34 @@ type printers = {
     out of the active [Rewriter.t] state; this pure version exists for the handful of call
     sites (e.g. [lib/driver/driver.ml]) that only have an [ext_hooks] value, not a running
     computation, in scope. *)
-let printers_of_ext_hooks (h : ext_hooks) : printers =
+let printers_of_ext_hooks ?(names = SourceNames.default) (h : ext_hooks) : printers =
   let _, pr_type, pr_type_var_decl, pr_type_var_decl_list, _, _, _, _, _, _ =
-    Type.make_printers ~type_ext_to_name:h.type_ext_to_name
+    Type.make_printers_with_names ~names ~type_ext_to_name:h.type_ext_to_name
   in
   let _, _, _, pr_expr, pr_expr_list, _, _, _, _, _, _, _ =
-    Expr.make_printers ~type_ext_to_name:h.type_ext_to_name
+    Expr.make_printers_with_names ~names ~type_ext_to_name:h.type_ext_to_name
       ~expr_ext_to_string:h.expr_ext_to_string ~pr_expr_ext:h.pr_expr_ext
   in
   let _, pr_stmt_spec_list, pr_stmt_basic, pr_stmt, _, _, _ =
-    Stmt.make_printers ~type_ext_to_name:h.type_ext_to_name
+    Stmt.make_printers_with_names ~names ~type_ext_to_name:h.type_ext_to_name
       ~expr_ext_to_string:h.expr_ext_to_string ~pr_expr_ext:h.pr_expr_ext
       ~pr_basic_stmt_ext:h.pr_basic_stmt_ext ~pr_stmt_ext:h.pr_stmt_ext
       ~contract_ext_to_string:h.contract_ext_to_string
   in
   let _, _, pr_callable =
-    Callable.make_printers ~type_ext_to_name:h.type_ext_to_name
+    Callable.make_printers_with_names ~names ~type_ext_to_name:h.type_ext_to_name
       ~expr_ext_to_string:h.expr_ext_to_string ~pr_expr_ext:h.pr_expr_ext
       ~pr_basic_stmt_ext:h.pr_basic_stmt_ext ~pr_stmt_ext:h.pr_stmt_ext
       ~contract_ext_to_string:h.contract_ext_to_string
   in
   let pr_module, _, pr_module_instrs, _ =
-    Module.make_printers ~type_ext_to_name:h.type_ext_to_name
+    Module.make_printers_with_names ~names ~type_ext_to_name:h.type_ext_to_name
       ~expr_ext_to_string:h.expr_ext_to_string ~pr_expr_ext:h.pr_expr_ext
       ~pr_basic_stmt_ext:h.pr_basic_stmt_ext ~pr_stmt_ext:h.pr_stmt_ext
       ~contract_ext_to_string:h.contract_ext_to_string
   in
   let pr_symbol, symbol_to_string =
-    Symbol.make_printers ~type_ext_to_name:h.type_ext_to_name
+    Symbol.make_printers_with_names ~names ~type_ext_to_name:h.type_ext_to_name
       ~expr_ext_to_string:h.expr_ext_to_string ~pr_expr_ext:h.pr_expr_ext
       ~pr_basic_stmt_ext:h.pr_basic_stmt_ext ~pr_stmt_ext:h.pr_stmt_ext
       ~contract_ext_to_string:h.contract_ext_to_string

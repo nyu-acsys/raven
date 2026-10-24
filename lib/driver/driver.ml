@@ -86,11 +86,18 @@ let normalizeFilename base_dir file_name =
 (** Parse a single compilation unit from file [file_name] as a module named
     [top_level_md_ident]. *)
 let parse_cu ~diagnostics ~includes file_dir top_level_md_ident lexbuf =
+  let token_text = ref None in
+  let token =
+    Lexer.make_token
+      ~warn:(Diagnostics.warning diagnostics)
+      ~on_token:(fun text -> token_text := text)
+      ()
+  in
   let incls, md =
-    try Parser.main (Lexer.make_token ~warn:(Diagnostics.warning diagnostics) ()) lexbuf
+    try Parser.main token lexbuf
     with Parser.Error ->
       let err_pos = lexbuf.lex_curr_p in
-      let tok = Lexing.lexeme lexbuf in
+      let tok = Option.value !token_text ~default:(Lexing.lexeme lexbuf) in
       let msg =
         if String.is_empty tok then "Unexpected end of file"
         else Printf.sprintf "Unexpected token '%s'" tok

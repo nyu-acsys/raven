@@ -17,7 +17,7 @@ module DefaultExt = struct
     Error.internal_error Loc.dummy
       "unhandled expression extension (no active extension recognizes this expression)"
 
-  let pr_expr_ext ~pr ppf expr_ext args =
+  let pr_expr_ext ~names ~pr ppf expr_ext args =
     Error.internal_error Loc.dummy
       "unhandled expression extension (no active extension recognizes this expression)"
 

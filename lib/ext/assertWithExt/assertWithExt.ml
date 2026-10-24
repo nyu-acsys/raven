@@ -38,7 +38,12 @@ module AssertWithExt (Cont : Ext) = struct
     let open Stdlib.Format in
     match stmt_ext with
     | AssertWith { spec; proof } ->
-        let pr_name ppf = Option.iter ~f:(fprintf ppf "%s: ") in
+        let pr_name ppf =
+          Option.iter ~f:(fun name ->
+              fprintf ppf "%a: "
+                (SourceNames.pr_ident printers.names)
+                (Ident.make Loc.dummy name 0))
+        in
         (* On one line up to the proof: a line break before `with` ends the statement. *)
         fprintf ppf "@[<2>assert %a%a with %a@]" pr_name spec.spec_name printers.pr_expr
           spec.spec_form printers.pr_stmt proof

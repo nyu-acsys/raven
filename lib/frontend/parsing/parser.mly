@@ -96,7 +96,8 @@ let inline_modifier ~loc (kind : Callable.call_kind) (is_inline : bool) : bool =
 %token <Ast.Callable.call_kind> FUNC
 %token PROC AXIOM LEMMA FREE
 %token CASE DATA ATOMICTOKEN FIELD WHERE
-%token ATOMIC GHOST IMPLICIT REP AUTO INLINE WITH
+(* [ATOMIC_PROC] is the modifier before [PROC]; both retain separate source spans. *)
+%token ATOMIC ATOMIC_PROC GHOST IMPLICIT REP AUTO INLINE WITH
 %token <bool> VAR
 %token <bool> MODULE
 %token <string> STRINGVAL
@@ -279,7 +280,7 @@ proc_def:
 
 proc_kind:
 | PROC { (Surface.Callable.Proc, false) }
-| ATOMIC; PROC { (Surface.Callable.Proc, true) }
+| ATOMIC_PROC; PROC { (Surface.Callable.Proc, true) }
 | is_auto = ioption(AUTO); LEMMA { (Surface.Callable.Lemma { is_auto = is_auto <> None }, false) }
 | is_auto = ioption(AUTO); AXIOM { (Surface.Callable.Axiom { is_auto = is_auto <> None }, false) }
     
@@ -829,11 +830,11 @@ call_opt:
   
 qual_ident_expr:
 | x = qual_ident { x }
-| p = primary DOT x = qual_ident {
+| p = lookup_or_update_expr DOT x = qual_ident {
   Surface.Expr.field ~loc:(Loc.make $symbolstartpos $endpos) ~field_loc:(Expr.to_loc x) p
     (Expr.to_qual_ident x)
 }
-| p = primary DOT LPAREN x = qual_ident RPAREN {
+| p = lookup_or_update_expr DOT LPAREN x = qual_ident RPAREN {
   Surface.Expr.field ~loc:(Loc.make $symbolstartpos $endpos) ~field_loc:(Expr.to_loc x) p
     (Expr.to_qual_ident x)
 }
@@ -948,10 +949,9 @@ lookup_expr:
     let e1_lookup = mixfix_application (Loc.make $symbolstartpos $endpos) "_[_]" e1 [e2] args in
     cont e1_lookup
 }
-| n = HASH {
-  fun e1 ->
-    Surface.Expr.tuple_get ~loc:(Loc.make $symbolstartpos $endpos)
-      ~index_loc:(Loc.make $startpos(n) $endpos(n)) e1 (Int64.to_int n)
+| n = HASH; cont = lookup_or_update_opt {
+  let loc = Loc.make $startpos(n) $endpos(n) in
+  fun e1 -> cont (Surface.Expr.tuple_get ~loc ~index_loc:loc e1 (Int64.to_int n))
 }
 
   

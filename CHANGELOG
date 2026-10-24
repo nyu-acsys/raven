@@ -17,7 +17,7 @@ All notable changes to this project will be documented in this file.
 - `--cache-dir DIR` skips the checks of members verified before whose dependencies are unchanged.
 - `--server` answers requested runs in one process, type-checking the library only once.
 - Map literals list entries and the value at every other key, as in `{1 := 5, else 4}`.
-- The library `raven-ivl.api` lets other tools build programs and verify them.
+- The library `raven-ivl.api` lets other tools build, print, and verify programs.
 - `match` statements, whose arms are blocks, as in `case ok(n) => { v := n; }`.
 - Field constraints, as in `field count: Int where nonneg`, which owning the field implies.
 - A fold falls back to the existentials' values at the unfold of the same instance.
@@ -31,6 +31,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Printed tuple projections and multiline assignments retain parseable source syntax.
 - Procedures assigned to ghost variables retain their atomicity and abort-restoration checks.
 - Atomic update operations recognize repeated bindings and aliases of the same token.
 - Atomic update operations preserve tuple and unit values supplied as a single argument or result.

@@ -64,3 +64,13 @@
  (name api_verify)
  (modules api_verify)
  (libraries raven-ivl.api))
+
+(test
+ (name source_printing)
+ (modules source_printing)
+ (libraries raven raven-ivl.api base))
+
+(test
+ (name atomic_parser)
+ (modules atomic_parser)
+ (libraries raven base))
