@@ -1,0 +1,14 @@
+module Box[E: Library.Type] {
+  rep type T = data { case box(value: E) }
+}
+
+module F[E: Library.Type] {
+  func same(a: Box[E], b: Box[E]) returns (r: Bool) { true }
+  func same(a: Bool, b: Bool) returns (r: Bool) { true }
+}
+
+lemma reject_conflicting_bindings() {
+  val i: Box[Int] := Box.box(1);
+  val b: Box[Bool] := Box.box(true);
+  assert F.same(i, b);
+}

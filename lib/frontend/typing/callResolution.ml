@@ -408,17 +408,34 @@ let virtual_formals generic tp =
   in
   virtualize tp
 
-let virtual_arguments generic ~templates evidence =
+let rec virtual_applications (Type.App (head, args, attr) as tp) =
+  let open Rewriter.Syntax in
+  match (head, args) with
+  | Type.Var qi, [] ->
+      let* application = ImplicitInstantiation.generated_application qi in
+      begin match application with
+      | None -> Rewriter.return tp
+      | Some { head; arguments; _ } ->
+          let+ arguments = Rewriter.List.map arguments ~f:virtual_applications in
+          Type.App (Var head, arguments, attr)
+      end
+  | _ ->
+      let+ args = Rewriter.List.map args ~f:virtual_applications in
+      Type.App (head, args, attr)
+
+let virtual_arguments ?generic ~templates evidence =
   let open Rewriter.Syntax in
   let head =
-    QualIdent.append generic.functor_name
-      (Option.value generic.module_.mod_decl.mod_decl_rep
-         ~default:(Ident.make Loc.dummy "$rep" 0))
+    Option.map generic ~f:(fun generic ->
+        QualIdent.append generic.functor_name
+          (Option.value generic.module_.mod_decl.mod_decl_rep
+             ~default:(Ident.make Loc.dummy "$rep" 0)))
   in
   let rec virtualize template (Type.App (constr, args, attr) as tp) =
     match (template, constr, args) with
     | Type.App (Var template_head, _ :: _, _), Type.Var qi, []
-      when QualIdent.equal template_head head ->
+      when Option.value_map head ~default:false ~f:(QualIdent.equal template_head) ->
+        let generic = Option.value_exn generic in
         let* found =
           ImplicitInstantiation.instance_of_rep ~functor_qual_ident:generic.functor_name
             ~rep_suffixes:generic.signature.rep_suffixes qi
@@ -431,7 +448,24 @@ let virtual_arguments generic ~templates evidence =
                   normalized ~loc:(Type.to_loc tp)
                     (Type.var (QualIdent.append (modules formal) rep)))
             in
-            (Type.App (Var head, args, attr), [ instance ])
+            (Type.App (Var template_head, args, attr), [ instance ])
+        end
+    | Type.App (Var template_head, templates, _), Type.Var qi, []
+      when not (List.is_empty templates) ->
+        let* application = ImplicitInstantiation.generated_application qi in
+        begin match application with
+        | Some { head; arguments; _ } when QualIdent.equal head template_head ->
+            begin match List.zip templates arguments with
+            | Ok pairs ->
+                let+ expanded =
+                  Rewriter.List.map pairs ~f:(fun (template, argument) ->
+                      virtualize template argument)
+                in
+                ( Type.App (Var head, List.map expanded ~f:fst, attr),
+                  List.concat_map expanded ~f:snd )
+            | Unequal_lengths -> Rewriter.return (tp, [])
+            end
+        | _ -> Rewriter.return (tp, [])
         end
     | Type.App (Map, [ domain; _ ], _), Type.FinSet, [ element ] ->
         let+ element, instances = virtualize domain element in
@@ -464,6 +498,25 @@ let virtual_arguments generic ~templates evidence =
   in
   ( List.map expanded ~f:fst,
     List.concat_map expanded ~f:snd |> List.dedup_and_sort ~compare:QualIdent.compare )
+
+let normalize_candidate_type ?generic ~scope ~loc tp =
+  let open Rewriter.Syntax in
+  let virtualize tp =
+    let tp = Option.value_map generic ~default:tp ~f:(fun g -> virtual_formals g tp) in
+    virtual_applications tp
+  in
+  let rec expand tp =
+    let* (Type.App (head, args, attr) as tp) = virtualize tp in
+    match (head, args) with
+    | Type.Var _, _ :: _ -> Rewriter.return tp
+    | _ when List.is_empty args ->
+        let* expanded = normalized ~scope ~fallback:true ~loc tp in
+        virtualize expanded
+    | _ ->
+        let+ args = Rewriter.List.map args ~f:expand in
+        Type.App (head, args, attr)
+  in
+  expand tp
 
 (** The names under which to look for generic functions: [name] if it resolves to nothing,
     or else the [imported] names that resolve to nothing. *)
@@ -530,7 +583,7 @@ let enumeration_accepts_type opener singleton expected =
     let returns = virtual_formals generic returns in
     let candidate = { candidate with returns } in
     let+ expected, _ =
-      virtual_arguments generic ~templates:[ returns ]
+      virtual_arguments ~generic ~templates:[ returns ]
         [ { OverloadResolution.type_ = Known expected; ghost = false } ]
     in
     match expected with
@@ -560,7 +613,7 @@ let ordinary_target ~loc (name, symbol) =
   | Some candidate ->
       let+ candidate =
         map_candidate_types candidate
-          ~f:(normalized ~scope:(Rewriter.Symbol.orig_qid symbol) ~fallback:true ~loc)
+          ~f:(normalize_candidate_type ~scope:(Rewriter.Symbol.orig_qid symbol) ~loc)
       in
       Some { name; symbol = Some symbol; generic = None; candidate; primitive = None }
 
@@ -580,20 +633,9 @@ let generic_target ~loc generic =
     Option.value_exn
       (OverloadResolution.of_symbol ~identity:name ~generic_parameters:parameters symbol)
   in
-  (* Virtual reps are already normalized and have type arguments. *)
-  let normalize tp =
-    let rec expand (Type.App (head, args, attr) as tp) =
-      match (head, args) with
-      | Type.Var _, _ :: _ -> Rewriter.return tp
-      | _ when List.is_empty args -> normalized ~scope:name ~loc tp
-      | _ ->
-          let+ args = Rewriter.List.map args ~f:expand in
-          Type.App (head, args, attr)
-    in
-    let+ expanded = expand (virtual_formals generic tp) in
-    virtual_formals generic expanded
+  let+ candidate =
+    map_candidate_types candidate ~f:(normalize_candidate_type ~generic ~scope:name ~loc)
   in
-  let+ candidate = map_candidate_types candidate ~f:normalize in
   { name; symbol = None; generic = Some generic; candidate; primitive = None }
 
 (** The target of the primitive operator [constr], applied to [arity] arguments. *)
@@ -621,7 +663,7 @@ let primitive_target ~loc ~arity constr =
 let virtual_expected generic target expected =
   let open Rewriter.Syntax in
   let+ result, instances =
-    virtual_arguments generic ~templates:[ target.candidate.returns ]
+    virtual_arguments ~generic ~templates:[ target.candidate.returns ]
       [ { OverloadResolution.type_ = Known expected; ghost = false } ]
   in
   let expected = match result with [ { type_ = Known tp; _ } ] -> tp | _ -> expected in
@@ -640,20 +682,17 @@ let try_target ~expected arguments locations target =
         }
     | _ -> target
   in
-  let* arguments, instances, expected =
-    match target.generic with
-    | None -> Rewriter.return (arguments, [], expected)
-    | Some generic ->
-        let* arguments, instances =
-          virtual_arguments generic
-            ~templates:(List.map target.candidate.parameters ~f:(fun p -> p.type_))
-            arguments
-        in
-        let+ expected, result_instances = virtual_expected generic target expected in
-        ( arguments,
-          (if List.is_empty instances then result_instances else instances),
-          expected )
+  let* arguments, instances =
+    virtual_arguments ?generic:target.generic
+      ~templates:(List.map target.candidate.parameters ~f:(fun p -> p.type_))
+      arguments
   in
+  let* result, result_instances =
+    virtual_arguments ?generic:target.generic ~templates:[ target.candidate.returns ]
+      [ { OverloadResolution.type_ = Known expected; ghost = false } ]
+  in
+  let expected = match result with [ { type_ = Known tp; _ } ] -> tp | _ -> expected in
+  let instances = if List.is_empty instances then result_instances else instances in
   let+ outcome =
     if List.length instances > 1 then
       Rewriter.return (OverloadResolution.Mismatch Argument)
@@ -793,9 +832,14 @@ let resolve_generic_winner ~loc ~args ~expected ~contextual arguments generic ta
               List.Assoc.add bindings qi tp ~equal:QualIdent.equal)
     else Rewriter.return solution.bindings
   in
+  let* checked_arguments, _ =
+    virtual_arguments ~generic
+      ~templates:(List.map target.candidate.parameters ~f:(fun p -> p.type_))
+      arguments
+  in
   let () =
     if contextual && Option.is_none instance then
-      List.iteri arguments ~f:(fun index argument ->
+      List.iteri checked_arguments ~f:(fun index argument ->
           match
             (argument.OverloadResolution.type_, List.nth target.candidate.parameters index)
           with

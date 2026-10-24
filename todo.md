@@ -2,7 +2,7 @@
 - [x] Share the generic instances introduced by implemented interfaces when
     creating implicit module instances, as explicit instances already do:
     `Library.Seq.of_list(xs)` now accepts `xs: Library.List[Int]`.
-- [ ] Infer nested generic arguments when selecting overloaded functions:
+- [x] Infer nested generic arguments when selecting overloaded functions:
     `F.get(b)` for `b: Box[Int]` fails with "No applicable overload" when
     `F[E]` declares both `get(b: Box[E])` and `get(b: Bool)`. This also affects
     unsealed functors; single-function inference handles the nested argument.

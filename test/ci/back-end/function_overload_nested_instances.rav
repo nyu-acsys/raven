@@ -1,0 +1,110 @@
+module Box[E: Library.Type] {
+  rep type T = data { case box(value: E) }
+}
+
+module Open[E: Library.Type] {
+  func get(b: Box[E]) returns (r: E) { b.value }
+  func get(b: Bool) returns (r: Bool) { b }
+  func same(a: Box[E], b: Box[E]) returns (r: Bool) { true }
+  func same(a: Bool, b: Bool) returns (r: Bool) { true }
+  func pick(xs: Library.List[Box[E]]) returns (r: Int) { 1 }
+  func deep(b: Box[Box[E]]) returns (r: E) { b.value.value }
+  func deep(b: Bool) returns (r: Bool) { b }
+}
+
+interface Spec[E: Library.Type] {
+  func get(b: Box[E]) returns (r: E)
+    ensures r == b.value
+  func get(b: Bool) returns (r: Bool)
+    ensures r == b
+}
+
+module Sealed[E: Library.Type] :> Spec[E] {
+  func get(b: Box[E]) returns (r: E) { b.value }
+  func get(b: Bool) returns (r: Bool) { b }
+}
+
+module IntOpen = Open[Int]
+module IntSealed = Sealed[Int]
+
+module Factory[E: Library.Type] {
+  func make(b: Bool) returns (r: Box[E]) { Box.box(E.default) }
+  func make(i: Int) returns (r: Int) { i }
+}
+
+module Sequences[E: Library.Type] {
+  func length(s: Library.Seq[E]) returns (r: Int) { Library.Seq.length(s) }
+  func length(b: Bool) returns (r: Bool) { b }
+}
+
+lemma nested() {
+  val b: Box[Int] := Box.box(11);
+  assert Open.get(b) == 11;
+  assert Open.same(b, b);
+  assert Sealed.get(b) == 11;
+  assert IntOpen.get(true) && IntSealed.get(true);
+  val bb: Box[Box[Int]] := Box.box(b);
+  assert Open.deep(bb) == 11;
+  val inner: Box[Int] := Open.get(bb);
+  assert inner == b;
+  val made: Box[Int] := Factory.make(true);
+  val s: Library.Seq[Int] := [3, 7];
+  assert Sequences.length(s) == 2;
+}
+
+module Imported {
+  import Open.get
+  module Bools {
+    func get(b: Bool) returns (r: Bool) { b }
+  }
+  import Bools.get
+  lemma choose() {
+    val b: Box[Int] := Box.box(13);
+    assert get(b) == 13;
+  }
+}
+
+module Named = Box[Int]
+module NamedFallback {
+  func pick(xs: Library.List[Named]) returns (r: Bool) { true }
+  func get(b: Named) returns (r: Bool) { true }
+}
+module NamedClient {
+  import Open.get
+  import NamedFallback.get
+  import Open.pick
+  import NamedFallback.pick
+  lemma choose(b: Named) { assert get(b); }
+  lemma choose_list(xs: Library.List[Named]) { assert pick(xs); }
+}
+
+module NamedInt : Library.Type { rep type T = Int }
+module NamedArgument {
+  func select(b: Box[NamedInt]) returns (r: Int) { 1 }
+}
+module PrimitiveArgument {
+  func select(b: Box[Int]) returns (r: Bool) { true }
+}
+module ModuleArguments {
+  import NamedArgument.select
+  import PrimitiveArgument.select
+  lemma choose(b: Box[NamedInt]) {
+    assert select(b) == 1;
+    assert Open.get(b) == b.value;
+  }
+}
+
+module Self[E: Library.Type] : Library.Type {
+  rep type T = data { case cell(value: E) }
+  func first(xs: Library.List[T]) returns (r: E) { xs.hd.value }
+  func first(b: Bool) returns (r: Bool) { b }
+}
+module NamedSelf = Self[Int]
+module OwnRepFallback {
+  func first(xs: Library.List[NamedSelf]) returns (r: Bool) { true }
+}
+module OwnRepClient {
+  import Self.first
+  import OwnRepFallback.first
+  lemma choose(xs: Library.List[NamedSelf]) { assert first(xs); }
+}

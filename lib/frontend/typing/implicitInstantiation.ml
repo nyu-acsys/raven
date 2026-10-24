@@ -20,6 +20,85 @@ type instantiation_solution = {
   field_bindings : (ident * qual_ident) list;
 }
 
+type generated_application = {
+  head : qual_ident;
+  parameters : (ident * ident) list;
+  arguments : type_expr list;
+}
+
+(** Unwrap generated type adapters, retaining the identity of named module arguments. *)
+let module_argument_type argument rep =
+  let open Rewriter.Syntax in
+  let* wrapped =
+    if
+      String.is_prefix
+        (Ident.name (QualIdent.unqualify argument))
+        ~prefix:ProgUtils.tp_mod_ident_prefix
+    then Rewriter.find_absolute argument
+    else Rewriter.return None
+  in
+  let wrapped =
+    match wrapped with
+    | Some (Module.ModDef { mod_def; _ }) ->
+        List.find_map mod_def ~f:(function
+          | Module.SymbolDef (TypeDef { type_def_name; type_def_expr; _ })
+            when Ident.equal type_def_name rep ->
+              type_def_expr
+          | _ -> None)
+    | _ -> None
+  in
+  Rewriter.return
+    (Option.value wrapped ~default:(Type.var (QualIdent.append argument rep)))
+
+let application_arguments formals arguments =
+  let open Rewriter.Syntax in
+  let* arguments =
+    Rewriter.List.map2_exn formals arguments ~f:(fun formal argument ->
+        let* rep = lift (ProgUtils.resolve_rep_ident formal.Module.mod_inst_type) in
+        match rep with
+        | None -> Rewriter.return None
+        | Some (_, rep) ->
+            let+ tp =
+              match argument with
+              | Module.TypeArg tp -> Rewriter.return tp
+              | Module.ModArg argument -> module_argument_type argument rep
+            in
+            Some ((formal.mod_inst_name, rep), tp))
+  in
+  Rewriter.return (Option.map (Option.all arguments) ~f:List.unzip)
+
+(** A canonical application as a read-only type view. Named instances stay nominal. *)
+let generated_application qi =
+  let open Rewriter.Syntax in
+  if List.is_empty (QualIdent.path qi) then Rewriter.return None
+  else
+    let instance = QualIdent.pop qi in
+    if
+      not
+        (String.is_prefix
+           (Ident.name (QualIdent.unqualify instance))
+           ~prefix:ProgUtils.inst_mod_ident_prefix)
+    then Rewriter.return None
+    else
+      let* symbol = Rewriter.find_absolute instance in
+      match symbol with
+      | Some (Module.ModInst { mod_inst_def = Some (functor_name, arguments); _ }) ->
+          let* functor_ = lift (ProgUtils.resolve_generic_functor functor_name) in
+          begin match functor_ with
+          | Some (functor_name, { mod_decl; _ }) ->
+              begin match mod_decl.mod_decl_rep with
+              | Some rep when Ident.equal rep (QualIdent.unqualify qi) ->
+                  let+ application =
+                    application_arguments mod_decl.mod_decl_formals arguments
+                  in
+                  Option.map application ~f:(fun (parameters, arguments) ->
+                      { head = QualIdent.append functor_name rep; parameters; arguments })
+              | _ -> Rewriter.return None
+              end
+          | None -> Rewriter.return None
+          end
+      | _ -> Rewriter.return None
+
 let member_signatures ~only_calls member_ident (m : Module.t) =
   List.filter_map m.mod_def ~f:(function
     | Module.SymbolDef (CallDef call)
@@ -265,90 +344,19 @@ and unify_type_list ~(loc : location) ~(functor_qual_ident : qual_ident)
      `Box[E]`, and [qi2] the same member of an instance of the same functor: pairs the
      reps of their arguments. *)
   and instance_arg_pairs qi1 qi2 =
-    let* local_inst = local_instance qi1 in
-    match local_inst with
-    | Some (inner_qi, inner_formals, args)
+    let* application = generated_application qi1 in
+    match application with
+    | Some { head; parameters; arguments }
       when Ident.equal (QualIdent.unqualify qi1) (QualIdent.unqualify qi2)
-           && not (List.is_empty (QualIdent.path qi2)) -> (
+           && not (List.is_empty (QualIdent.path qi2)) ->
         let* formal_module =
-          instantiation_formal_module ~functor_qual_ident:inner_qi (QualIdent.pop qi2)
+          instantiation_formal_module ~functor_qual_ident:(QualIdent.pop head)
+            (QualIdent.pop qi2)
         in
-        match (formal_module, List.zip inner_formals args) with
-        | Some formal_module, Ok formal_args ->
-            let+ pairs =
-              Rewriter.List.map formal_args ~f:(fun (formal, arg) ->
-                  let* rep =
-                    lift (ProgUtils.resolve_rep_ident formal.Module.mod_inst_type)
-                  in
-                  match rep with
-                  | None -> Rewriter.return None
-                  | Some (_, rep_ident) ->
-                      let actual =
-                        Type.mk_var
-                          (QualIdent.append
-                             (formal_module formal.mod_inst_name)
-                             rep_ident)
-                      in
-                      let+ written =
-                        match arg with
-                        | Module.ModArg arg_qi -> arg_rep_type arg_qi rep_ident
-                        | TypeArg tp -> Rewriter.return tp
-                      in
-                      Some (written, actual))
-            in
-            Some (List.filter_opt pairs)
-        | _ -> Rewriter.return None)
-    | _ -> Rewriter.return None
-  (* The rep of the argument module [arg_qi], or the type that a module generated in the
-     functor's body wraps, as `Box[E]` in `Box[Box[E]]`. *)
-  and arg_rep_type arg_qi rep_ident =
-    let+ member = generated_member arg_qi in
-    let wrapped =
-      match member with
-      | Some (Module.ModDef { mod_def; _ }) ->
-          List.find_map mod_def ~f:(function
-            | Module.SymbolDef (TypeDef { type_def_name; type_def_expr = Some tp; _ })
-              when Ident.equal type_def_name rep_ident ->
-                Some tp
-            | _ -> None)
-      | _ -> None
-    in
-    Option.value wrapped ~default:(Type.mk_var (QualIdent.append arg_qi rep_ident))
-  (* The functor, formals and arguments of the instance generated in the functor's body
-     whose member [qi] names. Only these are shared by the functor's instances. *)
-  and local_instance qi =
-    let* member = generated_member (QualIdent.pop qi) in
-    match member with
-    | Some (Module.ModInst { mod_inst_def = Some (inner_qi, args); _ }) ->
-        let+ inner = Rewriter.resolve_and_find_opt ~read_only:true inner_qi in
-        begin match inner with
-        | Some (inner_qi, symbol) when not (Rewriter.Symbol.is_instance symbol) ->
-            begin match Rewriter.Symbol.orig_symbol symbol with
-            | Module.ModDef inner_mod ->
-                Some (inner_qi, inner_mod.mod_decl.mod_decl_formals, args)
-            | _ -> None
-            end
-        | _ -> None
-        end
-    | _ -> Rewriter.return None
-  (* The module that [qi] names among those generated in the functor's body. *)
-  and generated_member qi =
-    match List.rev (QualIdent.to_list qi) with
-    | member_ident :: rev_scope
-      when List.equal Ident.equal (List.rev rev_scope)
-             (QualIdent.to_list functor_qual_ident)
-           && List.exists
-                [ ProgUtils.inst_mod_ident_prefix; ProgUtils.tp_mod_ident_prefix ]
-                ~f:(fun prefix -> String.is_prefix (Ident.name member_ident) ~prefix) ->
-        let+ functor_resolved =
-          lift (ProgUtils.resolve_generic_functor functor_qual_ident)
-        in
-        Option.bind functor_resolved ~f:(fun (_, m) ->
-            List.find_map m.mod_def ~f:(function
-              | Module.SymbolDef symbol
-                when Ident.equal (Symbol.to_name symbol) member_ident ->
-                  Some symbol
-              | _ -> None))
+        Rewriter.return
+          (Option.map formal_module ~f:(fun formal_module ->
+               List.map2_exn parameters arguments ~f:(fun (formal, rep) written ->
+                   (written, Type.var (QualIdent.append (formal_module formal) rep)))))
     | _ -> Rewriter.return None
   in
   go u pairs
