@@ -1,0 +1,18 @@
+module Box[E: Library.Type] {
+  rep type T = data { case box(value: E) }
+}
+
+interface Spec[E: Library.Type] {
+  func get(b: Box[E]) returns (r: E)
+    ensures r == b.value
+}
+
+module Boxes[E: Library.Type] :> Spec[E] {
+  func get(b: Box[E]) returns (r: E) { b.value }
+}
+
+module NamedBox = Box[Int]
+
+lemma keep_named_instance_distinct(b: NamedBox) {
+  assert Boxes.get(b) == b.value;
+}

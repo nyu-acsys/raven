@@ -1,9 +1,18 @@
 24 oct, 2026:
-- [ ] Infer generic module arguments occurring inside another instance in a sealed
-    signature: `Library.Seq.of_list(xs)` for `xs: Library.List[Int]` retains
-    `Library.List[Library.SeqSpec.E]` instead of inferring `Seq[Int]`.
-    Explicit `module S = Library.Seq[Int]` and `S.of_list(xs)` work. Account for
-    interface-generated instances when exporting and inferring generic signatures.
+- [x] Share the generic instances introduced by implemented interfaces when
+    creating implicit module instances, as explicit instances already do:
+    `Library.Seq.of_list(xs)` now accepts `xs: Library.List[Int]`.
+- [ ] Infer nested generic arguments when selecting overloaded functions:
+    `F.get(b)` for `b: Box[Int]` fails with "No applicable overload" when
+    `F[E]` declares both `get(b: Box[E])` and `get(b: Bool)`. This also affects
+    unsealed functors; single-function inference handles the nested argument.
+- [ ] Place generated instances with mixed global and functor-local arguments in
+    a scope where all arguments are visible: `Pair.first(e, true)` inside
+    `Generic[E]`, with `e: E`, creates `Pair[E, Bool]` outside `Generic` and
+    fails with "Unknown identifier Generic.E". This also affects unsealed functors.
+- [ ] Match doubly nested generic types across sealed signatures:
+    `get(b: Box[Box[E]])` in a sealed implementation fails to match the same
+    declaration in its interface before any client call is checked.
 
 23 oct, 2026:
 - [ ] Make inhale/exhale fusion insensitive to contract conjunction grouping:

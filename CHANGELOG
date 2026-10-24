@@ -32,6 +32,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Implicitly instantiated sealed modules accept nested generic argument types from their public interfaces.
 - Printed tuple projections and multiline assignments retain parseable source syntax.
 - Procedures assigned to ghost variables retain their atomicity and abort-restoration checks.
 - Atomic update operations recognize repeated bindings and aliases of the same token.

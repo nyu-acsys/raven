@@ -350,43 +350,6 @@ let check_function_signatures (instrs : Module.module_instr list) =
   in
   ()
 
-(** The instances generated inside the functor [functor_def] and inside the interfaces it
-    implements that an instance at [arg_qis] shares with the rest of the program (see
-    [ProgUtils.shared_instances]); the interfaces' ones are those of its sealed views. *)
-let shared_instances ~loc ~(functor_qual_ident : qual_ident) ~(functor_def : Module.t)
-    (arg_qis : qual_ident list) : (qual_ident * qual_ident) list t =
-  let open Rewriter.Syntax in
-  let* functor_shared =
-    lift (ProgUtils.shared_instances ~loc ~functor_qual_ident ~functor_def arg_qis)
-  in
-  let formals_subst =
-    List.map2_exn functor_def.mod_decl.mod_decl_formals arg_qis ~f:(fun formal arg ->
-        (QualIdent.append functor_qual_ident formal.mod_inst_name, QualIdent.to_list arg))
-  in
-  let+ iface_shared =
-    Rewriter.List.map functor_def.mod_decl.mod_decl_returns ~f:(fun (iface, iface_args) ->
-        let* iface_qual_ident, iface_symbol = Rewriter.resolve_and_find iface in
-        let iface_def =
-          Rewriter.Symbol.extract iface_symbol ~f:(fun is_instance _ -> function
-            | Module.ModDef iface_def when not is_instance -> Some iface_def
-            | _ -> None)
-        in
-        let iface_arg_qis =
-          List.filter_map iface_args ~f:(function
-            | Module.ModArg qi -> Some (QualIdent.requalify formals_subst qi)
-            | TypeArg _ -> None)
-        in
-        match iface_def with
-        | Some iface_def
-          when List.length iface_arg_qis = List.length iface_def.mod_decl.mod_decl_formals
-               && not (List.is_empty iface_arg_qis) ->
-            lift
-              (ProgUtils.shared_instances ~loc ~functor_qual_ident:iface_qual_ident
-                 ~functor_def:iface_def iface_arg_qis)
-        | _ -> Rewriter.return [])
-  in
-  functor_shared @ List.concat iface_shared
-
 let rec check (m : Module.t) : Module.t t =
   let open Rewriter.Syntax in
   let m = { m with mod_def = assign_function_identities m.mod_def } in
@@ -736,8 +699,9 @@ and check_instr (m : Module.t) (instr : Module.module_instr) : Module.module_ins
                   let+ shared =
                     match functor_def with
                     | Some functor_def ->
-                        shared_instances ~loc:mod_inst.mod_inst_loc
-                          ~functor_qual_ident:qual_functor_ident ~functor_def arg_qis
+                        lift
+                          (ProgUtils.shared_instances ~loc:mod_inst.mod_inst_loc
+                             ~functor_qual_ident:qual_functor_ident ~functor_def arg_qis)
                     | None -> Rewriter.return []
                   in
                   ( Some
