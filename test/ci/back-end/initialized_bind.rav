@@ -1,0 +1,71 @@
+field value: Int
+
+pred cell(r: Ref; n: Int) { own(r.value, n) }
+
+proc scalar_rebinding() {
+  ghost var x: Int := 0;
+  x :| x == 7;
+  assert x == 7;
+  x :| x == 11;
+  assert x == 11;
+}
+
+proc frozen_swap() {
+  ghost var x: Int := 1;
+  ghost var y: Int := 2;
+  ghost val old_x := x;
+  ghost val old_y := y;
+  x, y :| x == old_y && y == old_x;
+  assert x == 2 && y == 1;
+  assert old_x == 1 && old_y == 2;
+}
+
+proc relational_rebinding() {
+  ghost var x: Int := 0;
+  ghost var y: Int := 0;
+  x, y :| x == 4 && y == x + 1;
+  assert x == 4 && y == 5;
+  x, y :| y == 9 && x == y + 1;
+  assert x == 10 && y == 9;
+}
+
+proc branch_rebinding(branch: Bool) {
+  ghost var x: Int := 0;
+  ghost var untouched: Int := 10;
+  if (branch) {
+    x :| x == 3;
+  } else {
+    x :| x == 4;
+  }
+  assert x == (branch ? 3 : 4) && untouched == 10;
+  x :| x == untouched;
+  assert x == 10 && untouched == 10;
+}
+
+proc quantified_shadowing() {
+  ghost var x: Int := 0;
+  ghost var limit: Int := 7;
+  x :| x == limit && (forall x: Int :: x == x);
+  assert x == 7 && limit == 7;
+}
+
+proc resource_rebinding(r: Ref)
+  requires own(r.value, 5)
+  ensures own(r.value, 8)
+{
+  ghost var x: Int := 0;
+  x :| own(r.value, x, 0.5);
+  assert x == 5;
+  r.value := 8;
+  x :| own(r.value, x, 0.5);
+  assert x == 8;
+}
+
+proc predicate_rebinding(r: Ref)
+  requires cell(r, 5)
+  ensures cell(r, 5)
+{
+  ghost var n: Int := 0;
+  n :| cell(r, n);
+  assert n == 5;
+}

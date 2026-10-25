@@ -1,0 +1,39 @@
+proc old_value_is_not_preserved() {
+  ghost var x: Int := 0;
+  x :| x == 7;
+  assert x == 0;
+}
+
+proc repeated_bind_is_not_vacuous() {
+  ghost var x: Int := 0;
+  x :| x == 7;
+  x :| x == 11;
+  assert x == 7;
+}
+
+proc non_target_prevents_existence() {
+  ghost var x: Int := 0;
+  ghost var limit: Int := 3;
+  x :| x == 7 && limit == 4;
+}
+
+proc targets_are_bound_simultaneously() {
+  ghost var x: Int := 0;
+  ghost var y: Int := 0;
+  x, y :| x == y + 1 && y == x + 1;
+}
+
+proc quantified_variable_stays_bound() {
+  ghost var x: Int := 0;
+  x :| x == 7 && (forall x: Int :: x >= 0);
+}
+
+proc branch_bind_is_not_vacuous(branch: Bool) {
+  ghost var x: Int := 0;
+  if (branch) {
+    x :| x == 3;
+  } else {
+    x :| x == 4;
+  }
+  assert x == 0;
+}

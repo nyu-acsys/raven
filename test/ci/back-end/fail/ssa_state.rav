@@ -19,7 +19,6 @@ proc merge_retains_both_arms(branch: Bool) {
 
 proc bind_replaces_old_value() {
   ghost var x: Int := 0;
-  havoc x;
   x :| x == 7;
   assert x == 0;
 }

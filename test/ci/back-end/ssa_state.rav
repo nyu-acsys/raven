@@ -41,9 +41,7 @@ proc one_arm_update(branch: Bool) {
 proc bind_new_versions() {
   ghost var x: Int := 0;
   ghost var y: Int := 0;
-  havoc x;
   x :| x == 7;
-  havoc y;
   y :| y == x + 1;
   assert x == 7 && y == 8;
 }

@@ -34,6 +34,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Discard stale destination values in bind assignments.
 - Infer dependent fold witnesses across conditional branches.
 - Infer data constructors from expected type aliases while preserving the selected module instance.
 - Verify recursive data types containing generic containers such as `List[T]`.

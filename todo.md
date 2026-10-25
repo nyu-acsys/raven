@@ -1,8 +1,8 @@
 25 oct, 2026:
-- [ ] Freshen initialized bind destinations before assuming the bind predicate:
+- [x] Freshen initialized bind destinations before assuming the bind predicate:
     `ghost var x: Int := 0; x :| x == 7; assert x == 0;` verifies vacuously.
-    `rewrite_binds` checks existence but retains the old destination values in
-    the subsequent assumption; add non-vacuity regressions when fixing this.
+    Check existence before havocking the destinations and assuming the predicate;
+    cover rebinding with non-vacuity regressions.
 
 24 oct, 2026:
 - [x] Share the generic instances introduced by implemented interfaces when

@@ -1190,7 +1190,14 @@ let rec rewrite_binds (stmt : Stmt.t) : Stmt.t Rewriter.t =
           bind_desc.bind_rhs.spec_form
       in
 
-      let new_stmt = Stmt.mk_block_stmt ~loc:stmt.stmt_loc [ assert_stmt; assume_stmt ] in
+      let havoc_stmts =
+        List.map bind_lhs ~f:(fun destination ->
+            Stmt.mk_havoc ~loc:stmt.stmt_loc (Expr.to_qual_ident destination))
+      in
+      let new_stmt =
+        Stmt.mk_block_stmt ~loc:stmt.stmt_loc
+          ((assert_stmt :: havoc_stmts) @ [ assume_stmt ])
+      in
       Rewriter.return new_stmt
   | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_binds
 
