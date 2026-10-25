@@ -1,0 +1,39 @@
+field contents: Int
+
+proc simultaneous_rhs_uses_old_versions() {
+  var x: Int := 1;
+  var y: Int := 2;
+  x, y := (y, x);
+  assert y == 2;
+}
+
+proc merge_retains_both_arms(branch: Bool) {
+  var x: Int := 0;
+  if (branch) {
+    x := 1;
+  } else {
+    x := 2;
+  }
+  assert x == 1;
+}
+
+proc bind_replaces_old_value() {
+  ghost var x: Int := 0;
+  havoc x;
+  x :| x == 7;
+  assert x == 0;
+}
+
+proc havoc_discards_old_value() {
+  var x: Int := 5;
+  havoc x;
+  assert x == 5;
+}
+
+proc resource_check_does_not_leak_branch_state(r: Ref)
+  requires own(r.contents, 5)
+{
+  assert own(r.contents, 5);
+  var x := r.contents;
+  assert x == 6;
+}

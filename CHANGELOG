@@ -27,6 +27,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Reduce SSA lowering overhead by maintaining substitutions incrementally.
 - `Library.UnitRA` is renamed to `Library.Unit`.
 - Hide the library modules that only the verifier uses (`AtomicTokenRA`, `Prophecy`, `ErrorCreds`).
 - Set and sequence literals are written without pipes, as `{1, 2}` and `[1, 2]`; pipes are deprecated.

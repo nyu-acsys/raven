@@ -1564,15 +1564,46 @@ let current_versions (var_map : var_decl ident_map) : var_decl list =
       in
       snd (Option.value assigned ~default:(List.hd_exn versions)))
 
-let rec rewrite_ssa_stmts (s : Stmt.t) : (Stmt.t, var_decl ident_map) Rewriter.t_ext =
-  let open Rewriter.Syntax in
-  let* var_map = Rewriter.current_user_state in
-  let subst_map = Map.map var_map ~f:(fun var_decl -> Expr.from_var_decl var_decl) in
-  let subst_map =
-    (Map.map_keys_exn (module QualIdent)) subst_map ~f:(fun ident ->
-        QualIdent.from_ident ident)
-  in
+type ssa_state = {
+  ssa_versions : var_decl ident_map;
+  ssa_substitutions : expr qual_ident_map;
+}
 
+let empty_ssa_state =
+  {
+    ssa_versions = Map.empty (module Ident);
+    ssa_substitutions = Map.empty (module QualIdent);
+  }
+
+let set_ssa_version state source current =
+  {
+    ssa_versions = Map.set state.ssa_versions ~key:source ~data:current;
+    ssa_substitutions =
+      Map.set state.ssa_substitutions ~key:(QualIdent.from_ident source)
+        ~data:(Expr.from_var_decl current);
+  }
+
+let declare_ssa_version state source =
+  let open Rewriter.Syntax in
+  let old = Map.find_exn state.ssa_versions source in
+  let current = { old with var_name = Ident.fresh old.var_loc old.var_name.ident_name } in
+  let+ () =
+    Rewriter.introduce_symbol
+      (VarDef { var_decl = current; var_init = None; var_is_free = NotFree })
+  in
+  (set_ssa_version state source current, current)
+
+let fresh_ssa_version source =
+  let open Rewriter.Syntax in
+  let* state = Rewriter.current_user_state in
+  let* state, current = declare_ssa_version state source in
+  let+ () = Rewriter.set_user_state state in
+  QualIdent.from_ident current.var_name
+
+let rec rewrite_ssa_stmts (s : Stmt.t) : (Stmt.t, ssa_state) Rewriter.t_ext =
+  let open Rewriter.Syntax in
+  let* entry = Rewriter.current_user_state in
+  let subst_map = entry.ssa_substitutions in
   match s.stmt_desc with
   | Basic basic_stmt -> (
       match basic_stmt with
@@ -1582,7 +1613,7 @@ let rec rewrite_ssa_stmts (s : Stmt.t) : (Stmt.t, var_decl ident_map) Rewriter.t
              counterexample is read from. *)
           let spec_state =
             match spec_kind with
-            | Assert -> current_versions var_map
+            | Assert -> current_versions entry.ssa_versions
             | _ -> spec.spec_state
           in
           Rewriter.return
@@ -1597,10 +1628,7 @@ let rec rewrite_ssa_stmts (s : Stmt.t) : (Stmt.t, var_decl ident_map) Rewriter.t
             if assign_stmt.assign_is_init then Rewriter.return assign_stmt.assign_lhs
             else
               Rewriter.List.map assign_stmt.assign_lhs ~f:(fun qual_ident ->
-                  let* var_map = Rewriter.current_user_state in
-
                   let local_var = QualIdent.to_ident qual_ident in
-
                   let* () =
                     Rewriter.Logs.debug (fun printers m ->
                         m
@@ -1608,34 +1636,8 @@ let rec rewrite_ssa_stmts (s : Stmt.t) : (Stmt.t, var_decl ident_map) Rewriter.t
                            for stmt %a"
                           Ident.pr local_var printers.pr_stmt s)
                   in
-                  let old_var_decl = Map.find_exn var_map local_var in
-                  let new_var_decl =
-                    Type.
-                      {
-                        old_var_decl with
-                        var_name =
-                          Ident.fresh old_var_decl.var_loc
-                            old_var_decl.var_name.ident_name;
-                      }
-                  in
-
-                  let* _ =
-                    Rewriter.introduce_symbol
-                      (VarDef
-                         {
-                           var_decl = new_var_decl;
-                           var_init = None;
-                           var_is_free = NotFree;
-                         })
-                  in
-
-                  let var_map = Map.set var_map ~key:local_var ~data:new_var_decl in
-
-                  let+ _ = Rewriter.set_user_state var_map in
-
-                  QualIdent.from_ident new_var_decl.var_name)
+                  fresh_ssa_version local_var)
           in
-
           Rewriter.return
             Stmt.
               {
@@ -1647,72 +1649,21 @@ let rec rewrite_ssa_stmts (s : Stmt.t) : (Stmt.t, var_decl ident_map) Rewriter.t
           else if hvc.havoc_is_init then Rewriter.return (Stmt.mk_skip ~loc:s.stmt_loc)
           else
             let local_var = QualIdent.to_ident hvc.havoc_var in
-
             Logs.debug (fun m ->
                 m "Lowering.rewrite_ssa_stmts: Havocing local variable %a" Ident.pr
                   local_var);
-            let old_var_decl = Map.find_exn var_map local_var in
-            let new_var_decl =
-              {
-                old_var_decl with
-                var_name =
-                  Ident.fresh old_var_decl.var_loc old_var_decl.var_name.ident_name;
-              }
-            in
-
-            let* _ =
-              Rewriter.introduce_symbol
-                (VarDef
-                   { var_decl = new_var_decl; var_init = None; var_is_free = NotFree })
-            in
-
-            let var_map = Map.set var_map ~key:local_var ~data:new_var_decl in
-
-            let+ _ = Rewriter.set_user_state var_map in
-
+            let+ _ = fresh_ssa_version local_var in
             Stmt.mk_block_stmt ~loc:s.stmt_loc []
       | Bind bind_stmt ->
           let* bind_lhs =
             Rewriter.List.map bind_stmt.bind_lhs ~f:(fun qual_ident ->
-                let* var_map = Rewriter.current_user_state in
-
-                let local_var = QualIdent.unqualify qual_ident in
-
-                let old_var_decl = Map.find_exn var_map local_var in
-                let new_var_decl =
-                  Type.
-                    {
-                      old_var_decl with
-                      var_name =
-                        Ident.fresh old_var_decl.var_loc old_var_decl.var_name.ident_name;
-                    }
-                in
-
-                let* _ =
-                  Rewriter.introduce_symbol
-                    (VarDef
-                       { var_decl = new_var_decl; var_init = None; var_is_free = NotFree })
-                in
-
-                let var_map = Map.set var_map ~key:local_var ~data:new_var_decl in
-
-                let+ _ = Rewriter.set_user_state var_map in
-
-                QualIdent.from_ident new_var_decl.var_name)
+                fresh_ssa_version (QualIdent.unqualify qual_ident))
           in
-
-          let* var_map = Rewriter.current_user_state in
-          let subst_map =
-            Map.map var_map ~f:(fun var_decl -> Expr.from_var_decl var_decl)
+          let* state = Rewriter.current_user_state in
+          let spec_form =
+            Expr.alpha_renaming bind_stmt.bind_rhs.spec_form state.ssa_substitutions
           in
-          let subst_map =
-            (Map.map_keys_exn (module QualIdent)) subst_map ~f:(fun ident ->
-                QualIdent.from_ident ident)
-          in
-
-          let spec_form = Expr.alpha_renaming bind_stmt.bind_rhs.spec_form subst_map in
           let bind_rhs = { bind_stmt.bind_rhs with spec_form } in
-
           Rewriter.return Stmt.{ s with stmt_desc = Basic (Bind { bind_lhs; bind_rhs }) }
       | _ ->
           let* () =
@@ -1722,85 +1673,47 @@ let rec rewrite_ssa_stmts (s : Stmt.t) : (Stmt.t, var_decl ident_map) Rewriter.t
           assert false)
   | Block block_stmt ->
       let+ block_body = Rewriter.List.map block_stmt.block_body ~f:rewrite_ssa_stmts in
-
       Stmt.mk_block_stmt ~kind:block_stmt.block_kind ~loc:s.stmt_loc block_body
-      (* { s with stmt_desc = Block { block_stmt with block_body; } } *)
   | Cond cond_stmt when not cond_stmt.cond_if_assumes_false ->
       let cond_test =
         Option.map ~f:(fun test -> Expr.alpha_renaming test subst_map) cond_stmt.cond_test
       in
-
       let* cond_then = rewrite_ssa_stmts cond_stmt.cond_then in
-
-      let* cond_then_map = Rewriter.current_user_state in
-
-      let* _ = Rewriter.set_user_state var_map in
+      let* then_state = Rewriter.current_user_state in
+      let* () = Rewriter.set_user_state entry in
       let* cond_else = rewrite_ssa_stmts cond_stmt.cond_else in
-
-      let* cond_else_map = Rewriter.current_user_state in
-
+      let* else_state = Rewriter.current_user_state in
       let updated_vals =
-        Map.fold2 cond_then_map cond_else_map ~init:[] ~f:(fun ~key ~data acc ->
+        Map.fold2 then_state.ssa_versions else_state.ssa_versions ~init:[]
+          ~f:(fun ~key ~data acc ->
             match data with
             | `Both (then_var_decl, else_var_decl) ->
-                if Ident.(Type.(then_var_decl.var_name) = Type.(else_var_decl.var_name))
-                then acc
+                if Ident.equal then_var_decl.var_name else_var_decl.var_name then acc
                 else key :: acc
             | `Left _ | `Right _ ->
                 Error.error s.stmt_loc
                   "Mismatched variable declarations in then and else branches.")
       in
-
-      let* new_var_map =
-        Rewriter.List.fold_left updated_vals ~init:var_map ~f:(fun map var ->
-            let old_var_decl = Map.find_exn var_map var in
-            let new_var_decl =
-              {
-                old_var_decl with
-                var_name =
-                  Ident.fresh old_var_decl.var_loc old_var_decl.var_name.ident_name;
-              }
-            in
-
-            let+ _ =
-              Rewriter.introduce_symbol
-                (VarDef
-                   { var_decl = new_var_decl; var_init = None; var_is_free = NotFree })
-            in
-
-            Map.set map ~key:var ~data:new_var_decl)
+      let* merged =
+        Rewriter.List.fold_left updated_vals ~init:entry ~f:(fun state var ->
+            let+ state, _ = declare_ssa_version state var in
+            state)
       in
-
-      let cond_then_assigns =
+      let join_assignments state =
         List.map updated_vals ~f:(fun var ->
-            let old_var_decl = Map.find_exn cond_then_map var in
-            let new_var_decl = Map.find_exn new_var_map var in
-
+            let old = Map.find_exn state.ssa_versions var in
+            let current = Map.find_exn merged.ssa_versions var in
             Stmt.mk_assign ~loc:s.stmt_loc
-              [ QualIdent.from_ident new_var_decl.var_name ]
-              (Expr.from_var_decl old_var_decl))
+              [ QualIdent.from_ident current.var_name ]
+              (Expr.from_var_decl old))
       in
-
       let cond_then =
-        Stmt.mk_block_stmt ~loc:s.stmt_loc (cond_then :: cond_then_assigns)
+        Stmt.mk_block_stmt ~loc:s.stmt_loc (cond_then :: join_assignments then_state)
       in
-
-      let cond_else_assigns =
-        List.map updated_vals ~f:(fun var ->
-            let old_var_decl = Map.find_exn cond_else_map var in
-            let new_var_decl = Map.find_exn new_var_map var in
-
-            Stmt.mk_assign ~loc:s.stmt_loc
-              [ QualIdent.from_ident new_var_decl.var_name ]
-              (Expr.from_var_decl old_var_decl))
-      in
-
       let cond_else =
-        Stmt.mk_block_stmt ~loc:s.stmt_loc (cond_else :: cond_else_assigns)
+        Stmt.mk_block_stmt ~loc:s.stmt_loc (cond_else :: join_assignments else_state)
       in
-
-      let+ _ = Rewriter.set_user_state new_var_map in
-
+      let+ () = Rewriter.set_user_state merged in
       Stmt.
         {
           s with
@@ -1812,30 +1725,21 @@ let rec rewrite_ssa_stmts (s : Stmt.t) : (Stmt.t, var_decl ident_map) Rewriter.t
       assert (
         Poly.(
           cond_stmt.cond_else.stmt_desc = Block { block_kind = Regular; block_body = [] }));
-
-      let* orig_map = Rewriter.current_user_state in
-
       let cond_test =
         Option.map ~f:(fun test -> Expr.alpha_renaming test subst_map) cond_stmt.cond_test
       in
-
       let* cond_then = rewrite_ssa_stmts cond_stmt.cond_then in
       let* cond_else = rewrite_ssa_stmts cond_stmt.cond_else in
+      let+ () = Rewriter.set_user_state entry in
+      Stmt.
+        {
+          s with
+          stmt_desc =
+            Cond { cond_test; cond_then; cond_else; cond_if_assumes_false = true };
+        }
+  | Loop _ | StmtExt _ -> assert false
 
-      let* _ = Rewriter.set_user_state orig_map in
-
-      Rewriter.return
-        Stmt.
-          {
-            s with
-            stmt_desc =
-              Cond { cond_test; cond_then; cond_else; cond_if_assumes_false = true };
-          }
-  | Loop loop_stmt -> assert false
-  | StmtExt _ -> assert false
-
-let rewrite_ssa_transform (c : Callable.t) :
-    (Callable.t, var_decl ident_map) Rewriter.t_ext =
+let rewrite_ssa_transform (c : Callable.t) : (Callable.t, ssa_state) Rewriter.t_ext =
   let open Rewriter.Syntax in
   match c.call_def with
   | FuncDef _ | ProcDef { proc_body = None } -> Rewriter.return c
@@ -1847,25 +1751,30 @@ let rewrite_ssa_transform (c : Callable.t) :
               (c.call_decl.call_decl_formals @ c.call_decl.call_decl_returns
              @ c.call_decl.call_decl_locals))
       in
-
-      let init_map =
+      let versions =
         List.fold
           (c.call_decl.call_decl_formals @ c.call_decl.call_decl_returns
          @ c.call_decl.call_decl_locals)
           ~init:(Map.empty (module Ident))
           ~f:(fun map var_decl -> Map.add_exn map ~key:var_decl.var_name ~data:var_decl)
       in
-
-      let* _ = Rewriter.set_user_state init_map in
-
+      let substitutions =
+        Map.fold versions
+          ~init:(Map.empty (module QualIdent))
+          ~f:(fun ~key ~data map ->
+            Map.add_exn map ~key:(QualIdent.from_ident key)
+              ~data:(Expr.from_var_decl data))
+      in
+      let* () =
+        Rewriter.set_user_state
+          { ssa_versions = versions; ssa_substitutions = substitutions }
+      in
       let* () =
         Rewriter.Logs.debug (fun printers m ->
             m "Lowering.rewrite_ssa_transform: Starting rewrites on callable %a"
               printers.pr_callable c)
       in
-
       let+ body = rewrite_ssa_stmts body in
-
       { c with call_def = ProcDef { proc_body = Some body } }
 
 let rec rewrite_assign_stmts (s : Stmt.t) : Stmt.t Rewriter.t =
@@ -2064,8 +1973,7 @@ let lower (m : Module.t) : (Module.t * CallGraph.Graph.t) Rewriter.t =
           m.mod_decl.mod_decl_name printers.pr_module m)
   in
   let* m =
-    Rewriter.eval_with_user_state
-      ~init:(Map.empty (module Ident))
+    Rewriter.eval_with_user_state ~init:empty_ssa_state
       (Rewriter.Module.rewrite_callables ~f:rewrite_ssa_transform m)
   in
 

@@ -1,0 +1,68 @@
+field contents: Int
+
+proc simultaneous_updates() {
+  var x: Int := 1;
+  var y: Int := 2;
+  x, y := (y, x);
+  assert x == 2 && y == 1;
+  x, y := (x + y, x - y);
+  assert x == 3 && y == 1;
+}
+
+proc nested_updates(outer: Bool, inner: Bool) {
+  var x: Int := 1;
+  var y: Int := 2;
+  if (outer) {
+    x := 3;
+    if (inner) {
+      y := x + 1;
+    } else {
+      x := y + 3;
+      y := x + 1;
+    }
+  } else {
+    y := x + 5;
+    x := y + 1;
+  }
+  val expected_x := outer ? (inner ? 3 : 5) : 7;
+  val expected_y := outer ? (inner ? 4 : 6) : 6;
+  assert x == expected_x && y == expected_y;
+  x, y := (y, x);
+  assert x == expected_y && y == expected_x;
+}
+
+proc one_arm_update(branch: Bool) {
+  var x: Int := 1;
+  var untouched: Int := 9;
+  if (branch) { x := 2; }
+  assert x == (branch ? 2 : 1) && untouched == 9;
+}
+
+proc bind_new_versions() {
+  ghost var x: Int := 0;
+  ghost var y: Int := 0;
+  havoc x;
+  x :| x == 7;
+  havoc y;
+  y :| y == x + 1;
+  assert x == 7 && y == 8;
+}
+
+proc havoc_then_update() {
+  var x: Int := 5;
+  havoc x;
+  val observed := x;
+  x := x + 1;
+  assert x == observed + 1;
+}
+
+proc resource_assertion(r: Ref)
+  requires own(r.contents, 5)
+  ensures own(r.contents, 9)
+{
+  assert own(r.contents, 5);
+  var x := r.contents;
+  assert x == 5;
+  r.contents := x + 4;
+  assert own(r.contents, 9);
+}
