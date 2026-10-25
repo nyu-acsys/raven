@@ -290,16 +290,25 @@ module Member = struct
   let callable c = S.Module.symbol (CallDef c)
   let import ~loc ?all name = S.Module.import_member (S.Module.import ~loc ?all name)
 
-  let module_ ~loc ?(interface = false) ?(params = []) ?(implements = [])
-      ?(sealed = false) name members =
-    let params = List.map params ~f:(fun (param, typ) -> S.Module.param ~loc param typ) in
+  let module_with_parameters ~loc ~parameters ?interface ?(implements = []) ?sealed name
+      members =
     let implements =
       List.map implements ~f:(fun (iface, args) -> (iface, List.map args ~f:S.Module.arg))
     in
     S.Module.symbol
-      (S.Module.module_def ~interface
-         (S.Module.header ~loc ~params ~implements ~sealed name)
+      (S.Module.module_def ?interface
+         (S.Module.header_with_parameters ~loc ~parameters ~implements ?sealed name)
          (S.Module.members members))
+
+  let module_ ~loc ?interface ?(params = []) ?implements ?sealed name members =
+    let params = List.map params ~f:(fun (param, typ) -> S.Module.param ~loc param typ) in
+    module_with_parameters ~loc
+      ~parameters:(Ast.Module.parameters_of_formals params)
+      ?interface ?implements ?sealed name members
+
+  let unit_factory ~loc ?interface ?implements ?sealed name members =
+    module_with_parameters ~loc ~parameters:Ast.Module.UnitParameter ?interface
+      ?implements ?sealed name members
 
   let instance ~loc ?def name typ =
     let def =
@@ -307,6 +316,16 @@ module Member = struct
           (functor_, List.map args ~f:S.Module.arg))
     in
     S.Module.symbol (S.Module.instance ~loc ?def name typ)
+
+  let alias ~loc ?typ name target =
+    S.Module.symbol
+      (S.Module.binding ~loc ~definition:(Ast.Module.Alias target) name
+         (Option.value typ ~default:target))
+
+  let unit_instance ~loc ?typ name factory =
+    S.Module.symbol
+      (S.Module.binding ~loc ~definition:(Ast.Module.ApplyUnit factory) name
+         (Option.value typ ~default:factory))
 
   let free : t -> t = function
     | SymbolDef symbol -> SymbolDef (Ast.Symbol.set_free symbol)

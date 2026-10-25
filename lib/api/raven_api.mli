@@ -319,9 +319,28 @@ module Member : sig
   (** The module, or interface if [interface], [name] with parameters [name: I] and the
       interfaces it implements, sealed if [sealed]. *)
 
+  val unit_factory :
+    loc:Loc.t ->
+    ?interface:bool ->
+    ?implements:(Name.t * Type.t list) list ->
+    ?sealed:bool ->
+    Ident.t ->
+    t list ->
+    t
+  (** The unit-parameter factory [module name() { ... }], or its interface if [interface],
+      sealed if [sealed]. *)
+
   val instance : loc:Loc.t -> ?def:Name.t * Type.t list -> Ident.t -> Name.t -> t
   (** The instance [module name : typ = functor[args]], or the abstract module
       [name : typ] if no definition is given. *)
+
+  val alias : loc:Loc.t -> ?typ:Name.t -> Ident.t -> Name.t -> t
+  (** The binding [module name : typ = target], without applying [target]. The declared
+      [typ] defaults to [target]. *)
+
+  val unit_instance : loc:Loc.t -> ?typ:Name.t -> Ident.t -> Name.t -> t
+  (** The fresh application [module name : typ = factory()]. The declared [typ] defaults
+      to [factory]. *)
 
   val free : t -> t
   (** [member], trusted rather than verified. *)

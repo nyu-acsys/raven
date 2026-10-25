@@ -79,3 +79,8 @@
  (name module_shapes)
  (modules module_shapes)
  (libraries raven base))
+
+(test
+ (name unit_factories_api)
+ (modules unit_factories_api)
+ (libraries raven raven-ivl.api base))

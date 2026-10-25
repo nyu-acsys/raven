@@ -1,0 +1,14 @@
+module Tokens() {
+  type T = data { case token(value: Int) }
+}
+module First = Tokens()
+module Second = Tokens()
+module Alias = First
+
+proc demo() {
+  val first: First.T := First.token(3);
+  val same: Alias.T := first;
+  assert same.value == 3;
+  val second: Second.T := Second.token(5);
+  assert second.value == 5;
+}

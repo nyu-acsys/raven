@@ -1,0 +1,7 @@
+module Fresh() {
+  type T = data { case token }
+}
+module Alias = Fresh
+module Outer[E: Library.Type] {
+  module Bad = Alias()
+}

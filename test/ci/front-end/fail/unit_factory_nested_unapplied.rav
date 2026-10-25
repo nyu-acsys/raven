@@ -1,0 +1,7 @@
+module Outer[E: Library.Type] {
+  module Fresh() {
+    type T = data { case token }
+  }
+}
+module Applied = Outer[Int]
+proc bad(x: Applied.Fresh.T) { }

@@ -1,0 +1,8 @@
+interface Result {
+  type T
+}
+module Fresh() : Result {
+  type T = data { case token }
+}
+module Uses[E: Result] { }
+module Bad = Uses[Fresh]

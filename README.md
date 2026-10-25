@@ -13,7 +13,7 @@ Raven is an intermediate verification language and SMT-based deductive verifier 
 
 > **[nyu-acsys.github.io/raven](https://nyu-acsys.github.io/raven/)** — project page, with an introduction to the language and a [hands-on tutorial](https://nyu-acsys.github.io/raven/tutorial/). This file covers installing, running and developing Raven itself.
 
-Raven's language design draws inspiration from projects like [Boogie](https://www.microsoft.com/en-us/research/project/boogie-an-intermediate-verification-language/), [Why3](https://www.why3.org/), and [Viper](https://www.pm.inf.ethz.ch/research/viper.html) but treats concurrency as a first-class citizen. 
+Raven's language design draws inspiration from projects like [Boogie](https://www.microsoft.com/en-us/research/project/boogie-an-intermediate-verification-language/), [Why3](https://www.why3.org/), and [Viper](https://www.pm.inf.ethz.ch/research/viper.html) but treats concurrency as a first-class citizen. User-definable physically atomic operations let Raven model the concurrency primitives of different languages and systems.
 Raven has a sizeable, and growing [collection](test/concurrent) of verified implementations of fine-grained concurrent data structures commonly found in the literature as well as real systems.
 
 Raven supports features like *shareable* invariants, user-definable resource algebras ("monoids"), and a higher-order module system that enables code and proof reuse. Its inlined style of development, interleaving code and proof, streamlines the process of co-developing a program alongside its proof of correctness. The Raven verifier then translates Raven programs to verification conditions expressed in first-order logic, which are then automatically dispatched using the SMT solver [Z3](https://github.com/Z3Prover/z3).
@@ -182,36 +182,6 @@ Other flags useful during development: `--typeonly` (type-check only), `--verbos
 
 
 ## Raven Verifier Manual
-
-### Physically atomic procedures
-
-An `atomic proc` declares that its entire body executes as one physical atomic
-block. Its ordinary `requires` and `ensures` clauses are checked around that block:
-
-```raven
-field count: Int
-
-atomic proc increment(x: Ref, implicit ghost before: Int)
-  requires own(x.count, before)
-  ensures own(x.count, before + 1)
-{
-  x.count := x.count + 1;
-}
-```
-
-Callers use this guarantee from the declaration, including through module
-interfaces. A synchronous call counts as one physical step and needs no abort
-restoration branch; ownership, invariant masks, and reentrancy checks still apply.
-An implementation of an `atomic proc` interface member must also be declared
-`atomic proc`. An opaque interface view, or a functor parameter whose interface
-declares only `proc`, does not expose physical atomicity. Direct calls through a
-transparent module can use its concrete `atomic proc` declaration.
-
-A regular `proc` with `atomic requires`/`atomic ensures` has a logically atomic
-specification and may take multiple physical steps, using the AU protocol to
-commit its operation. An `atomic proc` uses ordinary contract clauses and has no
-AU protocol of its own. Logical atomic clauses on an `atomic proc` are rejected.
-
 
 ### Command-line options
 

@@ -1,0 +1,8 @@
+interface Factory() {
+  type T
+}
+module Named[E: Library.Type] {
+  type T = data { case token }
+}
+module Uses[F: Factory] { }
+module Bad = Uses[Named]

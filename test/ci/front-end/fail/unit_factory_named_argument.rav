@@ -1,0 +1,2 @@
+module Fresh() { }
+module Bad = Fresh[Int]

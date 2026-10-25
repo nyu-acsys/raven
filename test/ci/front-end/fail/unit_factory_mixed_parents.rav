@@ -1,0 +1,6 @@
+interface UnitParent() { type T }
+interface NamedParent[E: Library.Type] { type U }
+module Mixed() : UnitParent, NamedParent {
+  type T = Int
+  type U = Int
+}

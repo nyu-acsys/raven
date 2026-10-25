@@ -1,0 +1,176 @@
+interface Result {
+  type T
+}
+
+interface Factory() : Result {
+  proc identity(x: T) returns (r: T)
+    ensures r == x
+}
+
+module Fresh() : Factory {
+  type T = data { case token }
+
+  proc identity(x: T) returns (r: T)
+    ensures r == x
+  {
+    r := x;
+  }
+}
+
+module A = Fresh()
+module B = Fresh()
+module SameA = A
+module FreshAlias = Fresh
+module ThroughAlias = FreshAlias()
+
+proc keep_alias(x: A.T) returns (r: SameA.T)
+  ensures r == x
+{
+  r := SameA.identity(x);
+}
+
+proc use_factory_alias(x: ThroughAlias.T) returns (r: ThroughAlias.T)
+  ensures r == x
+{
+  r := ThroughAlias.identity(x);
+}
+
+module IntegerFactory() {
+  type T = Int
+}
+module IntegerOne = IntegerFactory()
+module IntegerTwo = IntegerFactory()
+
+func manifest_alias(x: IntegerOne.T) returns (r: IntegerTwo.T) { x }
+
+module Outer[E: Library.Type] {
+  module Fresh() : Result {
+    type T = data { case token(value: E) }
+
+    proc read(x: T) returns (r: E)
+      ensures r == x.value
+    {
+      r := x.value;
+    }
+  }
+}
+module OuterInt = Outer[Int]
+module Nested = OuterInt.Fresh()
+
+proc use_nested() returns (r: Int)
+  ensures r == 5
+{
+  r := Nested.read(Nested.token(5));
+}
+
+module Apply[F: Factory] {
+  module Run() {
+    module Value = F()
+
+    proc identity(x: Value.T) returns (r: Value.T)
+      ensures r == x
+    {
+      r := Value.identity(x);
+    }
+  }
+}
+module Applied = Apply[FreshAlias]
+module Ran = Applied.Run()
+
+proc use_higher_order(x: Ran.Value.T) returns (r: Ran.Value.T)
+  ensures r == x
+{
+  r := Ran.identity(x);
+}
+
+module Sealed() :> Factory {
+  type T = data { case token }
+
+  proc identity(x: T) returns (r: T)
+    ensures r == x
+  {
+    r := x;
+  }
+}
+module SealedValue = Sealed()
+module SameSealed = SealedValue
+
+proc use_sealed_factory(x: SealedValue.T) returns (r: SameSealed.T)
+  ensures r == x
+{
+  r := SameSealed.identity(x);
+}
+
+module Bound :> Factory = Fresh()
+module BoundAlias = Bound
+
+proc use_sealed_binding(x: Bound.T) returns (r: BoundAlias.T)
+  ensures r == x
+{
+  r := BoundAlias.identity(x);
+}
+
+module OrdinaryView : Result = Fresh()
+func keep_ordinary_view(x: OrdinaryView.T) returns (r: OrdinaryView.T) { x }
+
+module Container { module Value = Fresh() }
+module ContainerAlias = Container
+func keep_container_alias(x: Container.Value.T) returns (r: ContainerAlias.Value.T) { x }
+
+module AliasBound :> Factory = A
+module AliasBoundCopy = AliasBound
+func keep_alias_bound(x: AliasBound.T) returns (r: AliasBoundCopy.T) { x }
+
+module OuterFresh() { module Value = Fresh() }
+module FirstOuter = OuterFresh()
+module SecondOuter = OuterFresh()
+module FirstOuterAlias = FirstOuter
+func keep_fresh_outer_alias(x: FirstOuter.Value.T) returns (r: FirstOuterAlias.Value.T) { x }
+
+module SealedPlain() :> Result { type T = data { case token } }
+module Plain = SealedPlain()
+module PlainAlias = Plain
+func keep_plain_alias(x: Plain.T) returns (r: PlainAlias.T) { x }
+module PlainView :> Result = Plain
+module PlainViewAlias = PlainView
+func keep_plain_view_alias(x: PlainView.T) returns (r: PlainViewAlias.T) { x }
+
+module Rebound :> Factory = Bound
+module ReboundAlias = Rebound
+func keep_rebound_alias(x: Rebound.T) returns (r: ReboundAlias.T) { x }
+
+interface Item { type T }
+interface MemberFactory() { module Leaf: Item }
+module FreshMember() :> MemberFactory {
+  module Leaf: Item { type T = data { case token } }
+}
+module Member = FreshMember()
+module MemberAlias = Member
+func keep_opaque_member(x: Member.Leaf.T) returns (r: MemberAlias.Leaf.T) { x }
+
+module OuterIntAlias = OuterInt
+module ViaOuterAlias = OuterIntAlias.Fresh()
+proc use_outer_alias() returns (r: Int)
+  ensures r == 7
+{ r := ViaOuterAlias.read(ViaOuterAlias.token(7)); }
+
+module UsesResult[R: Result] {
+  func identity(x: R.T) returns (r: R.T) { x }
+}
+module AliasResultClient = UsesResult[ViaOuterAlias]
+
+interface HasFactory { module Make: Factory }
+module Implementation : HasFactory {
+  module Make() : Factory {
+    type T = Int
+    proc identity(x: T) returns (r: T) ensures r == x { r := x; }
+  }
+}
+module FromMember = Implementation.Make()
+func keep_member_result(x: FromMember.T) returns (r: FromMember.T) { x }
+
+module HiddenImplementation :> HasFactory { module Make = Implementation.Make }
+module HiddenValue = HiddenImplementation.Make()
+proc keep_hidden_member(x: HiddenValue.T) returns (r: HiddenValue.T)
+  ensures r == x
+{ r := HiddenValue.identity(x); }

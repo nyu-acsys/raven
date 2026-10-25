@@ -1,0 +1,11 @@
+module Fresh() {
+  field f: Int
+}
+module A = Fresh()
+module B = Fresh()
+
+proc cannot_transfer(x: Ref, ghost n: Int)
+  requires own(x.A.f, n, 1.0)
+  ensures own(x.B.f, n, 1.0)
+{
+}

@@ -1,0 +1,6 @@
+interface Factory() { type T }
+module Fresh() : Factory { type T = Int }
+module A = Fresh()
+module Left :> Factory = A
+module Right :> Factory = A
+proc cannot_mix_views(x: Left.T) returns (r: Right.T) { r := x; }

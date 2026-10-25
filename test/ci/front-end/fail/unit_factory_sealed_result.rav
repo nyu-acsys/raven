@@ -1,0 +1,5 @@
+interface Factory() { type T }
+module Fresh() : Factory { type T = data { case token } }
+module A = Fresh()
+module Hidden :> Factory = A
+proc cannot_construct() { val x := Hidden.token; }

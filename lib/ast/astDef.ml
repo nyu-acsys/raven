@@ -3480,6 +3480,10 @@ module Module = struct
 
   let unit_parameter_ident = Ident.make Loc.dummy "$unit_parameter" 0
   let unit_parameter_path name = QualIdent.append name unit_parameter_ident
+
+  let is_unit_parameter_path name =
+    Ident.equal (QualIdent.unqualify name) unit_parameter_ident
+
   let parameters_of_formals = function [] -> Structure | ps -> NamedParameters ps
 
   let parameter_formals = function
@@ -3702,10 +3706,9 @@ module Module = struct
             Ident.pr ma.mod_inst_name QualIdent.pr ma.mod_inst_type
             (fun ppf -> function
               | None -> ()
+              | Some (Alias t) -> fprintf ppf " =@ %a" QualIdent.pr t
               | Some (ApplyUnit t) -> fprintf ppf " =@ %a()" QualIdent.pr t
-              | Some application ->
-                  let t = application_target application in
-                  let ts = application_args application in
+              | Some (Apply (t, ts)) ->
                   fprintf ppf " =@ %a[%a]" QualIdent.pr t
                     (Print.pr_list_comma pr_mod_inst_arg)
                     ts)

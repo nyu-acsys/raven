@@ -71,7 +71,7 @@ checked answers.
 - **{{ref app:stdlib-types}}: Standard Library Data Types**: options, lists, sequences,
   and arrays.
 - **{{ref app:advanced-modules}}: Advanced Module Features**: inference rules, instance
-  identity, and sealing forms.
+  identity, generative factories, and sealing forms.
 - **{{ref app:automation}}: Automation Features**: implicit parameters, witness computation,
   triggers, inline predicates and functions, and troubleshooting slow proofs.
 - **{{ref app:overloading}}: Function and Operator Overloading**: shared names, imports,

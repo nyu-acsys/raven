@@ -1,0 +1,37 @@
+module Fresh() {
+  field f: Int
+
+  proc read(x: Ref, ghost n: Int) returns (r: Int)
+    requires own(x.f, n, 1.0)
+    ensures own(x.f, n, 1.0) && r == n
+  {
+    r := x.f;
+  }
+}
+module A = Fresh()
+module B = Fresh()
+module Alias = A
+
+proc through_alias(x: Ref, ghost n: Int) returns (r: Int)
+  requires own(x.A.f, n, 1.0)
+  ensures own(x.Alias.f, n + 1, 1.0) && r == n
+{
+  r := Alias.read(x, n);
+  val old := x.A.f;
+  x.Alias.f := old + 1;
+}
+
+proc preserve_other_field(x: Ref, ghost first: Int, ghost second: Int)
+  requires own(x.A.f, first, 1.0) && own(x.B.f, second, 1.0)
+  ensures own(x.Alias.f, first + 1, 1.0) && own(x.B.f, second, 1.0)
+{
+  val old := x.A.f;
+  x.Alias.f := old + 1;
+}
+
+module Container { module Value = Fresh() }
+module ContainerAlias = Container
+proc nested_alias(x: Ref, ghost n: Int)
+  requires own(x.Container.Value.f, n, 1.0)
+  ensures own(x.ContainerAlias.Value.f, n, 1.0)
+{ }

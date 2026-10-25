@@ -1,0 +1,5 @@
+module Fresh() {
+  type T = data { case token }
+}
+module Alias = Fresh
+proc bad(x: Alias.T) { }

@@ -6,6 +6,13 @@ open Util
 open TypingMonad
 open TypingErrors
 
+let same_parameter_shape (left : Module.module_parameters)
+    (right : Module.module_parameters) =
+  match (left, right) with
+  | Module.Structure, Structure | UnitParameter, UnitParameter -> true
+  | NamedParameters left, NamedParameters right -> List.length left = List.length right
+  | _ -> false
+
 (** The module standing for the type [tp] passed for [formal], whose interface is
     [formal_iface] (see [ProgUtils.get_or_intros_rep_module]). *)
 let rep_module_of_type_arg (formal : Module.module_inst) (formal_iface : qual_ident)
@@ -192,6 +199,7 @@ let check_implements_callable (call_def : Callable.t) (orig_call_def : Callable.
 let check_implements_mod_inst (mod_def : Module.t) (orig_mod_inst : Module.module_inst)
     (interface_ident : qual_ident) (symbol : Symbol.t) (loc : location) (ident : ident) :
     unit t =
+  let open Rewriter.Syntax in
   if mod_def.mod_decl.mod_decl_is_interface && not orig_mod_inst.mod_inst_is_interface
   then redeclared_module_as_interface_error loc ident interface_ident
   else if
@@ -209,8 +217,12 @@ let check_implements_mod_inst (mod_def : Module.t) (orig_mod_inst : Module.modul
       if not implements_required then
         must_implement_error loc (Symbol.kind symbol) ident orig_mod_typ interface_ident
     in
-    if not (Module.is_structure mod_def.mod_decl) then
-      module_parameters_error loc (Symbol.kind symbol) ident
+    let* expected = Rewriter.find_and_reify_module orig_mod_inst.mod_inst_type in
+    if
+      not
+        (same_parameter_shape mod_def.mod_decl.mod_decl_parameters
+           expected.mod_decl.mod_decl_parameters)
+    then module_parameters_error loc (Symbol.kind symbol) ident
     else
       match orig_mod_inst.mod_inst_def with
       | Some _ -> redefined_error loc (Symbol.kind symbol) ident interface_ident
@@ -227,11 +239,24 @@ let check_implements_mod_inst_by_inst (mod_inst : Module.module_inst)
     redeclared_interface_as_module_error loc ident interface_ident
   else
     let* mod_inst_def = Rewriter.find_and_reify_module mod_inst.mod_inst_type in
+    let* expected = Rewriter.find_and_reify_module orig_mod_inst.mod_inst_type in
+    let actual_parameters =
+      match mod_inst.mod_inst_def with
+      | Some (Module.Apply _ | ApplyUnit _) -> Module.Structure
+      | None | Some (Alias _) -> mod_inst_def.mod_decl.mod_decl_parameters
+    in
     if
       not @@ Set.mem mod_inst_def.mod_decl.mod_decl_interfaces orig_mod_inst.mod_inst_type
     then
       must_implement_error loc (Symbol.kind symbol) ident orig_mod_inst.mod_inst_type
         interface_ident
+    else if
+      Option.is_none orig_mod_inst.mod_inst_def
+      && not
+           (same_parameter_shape actual_parameters expected.mod_decl.mod_decl_parameters)
+    then
+      Error.type_error loc
+        "The module member does not preserve its interface's parameter shape"
     else
       match (mod_inst.mod_inst_def, orig_mod_inst.mod_inst_def) with
       | Some _, Some _ -> redefined_error loc (Symbol.kind symbol) ident interface_ident
@@ -287,7 +312,7 @@ let check_implements_symbol ?(manifest_subst = Map.empty (module QualIdent))
         interface_ident (Symbol.kind symbol)
 
 (** Check that module `mod_ident` (M) implements interface `int_ident` (I) *)
-let check_module_type mod_ident int_ident =
+let check_module_type ?(as_result = false) mod_ident int_ident =
   let open Rewriter.Syntax in
   (* Get qualified idents and symbols of M and I *)
   let+ qual_mod_ident, mod_symbol = Rewriter.resolve_and_find mod_ident
@@ -314,11 +339,19 @@ let check_module_type mod_ident int_ident =
   in
   (* Check whether I is fully instantiated *)
   let int_is_instance =
-    Rewriter.Symbol.extract int_symbol ~f:(fun _ _subst -> function
+    as_result
+    || Rewriter.Symbol.extract int_symbol ~f:(fun _ _subst -> function
       | Ast.Module.ModDef mod_def ->
           Module.is_structure mod_def.mod_decl
           || Rewriter.Symbol.is_module_instance int_symbol
       | _ -> true)
+  in
+  let parameters symbol =
+    if Rewriter.Symbol.is_module_instance symbol then Module.Structure
+    else
+      match Rewriter.Symbol.orig_symbol symbol with
+      | Module.ModDef module_ -> module_.mod_decl.mod_decl_parameters
+      | _ -> Module.Structure
   in
   (* Check if I is one of M's interfaces *)
   if not (QualIdent.(qual_mod_ident = qual_int_ident) || Set.mem interfaces qual_int_ident)
@@ -326,6 +359,12 @@ let check_module_type mod_ident int_ident =
     does_not_implement_error (QualIdent.to_loc mod_ident)
       (Symbol.kind (Rewriter.Symbol.orig_symbol mod_symbol))
       mod_ident int_ident
+  else if
+    (not int_is_instance)
+    && not (same_parameter_shape (parameters mod_symbol) (parameters int_symbol))
+  then
+    Error.type_error (QualIdent.to_loc mod_ident)
+      "The module does not have its interface's parameter shape"
   else if
     (* Make sure that I is the type of M itself rather than the expected type
          of the module obtained by instantiating *)
@@ -821,6 +860,15 @@ let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_iden
                    this module; an applied one supplied them as arguments. *)
             let formals =
               match (formals, args) with
+              | Some required, [] when not (Module.is_structure interface.mod_decl) ->
+                  if
+                    not
+                      (same_parameter_shape required
+                         interface.mod_decl.mod_decl_parameters)
+                  then
+                    Error.type_error m.mod_decl.mod_decl_loc
+                      "The interfaces impose incompatible module parameter shapes";
+                  formals
               | Some _, _ | None, _ :: _ -> formals
               | None, [] ->
                   if Module.is_structure interface.mod_decl then None

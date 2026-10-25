@@ -1,0 +1,4 @@
+module Fresh() : Library.Type {
+  rep type T = data { case token }
+}
+proc bad(x: Fresh) { }

@@ -207,7 +207,7 @@ one instance consistently, or provide argument or result types that identify the
 want. When Raven cannot infer a parameter, write an explicit instantiation.
 
 {{ref app:advanced-modules}} covers inference from expected result types, unresolved parameters,
-instance identity, and the generic `default` value.
+instance identity, generative factories, and the generic `default` value.
 
 ## Sealing modules {#sec:sealing}
 

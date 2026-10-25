@@ -594,18 +594,23 @@ module Module = struct
   let arg (typ : Type.t) : Module.module_inst_arg =
     match typ with App (Var qi, [], _) -> ModArg qi | tp -> TypeArg tp
 
-  (** The header of the module or interface [name]: its parameters and the interfaces it
-      implements, sealed if [sealed]. *)
-  let header ~loc ?(params = []) ?(implements = []) ?(sealed = false) (name : Ident.t) :
-      Module.module_decl =
+  (** The header of the module or interface [name], with its explicit parameter shape. *)
+  let header_with_parameters ~loc ~parameters ?(implements = []) ?(sealed = false)
+      (name : Ident.t) : Module.module_decl =
     {
       Module.empty_decl with
       mod_decl_name = name;
-      mod_decl_parameters = Module.parameters_of_formals params;
+      mod_decl_parameters = parameters;
       mod_decl_returns = implements;
       mod_decl_is_sealed = sealed;
       mod_decl_loc = loc;
     }
+
+  (** The header with named parameters, or of a structure when [params] is empty. *)
+  let header ~loc ?(params = []) ?implements ?sealed name =
+    header_with_parameters ~loc
+      ~parameters:(Module.parameters_of_formals params)
+      ?implements ?sealed name
 
   (** The module, or the interface if [interface], with [header] and [members]. *)
   let module_def ?(interface = false) (header : Module.module_decl)

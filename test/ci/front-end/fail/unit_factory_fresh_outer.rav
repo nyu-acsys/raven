@@ -1,0 +1,5 @@
+module Fresh() { type T = data { case token } }
+module Outer() { module Value = Fresh() }
+module A = Outer()
+module B = Outer()
+proc cannot_mix(x: A.Value.T) returns (r: B.Value.T) { r := x; }

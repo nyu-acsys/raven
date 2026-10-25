@@ -1,0 +1,2 @@
+module Named[E: Library.Type] { }
+module Bad = Named()

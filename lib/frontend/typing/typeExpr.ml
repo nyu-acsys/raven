@@ -39,6 +39,13 @@ let rec check (tp_expr : type_expr) : type_expr t =
                   | Some (_, gm) ->
                       arg_mismatch_error "Module" tp_attr.type_loc (Type.Var qual_ident)
                         (List.length (Module.formals gm.mod_decl))
+                  | None
+                    when match m.mod_decl.mod_decl_parameters with
+                         | UnitParameter -> true
+                         | Structure | NamedParameters _ -> false ->
+                      Error.type_error tp_attr.type_loc
+                        "A unit factory must be applied with () before using its result \
+                         type"
                   | None ->
                       Rewriter.return
                         (App (Var rep_fully_qualified_qual_ident, [], tp_attr)))))

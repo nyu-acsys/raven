@@ -1,0 +1,6 @@
+interface Factory() {
+  type T
+}
+module Outer[F: Factory] {
+  module Bad = F()
+}

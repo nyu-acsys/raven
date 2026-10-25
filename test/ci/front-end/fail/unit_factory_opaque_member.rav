@@ -1,0 +1,8 @@
+interface Item { type T }
+interface Factory() { module Leaf: Item }
+module Fresh() :> Factory {
+  module Leaf: Item { type T = data { case token } }
+}
+module A = Fresh()
+module B = Fresh()
+proc cannot_mix(x: A.Leaf.T) returns (r: B.Leaf.T) { r := x; }

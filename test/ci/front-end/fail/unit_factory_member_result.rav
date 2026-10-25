@@ -1,0 +1,5 @@
+interface Factory() { type T }
+interface HasFactory { module Make: Factory }
+module Fresh() : Factory { type T = Int }
+module Value = Fresh()
+module Bad : HasFactory { module Make = Value }

@@ -1,0 +1,4 @@
+interface Factory() { type T }
+module Bad[F: Factory] {
+  proc cannot_read_result(x: F.T) { }
+}

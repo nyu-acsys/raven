@@ -1,0 +1,7 @@
+module Bad() {
+  proc zero() returns (r: Int)
+    ensures r == 0
+  {
+    r := 1;
+  }
+}

@@ -1,0 +1,9 @@
+interface Factory() {
+  type T
+}
+module Fresh() : Factory {
+  type T = data { case token }
+}
+module A = Fresh()
+module Uses[F: Factory] { }
+module Bad = Uses[A]

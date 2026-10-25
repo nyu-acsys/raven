@@ -1,0 +1,3 @@
+interface Factory() { type T }
+module Fresh() : Factory { type T = Int }
+module Hidden :> Factory = Fresh

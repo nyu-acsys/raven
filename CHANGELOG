@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Unit-parameter module factories use `module F()` and `F()` to generate fresh instances.
 - `Seq.of_list` converts lists to sequences with constructor and length laws.
 - Physically atomic procedures use `atomic proc` with ordinary preconditions and postconditions.
 - Report all errors instead of only the first, up to `--max-errors` (default 20).

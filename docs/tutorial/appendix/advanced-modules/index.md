@@ -3,7 +3,8 @@
 *Assumes: Part 3's interfaces, functors, and {{ref sec:implicit-functor-instantiation}}.*
 
 The module chapter introduces the common forms. This appendix covers the additional inference
-rules, type identities, and sealing forms that matter when building reusable libraries.
+rules, type identities, generative factories, and sealing forms that matter when building
+reusable libraries.
 
 ## Eligibility and inference {#sec:module-inference-details}
 
@@ -78,6 +79,32 @@ instance evidence cannot merge two distinct types.
 When a call has insufficient context, qualify it through the intended module. This also avoids
 relying on contextual inference for constructors or other member forms whose inference rules
 are more limited than ordinary function calls.
+
+## Generative factories {#sec:module-generative-factories}
+
+A unit parameter, written `()`, requires a fresh application. In
+[`unit_factories.rav`](./unit_factories.rav), `Tokens` declares a nominal token type:
+
+```raven
+module Tokens() {
+  type T = data { case token(value: Int) }
+}
+module First = Tokens()
+module Second = Tokens()
+module Alias = First
+```
+
+`First.T` and `Second.T` are distinct types. An alias introduces no new instance,
+so a `First.T` value can also be used as an `Alias.T`. A manifest equation such
+as `type T = Int` keeps that equality even in fresh instances.
+
+An interface can declare the same unit parameter, for example
+`interface Factory() { type T }`. A parameter `F: Factory` denotes an unapplied
+factory; use `module Value = F()` before accessing its result members. Raven never
+inserts `()` through inference. A named-parameter functor can define a nested
+factory for its clients to apply, but cannot itself apply a factory in its body.
+Factories may apply other factories. Seal factory declarations or applied results;
+sealing an unapplied factory alias is unsupported.
 
 ## Generic default values {#sec:module-default-values}
 

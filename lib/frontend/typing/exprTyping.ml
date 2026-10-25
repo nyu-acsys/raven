@@ -71,7 +71,10 @@ let module_identity exp_ty fnd_ty =
       match (expected, found) with
       | ( Some (_, (exp_alias, _, (_, _, exp_subst))),
           Some (_, (fnd_alias, _, (_, _, fnd_subst))) )
-        when QualIdent.(exp_alias = fnd_alias) ->
+        when QualIdent.(exp_alias = fnd_alias)
+             && not
+                  (List.exists (exp_subst @ fnd_subst) ~f:(fun (source, _) ->
+                       Module.is_unit_parameter_path source)) ->
           let owner = QualIdent.pop exp_alias in
           let+ owner_symbol = Rewriter.find_absolute owner in
           begin match owner_symbol with

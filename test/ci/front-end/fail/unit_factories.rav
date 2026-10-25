@@ -1,0 +1,9 @@
+module Fresh() {
+  type T = data { case token }
+}
+module A = Fresh()
+module B = Fresh()
+
+proc cannot_mix(x: A.T) returns (r: B.T) {
+  r := x;
+}

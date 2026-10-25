@@ -170,8 +170,8 @@ module_def:
 }
   
 module_header:
-| id = MODIDENT; mod_formals = module_param_list_opt; rt = return_type_opt {
-  Surface.Module.header ~loc:(Loc.make $startpos(id) $endpos(id)) ~params:mod_formals
+| id = MODIDENT; parameters = module_param_list_opt; rt = return_type_opt {
+  Surface.Module.header_with_parameters ~loc:(Loc.make $startpos(id) $endpos(id)) ~parameters
     ~implements:(fst rt) ~sealed:(snd rt) id
 }
 
@@ -194,16 +194,23 @@ module_inst_or_impl_or_decl:
                     mod_def = ms;
                   } )
 }
-| EQ; mod_name = mod_ident; args = mod_inst_args {
-  Module.( ModInst (mk_mod_inst ~name:(Ident.make Loc.dummy "" 0) (* dummy *)
+| EQ; mod_name = mod_ident; application = module_application_suffix {
+  Module.( ModInst (mk_mod_binding ~name:(Ident.make Loc.dummy "" 0) (* dummy *)
                      ~typ:(QualIdent.make [] (Ident.make Loc.dummy "" 0)) (* dummy *)
-                     ~def:(mod_name, args) ~loc:Loc.dummy ()) )
+                     ~definition:(application mod_name) ~loc:Loc.dummy ()) )
 }
 | (* empty *) {
   Module.( ModInst (mk_mod_inst ~name:(Ident.make Loc.dummy "" 0) (* dummy *)
                      ~typ:(QualIdent.make [] (Ident.make Loc.dummy "" 0)) (* dummy *)
                      ~loc:Loc.dummy ()) )
 }
+
+module_application_suffix:
+| LPAREN RPAREN { fun target -> Module.ApplyUnit target }
+| LBRACKET tps = separated_list(COMMA, type_expr) RBRACKET {
+    fun target -> Module.Apply (target, List.map Surface.Module.arg tps)
+}
+| { fun target -> Module.Alias target }
 
 mod_inst_args:
 | LBRACKET tps = separated_list(COMMA, type_expr) RBRACKET { List.map Surface.Module.arg tps }
@@ -294,8 +301,9 @@ func_def:
 (** Member Declarations *)
    
 module_param_list_opt:
-| LBRACKET ps = separated_list(COMMA, module_param) RBRACKET { ps }
-| (* empty *) { [] }
+| LBRACKET ps = separated_list(COMMA, module_param) RBRACKET { Module.parameters_of_formals ps }
+| LPAREN RPAREN { Module.UnitParameter }
+| (* empty *) { Module.Structure }
   
 module_param:
 | id = MODIDENT; COLON; t = mod_ident {

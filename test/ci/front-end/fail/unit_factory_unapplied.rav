@@ -1,0 +1,4 @@
+module Fresh() {
+  type T = data { case token }
+}
+proc bad(x: Fresh.T) { }
