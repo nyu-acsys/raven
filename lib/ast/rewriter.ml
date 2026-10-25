@@ -2116,8 +2116,8 @@ module Module = struct
     function
     | ModInst mod_inst ->
         let+ mod_inst_def =
-          Option.map mod_inst.mod_inst_def
-            ~f:(fun (mod_inst_def_funct, mod_inst_def_args) ->
+          Option.map mod_inst.mod_inst_def ~f:(fun application ->
+              let mod_inst_def_args = Module.application_args application in
               let+ mod_inst_def_args =
                 List.map mod_inst_def_args ~f:(function
                   | Module.ModArg qi -> return (Module.ModArg (f qi))
@@ -2125,7 +2125,8 @@ module Module = struct
                       let+ tp = Type.rewrite_qual_idents ~f tp in
                       Module.TypeArg tp)
               in
-              (f mod_inst_def_funct, mod_inst_def_args))
+              Module.map_application application ~target:f ~args:(fun _ ->
+                  mod_inst_def_args))
         in
         let mod_inst_type = f mod_inst.mod_inst_type in
         let mod_inst_shared =
@@ -2234,9 +2235,9 @@ module Symbol = struct
               let mod_decl =
                 {
                   mod_def.mod_decl with
-                  mod_decl_formals =
-                    (if is_module_instance resolved then []
-                     else mod_def.mod_decl.mod_decl_formals);
+                  mod_decl_parameters =
+                    (if is_module_instance resolved then AstDef.Module.Structure
+                     else mod_def.mod_decl.mod_decl_parameters);
                   mod_decl_is_interface =
                     (if SymbolTbl.has_binding name subst then SymbolTbl.is_abstract subst
                      else mod_def.mod_decl.mod_decl_is_interface);

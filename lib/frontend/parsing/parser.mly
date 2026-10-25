@@ -135,7 +135,7 @@ module_def:
   match def with
   | ModDef impl -> Surface.Module.module_def ~interface:is_interface decl impl.mod_def
   | ModInst ma ->
-      if decl.mod_decl_formals <> [] then
+      if not (Module.is_structure decl) then
         Error.syntax_error (Loc.make $startpos(def) $startpos(def))
           "A module with parameters cannot be defined with '=' (module instantiation syntax); give it a body in '{ ... }' instead"
       else if decl.mod_decl_is_sealed && Option.is_none ma.mod_inst_def then
@@ -156,14 +156,14 @@ module_def:
             Error.syntax_error (Loc.make $startpos(decl) $endpos(decl))
               (Printf.sprintf !"Module %{Ident} has no body, so it can name at most one interface"
                  decl.mod_decl_name)
-        | [ (mod_inst_type, []) ], _
-        | [], Some (mod_inst_type, _) -> mod_inst_type
+        | [ (mod_inst_type, []) ], _ -> mod_inst_type
+        | [], Some application -> Module.application_target application
         | [], None ->
             Error.syntax_error (Loc.make $endpos(decl) $endpos(decl))
               (Printf.sprintf !"Module %{Ident} has no body and no interface: write 'module %{Ident} : I' naming the interface it stands for"
                  decl.mod_decl_name decl.mod_decl_name)
         in
-        Surface.Module.instance ~loc:decl.mod_decl_loc ?def:ma.mod_inst_def
+        Surface.Module.binding ~loc:decl.mod_decl_loc ?definition:ma.mod_inst_def
           ~interface:is_interface ~sealed:decl.mod_decl_is_sealed decl.mod_decl_name
           mod_inst_type
   | symbol -> symbol

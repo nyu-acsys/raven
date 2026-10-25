@@ -133,7 +133,8 @@ let exported_declarations functor_name module_ =
       Rewriter.Symbol.extract symbol ~f:(fun _ requalify -> function
         | Module.ModDef public ->
             let formal_substitutions =
-              List.filter_map (List.zip_exn public.mod_decl.mod_decl_formals args)
+              List.filter_map
+                (List.zip_exn (Module.formals public.mod_decl) args)
                 ~f:(fun (formal, arg) ->
                   match arg with
                   | Module.ModArg arg ->

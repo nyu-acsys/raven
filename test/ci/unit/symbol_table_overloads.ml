@@ -131,7 +131,8 @@ let instance ?(args = []) ?(abstract = false) name target =
     {
       mod_inst_name = id name;
       mod_inst_type = qi target;
-      mod_inst_def = (if abstract then None else Some (qi target, args));
+      mod_inst_def =
+        (if abstract then None else Some (Module.legacy_application (qi target, args)));
       mod_inst_is_interface = abstract;
       mod_inst_is_free = false;
       mod_inst_is_sealed = false;
@@ -158,7 +159,12 @@ let test_parameter_substitution () =
   let interface_decl = { Module.empty_decl with mod_decl_is_interface = true } in
   let formal = instance ~abstract:true "P" [ "I" ] in
   let formal_decl = match formal with Module.ModInst decl -> decl | _ -> assert false in
-  let decl = { Module.empty_decl with mod_decl_formals = [ formal_decl ] } in
+  let decl =
+    {
+      Module.empty_decl with
+      mod_decl_parameters = Module.NamedParameters [ formal_decl ];
+    }
+  in
   let tbl =
     SymbolTbl.create ()
     |> register (module_ ~decl:interface_decl "I" [])

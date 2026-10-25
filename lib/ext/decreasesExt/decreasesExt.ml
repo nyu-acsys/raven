@@ -129,7 +129,7 @@ module DecreasesExt (Cont : Ext) = struct
               else
                 match mod_inst.mod_inst_def with
                 | None -> Rewriter.return false
-                | Some (mod_inst_def_funct, _) -> go visited mod_inst_def_funct)
+                | Some application -> go visited (Module.application_target application))
           | _ -> Rewriter.return false)
     in
     go (Set.empty (module QualIdent)) module_qident

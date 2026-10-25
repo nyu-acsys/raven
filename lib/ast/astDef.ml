@@ -3435,10 +3435,15 @@ module Module = struct
       fresh module implementing the corresponding formal's rep-typed interface. *)
   type module_inst_arg = ModArg of QualIdent.t | TypeArg of type_expr
 
+  type module_application =
+    | Alias of QualIdent.t
+    | Apply of QualIdent.t * module_inst_arg list
+    | ApplyUnit of QualIdent.t
+
   type module_inst = {
     mod_inst_name : ident;
     mod_inst_type : QualIdent.t;
-    mod_inst_def : (QualIdent.t * module_inst_arg list) option;
+    mod_inst_def : module_application option;
     mod_inst_is_interface : bool;
     mod_inst_is_free : bool;
     mod_inst_is_sealed : bool;
@@ -3468,9 +3473,36 @@ module Module = struct
     field_loc : Loc.t;
   }
 
+  type module_parameters =
+    | Structure
+    | NamedParameters of module_inst list
+    | UnitParameter
+
+  let unit_parameter_ident = Ident.make Loc.dummy "$unit_parameter" 0
+  let unit_parameter_path name = QualIdent.append name unit_parameter_ident
+  let parameters_of_formals = function [] -> Structure | ps -> NamedParameters ps
+
+  let parameter_formals = function
+    | NamedParameters ps -> ps
+    | Structure | UnitParameter -> []
+
+  let application_target = function
+    | Alias target | Apply (target, _) | ApplyUnit target -> target
+
+  let application_args = function Apply (_, args) -> args | Alias _ | ApplyUnit _ -> []
+
+  let map_application application ~target ~args =
+    match application with
+    | Alias name -> Alias (target name)
+    | Apply (name, actuals) -> Apply (target name, args actuals)
+    | ApplyUnit name -> ApplyUnit (target name)
+
+  let legacy_application (target, args) =
+    match args with [] -> Alias target | _ -> Apply (target, args)
+
   type module_decl = {
     mod_decl_name : ident;
-    mod_decl_formals : module_inst list;
+    mod_decl_parameters : module_parameters;
         (** Interfaces this module directly implements, in declaration order. Each may
             carry instantiation arguments, for a parameterised parent (`module M[A: I] :
             Base[A]`). Empty when nothing is declared.
@@ -3489,6 +3521,29 @@ module Module = struct
     mod_decl_status : free_status;  (** See [call_decl_status]/[free_status] *)
     mod_decl_loc : location;
   }
+
+  let formals declaration = parameter_formals declaration.mod_decl_parameters
+
+  let is_structure declaration =
+    match declaration.mod_decl_parameters with
+    | Structure -> true
+    | NamedParameters _ | UnitParameter -> false
+
+  let is_named_functor declaration =
+    match declaration.mod_decl_parameters with
+    | NamedParameters _ -> true
+    | Structure | UnitParameter -> false
+
+  let is_functor declaration = not (is_structure declaration)
+
+  let with_formals declaration formals =
+    {
+      declaration with
+      mod_decl_parameters =
+        (match declaration.mod_decl_parameters with
+        | UnitParameter -> UnitParameter
+        | Structure | NamedParameters _ -> parameters_of_formals formals);
+    }
 
   type import_directive = {
     import_name : qual_ident;
@@ -3561,21 +3616,21 @@ module Module = struct
     let rec pr ppf md =
       let open Stdlib.Format in
       let mod_vs =
-        List.map md.mod_decl.mod_decl_formals ~f:(fun v ->
-            (v.mod_inst_name, v.mod_inst_type))
+        List.map (formals md.mod_decl) ~f:(fun v -> (v.mod_inst_name, v.mod_inst_type))
       in
       fprintf ppf "@[<2>%s@ %a%a%a@]@\n{@[<1>@\n%a@]@\n}"
         (if md.mod_decl.mod_decl_is_interface then "interface" else "module")
         Ident.pr md.mod_decl.mod_decl_name
         (* formal parameters *)
         (fun ppf -> function
-          | [] -> ()
-          | vs ->
+          | Structure -> ()
+          | UnitParameter -> fprintf ppf "()"
+          | NamedParameters _ ->
               fprintf ppf "[@[%a@]]"
                 (Print.pr_list_comma (fun ppf (v, t) ->
                      fprintf ppf "%a: %a" Ident.pr v QualIdent.pr t))
-                vs)
-        mod_vs
+                mod_vs)
+        md.mod_decl.mod_decl_parameters
         (* return types *)
         (fun ppf -> function
           | [] -> ()
@@ -3610,7 +3665,7 @@ module Module = struct
                   {
                     mod_inst_name;
                     mod_inst_is_sealed = true;
-                    mod_inst_def = Some (t, []);
+                    mod_inst_def = Some (Alias t);
                     _;
                   })
           :: ms
@@ -3647,7 +3702,10 @@ module Module = struct
             Ident.pr ma.mod_inst_name QualIdent.pr ma.mod_inst_type
             (fun ppf -> function
               | None -> ()
-              | Some (t, ts) ->
+              | Some (ApplyUnit t) -> fprintf ppf " =@ %a()" QualIdent.pr t
+              | Some application ->
+                  let t = application_target application in
+                  let ts = application_args application in
                   fprintf ppf " =@ %a[%a]" QualIdent.pr t
                     (Print.pr_list_comma pr_mod_inst_arg)
                     ts)
@@ -3705,7 +3763,7 @@ module Module = struct
   let empty_decl =
     {
       mod_decl_name = Ident.make Loc.dummy "" 0;
-      mod_decl_formals = [];
+      mod_decl_parameters = Structure;
       mod_decl_returns = [];
       mod_decl_is_sealed = false;
       mod_decl_interfaces = Set.empty (module QualIdent);
@@ -3717,18 +3775,22 @@ module Module = struct
     }
 
   (** A module instance, with the fields not given [None], [false] or empty. *)
-  let mk_mod_inst ~(name : ident) ~(typ : QualIdent.t) ?def ?(is_interface = false)
-      ?(is_sealed = false) ~(loc : location) () : module_inst =
+  let mk_mod_binding ~(name : ident) ~(typ : QualIdent.t) ?definition
+      ?(is_interface = false) ?(is_sealed = false) ~(loc : location) () : module_inst =
     {
       mod_inst_name = name;
       mod_inst_type = typ;
-      mod_inst_def = def;
+      mod_inst_def = definition;
       mod_inst_is_interface = is_interface;
       mod_inst_is_free = false;
       mod_inst_is_sealed = is_sealed;
       mod_inst_shared = [];
       mod_inst_loc = loc;
     }
+
+  let mk_mod_inst ~name ~typ ?def ?is_interface ?is_sealed ~loc () =
+    let definition = Option.map def ~f:legacy_application in
+    mk_mod_binding ~name ~typ ?definition ?is_interface ?is_sealed ~loc ()
 
   (** Auxiliary functions *)
 
@@ -4061,8 +4123,8 @@ end
 
 let merge_prog (prog1 : Module.t) (prog2 : Module.t) =
   (*assert (Ident.equal prog1.mod_decl.mod_decl_name prog2.mod_decl.mod_decl_name);*)
-  assert (List.is_empty prog1.mod_decl.mod_decl_formals);
-  assert (List.is_empty prog2.mod_decl.mod_decl_formals);
+  assert (Module.is_structure prog1.mod_decl);
+  assert (Module.is_structure prog2.mod_decl);
   assert (List.is_empty prog1.mod_decl.mod_decl_returns);
   assert (List.is_empty prog2.mod_decl.mod_decl_returns);
   assert (Set.is_empty prog1.mod_decl.mod_decl_interfaces);
@@ -4075,7 +4137,7 @@ let merge_prog (prog1 : Module.t) (prog2 : Module.t) =
   let mod_decl =
     {
       Module.mod_decl_name = prog1.mod_decl.mod_decl_name;
-      mod_decl_formals = prog1.mod_decl.mod_decl_formals @ prog2.mod_decl.mod_decl_formals;
+      mod_decl_parameters = Module.Structure;
       mod_decl_returns = prog2.mod_decl.mod_decl_returns;
       mod_decl_is_sealed = prog2.mod_decl.mod_decl_is_sealed;
       mod_decl_interfaces =

@@ -218,7 +218,7 @@ let intros_constraint_module ~(loc : location)
     {
       AstDef.Module.mod_decl_name =
         Ident.make loc (serialize ("Constraint$" ^ Ident.to_string field_name)) 0;
-      mod_decl_formals = [];
+      mod_decl_parameters = AstDef.Module.Structure;
       mod_decl_returns = [ (Predefs.lib_value_constraint_mod_qual_ident, []) ];
       mod_decl_is_sealed = false;
       mod_decl_interfaces = Set.empty (module QualIdent);
@@ -261,7 +261,7 @@ let intros_type_module ~(loc : location) ?scope
 
     {
       AstDef.Module.mod_decl_name = mod_name;
-      mod_decl_formals = [];
+      mod_decl_parameters = AstDef.Module.Structure;
       mod_decl_returns = [ (Predefs.lib_type_mod_qual_ident, []) ];
       mod_decl_is_sealed = false;
       mod_decl_interfaces = Set.empty (module QualIdent);
@@ -327,8 +327,10 @@ let is_ra_type (tp : AstDef.type_expr) : bool t =
           else
             match mod_inst.mod_inst_def with
             | None -> return false
-            | Some (mod_inst_def_funct, mod_inst_def_args) ->
-                does_ident_implement_ra mod_inst_def_funct type_ident)
+            | Some application ->
+                does_ident_implement_ra
+                  (AstDef.Module.application_target application)
+                  type_ident)
       | _ -> return false)
   in
   match tp with
@@ -924,9 +926,9 @@ let classify_formal (formal : AstDef.Module.module_inst) : formal_solver option 
     [classify_formal]), making the functor eligible for implicit instantiation. *)
 let is_generic_functor (mod_decl : AstDef.Module.module_decl) : bool t =
   let open Rewriter.Syntax in
-  if Base.List.is_empty mod_decl.mod_decl_formals then Rewriter.return false
+  if not (AstDef.Module.is_named_functor mod_decl) then Rewriter.return false
   else
-    Rewriter.List.for_all mod_decl.mod_decl_formals ~f:(fun formal ->
+    Rewriter.List.for_all (AstDef.Module.formals mod_decl) ~f:(fun formal ->
         let+ solver = classify_formal formal in
         Base.Option.is_some solver)
 
@@ -977,7 +979,7 @@ let intros_rep_module ~(loc : location) ?scope
     in
     {
       AstDef.Module.mod_decl_name = mod_name;
-      mod_decl_formals = [];
+      mod_decl_parameters = AstDef.Module.Structure;
       mod_decl_returns = [ (interface_qual_ident, []) ];
       mod_decl_is_sealed = false;
       mod_decl_interfaces = Set.empty (module QualIdent);
@@ -1079,11 +1081,10 @@ let find_insertion_scope_for_symbols (symbols : (qual_ident, _) Set.t) :
     let* found = Rewriter.resolve_and_find_opt ~read_only:true qi in
     match found with
     | Some (_, symbol)
-      when (not (Rewriter.Symbol.is_instance symbol))
+      when (not (Rewriter.Symbol.is_module_instance symbol))
            &&
            match Rewriter.Symbol.orig_symbol symbol with
-           | AstDef.Module.ModDef { mod_decl; _ } ->
-               not (Base.List.is_empty mod_decl.mod_decl_formals)
+           | AstDef.Module.ModDef { mod_decl; _ } -> AstDef.Module.is_functor mod_decl
            | _ -> false ->
         let+ scope = find_concrete_scope qi in
         Some scope
@@ -1147,7 +1148,7 @@ let existing_module_for_rep_type ~(interface_qual_ident : qual_ident) ~(rep_iden
             Rewriter.Symbol.extract mod_symbol ~f:(fun _ _subst -> function
               | AstDef.Module.ModDef mod_def ->
                   ( mod_def.mod_decl.mod_decl_interfaces,
-                    Base.List.is_empty mod_def.mod_decl.mod_decl_formals
+                    AstDef.Module.is_structure mod_def.mod_decl
                     || Rewriter.Symbol.is_module_instance mod_symbol )
               | _ -> (Set.empty (module QualIdent), true))
           in
@@ -1293,7 +1294,7 @@ let get_or_intros_field_module ~(loc : location) ~(insert_scope : qual_ident)
       let mod_decl =
         {
           AstDef.Module.mod_decl_name = mod_ident;
-          mod_decl_formals = [];
+          mod_decl_parameters = AstDef.Module.Structure;
           mod_decl_returns = [ (interface_qual_ident, []) ];
           mod_decl_is_sealed = false;
           mod_decl_interfaces = Set.empty (module QualIdent);
@@ -1395,7 +1396,8 @@ and shared_instances ~loc ~(functor_qual_ident : qual_ident)
     shared_body_instances ~loc ~functor_qual_ident ~functor_def arg_qis
   in
   let formals_subst =
-    Base.List.map2_exn functor_def.mod_decl.mod_decl_formals arg_qis ~f:(fun formal arg ->
+    Base.List.map2_exn (AstDef.Module.formals functor_def.mod_decl) arg_qis
+      ~f:(fun formal arg ->
         (QualIdent.append functor_qual_ident formal.mod_inst_name, QualIdent.to_list arg))
   in
   let+ iface_shared =
@@ -1417,7 +1419,7 @@ and shared_instances ~loc ~(functor_qual_ident : qual_ident)
         match iface_def with
         | Some iface_def
           when Base.List.length iface_arg_qis
-               = Base.List.length iface_def.mod_decl.mod_decl_formals
+               = Base.List.length (AstDef.Module.formals iface_def.mod_decl)
                && not (Base.List.is_empty iface_arg_qis) ->
             shared_body_instances ~loc ~functor_qual_ident:iface_qual_ident
               ~functor_def:iface_def iface_arg_qis
@@ -1435,7 +1437,7 @@ and shared_body_instances ~(loc : location) ~(functor_qual_ident : qual_ident)
     (qual_ident * qual_ident) list t =
   let open Rewriter.Syntax in
   let formals_subst =
-    Base.List.map2_exn functor_def.mod_decl.mod_decl_formals arg_module_qis
+    Base.List.map2_exn (AstDef.Module.formals functor_def.mod_decl) arg_module_qis
       ~f:(fun formal arg ->
         (QualIdent.append functor_qual_ident formal.mod_inst_name, QualIdent.to_list arg))
   in
@@ -1450,7 +1452,7 @@ and shared_body_instances ~(loc : location) ~(functor_qual_ident : qual_ident)
         (ModInst
            {
              mod_inst_name;
-             mod_inst_def = Some (generated_functor, args);
+             mod_inst_def = Some (Apply (generated_functor, args));
              mod_inst_is_interface = false;
              _;
            })
@@ -1535,7 +1537,10 @@ let instantiate_type_functor ~(loc : location)
     ~(functor_qual_ident : qual_ident) ~(functor_mod_decl : AstDef.Module.module_decl)
     (arg_types : AstDef.type_expr list) : qual_ident t =
   let open Rewriter.Syntax in
-  if Base.List.length arg_types <> Base.List.length functor_mod_decl.mod_decl_formals then
+  if
+    Base.List.length arg_types
+    <> Base.List.length (AstDef.Module.formals functor_mod_decl)
+  then
     Error.internal_error loc
       "wrong number of type arguments for this functor instantiation"
   else
@@ -1543,7 +1548,7 @@ let instantiate_type_functor ~(loc : location)
        Any other type is expanded first, so that an alias and its expansion, e.g. a
        type inferred from a call's argument, stand for the same module. *)
     let* arg_module_qis =
-      Rewriter.List.map2_exn functor_mod_decl.mod_decl_formals arg_types
+      Rewriter.List.map2_exn (AstDef.Module.formals functor_mod_decl) arg_types
         ~f:(fun formal tp ->
           let* rep = resolve_rep_ident formal.mod_inst_type in
           match rep with
@@ -1604,7 +1609,7 @@ let instantiation_arg (functor_qual_ident : qual_ident) (tp : AstDef.type_expr) 
       Rewriter.Symbol.extract symbol ~f:(fun _ _ sym ->
           match sym with
           | AstDef.Module.ModInst
-              { mod_inst_def = Some (f_qi, [ AstDef.Module.ModArg arg_qi ]); _ }
+              { mod_inst_def = Some (Apply (f_qi, [ AstDef.Module.ModArg arg_qi ])); _ }
             when QualIdent.(f_qi = functor_qual_ident) ->
               return
                 (Some

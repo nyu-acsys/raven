@@ -237,10 +237,11 @@ let check_no_abstract_members (mod_decl : Module.module_decl)
                 still_abstract_error mod_decl.mod_decl_loc
                   (ProgUtils.source_module_name mod_decl.mod_decl_name)
                   (Symbol.kind symbol) (Symbol.to_name symbol)
-          | ModInst
-              { mod_inst_def = Some (mod_inst_func, _); mod_inst_is_interface = false; _ }
+          | ModInst { mod_inst_def = Some application; mod_inst_is_interface = false; _ }
             -> (
-              let+ mod_inst_symbol = Rewriter.find_and_reify mod_inst_func in
+              let+ mod_inst_symbol =
+                Rewriter.find_and_reify (Module.application_target application)
+              in
               match mod_inst_symbol with
               | Module.ModDef mdef ->
                   if mdef.mod_decl.mod_decl_is_interface then
@@ -378,7 +379,7 @@ let rec check (m : Module.t) : Module.t t =
 
   (* Add formal parameters to module definitions *)
   let mod_def_formals =
-    List.map m.mod_decl.mod_decl_formals ~f:(fun mod_def_formal ->
+    List.map (Module.formals m.mod_decl) ~f:(fun mod_def_formal ->
         Module.SymbolDef (ModInst mod_def_formal))
   in
   let mod_def = mod_def_formals @ m.mod_def in
@@ -420,7 +421,7 @@ let rec check (m : Module.t) : Module.t t =
   let* ( mod_decl_returns,
          mod_decl_interfaces,
          interface_ident,
-         interface_formals,
+         interface_parameters,
          (merged_symbols, symbols_to_check, inherited_members) ) =
     Interfaces.merge_parents ~m ~is_root ~mod_qual_ident ~mod_def ~mod_def_formals
       ~defined_symbols
@@ -475,7 +476,7 @@ let rec check (m : Module.t) : Module.t t =
 
   (* The formals, with their interfaces resolved. *)
   let* mod_decl_formals =
-    Rewriter.List.map m.mod_decl.mod_decl_formals ~f:(fun mod_inst ->
+    Rewriter.List.map (Module.formals m.mod_decl) ~f:(fun mod_inst ->
         let+ mod_inst_type = Rewriter.resolve mod_inst.mod_inst_type in
         { mod_inst with mod_inst_type })
   in
@@ -485,7 +486,8 @@ let rec check (m : Module.t) : Module.t t =
       m.mod_decl with
       mod_decl_rep;
       mod_decl_returns;
-      mod_decl_formals;
+      mod_decl_parameters =
+        (Module.with_formals m.mod_decl mod_decl_formals).mod_decl_parameters;
       mod_decl_interfaces;
       mod_decl_is_ra;
     }
@@ -493,12 +495,25 @@ let rec check (m : Module.t) : Module.t t =
 
   (* Make sure that the module preserves the parameters of its interface *)
   let _ =
+    let interface_formals = Option.map interface_parameters ~f:Module.parameter_formals in
+    let () =
+      match (interface_parameters, mod_decl.mod_decl_parameters) with
+      | Some UnitParameter, (Structure | NamedParameters _)
+      | Some (NamedParameters _), UnitParameter ->
+          Error.type_error mod_decl.mod_decl_loc
+            "The module must preserve its interface's parameter shape"
+      | None, _
+      | Some Structure, _
+      | Some UnitParameter, UnitParameter
+      | Some (NamedParameters _), (Structure | NamedParameters _) ->
+          ()
+    in
     let interface_formals = Option.value interface_formals ~default:[] in
     match interface_formals with
     | [] -> ()
     | _ -> (
         let res =
-          List.iter2 mod_decl.mod_decl_formals interface_formals ~f:(fun param oparam ->
+          List.iter2 (Module.formals mod_decl) interface_formals ~f:(fun param oparam ->
               if
                 Ident.(param.mod_inst_name <> oparam.mod_inst_name)
                 || QualIdent.(param.mod_inst_type <> oparam.mod_inst_type)
@@ -641,7 +656,12 @@ and check_instr (m : Module.t) (instr : Module.module_instr) : Module.module_ins
             let* mod_inst_def, mod_inst_shared, to_check =
               match mod_inst.mod_inst_def with
               | None -> Rewriter.return (None, [], [])
-              | Some (mod_inst_func, mod_inst_args) ->
+              | Some (Module.ApplyUnit _) ->
+                  Error.type_error mod_inst.mod_inst_loc
+                    "Unit factory applications are not supported yet"
+              | Some application ->
+                  let mod_inst_func = Module.application_target application in
+                  let mod_inst_args = Module.application_args application in
                   (* Get qualified name of F and its symbol *)
                   let* qual_functor_ident, functor_symbol =
                     Rewriter.resolve_and_find mod_inst_func
@@ -651,7 +671,7 @@ and check_instr (m : Module.t) (instr : Module.module_instr) : Module.module_ins
                   let formals =
                     match functor_definition with
                     | Ast.Module.ModDef mod_def ->
-                        List.map mod_def.mod_decl.mod_decl_formals ~f:(fun formal ->
+                        List.map (Module.formals mod_def.mod_decl) ~f:(fun formal ->
                             (formal, formal.mod_inst_type))
                     | _ -> []
                   in
@@ -706,8 +726,10 @@ and check_instr (m : Module.t) (instr : Module.module_instr) : Module.module_ins
                     | None -> Rewriter.return []
                   in
                   ( Some
-                      ( qual_functor_ident,
-                        List.map resolved_args ~f:(fun (qi, _) -> Module.ModArg qi) ),
+                      (Module.map_application application
+                         ~target:(fun _ -> qual_functor_ident)
+                         ~args:(fun _ ->
+                           List.map resolved_args ~f:(fun (qi, _) -> Module.ModArg qi))),
                     shared,
                     (qual_functor_ident, mod_inst.mod_inst_type) :: resolved_args )
             in

@@ -35,10 +35,13 @@ let has_binding name subst =
 
 (** Whether this module's own formals, rather than its ancestors', were bound. *)
 let module_is_instantiated name (decl : Module.module_decl) subst =
-  if List.is_empty decl.mod_decl_formals then has_binding name subst
-  else
-    List.for_all decl.mod_decl_formals ~f:(fun formal ->
-        has_binding (QualIdent.append name formal.mod_inst_name) subst)
+  match decl.mod_decl_parameters with
+  | Structure -> has_binding name subst
+  (* An alias renames the owner without consuming the unit parameter. *)
+  | UnitParameter -> has_binding (Module.unit_parameter_path name) subst
+  | NamedParameters formals ->
+      List.for_all formals ~f:(fun formal ->
+          has_binding (QualIdent.append name formal.mod_inst_name) subst)
 
 type entry =
   | Symbol of QualIdent.t
@@ -856,7 +859,7 @@ let import ~diagnostics import_instr (tbl : t) : t =
         else
           match resolve_and_find (QualIdent.pop unresolved) tbl with
           | Some (alias, prefix, ModDef mdef, subst)
-            when not (List.is_empty mdef.mod_decl.mod_decl_formals) ->
+            when Module.is_named_functor mdef.mod_decl ->
               let source = QualIdent.unqualify unresolved in
               List.filter_map (visible_members mdef tbl) ~f:(function
                 | SymbolDef (CallDef call as symbol)
@@ -882,7 +885,7 @@ let import ~diagnostics import_instr (tbl : t) : t =
       match (symbol, import_instr.import_all) with
       | ModDef mdef, true ->
           (* Generic members are retained for later implicit instantiation. *)
-          let is_generic = not (List.is_empty mdef.mod_decl.mod_decl_formals) in
+          let is_generic = Module.is_named_functor mdef.mod_decl in
           List.iter (visible_members mdef tbl) ~f:(function
             | SymbolDef symbol ->
                 let internal_name = Symbol.to_name symbol in
@@ -1011,7 +1014,9 @@ let add_symbol ?(scope : scope option = None) ~diagnostics symbol tbl =
     | ModInst mod_inst ->
         let mod_inst_qual_ident, subst, sealed =
           match mod_inst.mod_inst_def with
-          | Some (mod_inst_func, mod_inst_args) -> (
+          | Some application -> (
+              let mod_inst_func = Module.application_target application in
+              let mod_inst_args = Module.application_args application in
               let declaration, mod_inst_func, mod_inst_symbol, subst1 =
                 resolve_and_find_exn mod_inst_func tbl
               in
@@ -1023,7 +1028,7 @@ let add_symbol ?(scope : scope option = None) ~diagnostics symbol tbl =
               let formals =
                 match mod_inst_symbol with
                 | Module.ModDef mdef ->
-                    if not own_instance then mdef.mod_decl.mod_decl_formals else []
+                    if not own_instance then Module.formals mdef.mod_decl else []
                 | _ ->
                     Error.type_error
                       (QualIdent.to_loc mod_inst_func)
@@ -1105,7 +1110,7 @@ let add_symbol ?(scope : scope option = None) ~diagnostics symbol tbl =
                       in
                       let iface_formals =
                         match iface_symbol with
-                        | Module.ModDef idef -> idef.mod_decl.mod_decl_formals
+                        | Module.ModDef idef -> Module.formals idef.mod_decl
                         | _ -> []
                       in
                       let iface_subst =
@@ -1166,8 +1171,7 @@ let add_symbol ?(scope : scope option = None) ~diagnostics symbol tbl =
         match symbol with
         | ModDef mod_def ->
             let is_abstract =
-              mod_def.mod_decl.mod_decl_is_interface
-              || List.length mod_def.mod_decl.mod_decl_formals > 0
+              mod_def.mod_decl.mod_decl_is_interface || Module.is_functor mod_def.mod_decl
             in
             let symbol_scope = create_scope symbol_qual_ident is_abstract false in
             add_to_map tbl

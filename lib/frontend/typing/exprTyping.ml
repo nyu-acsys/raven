@@ -75,9 +75,17 @@ let module_identity exp_ty fnd_ty =
           let owner = QualIdent.pop exp_alias in
           let+ owner_symbol = Rewriter.find_absolute owner in
           begin match owner_symbol with
-          | Some (Module.ModDef { mod_decl = { mod_decl_formals = []; _ }; _ }) ->
+          | Some
+              (Module.ModDef
+                 { mod_decl = { mod_decl_parameters = Module.Structure; _ }; _ }) ->
               Some (Same_module { expected = exp_qi; found = fnd_qi; owner })
-          | Some (Module.ModDef { mod_decl = { mod_decl_formals; _ }; _ }) ->
+          | Some
+              (Module.ModDef
+                 {
+                   mod_decl =
+                     { mod_decl_parameters = NamedParameters mod_decl_formals; _ };
+                   _;
+                 }) ->
               let binding subst (formal : Module.module_inst) =
                 let key = QualIdent.append owner formal.mod_inst_name in
                 List.Assoc.find subst key ~equal:QualIdent.equal

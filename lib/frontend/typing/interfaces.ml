@@ -209,7 +209,7 @@ let check_implements_mod_inst (mod_def : Module.t) (orig_mod_inst : Module.modul
       if not implements_required then
         must_implement_error loc (Symbol.kind symbol) ident orig_mod_typ interface_ident
     in
-    if not @@ List.is_empty mod_def.mod_decl.mod_decl_formals then
+    if not (Module.is_structure mod_def.mod_decl) then
       module_parameters_error loc (Symbol.kind symbol) ident
     else
       match orig_mod_inst.mod_inst_def with
@@ -308,7 +308,7 @@ let check_module_type mod_ident int_ident =
                     else QualIdent.requalify [ (source, target) ] interface))
           in
           ( interfaces,
-            List.is_empty mod_def.mod_decl.mod_decl_formals
+            Module.is_structure mod_def.mod_decl
             || Rewriter.Symbol.is_module_instance mod_symbol )
       | _ -> (Set.empty (module QualIdent), true))
   in
@@ -316,7 +316,7 @@ let check_module_type mod_ident int_ident =
   let int_is_instance =
     Rewriter.Symbol.extract int_symbol ~f:(fun _ _subst -> function
       | Ast.Module.ModDef mod_def ->
-          List.is_empty mod_def.mod_decl.mod_decl_formals
+          Module.is_structure mod_def.mod_decl
           || Rewriter.Symbol.is_module_instance int_symbol
       | _ -> true)
   in
@@ -363,7 +363,11 @@ let rec mentioned_names (symbol : Module.symbol) : Set.M(QualIdent).t =
     let acc = Set.add acc inst.mod_inst_type in
     match inst.mod_inst_def with
     | None -> acc
-    | Some (qi, args) -> List.fold args ~init:(Set.add acc qi) ~f:arg_names
+    | Some application ->
+        List.fold
+          (Module.application_args application)
+          ~init:(Set.add acc (Module.application_target application))
+          ~f:arg_names
   in
   match symbol with
   | TypeDef { type_def_expr; _ } ->
@@ -400,7 +404,7 @@ let rec mentioned_names (symbol : Module.symbol) : Set.M(QualIdent).t =
         List.fold md.mod_decl.mod_decl_returns ~init:empty ~f:(fun acc (qi, args) ->
             List.fold args ~init:(Set.add acc qi) ~f:arg_names)
       in
-      let acc = List.fold md.mod_decl.mod_decl_formals ~init:acc ~f:inst_names in
+      let acc = List.fold (Module.formals md.mod_decl) ~init:acc ~f:inst_names in
       let acc =
         List.fold md.mod_def ~init:acc ~f:(fun acc -> function
           | Module.SymbolDef s -> Set.union acc (mentioned_names s)
@@ -687,7 +691,7 @@ let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_iden
           Rewriter.Symbol.extract interface_symbol ~f:(fun _ _ -> function
             | Module.ModDef parent ->
                 if Rewriter.Symbol.is_module_instance interface_symbol then []
-                else parent.mod_decl.mod_decl_formals
+                else Module.formals parent.mod_decl
             | symbol ->
                 parent_not_module_error (QualIdent.to_loc mid) (Symbol.kind symbol) mid)
         in
@@ -702,7 +706,7 @@ let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_iden
                   let base = QualIdent.unqualify qi in
                   if
                     QualIdent.is_local qi
-                    && List.exists m.mod_decl.mod_decl_formals ~f:(fun formal ->
+                    && List.exists (Module.formals m.mod_decl) ~f:(fun formal ->
                         Ident.equal formal.mod_inst_name base)
                   then
                     (* An argument naming one of this module's formals: these are not in
@@ -819,8 +823,8 @@ let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_iden
               match (formals, args) with
               | Some _, _ | None, _ :: _ -> formals
               | None, [] ->
-                  if List.is_empty interface.mod_decl.mod_decl_formals then None
-                  else Some interface.mod_decl.mod_decl_formals
+                  if Module.is_structure interface.mod_decl then None
+                  else Some interface.mod_decl.mod_decl_parameters
             in
             Rewriter.return
               ( (qual_interface_ident, List.map args ~f:(fun qi -> Module.ModArg qi))

@@ -28,7 +28,9 @@ let qualify_members prefix instrs =
 let instance_module (mi : Module.module_inst) =
   let open Rewriter.Syntax in
   let target =
-    match mi.mod_inst_def with Some (target, []) -> target | _ -> mi.mod_inst_type
+    match mi.mod_inst_def with
+    | Some (Module.Alias target) -> target
+    | Some (Apply _ | ApplyUnit _) | None -> mi.mod_inst_type
   in
   let+ found = CandidateTypes.lookup target in
   Option.bind found ~f:(fun (target_qi, target_symbol) ->
@@ -160,7 +162,7 @@ let has_rep_type ctx functor_qi =
 let inherited_application ctx instances (mi : Module.module_inst) =
   let open Rewriter.Syntax in
   match mi.mod_inst_def with
-  | Some (functor_qi, args)
+  | Some (Module.Apply (functor_qi, args))
     when String.is_prefix (Ident.name mi.mod_inst_name)
            ~prefix:ProgUtils.inst_mod_ident_prefix ->
       let* has_rep_type = has_rep_type ctx functor_qi in

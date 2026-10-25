@@ -601,7 +601,7 @@ module Module = struct
     {
       Module.empty_decl with
       mod_decl_name = name;
-      mod_decl_formals = params;
+      mod_decl_parameters = Module.parameters_of_formals params;
       mod_decl_returns = implements;
       mod_decl_is_sealed = sealed;
       mod_decl_loc = loc;
@@ -614,11 +614,15 @@ module Module = struct
       { mod_decl = { header with mod_decl_is_interface = interface }; mod_def = members }
 
   (** The instance [module name : typ = def], or the abstract module [name : typ]. *)
-  let instance ~loc ?def ?(interface = false) ?(sealed = false) (name : Ident.t)
+  let binding ~loc ?definition ?(interface = false) ?(sealed = false) (name : Ident.t)
       (typ : QualIdent.t) : Module.symbol =
     ModInst
-      (Module.mk_mod_inst ~name ~typ ?def ~is_interface:interface ~is_sealed:sealed ~loc
-         ())
+      (Module.mk_mod_binding ~name ~typ ?definition ~is_interface:interface
+         ~is_sealed:sealed ~loc ())
+
+  let instance ~loc ?def ?interface ?sealed name typ =
+    let definition = Option.map def ~f:Module.legacy_application in
+    binding ~loc ?definition ?interface ?sealed name typ
 
   (** [symbol], as a member that is [free] if so. *)
   let symbol ?(free = false) (symbol : Module.symbol) : member =
@@ -633,8 +637,7 @@ module Module = struct
     let open Module in
     match member with
     | SymbolDef (ModDef ({ mod_decl = decl; _ } as mod_def))
-      when decl.mod_decl_is_sealed
-           && List.is_empty decl.mod_decl_formals
+      when decl.mod_decl_is_sealed && Module.is_structure decl
            && not decl.mod_decl_is_interface -> (
         match decl.mod_decl_returns with
         | [ (iface, _) ] ->

@@ -38,7 +38,7 @@ let rec check (tp_expr : type_expr) : type_expr t =
                   match generic_functor with
                   | Some (_, gm) ->
                       arg_mismatch_error "Module" tp_attr.type_loc (Type.Var qual_ident)
-                        (List.length gm.mod_decl.mod_decl_formals)
+                        (List.length (Module.formals gm.mod_decl))
                   | None ->
                       Rewriter.return
                         (App (Var rep_fully_qualified_qual_ident, [], tp_attr)))))
@@ -59,10 +59,10 @@ let rec check (tp_expr : type_expr) : type_expr t =
       | Some (fully_qualified_qual_ident, m) -> (
           if
             not
-              (Int.equal (List.length tp_args) (List.length m.mod_decl.mod_decl_formals))
+              (Int.equal (List.length tp_args) (List.length (Module.formals m.mod_decl)))
           then
             arg_mismatch_error "Module" tp_attr.type_loc (Type.Var qual_ident)
-              (List.length m.mod_decl.mod_decl_formals)
+              (List.length (Module.formals m.mod_decl))
           else
             let* tp_args = Rewriter.List.map tp_args ~f:check in
             let* inst_qual_ident =

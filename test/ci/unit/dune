@@ -74,3 +74,8 @@
  (name atomic_parser)
  (modules atomic_parser)
  (libraries raven base))
+
+(test
+ (name module_shapes)
+ (modules module_shapes)
+ (libraries raven base))

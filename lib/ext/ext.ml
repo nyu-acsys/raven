@@ -169,7 +169,8 @@ let collect_ext_tags (m : Module.t) : ext_tag list =
   let collect_module_inst (mi : Module.module_inst) =
     match mi.mod_inst_def with
     | None -> Rewriter.return ()
-    | Some (_, args) -> each args ~f:collect_module_inst_arg
+    | Some application ->
+        each (Module.application_args application) ~f:collect_module_inst_arg
   in
   let collect_callable (c : Callable.t) =
     let* () = each c.call_decl.call_decl_formals ~f:collect_var_decl in
@@ -217,7 +218,7 @@ let collect_ext_tags (m : Module.t) : ext_tag list =
             ())
     | CallDef c -> collect_callable c
   and collect_module (md : Module.t) =
-    let* () = each md.mod_decl.mod_decl_formals ~f:collect_module_inst in
+    let* () = each (Module.formals md.mod_decl) ~f:collect_module_inst in
     let* () =
       each md.mod_decl.mod_decl_returns ~f:(fun (_, args) ->
           each args ~f:collect_module_inst_arg)

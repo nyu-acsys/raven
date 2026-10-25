@@ -114,14 +114,15 @@ let generated_application qi =
     else
       let* symbol = generated_symbol instance in
       match symbol with
-      | Some (Module.ModInst { mod_inst_def = Some (functor_name, arguments); _ }) ->
+      | Some (Module.ModInst { mod_inst_def = Some (Apply (functor_name, arguments)); _ })
+        ->
           let* functor_ = lift (ProgUtils.resolve_generic_functor functor_name) in
           begin match functor_ with
           | Some (functor_name, { mod_decl; _ }) ->
               begin match mod_decl.mod_decl_rep with
               | Some rep when Ident.equal rep (QualIdent.unqualify qi) ->
                   let+ application =
-                    application_arguments mod_decl.mod_decl_formals arguments
+                    application_arguments (Module.formals mod_decl) arguments
                   in
                   Option.map application ~f:(fun (parameters, arguments) ->
                       { head = QualIdent.append functor_name rep; parameters; arguments })
@@ -206,11 +207,11 @@ and instantiation_formal_module ~(functor_qual_ident : qual_ident) (qi : qual_id
   let* direct = Rewriter.find_absolute qi in
   let* bindings =
     match direct with
-    | Some (Module.ModInst { mod_inst_def = Some (functor_name, args); _ })
+    | Some (Module.ModInst { mod_inst_def = Some (Apply (functor_name, args)); _ })
       when QualIdent.equal functor_name functor_qual_ident ->
         let+ functor_ = lift (ProgUtils.resolve_generic_functor functor_qual_ident) in
         Option.bind functor_ ~f:(fun (_, m) ->
-            List.map2_exn m.mod_decl.mod_decl_formals args ~f:(fun formal -> function
+            List.map2_exn (Module.formals m.mod_decl) args ~f:(fun formal -> function
               | Module.ModArg qi -> Some (formal.Module.mod_inst_name, qi)
               | Module.TypeArg _ -> None)
             |> Option.all)
@@ -496,11 +497,12 @@ and field_arg_module ~(loc : location) ~(insert_scope : qual_ident)
 and discover_functor_signature ~functor_qual_ident (m : Module.t) =
   let open Rewriter.Syntax in
   let* solvers =
-    Rewriter.List.map m.mod_decl.mod_decl_formals ~f:(fun formal ->
+    Rewriter.List.map (Module.formals m.mod_decl) ~f:(fun formal ->
         lift (ProgUtils.classify_formal formal))
   in
   let field_formals =
-    List.filter_map (List.zip_exn m.mod_decl.mod_decl_formals solvers)
+    List.filter_map
+      (List.zip_exn (Module.formals m.mod_decl) solvers)
       ~f:(fun (formal, solver) ->
         match solver with
         | Some (ProgUtils.ByField (interface_qi, field, mod_members)) ->
@@ -508,7 +510,7 @@ and discover_functor_signature ~functor_qual_ident (m : Module.t) =
         | _ -> None)
   in
   let* formal_reps =
-    rep_vars_of_insts ~scope_qi:functor_qual_ident m.mod_decl.mod_decl_formals
+    rep_vars_of_insts ~scope_qi:functor_qual_ident (Module.formals m.mod_decl)
   in
   (* Include nested aliases of the functor's rep in inference. *)
   let m_rep_suffixes =
@@ -595,7 +597,7 @@ and infer_single_instantiation ~check_expr ~claimed_location ~loc ~qual_ident
         ~m_rep_suffixes:signature.rep_suffixes [] pairs
     in
     let missing =
-      List.find m.mod_decl.mod_decl_formals ~f:(fun formal ->
+      List.find (Module.formals m.mod_decl) ~f:(fun formal ->
           not
             (List.Assoc.mem bindings formal.mod_inst_name ~equal:Ident.equal
             || List.Assoc.mem field_bindings formal.mod_inst_name ~equal:Ident.equal))
@@ -609,7 +611,7 @@ and infer_single_instantiation ~check_expr ~claimed_location ~loc ~qual_ident
 and instantiate_solution ~loc ~functor_qual_ident (m : Module.t) ~signature solution =
   if List.is_empty signature.field_formals then
     let arg_types =
-      List.map m.mod_decl.mod_decl_formals ~f:(fun formal ->
+      List.map (Module.formals m.mod_decl) ~f:(fun formal ->
           List.Assoc.find_exn solution.bindings formal.mod_inst_name ~equal:Ident.equal)
     in
     lift
@@ -699,7 +701,7 @@ and instantiate_mixed_functor ~(loc : location) ~(functor_qual_ident : qual_iden
             (Set.of_list (module QualIdent) (List.map field_bindings ~f:snd))))
   in
   let* arg_module_qis =
-    Rewriter.List.map functor_mod_decl.mod_decl_formals ~f:(fun formal ->
+    Rewriter.List.map (Module.formals functor_mod_decl) ~f:(fun formal ->
         match List.Assoc.find field_formals formal.mod_inst_name ~equal:Ident.equal with
         | Some (interface_qi, field, mod_members) ->
             let field_qi =

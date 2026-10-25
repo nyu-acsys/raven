@@ -36,8 +36,9 @@ let declaration_text (symbol : Module.symbol) : string option =
           | TypeArg tp -> Type.to_loc tp
         in
         ( mi.mod_inst_loc,
-          Option.value_map mi.mod_inst_def ~default:[] ~f:(fun (functor_name, args) ->
-              QualIdent.to_loc functor_name :: List.map args ~f:arg_loc),
+          Option.value_map mi.mod_inst_def ~default:[] ~f:(fun application ->
+              QualIdent.to_loc (Module.application_target application)
+              :: List.map (Module.application_args application) ~f:arg_loc),
           false )
     | symbol -> (Symbol.to_loc symbol, [], false)
   in
