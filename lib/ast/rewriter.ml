@@ -1997,6 +1997,7 @@ module Callable = struct
             call_decl_grants_mask;
             call_decl_opens;
             call_decl_loc_params;
+            call_decl_alias = Base.Option.map callable.call_decl.call_decl_alias ~f;
           };
       }
     in
@@ -2056,6 +2057,8 @@ module Module = struct
       | VarDef var_def ->
           let+ new_var_init = Option.map var_def.var_init ~f in
           VarDef { var_def with var_init = new_var_init }
+      | CallDef { call_decl = { call_decl_alias = Some _; _ }; _ } as symbol ->
+          return symbol
       | CallDef call_def ->
           let* _ = enter_callable call_def in
 
@@ -2074,6 +2077,8 @@ module Module = struct
     let open Syntax in
     let open Module in
     let rewrite_symbol = function
+      | CallDef { call_decl = { call_decl_alias = Some _; _ }; _ } as symbol ->
+          return symbol
       | CallDef call_def ->
           let* _ = enter_callable call_def in
 
@@ -2111,6 +2116,15 @@ module Module = struct
       | FieldDef field_def ->
           let+ field_type = f field_def.field_type in
           FieldDef { field_def with field_type }
+      | CallDef ({ call_decl = { call_decl_alias = Some _; _ } as decl; _ } as call) ->
+          let* call_decl_formals =
+            List.map decl.call_decl_formals ~f:(VarDecl.rewrite_types ~f)
+          in
+          let+ call_decl_returns =
+            List.map decl.call_decl_returns ~f:(VarDecl.rewrite_types ~f)
+          in
+          CallDef
+            { call with call_decl = { decl with call_decl_formals; call_decl_returns } }
       | CallDef call_def ->
           let* _ = enter_callable call_def in
 
@@ -2133,6 +2147,8 @@ module Module = struct
       let rewrite_symbol =
         let open Module in
         function
+        | CallDef { call_decl = { call_decl_alias = Some _; _ }; _ } as symbol ->
+            return symbol
         | CallDef call_def ->
             recover ~fallback:(CallDef call_def)
             @@ let* _ = enter_callable call_def in
@@ -2209,6 +2225,26 @@ module Module = struct
             field_type;
             field_alias = Base.Option.map field_def.field_alias ~f;
             field_constraint = Base.Option.map field_def.field_constraint ~f;
+          }
+    | CallDef ({ call_decl = { call_decl_alias = Some target; _ } as decl; _ } as call) ->
+        let* call_decl_formals =
+          List.map decl.call_decl_formals
+            ~f:(VarDecl.rewrite_types ~f:(Type.rewrite_qual_idents ~f))
+        in
+        let+ call_decl_returns =
+          List.map decl.call_decl_returns
+            ~f:(VarDecl.rewrite_types ~f:(Type.rewrite_qual_idents ~f))
+        in
+        CallDef
+          {
+            call with
+            call_decl =
+              {
+                decl with
+                call_decl_formals;
+                call_decl_returns;
+                call_decl_alias = Some (f target);
+              };
           }
     | CallDef call_def ->
         let* _ = enter_callable call_def in

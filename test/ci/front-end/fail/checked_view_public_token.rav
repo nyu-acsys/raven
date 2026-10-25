@@ -1,0 +1,18 @@
+interface Required {
+  proc operation()
+    atomic requires true
+    atomic ensures true
+  lemma help(token: AtomicToken<operation>)
+}
+module Actual {
+  proc operation()
+    atomic requires true
+    atomic ensures true
+  {
+    ghost val token := bindAU();
+    openAU(token);
+    commitAU(token, ());
+  }
+  lemma help(token: AtomicToken<operation>) { }
+}
+module View : Required = checked Actual

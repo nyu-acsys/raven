@@ -153,3 +153,45 @@ makes `V` a view of `N` through `I`, and `module V :> Stack = F[Int]` does the s
 for an instance of a functor `F`. `N` or `F` has to declare that it implements the interface, and Raven
 takes the interface's arguments from that declaration. Code that names `N` directly still sees
 its definitions, but to clients of `V`, `V.T` is an abstract type, distinct from `N.T`.
+
+## Checked module views {#sec:module-checked-views}
+
+Ordinary module arguments must implement their required interface nominally: a matching set of
+members alone does not establish conformance. An explicit checked view adapts an existing
+module and verifies the required contracts:
+
+```raven
+interface Positive {
+  proc next(x: Int) returns (r: Int) requires x >= 0 ensures r > x
+}
+module Counter {
+  proc next(x: Int) returns (r: Int) ensures r == x + 1 { r := x + 1; }
+}
+module View : Positive = checked Counter
+module Client[M: Positive] { }
+module Accepted = Client[View]
+```
+
+This example is checked in [`checked_views.rav`](./checked_views.rav). `Client[Counter]` still
+requires a nominal implementation declaration; creating `View` does not add one to `Counter`.
+If the target already implements the requested interface, the binding uses ordinary nominal
+checking and preserves its callable identities without generating adapters.
+
+Otherwise, Raven generates forwarding functions, procedures, and lemmas and verifies them
+against the interface through its usual proof pipeline. Logically atomic procedures forward
+through an atomic update, including its abort-restoration obligations. Physically atomic
+requirements must be satisfied by physically atomic target procedures. The adapter does not
+coerce atomic update tokens between different procedures.
+
+Types, fields, predicates, and invariants share their target identities through transparent
+aliases. Resource aliases can also be written explicitly, as `pred p(x: Ref) = Actual.p` or
+`inv shared(x: Ref) = Actual.shared`; their signatures and parameter modes must match. Field
+constraints must agree in both directions. Writing `module View :> Positive = checked Counter`
+adds ordinary sealing, so clients see the interface's abstract representation.
+
+The target must name an instantiated structure: bind a functor application first, then adapt
+that binding. Parameterized interfaces and abstract nested module members are supported.
+Structural adaptation currently requires explicit adapters for interface-defined data types,
+defined values or callables, concrete nested module definitions, extension contract clauses,
+and public signatures exposing atomic update tokens. These restrictions do not affect the
+nominal fast path.

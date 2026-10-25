@@ -1,0 +1,5 @@
+func first(value: Int) returns (result: Bool) { value >= 0 }
+func second(value: Int) returns (result: Bool) { value >= 0 }
+interface Required { field value: Int where first }
+module Actual { field value: Int where second }
+module View : Required = checked Actual

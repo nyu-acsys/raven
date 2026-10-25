@@ -128,6 +128,37 @@ let contracts_equal ~sm (specs : Stmt.spec list) (originals : Stmt.spec list) =
             Rewriter.return false
           else contract_exprs_equal ~sm spec.spec_form original.spec_form)
 
+(** Identity forwarding preserves a total constraint function's meaning. *)
+let field_constraints_equal left right =
+  let open Rewriter.Syntax in
+  let rec identity seen name =
+    let* name, symbol = Rewriter.resolve_and_find name in
+    if Set.mem seen name then Rewriter.return name
+    else
+      let* symbol = Rewriter.Symbol.reify symbol in
+      match symbol with
+      | Module.CallDef
+          {
+            call_decl =
+              { call_decl_kind = Func; call_decl_precond = []; call_decl_formals; _ };
+            call_def = FuncDef { func_body = Some (Expr.App (Var target, args, _)) };
+          }
+        when List.length args = List.length call_decl_formals
+             && List.for_all2_exn args call_decl_formals ~f:(fun arg formal ->
+                 Expr.is_ident arg
+                 && QualIdent.equal (Expr.to_qual_ident arg)
+                      (QualIdent.from_ident formal.var_name)) ->
+          identity (Set.add seen name) target
+      | _ -> Rewriter.return name
+  in
+  match (left, right) with
+  | None, None -> Rewriter.return true
+  | Some left, Some right ->
+      let+ left = identity (Set.empty (module QualIdent)) left
+      and+ right = identity (Set.empty (module QualIdent)) right in
+      QualIdent.equal left right
+  | None, Some _ | Some _, None -> Rewriter.return false
+
 (** A callable [call_def] implementing [orig_call_def]: the same signature and, unless
     inherited, the same contract. *)
 let check_implements_callable (call_def : Callable.t) (orig_call_def : Callable.t)
@@ -316,7 +347,20 @@ let check_implements_symbol ?(manifest_subst = Map.empty (module QualIdent))
       else if Bool.(field_def.field_is_ghost <> orig_field_def.field_is_ghost) then
         interface_field_ghost_error loc ident ~ghost:field_def.field_is_ghost
           interface_ident ~orig_ghost:orig_field_def.field_is_ghost
-      else Rewriter.return ()
+      else
+        let* actual = Rewriter.find_and_reify target in
+        let actual =
+          match actual with
+          | Module.FieldDef field -> field
+          | _ -> Error.type_error loc "Expected a manifest field target"
+        in
+        let+ equal =
+          field_constraints_equal actual.field_constraint orig_field_def.field_constraint
+        in
+        if not equal then
+          Error.type_error loc
+            (Printf.sprintf "Field %s has a different constraint from its interface"
+               (Ident.to_string_user ident))
   | TypeDef typ_def, TypeDef orig_typ_def -> (
       if Bool.(typ_def.type_def_rep <> orig_typ_def.type_def_rep) then
         rep_type_change_error loc ident interface_ident
@@ -450,6 +494,7 @@ let rec mentioned_names (symbol : Module.symbol) : Set.M(QualIdent).t =
         List.fold (call_decl.call_decl_precond @ call_decl.call_decl_postcond) ~init:acc
           ~f:(fun acc spec -> Expr.symbols ~acc spec.spec_form)
       in
+      let acc = Option.fold call_decl.call_decl_alias ~init:acc ~f:Set.add in
       begin match call_def with
       | FuncDef { func_body = Some e } -> Expr.symbols ~acc e
       | _ -> acc
@@ -921,7 +966,8 @@ let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_iden
 let inherit_contract ~diagnostics
     (symbols_to_check : (qual_ident * Module.symbol) Map.M(Ident).t) = function
   | Module.SymbolDef (CallDef ({ call_decl; _ } as call)) as instr
-    when List.is_empty call_decl.call_decl_precond
+    when Option.is_none call_decl.call_decl_alias
+         && List.is_empty call_decl.call_decl_precond
          && List.is_empty call_decl.call_decl_postcond
          && Option.is_none call_decl.call_decl_opens -> (
       match Map.find symbols_to_check call_decl.call_decl_name with

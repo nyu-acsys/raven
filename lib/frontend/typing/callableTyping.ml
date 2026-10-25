@@ -70,7 +70,76 @@ let check_opens (call_decl : Callable.call_decl) (formals : Type.var_decl list)
       in
       (qi, prefix @ List.drop args (List.length prefix)))
 
-let check (callable : Callable.t) : Module.symbol t =
+let check_alias (callable : Callable.t) target : Module.symbol t =
+  let open Rewriter.Syntax in
+  let decl = callable.call_decl in
+  let fail message = Error.type_error decl.call_decl_loc message in
+  let () =
+    match decl.call_decl_kind with
+    | Pred | Invariant -> ()
+    | Proc | Lemma | Func -> fail "Only predicates and invariants may be resource aliases"
+  in
+  let () =
+    if
+      (not (List.is_empty decl.call_decl_precond))
+      || (not (List.is_empty decl.call_decl_postcond))
+      || (not (List.is_empty decl.call_decl_contract_ext))
+      || Option.is_some decl.call_decl_opens
+      || (not (List.is_empty decl.call_decl_locals))
+      || (not (List.is_empty decl.call_decl_loc_params))
+      || decl.call_decl_physical_atomic || decl.call_decl_is_inline
+      || decl.call_decl_is_auto
+    then fail "A resource alias cannot declare contracts, locals or callable modifiers";
+    match callable.call_def with
+    | FuncDef { func_body = None } -> ()
+    | FuncDef { func_body = Some _ } | ProcDef _ ->
+        fail "A resource alias cannot have a body"
+  in
+  let* target, symbol = Rewriter.resolve_and_find target in
+  let* symbol = Rewriter.Symbol.reify symbol in
+  let target_decl =
+    match symbol with
+    | Module.CallDef target_call
+      when Poly.(target_call.call_decl.call_decl_kind = decl.call_decl_kind) ->
+        target_call.call_decl
+    | _ -> fail "A resource alias must name a resource of the same kind"
+  in
+  let check_parameters parameters expected =
+    let* parameters = Rewriter.List.map parameters ~f:TypeExpr.check_var_decl in
+    let* pairs =
+      match List.zip parameters expected with
+      | Ok pairs -> Rewriter.return pairs
+      | Unequal_lengths ->
+          fail "A resource alias must preserve the target's parameter shape"
+    in
+    let+ () =
+      Rewriter.List.iter pairs ~f:(fun (parameter, expected) ->
+          let* expected_type = TypeExpr.expand_type_expr expected.Type.var_type in
+          let+ parameter_type = TypeExpr.expand_type_expr parameter.Type.var_type in
+          if
+            (not (Type.equal parameter_type expected_type))
+            || Bool.(parameter.var_ghost <> expected.var_ghost)
+            || Bool.(parameter.var_implicit <> expected.var_implicit)
+            || Bool.(parameter.var_const <> expected.var_const)
+          then
+            fail "A resource alias must preserve the target's parameter types and modes")
+    in
+    parameters
+  in
+  let* call_decl_formals =
+    check_parameters decl.call_decl_formals target_decl.call_decl_formals
+  in
+  let+ call_decl_returns =
+    check_parameters decl.call_decl_returns target_decl.call_decl_returns
+  in
+  Module.CallDef
+    {
+      callable with
+      call_decl =
+        { decl with call_decl_formals; call_decl_returns; call_decl_alias = Some target };
+    }
+
+let check_definition (callable : Callable.t) : Module.symbol t =
   let open Rewriter.Syntax in
   let source = Callable.source_ident callable in
   (* The holes of a mixfix name, e.g. 3 for [_[_:=_]], which its explicit parameters fill. *)
@@ -335,3 +404,8 @@ let check (callable : Callable.t) : Module.symbol t =
   in
   let+ callable = Rewriter.exit_callable callable in
   Module.CallDef callable
+
+let check (callable : Callable.t) : Module.symbol t =
+  match callable.call_decl.call_decl_alias with
+  | Some target -> check_alias callable target
+  | None -> check_definition callable

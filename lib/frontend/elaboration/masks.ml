@@ -444,7 +444,12 @@ let compute_masks (m : Module.t) : Module.t Rewriter.t =
 let owned_invariant_names (iface : Module.t) : Ident.t list =
   List.filter_map iface.mod_def ~f:(function
     | Module.SymbolDef
-        (CallDef { call_decl = { call_decl_kind = Invariant; call_decl_name; _ }; _ }) ->
+        (CallDef
+           {
+             call_decl =
+               { call_decl_kind = Invariant; call_decl_name; call_decl_alias = None; _ };
+             _;
+           }) ->
         Some call_decl_name
     | _ -> None)
 
@@ -508,6 +513,11 @@ let check_interface_reach_back (n : Module.t) : (unit, 'a) Rewriter.t_ext =
               | None -> Rewriter.return ()
               | Some call when Callable.is_abstract call -> Rewriter.return ()
               | Some call ->
+                  let* call =
+                    match call.call_decl.call_decl_alias with
+                    | None -> Rewriter.return call
+                    | Some target -> Rewriter.find_and_reify_callable target
+                  in
                   let* self_qual_ident = Rewriter.resolve (QualIdent.from_ident name) in
                   let mask_names =
                     Option.value call.call_decl.call_decl_needs_mask ~default:[]

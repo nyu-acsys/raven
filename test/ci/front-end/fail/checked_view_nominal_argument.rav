@@ -1,0 +1,5 @@
+interface Required { proc operation() }
+module Actual { proc operation() { } }
+module View : Required = checked Actual
+module Consumer[A: Required] { }
+module Rejected = Consumer[Actual]

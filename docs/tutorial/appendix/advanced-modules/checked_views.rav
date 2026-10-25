@@ -1,0 +1,14 @@
+interface Positive {
+  proc next(x: Int) returns (r: Int) requires x >= 0 ensures r > x
+}
+module Counter {
+  proc next(x: Int) returns (r: Int) ensures r == x + 1 { r := x + 1; }
+}
+module View : Positive = checked Counter
+module Client[M: Positive] {
+  proc use(x: Int) returns (r: Int)
+    requires x >= 0
+    ensures r > x
+  { r := M.next(x); }
+}
+module Accepted = Client[View]

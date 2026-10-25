@@ -1,0 +1,11 @@
+module Actual {
+  inv shared(x: Ref) { true }
+  pred resource(x: Ref) { shared(x) }
+}
+
+interface Required {
+  inv shared(x: Ref)
+  pred resource(x: Ref)
+}
+
+module View : Required = checked Actual

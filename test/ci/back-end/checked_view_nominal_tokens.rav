@@ -1,0 +1,48 @@
+interface Nominal {
+  proc operation()
+    atomic requires true
+    atomic ensures true
+}
+
+module Actual : Nominal {
+  proc operation()
+    atomic requires true
+    atomic ensures true
+  {
+    ghost val token := bindAU();
+    openAU(token);
+    commitAU(token, ());
+  }
+
+  lemma help(token: AtomicToken<operation>)
+    requires au<operation>(token, ())
+    ensures auCommit<operation>(token, (), ())
+  {
+    openAU(token, ());
+    commitAU(token, (), ());
+  }
+}
+
+module View : Nominal = checked Actual
+
+lemma same_token(ghost token: AtomicToken<Actual.operation>)
+  requires au<Actual.operation>(token, ())
+  ensures auCommit<Actual.operation>(token, (), ())
+{
+  ghost var alias: AtomicToken<View.operation> := token;
+  View.help(alias);
+}
+
+module Generic[A: Nominal] {
+  module Known : Nominal = checked A
+}
+
+module Applied = Generic[Actual]
+
+lemma generic_token(ghost token: AtomicToken<Actual.operation>)
+  requires au<Actual.operation>(token, ())
+  ensures auCommit<Actual.operation>(token, (), ())
+{
+  ghost var alias: AtomicToken<Applied.Known.operation> := token;
+  Actual.help(alias);
+}

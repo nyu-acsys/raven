@@ -1,0 +1,38 @@
+interface Small {
+  type T
+  proc advance(x: Int) returns (r: Int)
+    requires x >= 1
+    ensures r > x
+}
+
+interface Outer {
+  module Inner : Small
+}
+
+module Actual {
+  module Inner {
+    type T = Int
+    proc advance(x: Int) returns (r: Int)
+      requires x >= 0
+      ensures r == x + 1
+    { r := x + 1; }
+  }
+}
+
+module View : Outer = checked Actual
+
+proc client() {
+  var viewed: View.Inner.T := 1;
+  var actual: Actual.Inner.T := viewed;
+  val result := View.Inner.advance(1);
+  assert result > 1;
+}
+
+module Consumer[X: Outer] {
+  proc client() {
+    val result := X.Inner.advance(1);
+    assert result > 1;
+  }
+}
+
+module Applied = Consumer[View]

@@ -1,0 +1,2 @@
+pred cell(x: Ref) { true }
+module Bad { inline pred cell(x: Ref) = cell }

@@ -1,0 +1,15 @@
+func nonnegative(v: Int) returns (r: Bool) { v >= 0 }
+interface Restricted { field f: Int where nonnegative }
+field value: Int
+module Wrong : Restricted { field f = value }
+module Client[M: Restricted] {
+  proc read(x: Ref, ghost n: Int) returns (r: Int)
+    requires own(x.M.f, n)
+    ensures own(x.M.f, n) && r == n && r >= 0
+  { r := x.M.f; }
+}
+module C = Client[Wrong]
+proc bad(x: Ref) requires own(x.value, -1) {
+  val r := C.read(x, -1);
+  assert false;
+}

@@ -16,6 +16,7 @@ type t =
   | Bool
   | Case
   | Choose
+  | Checked
   | Data
   | Else
   | Ensures
@@ -97,6 +98,7 @@ let entries =
     ("Bool", Bool);
     ("case", Case);
     ("choose", Choose);
+    ("checked", Checked);
     ("data", Data);
     ("else", Else);
     ("ensures", Ensures);

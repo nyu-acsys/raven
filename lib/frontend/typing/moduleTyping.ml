@@ -249,7 +249,7 @@ let check_no_abstract_members (mod_decl : Module.module_decl)
           | CallDef
               {
                 call_def = ProcDef { proc_body = None } | FuncDef { func_body = None };
-                call_decl = { call_decl_status = NotFree; _ };
+                call_decl = { call_decl_status = NotFree; call_decl_alias = None; _ };
               } ->
               if Ident.(mod_decl.mod_decl_name = Predefs.prog_ident) then
                 abstract_in_program_error (Symbol.to_loc symbol) (Symbol.kind symbol)
@@ -652,6 +652,45 @@ let rec check (m : Module.t) : Module.t t =
 and check_instr (m : Module.t) (instr : Module.module_instr) : Module.module_instr t =
   let open Rewriter.Syntax in
   match instr with
+  | Module.SymbolDef (ModInst binding) when binding.mod_inst_is_checked ->
+      if binding.mod_inst_is_free || binding.mod_inst_is_interface then
+        Error.type_error binding.mod_inst_loc
+          "A checked module view must be a verified module binding";
+      let target =
+        match binding.mod_inst_def with
+        | Some (Module.Alias target) -> target
+        | _ ->
+            Error.type_error binding.mod_inst_loc
+              "A checked module view requires a named module target"
+      in
+      let* interface, _ = Rewriter.resolve_and_find binding.mod_inst_type in
+      let* actual, symbol = Rewriter.resolve_and_find target in
+      let nominal =
+        QualIdent.equal actual interface
+        || Set.mem (Interfaces.implemented_interfaces symbol) interface
+      in
+      let* target =
+        if nominal then Rewriter.return target
+        else
+          let name =
+            Ident.fresh_shared binding.mod_inst_loc
+              ("Checked$" ^ Ident.name binding.mod_inst_name)
+          in
+          let* adapter =
+            CheckedViews.module_ ~loc:binding.mod_inst_loc ~name ~interface ~actual
+          in
+          lift
+            (Rewriter.introduce_typecheck_symbol' ~loc:binding.mod_inst_loc
+               (Module.ModDef adapter))
+      in
+      check_instr m
+        (Module.SymbolDef
+           (ModInst
+              {
+                binding with
+                mod_inst_is_checked = false;
+                mod_inst_def = Some (Module.Alias target);
+              }))
   | Module.SymbolDef symbol ->
       let* symbol_def =
         match symbol with

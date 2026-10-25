@@ -1,0 +1,71 @@
+field value: Int
+
+module Actual {
+  pred cell(x: Ref; v: Int) { own(x.value, v, 1.0) }
+  inv shared(x: Ref) { exists v: Int :: own(x.value, v, 1.0) }
+}
+
+interface Cell {
+  pred cell(x: Ref; v: Int)
+  inv shared(x: Ref)
+}
+
+module View : Cell {
+  pred cell(x: Ref; v: Int) = Actual.cell
+  inv shared(x: Ref) = Actual.shared
+}
+
+module Chain {
+  pred cell(x: Ref; v: Int) = View.cell
+  inv shared(x: Ref) = View.shared
+}
+
+module Imported {
+  import Chain._
+  lemma same(x: Ref, ghost v: Int)
+    requires Actual.cell(x, v) && Actual.shared(x)
+    ensures cell(x, v) && shared(x)
+  { }
+}
+
+proc read(x: Ref, ghost v: Int) returns (r: Int)
+  requires Chain.cell(x, v)
+  ensures Actual.cell(x, v) && r == v
+{
+  unfold Chain.cell(x, v);
+  r := x.value;
+  fold View.cell(x, v);
+}
+
+lemma open_shared(x: Ref)
+  requires Actual.shared(x)
+  ensures Chain.shared(x)
+  opens View.shared(x)
+{
+  unfold Chain.shared(x);
+  fold View.shared(x);
+}
+
+interface Resource {
+  type T
+  pred resource(x: T)
+  inv shared(x: T)
+}
+
+module Concrete : Resource {
+  type T = Int
+  pred resource(x: Int) { true }
+  inv shared(x: Int) { true }
+}
+
+module Export[X: Resource] {
+  pred resource(x: X.T) = X.resource
+  inv shared(x: X.T) = X.shared
+}
+
+module Applied = Export[Concrete]
+
+lemma generic()
+  requires Concrete.resource(0) && Concrete.shared(0)
+  ensures Applied.resource(0) && Applied.shared(0)
+{ }

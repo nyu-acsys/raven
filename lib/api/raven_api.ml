@@ -322,6 +322,11 @@ module Member = struct
       (S.Module.binding ~loc ~definition:(Ast.Module.Alias target) name
          (Option.value typ ~default:target))
 
+  let checked_view ~loc ~typ ?sealed name target =
+    S.Module.symbol
+      (S.Module.binding ~loc ~definition:(Ast.Module.Alias target) ~checked:true ?sealed
+         name typ)
+
   let unit_instance ~loc ?typ name factory =
     S.Module.symbol
       (S.Module.binding ~loc ~definition:(Ast.Module.ApplyUnit factory) name

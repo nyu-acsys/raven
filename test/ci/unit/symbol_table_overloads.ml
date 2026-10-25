@@ -135,6 +135,7 @@ let instance ?(args = []) ?(abstract = false) ?(sealed = false) ?typ name target
         (if abstract then None else Some (Module.legacy_application (qi target, args)));
       mod_inst_is_interface = abstract;
       mod_inst_is_free = false;
+      mod_inst_is_checked = false;
       mod_inst_is_sealed = sealed;
       mod_inst_shared = [];
       mod_inst_loc = Util.Loc.dummy;

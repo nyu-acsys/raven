@@ -1459,7 +1459,8 @@ module ProgStats = struct
 
   and computeCallableStats c : prog_stats Rewriter.t =
     let open Rewriter.Syntax in
-    if is_free c.call_decl.call_decl_status then Rewriter.return init_prog_stats
+    if is_free c.call_decl.call_decl_status || Option.is_some c.call_decl.call_decl_alias
+    then Rewriter.return init_prog_stats
     else
       let callable_prog_stats =
         let call_kind = c.call_decl.call_decl_kind in

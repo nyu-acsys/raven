@@ -1,0 +1,2 @@
+pred cell(x: Ref; v: Int) { true }
+module Bad { pred cell(x: Ref; v: Bool) = cell }

@@ -1,0 +1,30 @@
+module Actual {
+  field value: Int
+  atomic proc restore(x: Ref)
+    requires own(x.value, 0, 1.0)
+    ensures own(x.value, 0, 1.0)
+  {
+    x.value := 1;
+    x.value := 0;
+  }
+}
+
+interface Physical {
+  field value: Int
+  atomic proc restore(x: Ref)
+    requires own(x.value, 0, 1.0)
+    ensures own(x.value, 0, 1.0)
+}
+
+module View : Physical = checked Actual
+
+inv shared(x: Ref) { own(x.Actual.value, 0, 1.0) }
+
+proc caller(x: Ref)
+  requires shared(x)
+  ensures shared(x)
+{
+  unfold shared(x);
+  View.restore(x);
+  fold shared(x);
+}

@@ -1,0 +1,3 @@
+interface Required { proc operation() }
+module Actual { proc other() { } }
+module View : Required = checked Actual

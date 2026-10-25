@@ -1,4 +1,7 @@
 25 oct, 2026:
+- [ ] Requalify interface-defined helper lemmas' atomic token types when inheriting
+    them into implementations: a helper taking `AtomicToken<operation>` currently
+    mixes the interface's operation identity with the implementation's operation.
 - [ ] Compact generated SMT symbol names while preserving canonical module
     identities and source diagnostics; measure SMT size, generation cost, and
     solver performance across seeds.

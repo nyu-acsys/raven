@@ -97,7 +97,7 @@ let inline_modifier ~loc (kind : Callable.call_kind) (is_inline : bool) : bool =
 %token PROC AXIOM LEMMA FREE
 %token CASE DATA ATOMICTOKEN FIELD WHERE
 (* [ATOMIC_PROC] is the modifier before [PROC]; both retain separate source spans. *)
-%token ATOMIC ATOMIC_PROC GHOST IMPLICIT REP AUTO INLINE WITH
+%token ATOMIC ATOMIC_PROC GHOST IMPLICIT REP AUTO INLINE WITH CHECKED
 %token <bool> VAR
 %token <bool> MODULE
 %token <string> STRINGVAL
@@ -142,6 +142,9 @@ module_def:
         Error.syntax_error (Loc.make $startpos(decl) $endpos(decl))
           (Printf.sprintf !"Module %{Ident} has no definition, so it cannot be sealed with ':>'"
              decl.mod_decl_name)
+      else if ma.mod_inst_is_checked && List.is_empty decl.mod_decl_returns then
+        Error.syntax_error decl.mod_decl_loc
+          "A checked module view must name its interface"
       else
         let mod_inst_type =
           (* A module *instance* stands for exactly one interface: [mod_inst_type]
@@ -164,7 +167,7 @@ module_def:
                  decl.mod_decl_name decl.mod_decl_name)
         in
         Surface.Module.binding ~loc:decl.mod_decl_loc ?definition:ma.mod_inst_def
-          ~interface:is_interface ~sealed:decl.mod_decl_is_sealed decl.mod_decl_name
+          ~interface:is_interface ~sealed:decl.mod_decl_is_sealed ~checked:ma.mod_inst_is_checked decl.mod_decl_name
           mod_inst_type
   | symbol -> symbol
 }
@@ -193,6 +196,12 @@ module_inst_or_impl_or_decl:
   Module.( ModDef { mod_decl = empty_decl;
                     mod_def = ms;
                   } )
+}
+| EQ; CHECKED; target = mod_ident {
+  Module.ModInst
+    (Module.mk_mod_binding ~name:(Ident.make Loc.dummy "" 0)
+       ~typ:(QualIdent.make [] (Ident.make Loc.dummy "" 0))
+       ~definition:(Module.Alias target) ~checked:true ~loc:Loc.dummy ())
 }
 | EQ; mod_name = mod_ident; application = module_application_suffix {
   Module.( ModInst (mk_mod_binding ~name:(Ident.make Loc.dummy "" 0) (* dummy *)
@@ -292,6 +301,10 @@ proc_kind:
 | is_auto = ioption(AUTO); AXIOM { (Surface.Callable.Axiom { is_auto = is_auto <> None }, false) }
     
 func_def:
+| def = func_decl; EQ; target = qual_ident {
+  let call_decl = { def.Callable.call_decl with call_decl_alias = Some (Expr.to_qual_ident target) } in
+  Surface.Callable.func call_decl None
+}
 | def = func_decl; body = option(delimited(LBRACE, expr, RBRACE)) {
   Surface.Callable.func def.Callable.call_decl body
 }

@@ -1,0 +1,2 @@
+pred cell(ghost x: Int) { true }
+module Bad { pred cell(x: Int) = cell }

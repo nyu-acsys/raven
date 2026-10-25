@@ -2988,6 +2988,8 @@ module Callable = struct
     call_decl_physical_atomic : bool;
         (** Whether a procedure call is one physical atomic step. *)
     call_decl_name : ident;  (** internal declaration identity *)
+    call_decl_alias : QualIdent.t option;
+        (** A resource alias denotes the target predicate or invariant. *)
     call_decl_source_name : ident option;  (** source name when different from identity *)
     call_decl_formals : var_decl list;  (** formal parameter list *)
     call_decl_returns : var_decl list;  (** return parameter list *)
@@ -3175,6 +3177,8 @@ module Callable = struct
         | None -> fprintf ppf "@\n"
       in
       match def with
+      | { call_decl = { call_decl_alias = Some target; _ } as call_decl; _ } ->
+          fprintf ppf "%a = %a@\n" (pr_call_decl false) call_decl QualIdent.pr target
       | { call_decl; call_def = FuncDef fdef } ->
           fprintf ppf "%a%a"
             (pr_call_decl (Option.is_some fdef.func_body))
@@ -3225,13 +3229,14 @@ module Callable = struct
   let mk_call_decl ~(kind : call_kind) ~(name : ident) ~(loc : location) ?(formals = [])
       ?(returns = []) ?(locals = []) ?(precond = []) ?(postcond = []) ?(contract_ext = [])
       ?(status = NotFree) ?(is_auto = false) ?(is_inline = false)
-      ?(physical_atomic = false) ?needs_mask ?grants_mask ?opens ?(loc_params = []) () :
-      call_decl =
+      ?(physical_atomic = false) ?needs_mask ?grants_mask ?opens ?alias ?(loc_params = [])
+      () : call_decl =
     {
       call_decl_kind = kind;
       call_decl_physical_atomic = physical_atomic;
       call_decl_name = name;
       call_decl_source_name = None;
+      call_decl_alias = alias;
       call_decl_formals = formals;
       call_decl_returns = returns;
       call_decl_locals = locals;
@@ -3250,6 +3255,7 @@ module Callable = struct
     }
 
   let is_abstract = function
+    | { call_decl = { call_decl_alias = Some _; _ }; _ } -> false
     | { call_def = FuncDef { func_body = None; _ }; _ }
     | { call_def = ProcDef { proc_body = None; _ }; _ } ->
         true
@@ -3297,7 +3303,9 @@ module Callable = struct
         (* Type.symbols ~acc:(Set.remove syms qi) var_decl.var_type) *)
         (* else (Logs.debug (fun m -> m "Adding %a to symbols" QualIdent.pr qi); *)
         Type.symbols ~acc:(Set.remove syms qi) var_decl.var_type) (* ) *)
-      ~init:symbols_w_locals_and_spec
+      ~init:
+        (Option.fold callable.call_decl.call_decl_alias ~init:symbols_w_locals_and_spec
+           ~f:Set.add)
       (callable.call_decl.call_decl_formals @ callable.call_decl.call_decl_returns
      @ callable.call_decl.call_decl_locals)
 
@@ -3400,6 +3408,7 @@ module Callable = struct
     let acc =
       List.fold (d.call_decl_precond @ d.call_decl_postcond) ~init:acc ~f:of_spec
     in
+    let acc = Option.fold d.call_decl_alias ~init:acc ~f:of_qi in
     match c.call_def with
     | ProcDef { proc_body } -> Option.fold proc_body ~init:acc ~f:of_stmt
     | FuncDef { func_body } -> Option.fold func_body ~init:acc ~f:of_expr
@@ -3448,6 +3457,7 @@ module Module = struct
     mod_inst_def : module_application option;
     mod_inst_is_interface : bool;
     mod_inst_is_free : bool;
+    mod_inst_is_checked : bool;
     mod_inst_is_sealed : bool;
         (** whether the instance is a view of its interface, `module M :> I = F[A]` *)
     mod_inst_shared : (QualIdent.t * QualIdent.t) list;
@@ -3707,12 +3717,17 @@ module Module = struct
       function
       | ModDef md -> pr ppf md
       | ModInst ma ->
-          fprintf ppf "@[<2>%smodule@ %a : %a%a@]"
+          fprintf ppf "@[<2>%smodule@ %a %s %a%a@]"
             (if ma.mod_inst_is_free then "free " else "")
-            Ident.pr ma.mod_inst_name QualIdent.pr ma.mod_inst_type
+            Ident.pr ma.mod_inst_name
+            (if ma.mod_inst_is_sealed then ":>" else ":")
+            QualIdent.pr ma.mod_inst_type
             (fun ppf -> function
               | None -> ()
-              | Some (Alias t) -> fprintf ppf " =@ %a" QualIdent.pr t
+              | Some (Alias t) ->
+                  fprintf ppf " =@ %s%a"
+                    (if ma.mod_inst_is_checked then "checked " else "")
+                    QualIdent.pr t
               | Some (ApplyUnit t) -> fprintf ppf " =@ %a()" QualIdent.pr t
               | Some (Apply (t, ts) | CanonicalApply (t, ts)) ->
                   fprintf ppf " =@ %a[%a]" QualIdent.pr t
@@ -3785,13 +3800,15 @@ module Module = struct
 
   (** A module instance, with the fields not given [None], [false] or empty. *)
   let mk_mod_binding ~(name : ident) ~(typ : QualIdent.t) ?definition
-      ?(is_interface = false) ?(is_sealed = false) ~(loc : location) () : module_inst =
+      ?(is_interface = false) ?(is_sealed = false) ?(checked = false) ~(loc : location) ()
+      : module_inst =
     {
       mod_inst_name = name;
       mod_inst_type = typ;
       mod_inst_def = definition;
       mod_inst_is_interface = is_interface;
       mod_inst_is_free = false;
+      mod_inst_is_checked = checked;
       mod_inst_is_sealed = is_sealed;
       mod_inst_shared = [];
       mod_inst_loc = loc;

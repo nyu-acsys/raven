@@ -1,0 +1,29 @@
+import Library.IntAtomics._
+
+module Actual {
+  field held: Int
+  field count: Int
+  proc operation(x: Ref, implicit ghost n: Int)
+    requires own(x.held, 0, 1.0)
+    ensures own(x.held, 0, 1.0)
+    atomic requires own(x.count, n, 1.0)
+    atomic ensures own(x.count, n + 1, 1.0)
+  {
+    x.held := 1;
+    x.held := 0;
+    ghost val token := bindAU();
+    n := openAU(token);
+    val old := faa(x.count, 1);
+    commitAU(token, ());
+  }
+}
+
+interface Required {
+  field held: Int
+  field count: Int
+  proc operation(x: Ref, implicit ghost n: Int)
+    atomic requires own(x.held, 0, 1.0) && own(x.count, n, 1.0)
+    atomic ensures own(x.held, 0, 1.0) && own(x.count, n + 1, 1.0)
+}
+
+module View : Required = checked Actual

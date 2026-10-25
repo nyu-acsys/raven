@@ -1,0 +1,2 @@
+pred cell(x: Ref) { true }
+module Bad { pred cell(x: Ref) ensures true = cell }

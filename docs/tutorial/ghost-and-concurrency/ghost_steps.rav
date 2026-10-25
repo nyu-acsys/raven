@@ -19,7 +19,7 @@ proc bumpTwice(c: Ref)
   ghost var predicted: Int := 2
   assert predicted == 2
   val _x := faa(c.count, 2) // the one real atomic step
-  ghost var checked: Bool := true
-  assert checked
+  ghost var verified: Bool := true
+  assert verified
   fold evenCount(c)
 }

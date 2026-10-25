@@ -1,0 +1,14 @@
+interface Required {
+  type T
+  proc identity(xs: Library.List[T]) returns (r: Library.List[T]) ensures r == xs
+}
+module Actual {
+  type T = Int
+  proc identity(xs: Library.List[Int]) returns (r: Library.List[Int]) ensures r == xs { r := xs; }
+}
+module View : Required = checked Actual
+proc client() {
+  val xs: Library.List[Int] := Library.List.::(1, Library.List.nil);
+  val ys := View.identity(xs);
+  assert ys == xs;
+}

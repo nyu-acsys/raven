@@ -619,11 +619,11 @@ module Module = struct
       { mod_decl = { header with mod_decl_is_interface = interface }; mod_def = members }
 
   (** The instance [module name : typ = def], or the abstract module [name : typ]. *)
-  let binding ~loc ?definition ?(interface = false) ?(sealed = false) (name : Ident.t)
-      (typ : QualIdent.t) : Module.symbol =
+  let binding ~loc ?definition ?(interface = false) ?(sealed = false) ?(checked = false)
+      (name : Ident.t) (typ : QualIdent.t) : Module.symbol =
     ModInst
       (Module.mk_mod_binding ~name ~typ ?definition ~is_interface:interface
-         ~is_sealed:sealed ~loc ())
+         ~is_sealed:sealed ~checked ~loc ())
 
   let instance ~loc ?def ?interface ?sealed name typ =
     let definition = Option.map def ~f:Module.legacy_application in

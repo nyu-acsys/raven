@@ -1,0 +1,4 @@
+func valid(value: Int) returns (result: Bool) { value >= 0 }
+interface Required { field value: Int where valid }
+module Actual { field value: Int }
+module View : Required = checked Actual

@@ -1,0 +1,7 @@
+interface Required {
+  proc operation()
+    atomic requires true
+    atomic ensures true
+}
+module Actual { proc operation() { } }
+module View : Required = checked Actual

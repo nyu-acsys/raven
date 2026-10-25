@@ -1,0 +1,104 @@
+module Actual {
+  type T = Int
+  field value: Int
+  pred cell(x: Ref; v: Int) { own(x.value, v, 1.0) }
+  inv shared(x: Ref) { exists v: Int :: own(x.value, v, 1.0) }
+
+  func successor(x: Int) returns (r: Int)
+    ensures r == x + 1
+  { x + 1 }
+
+  proc advance(x: Int) returns (r: Int)
+    requires x >= 0
+    ensures r == x + 1
+  { r := x + 1; }
+
+  proc read(x: Ref, ghost v: Int) returns (r: Int)
+    requires cell(x, v)
+    ensures cell(x, v) && r == v
+  {
+    unfold cell(x, v);
+    r := x.value;
+    fold cell(x, v);
+  }
+
+  lemma positive(x: Int)
+    requires x >= 0
+    ensures x + 1 > 0
+  { }
+}
+
+interface Operations {
+  type T
+  field value: Int
+  pred cell(x: Ref; v: Int)
+  inv shared(x: Ref)
+  func successor(x: Int) returns (r: Int)
+    ensures r > x
+  proc advance(x: Int) returns (r: Int)
+    requires x >= 1
+    ensures r > x
+  proc read(x: Ref, ghost v: Int) returns (r: Int)
+    requires cell(x, v)
+    ensures cell(x, v) && r == v
+  lemma positive(x: Int)
+    requires x >= 1
+    ensures x + 1 > 0
+}
+
+module View : Operations = checked Actual
+module Opaque :> Operations = checked Actual
+
+proc client(x: Ref, ghost v: Int)
+  requires Actual.cell(x, v)
+  ensures View.cell(x, v)
+{
+  var viewed: View.T := 1;
+  var actual: Actual.T := viewed;
+  val n := View.read(x, v);
+  assert n == v;
+  val next := View.advance(1);
+  assert next > 1;
+  assert View.successor(1) > 1;
+  View.positive(1);
+}
+
+proc same_field(x: Ref, ghost v: Int) returns (r: Int)
+  requires own(x.Actual.value, v, 1.0)
+  ensures own(x.View.value, v, 1.0) && r == v
+{ r := x.View.value; }
+
+lemma same_invariant(x: Ref)
+  requires Actual.shared(x)
+  ensures View.shared(x)
+  opens View.shared(x)
+{
+  unfold View.shared(x);
+  fold Actual.shared(x);
+}
+
+proc opaque_client(x: Ref, ghost v: Int)
+  requires Opaque.cell(x, v)
+  ensures Opaque.cell(x, v)
+{
+  val result := Opaque.read(x, v);
+  assert result == v;
+}
+
+interface Smaller {
+  type T
+  proc advance(x: Int) returns (r: Int)
+    requires x >= 2
+    ensures r > x
+}
+
+module Generic[A: Operations] {
+  module Adapted : Smaller = checked A
+}
+
+module Applied = Generic[View]
+
+proc generic_client() {
+  val result := Applied.Adapted.advance(2);
+  assert result > 2;
+}

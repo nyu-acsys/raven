@@ -1,0 +1,9 @@
+interface Echo[E: Library.Type] {
+  proc echo(x: E) returns (r: E) ensures r == x
+}
+interface IntEcho = Echo[Int]
+module Actual {
+  proc echo(x: Int) returns (r: Int) ensures r == x { r := x; }
+}
+module View : IntEcho = checked Actual
+proc check() { val x := View.echo(1); assert x == 1; }

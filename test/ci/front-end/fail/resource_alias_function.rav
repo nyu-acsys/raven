@@ -1,0 +1,2 @@
+func identity(x: Int) returns (r: Int) { x }
+module Bad { func identity(x: Int) returns (r: Int) = identity }

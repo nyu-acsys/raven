@@ -1,0 +1,2 @@
+inv shared(x: Ref) { true }
+module Bad { pred shared(x: Ref) = shared }

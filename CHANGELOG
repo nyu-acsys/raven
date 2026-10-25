@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Explicit checked module views verify interface adaptation while preserving resource aliases and nominal argument checks.
 - Named functor applications share instances, while unit factories use `module F()` and `F()` for fresh instances.
 - `Seq.of_list` converts lists to sequences with constructor and length laws.
 - Physically atomic procedures use `atomic proc` with ordinary preconditions and postconditions.

@@ -1,0 +1,34 @@
+module Conditions {
+  func valid(value: Int) returns (result: Bool) { value >= 0 }
+}
+
+module Names = Conditions
+
+interface Required {
+  field value: Int where Conditions.valid
+}
+
+module Actual {
+  field value: Int where Names.valid
+}
+
+module View : Required = checked Actual
+
+proc write(x: Ref)
+  requires own(x.Actual.value, 0, 1.0)
+  ensures own(x.View.value, 1, 1.0)
+{ x.View.value := 1; }
+
+interface OwnedConstraint {
+  func valid(value: Int) returns (result: Bool)
+  field value: Int where valid
+}
+module OwnedActual {
+  func valid(value: Int) returns (result: Bool) { Conditions.valid(value) }
+  field value: Int where Conditions.valid
+}
+module OwnedView : OwnedConstraint = checked OwnedActual
+proc readOwned(x: Ref, ghost n: Int) returns (r: Int)
+  requires own(x.OwnedActual.value, n, 1.0)
+  ensures own(x.OwnedView.value, n, 1.0) && r >= 0
+{ r := x.OwnedView.value; }

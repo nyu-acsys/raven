@@ -99,3 +99,8 @@
  (name canonical_module_keys)
  (modules canonical_module_keys)
  (libraries raven base))
+
+(test
+ (name checked_views_api)
+ (modules checked_views_api)
+ (libraries raven raven-ivl.api base))

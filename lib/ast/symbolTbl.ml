@@ -1100,6 +1100,12 @@ let add_symbol ?(scope : scope option = None) ~diagnostics symbol tbl =
     in
 
     match symbol with
+    | CallDef { call_decl = { call_decl_alias = Some target; _ }; _ } ->
+        let _, target_qual_ident, _, _ = resolve_and_find_exn target tbl in
+        add_to_map tbl
+          (get_scope_entries appropriate_scope)
+          symbol_loc symbol_ident (Transparent target_qual_ident) ~duplicate;
+        tbl
     | CallDef call when is_function symbol ->
         let source = Callable.source_ident call in
         let entries = get_scope_entries appropriate_scope in

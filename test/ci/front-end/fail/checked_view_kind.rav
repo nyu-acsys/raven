@@ -1,0 +1,3 @@
+interface Required { pred resource(x: Ref) }
+module Actual { inv resource(x: Ref) { true } }
+module View : Required = checked Actual

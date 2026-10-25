@@ -1,0 +1,10 @@
+interface Required {
+  func identity(x: Int) returns (r: Int) ensures r == x
+  func identity(x: Bool) returns (r: Bool) ensures r == x
+}
+module Actual {
+  func identity(x: Bool) returns (r: Bool) { x }
+  func identity(x: Int) returns (r: Int) { x }
+}
+module View : Required = checked Actual
+lemma client() { assert View.identity(1) == 1 && View.identity(true); }

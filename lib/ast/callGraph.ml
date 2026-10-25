@@ -131,6 +131,8 @@ let termination_calls ~ext_hooks (tbl : SymbolTbl.t) (mdef : Module.t) : Graph.t
     let* graph =
       Rewriter.List.fold_left mdef.Module.mod_def ~init:graph ~f:(fun graph -> function
         | Module.SymbolDef (ModDef nested) -> analyze_module graph nested
+        | Module.SymbolDef (CallDef { call_decl = { call_decl_alias = Some _; _ }; _ }) ->
+            Rewriter.return graph
         | Module.SymbolDef (CallDef callable) ->
             let* _ = Rewriter.enter_callable callable in
             let* name = Rewriter.current_scope_id in

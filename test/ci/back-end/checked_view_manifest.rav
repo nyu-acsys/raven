@@ -1,0 +1,10 @@
+interface Required {
+  type T = Int
+  proc identity(x: T) returns (r: T) ensures r == x
+}
+module Actual {
+  type T = Int
+  proc identity(x: Int) returns (r: Int) ensures r == x { r := x; }
+}
+module View : Required = checked Actual
+proc client() { val r := View.identity(1); assert r == 1; }

@@ -1,0 +1,7 @@
+interface Required {
+  proc operation() returns (r: Int) ensures r > 0
+}
+module Actual {
+  proc operation() returns (r: Int) ensures r == 0 { r := 0; }
+}
+module View : Required = checked Actual

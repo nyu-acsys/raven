@@ -1,0 +1,34 @@
+import Library.IntAtomics._
+
+module Actual {
+  field value: Int
+
+  proc increment(token: Ref, implicit ghost opened: Int) returns (r: Int)
+    atomic requires own(token.value, opened, 1.0)
+    atomic ensures own(token.value, opened + 1, 1.0) && r == opened
+  {
+    ghost val access := bindAU();
+    opened := openAU(access);
+    r := faa(token.value, 1);
+    commitAU(access, r);
+  }
+}
+
+interface Counter {
+  field value: Int
+  proc increment(token: Ref, implicit ghost opened: Int) returns (r: Int)
+    atomic requires own(token.value, opened, 1.0)
+    atomic ensures own(token.value, opened + 1, 1.0) && r <= opened
+}
+
+module View : Counter = checked Actual
+
+inv shared(token: Ref) { exists opened: Int :: own(token.Actual.value, opened, 1.0) }
+
+proc client(token: Ref)
+  requires shared(token)
+{
+  unfold shared(token);
+  val result := View.increment(token);
+  fold shared(token);
+}

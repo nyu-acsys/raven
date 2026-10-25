@@ -338,6 +338,10 @@ module Member : sig
   (** The binding [module name : typ = target], without applying [target]. The declared
       [typ] defaults to [target]. *)
 
+  val checked_view : loc:Loc.t -> typ:Name.t -> ?sealed:bool -> Ident.t -> Name.t -> t
+  (** A view checked against [typ], proving conformance when membership is not already
+      known. *)
+
   val unit_instance : loc:Loc.t -> ?typ:Name.t -> Ident.t -> Name.t -> t
   (** The fresh application [module name : typ = factory()]. The declared [typ] defaults
       to [factory]. *)

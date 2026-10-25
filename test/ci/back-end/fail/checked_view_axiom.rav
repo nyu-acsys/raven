@@ -1,0 +1,3 @@
+interface Required { axiom law() ensures false }
+module Actual { lemma law() requires false ensures false { } }
+module View : Required = checked Actual

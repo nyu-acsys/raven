@@ -1994,5 +1994,18 @@ let lower (m : Module.t) : (Module.t * CallGraph.Graph.t) Rewriter.t =
     before any is lowered (see [Elaboration.elaborate_module]). *)
 let lower_module ?(tbl = SymbolTbl.create ()) ?ext_hooks ?diagnostics (m : Module.t) =
   assert (SymbolTbl.curr_is_root tbl);
+  (* Resource aliases have no declarations or heaps of their own. *)
+  let rec without_resource_aliases (m : Module.t) =
+    let mod_def =
+      List.filter_map m.mod_def ~f:(function
+        | Module.SymbolDef (CallDef { call_decl = { call_decl_alias = Some _; _ }; _ }) ->
+            None
+        | SymbolDef (ModDef nested) ->
+            Some (Module.SymbolDef (ModDef (without_resource_aliases nested)))
+        | member -> Some member)
+    in
+    { m with mod_def }
+  in
+  let m = without_resource_aliases m in
   let tbl, (m, lemma_calls) = Rewriter.eval ?ext_hooks ?diagnostics (lower m) tbl in
   (tbl, m, lemma_calls)

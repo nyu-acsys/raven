@@ -1,0 +1,3 @@
+interface Required { type T = Int }
+module Actual { type T = Bool }
+module View : Required = checked Actual
