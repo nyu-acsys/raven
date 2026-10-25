@@ -49,16 +49,21 @@
  (libraries raven base stdio))
 
 ; Every .rav file of the tests, the tutorial and the library prints as Raven that parses
-; back to the same program.
+; back to the same program. Scan sandboxed roots to keep the Windows command line short.
 
 (rule
  (alias runtest)
  (deps
+  (sandbox always)
   (glob_files_rec %{project_root}/test/**.rav)
   (glob_files_rec %{project_root}/docs/tutorial/**.rav)
   (glob_files_rec %{project_root}/lib/library/**.rav))
  (action
-  (run %{exe:print_roundtrip.exe} %{deps})))
+  (run
+   %{exe:print_roundtrip.exe}
+   %{project_root}/test
+   %{project_root}/docs/tutorial
+   %{project_root}/lib/library)))
 
 (test
  (name api_verify)

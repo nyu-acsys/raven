@@ -1,5 +1,6 @@
-(* Parses each file given, prints it, parses the printed text again and prints it once
-   more: the printer writes parseable Raven if both printed texts agree. Files that do not
+(* Parses each file given, or each .rav file under the directories given, prints it,
+   parses the printed text again and prints it once more: the printer writes parseable
+   Raven if both printed texts agree. Files that do not
    parse are skipped, as are files whose syntax belongs to more than one extension, which
    no single chain of extensions prints. Fails with the files whose round trip does not
    hold. With ROUNDTRIP_DUMP set to a directory, the printed texts of a failing file are
@@ -72,8 +73,21 @@ let check file_name =
             Some ("printed again differently: " ^ first_difference printed printed')
           end)
 
+let rec corpus_files directory =
+  Stdlib.Sys.readdir directory |> Array.to_list
+  |> List.sort ~compare:String.compare
+  |> List.concat_map ~f:(fun entry ->
+      let path = Stdlib.Filename.concat directory entry in
+      if Stdlib.Sys.is_directory path then corpus_files path
+      else if String.is_suffix path ~suffix:".rav" then [ path ]
+      else [])
+
 let () =
-  let files = List.tl_exn (Array.to_list (Sys.get_argv ())) in
+  let files =
+    List.tl_exn (Array.to_list (Sys.get_argv ()))
+    |> List.concat_map ~f:(fun path ->
+        if Stdlib.Sys.is_directory path then corpus_files path else [ path ])
+  in
   let failures =
     List.filter_map files ~f:(fun file ->
         Option.map (check file) ~f:(fun why -> (file, why)))
