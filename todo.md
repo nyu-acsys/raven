@@ -1,4 +1,12 @@
 25 oct, 2026:
+- [ ] Compact generated SMT symbol names while preserving canonical module
+    identities and source diagnostics; measure SMT size, generation cost, and
+    solver performance across seeds.
+- [ ] Investigate cheaper canonical functor-instance lookup, including structured
+    cache keys; profile before changing it, since its measured cost is small.
+- [ ] Assess direct Z3 API integration to reduce SMT text generation, parsing,
+    and transport costs; compare end-to-end performance and account for solver
+    lifecycle, diagnostics, and reproducible query dumps.
 - [x] Freshen initialized bind destinations before assuming the bind predicate:
     `ghost var x: Int := 0; x :| x == 7; assert x == 0;` verifies vacuously.
     Check existence before havocking the destinations and assuming the predicate;
