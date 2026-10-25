@@ -650,6 +650,45 @@ let is_generated qual_ident =
     the modules on the path of [name]. A name the verifier generated is not recorded. *)
 let record_reference s ~name ~target symbol =
   let generated = is_generated in
+  let source_module name =
+    let table = s.state_table in
+    let first = QualIdent.first_ident name in
+    let rec lookup = function
+      | [] -> None
+      | scope :: rest ->
+          if not (Base.Hashtbl.mem (SymbolTbl.get_scope_entries scope) first) then
+            lookup rest
+          else
+            let prefix = SymbolTbl.fully_qualify first scope table in
+            let target =
+              QualIdent.from_list
+                (QualIdent.to_list prefix @ Base.List.tl_exn (QualIdent.to_list name))
+            in
+            let declared = Base.Map.find table.tbl_symbols target in
+            let declared =
+              Base.Option.first_some declared
+                (if not (QualIdent.is_qualified target) then None
+                 else
+                   Base.Option.bind
+                     (SymbolTbl.resolve_and_find ~read_only:true (QualIdent.pop target)
+                        table)
+                     ~f:(function
+                       | _, _, AstDef.Module.ModDef parent, _ ->
+                           Base.List.find_map parent.mod_def ~f:(function
+                             | AstDef.Module.SymbolDef symbol
+                               when Ident.equal
+                                      (AstDef.Symbol.to_name symbol)
+                                      (QualIdent.unqualify target) ->
+                                 Some symbol
+                             | _ -> None)
+                       | _ -> None))
+            in
+            Base.Option.bind declared ~f:(function
+              | (AstDef.Module.ModInst _ | ModDef _) as symbol -> Some (target, symbol)
+              | _ -> None)
+    in
+    lookup (table.tbl_curr :: table.tbl_path)
+  in
   (* A symbol the verifier generated, or one without a declaration, is not shown. *)
   let record ~name ~target symbol =
     (* An instance of a functor resolves to the functor; its own declaration says more. *)
@@ -678,8 +717,12 @@ let record_reference s ~name ~target symbol =
     Base.List.iteri (QualIdent.path name) ~f:(fun i _ ->
         let prefix = QualIdent.from_list (Base.List.take (QualIdent.path name) (i + 1)) in
         match SymbolTbl.resolve_and_find ~read_only:true prefix s.state_table with
-        | Some (_, module_target, module_symbol, _) when not (generated module_target) ->
-            record ~name:prefix ~target:module_target module_symbol
+        | Some (_, module_target, module_symbol, _) ->
+            if not (generated module_target) then
+              record ~name:prefix ~target:module_target module_symbol
+            else
+              Base.Option.iter (source_module prefix) ~f:(fun (target, symbol) ->
+                  record ~name:prefix ~target symbol)
         | _ -> ())
   end
 

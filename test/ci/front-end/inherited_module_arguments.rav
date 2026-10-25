@@ -1,0 +1,21 @@
+module Box[E: Library.Type] : Library.Type {
+  rep type T = data { case box(value: E) }
+}
+interface Spec {
+  module Element : Library.Type { rep type T = Int }
+  module B = Box[Element]
+}
+module Impl : Spec { }
+module Other : Spec { }
+module ElementAlias = Impl.Element
+
+func inherited_to_named(x: Impl.B.T) returns (r: Box[Impl.Element]) { x }
+func named_to_inherited(x: Box[Impl.Element]) returns (r: Impl.B.T) { x }
+func inherited_to_alias(x: Impl.B.T) returns (r: Box[ElementAlias]) { x }
+func other_argument(x: Other.B.T) returns (r: Box[Other.Element]) { x }
+
+lemma construction() {
+  val x: Impl.B.T := Impl.B.box(3);
+  val y: Box[Impl.Element] := x;
+  assert y.value == 3;
+}

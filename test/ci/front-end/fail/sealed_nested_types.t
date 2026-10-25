@@ -11,8 +11,4 @@
   24 |   func get(b: Box[Box[Int]]) returns (r: Int) { b.value.value }
               ^^^
   Type Error: Formal parameter b of function get does not match parameter b of get in interface NamedElementSpec.
-  [Error] File "./sealed_nested_types.rav", line 32, columns 7-10:
-  32 |   func get(b: Box[Box[Int]]) returns (r: Int) { b.value.value }
-              ^^^
-  Type Error: Formal parameter b of function get does not match parameter b of get in interface NamedBoxSpec.
   [1]

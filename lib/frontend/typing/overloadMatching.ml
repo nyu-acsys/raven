@@ -30,7 +30,7 @@ let instance_module (mi : Module.module_inst) =
   let target =
     match mi.mod_inst_def with
     | Some (Module.Alias target) -> target
-    | Some (Apply _ | ApplyUnit _) | None -> mi.mod_inst_type
+    | Some (Apply _ | CanonicalApply _ | ApplyUnit _) | None -> mi.mod_inst_type
   in
   let+ found = CandidateTypes.lookup target in
   Option.bind found ~f:(fun (target_qi, target_symbol) ->
@@ -156,27 +156,94 @@ let has_rep_type ctx functor_qi =
         | _ -> false)
   | None -> false
 
+let formal_accepts_type_argument (formal : Module.module_inst) =
+  let open Rewriter.Syntax in
+  let* rep = lift (ProgUtils.resolve_rep_ident formal.mod_inst_type) in
+  match rep with
+  | None -> Rewriter.return false
+  | Some (interface_qual_ident, rep_ident) ->
+      let+ members =
+        lift (ProgUtils.non_rep_abstract_members ~interface_qual_ident ~rep_ident)
+      in
+      List.is_empty members
+
+let can_wrap_functor_arguments ctx functor_qi =
+  let open Rewriter.Syntax in
+  let* found = lookup ctx functor_qi in
+  match found with
+  | Some (_, symbol) ->
+      begin match Rewriter.Symbol.orig_symbol symbol with
+      | Module.ModDef module_ ->
+          Rewriter.List.for_all
+            (Module.formals module_.mod_decl)
+            ~f:formal_accepts_type_argument
+      | _ -> Rewriter.return false
+      end
+  | None -> Rewriter.return false
+
+let is_nominal_rep_definition rep = function
+  | Module.SymbolDef (TypeDef { type_def_name; type_def_expr; _ })
+    when Ident.equal type_def_name rep ->
+      begin match type_def_expr with
+      | None | Some (Type.App (Data _, _, _)) -> true
+      | Some _ -> false
+      end
+  | _ -> false
+
+let module_has_nominal_rep symbol =
+  Rewriter.Symbol.extract symbol ~f:(fun _ _ -> function
+    | Module.ModDef { mod_decl = { mod_decl_rep = Some rep; _ }; mod_def } ->
+        List.exists mod_def ~f:(is_nominal_rep_definition rep)
+    | _ -> false)
+
+let inherited_module_argument ctx instances module_qi =
+  let open Rewriter.Syntax in
+  let module_qi = rename_instance instances module_qi in
+  let lookup_renamed qi = lookup ctx (rename_instance instances qi) in
+  let* normalized =
+    CandidateTypes.normalize ~lookup:lookup_renamed (Type.var module_qi)
+  in
+  let* nominal_rep =
+    let+ found = lookup ctx module_qi in
+    Option.value_map found ~default:false ~f:(fun (_, symbol) ->
+        module_has_nominal_rep symbol)
+  in
+  let adapter =
+    String.is_prefix
+      (Ident.name (QualIdent.unqualify module_qi))
+      ~prefix:ProgUtils.tp_mod_ident_prefix
+  in
+  let+ table = Rewriter.get_table in
+  let identity qi = SymbolTbl.identity ~preserve_abstract_owners:true qi table in
+  match normalized with
+  | Ok (Type.App (Var rep, [], _))
+    when QualIdent.is_qualified rep
+         && QualIdent.equal (identity (QualIdent.pop rep)) (identity module_qi) ->
+      normalized
+  | _ when adapter || nominal_rep -> normalized
+  | _ -> Error (CandidateTypes.Not_type module_qi)
+
+let inherited_argument_type ctx instances = function
+  | Module.TypeArg typ ->
+      Rewriter.return
+        (Ok (CandidateTypes.rewrite_type ~f:(rename_instance instances) typ))
+  | Module.ModArg module_qi -> inherited_module_argument ctx instances module_qi
+
 (** The type application that [mi], a member of the interface, stands for, if the
     interface created it implicitly, with the instances in its arguments renamed by
     [instances]. *)
 let inherited_application ctx instances (mi : Module.module_inst) =
   let open Rewriter.Syntax in
   match mi.mod_inst_def with
-  | Some (Module.Apply (functor_qi, args))
+  | Some (Module.CanonicalApply (functor_qi, args))
     when String.is_prefix (Ident.name mi.mod_inst_name)
            ~prefix:ProgUtils.inst_mod_ident_prefix ->
       let* has_rep_type = has_rep_type ctx functor_qi in
-      if not has_rep_type then Rewriter.return None
+      let* can_wrap_arguments = can_wrap_functor_arguments ctx functor_qi in
+      if not (has_rep_type && can_wrap_arguments) then Rewriter.return None
       else
         let+ argument_types =
-          Rewriter.List.map args ~f:(function
-            | Module.TypeArg typ ->
-                Rewriter.return
-                  (Ok (CandidateTypes.rewrite_type ~f:(rename_instance instances) typ))
-            | Module.ModArg module_qi ->
-                CandidateTypes.normalize
-                  ~lookup:(fun qi -> lookup ctx (rename_instance instances qi))
-                  (Type.var module_qi))
+          Rewriter.List.map args ~f:(inherited_argument_type ctx instances)
         in
         begin match Result.all argument_types with
         | Error _ -> None

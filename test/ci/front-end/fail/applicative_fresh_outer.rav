@@ -1,0 +1,10 @@
+module Outer() {
+  module Inner[E: Library.Type] : Library.Type {
+    rep type T = data { case inner(value: E) }
+  }
+}
+module FirstOuter = Outer()
+module SecondOuter = Outer()
+module A = FirstOuter.Inner[Int]
+module B = SecondOuter.Inner[Int]
+func cannot_mix(x: A.T) returns (r: B.T) { x }

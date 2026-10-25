@@ -126,25 +126,25 @@ let test_symbol_replacement () =
       assert (Type.equal (Callable.return_type call.call_decl) Type.int)
   | _ -> assert false
 
-let instance ?(args = []) ?(abstract = false) name target =
+let instance ?(args = []) ?(abstract = false) ?(sealed = false) ?typ name target =
   Module.ModInst
     {
       mod_inst_name = id name;
-      mod_inst_type = qi target;
+      mod_inst_type = qi (Option.value typ ~default:target);
       mod_inst_def =
         (if abstract then None else Some (Module.legacy_application (qi target, args)));
       mod_inst_is_interface = abstract;
       mod_inst_is_free = false;
-      mod_inst_is_sealed = false;
+      mod_inst_is_sealed = sealed;
       mod_inst_shared = [];
       mod_inst_loc = Util.Loc.dummy;
     }
 
 let test_aliases () =
   let tbl = base () |> register (instance "Alias" [ "A" ]) in
-  expect_targets [ "Alias"; "f" ] [ [ "Alias"; "$a1" ]; [ "Alias"; "$a2" ] ] tbl;
+  expect_targets [ "Alias"; "f" ] [ [ "A"; "$a1" ]; [ "A"; "$a2" ] ] tbl;
   let tbl = SymbolTbl.enter_exn (id "Use") tbl |> import [ "Alias" ] in
-  expect_targets [ "f" ] [ [ "Alias"; "$a1" ]; [ "Alias"; "$a2" ] ] tbl;
+  expect_targets [ "f" ] [ [ "A"; "$a1" ]; [ "A"; "$a2" ] ] tbl;
   List.iter
     [ [ "A"; "Alias" ]; [ "Alias"; "A" ] ]
     ~f:(fun order ->
@@ -229,6 +229,26 @@ let test_sealed_exposure () =
   let tbl = import [ "Sealed" ] tbl in
   expect_targets [ "f" ] [ [ "Sealed"; "$visible1" ]; [ "Sealed"; "$visible2" ] ] tbl;
   expect_targets [ "hidden" ] [] tbl
+
+let test_sealed_instance_exposure () =
+  let interface_decl = { Module.empty_decl with mod_decl_is_interface = true } in
+  let implementation_decl =
+    { Module.empty_decl with mod_decl_returns = [ (qi [ "Public" ], []) ] }
+  in
+  let tbl =
+    SymbolTbl.create ()
+    |> register
+         (module_ ~decl:interface_decl "Public"
+            [ func "$visible1" "f"; func "$visible2" "f" ])
+    |> register
+         (module_ ~decl:implementation_decl "Implementation"
+            [ func "$visible1" "f"; func "$visible2" "f"; func "$hidden" "hidden" ])
+    |> register (instance ~sealed:true ~typ:[ "Public" ] "Sealed" [ "Implementation" ])
+  in
+  expect_targets [ "Sealed"; "f" ]
+    [ [ "Sealed"; "$visible1" ]; [ "Sealed"; "$visible2" ] ]
+    tbl;
+  expect_targets [ "Sealed"; "hidden" ] [] tbl
 
 let test_cached_candidates () =
   let tbl = base () |> SymbolTbl.enter_exn (id "A") in
@@ -389,4 +409,5 @@ let () =
   test_symbol_replacement ();
   test_aliases ();
   test_parameter_substitution ();
-  test_sealed_exposure ()
+  test_sealed_exposure ();
+  test_sealed_instance_exposure ()

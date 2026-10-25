@@ -675,7 +675,8 @@ and check_instr (m : Module.t) (instr : Module.module_instr) : Module.module_ins
               | Some (Module.ApplyUnit _) ->
                   let+ table = Rewriter.get_table in
                   SymbolTbl.identity ~preserve_abstract_owners:true mod_inst_type table
-              | None | Some (Alias _ | Apply _) -> Rewriter.return mod_inst_type
+              | None | Some (Alias _ | Apply _ | CanonicalApply _) ->
+                  Rewriter.return mod_inst_type
             in
             (* Resolves the functor `F` and pairs its formals with `args`, wrapping a
                  bare type argument (e.g. `M[Int]`) into a rep module (see
@@ -684,7 +685,7 @@ and check_instr (m : Module.t) (instr : Module.module_instr) : Module.module_ins
             let* mod_inst_def, mod_inst_shared, to_check =
               match mod_inst.mod_inst_def with
               | None -> Rewriter.return (None, [], [])
-              | Some application ->
+              | Some application -> (
                   let mod_inst_func = Module.application_target application in
                   let mod_inst_args = Module.application_args application in
                   (* Get qualified name of F and its symbol *)
@@ -698,7 +699,7 @@ and check_instr (m : Module.t) (instr : Module.module_instr) : Module.module_ins
                         Rewriter.resolve_and_find
                           (SymbolTbl.identity ~preserve_abstract_owners:true
                              qual_functor_ident table)
-                    | Alias _ | Apply _ ->
+                    | Alias _ | Apply _ | CanonicalApply _ ->
                         Rewriter.return (qual_functor_ident, functor_symbol)
                   in
                   (* Get formal parameters of F *)
@@ -725,21 +726,21 @@ and check_instr (m : Module.t) (instr : Module.module_instr) : Module.module_ins
                            an unapplied alias"
                     | Module.Alias _, _ -> []
                     | Module.ApplyUnit _, UnitParameter -> []
-                    | Module.Apply _, NamedParameters formals ->
+                    | (Module.Apply _ | CanonicalApply _), NamedParameters formals ->
                         List.map formals ~f:(fun formal -> (formal, formal.mod_inst_type))
                     | Module.ApplyUnit _, (Structure | NamedParameters _) ->
                         Error.type_error mod_inst.mod_inst_loc
                           "Only a unit factory can be applied with ()"
-                    | Module.Apply _, UnitParameter ->
+                    | (Module.Apply _ | CanonicalApply _), UnitParameter ->
                         Error.type_error mod_inst.mod_inst_loc
                           "A unit factory must be applied with ()"
-                    | Module.Apply _, Structure -> []
+                    | (Module.Apply _ | CanonicalApply _), Structure -> []
                   in
                   let* () =
                     match application with
                     | Module.ApplyUnit _ ->
                         check_unit_application_context mod_inst.mod_inst_loc
-                    | Alias _ | Apply _ -> Rewriter.return ()
+                    | Alias _ | Apply _ | CanonicalApply _ -> Rewriter.return ()
                   in
                   (* Pair up `args` and formals *)
                   let* args_and_formals =
@@ -778,7 +779,7 @@ and check_instr (m : Module.t) (instr : Module.module_instr) : Module.module_ins
                   in
                   let functor_def =
                     match (application, functor_definition) with
-                    | (Module.Apply _ | ApplyUnit _), Ast.Module.ModDef mod_def
+                    | (Module.CanonicalApply _ | ApplyUnit _), Ast.Module.ModDef mod_def
                       when not (Rewriter.Symbol.is_module_instance functor_symbol) ->
                         Some mod_def
                     | _ -> None
@@ -799,23 +800,52 @@ and check_instr (m : Module.t) (instr : Module.module_instr) : Module.module_ins
                           let+ scope = Rewriter.current_scope_id in
                           QualIdent.append scope mod_inst.mod_inst_name
                         else Rewriter.return qual_functor_ident
-                    | Alias _ | Apply _ -> Rewriter.return qual_functor_ident
+                    | Alias _ | Apply _ | CanonicalApply _ ->
+                        Rewriter.return qual_functor_ident
                   in
-                  Rewriter.return
-                    ( Some
-                        (Module.map_application application
-                           ~target:(fun _ -> qual_functor_ident)
-                           ~args:(fun _ ->
-                             List.map resolved_args ~f:(fun (qi, _) -> Module.ModArg qi))),
-                      shared,
-                      ( check_actual,
-                        mod_inst_type,
-                        match application with
-                        | Alias _ -> (
-                            match parameters with Structure -> true | _ -> false)
-                        | _ -> false )
-                      :: List.map resolved_args ~f:(fun (actual, expected) ->
-                          (actual, expected, false)) )
+                  match application with
+                  | Module.Apply _ ->
+                      let* canonical =
+                        lift
+                          (ProgUtils.instantiate_functor_at_modules
+                             ~loc:mod_inst.mod_inst_loc
+                             ~functor_qual_ident:qual_functor_ident arg_qis)
+                      in
+                      Rewriter.return
+                        ( Some
+                            (Module.Alias
+                               (QualIdent.set_loc
+                                  (SymbolReference.application_loc application)
+                                  canonical)),
+                          [],
+                          (if QualIdent.equal mod_inst_type qual_functor_ident then []
+                           else [ (canonical, mod_inst_type, true) ])
+                          @ List.map resolved_args ~f:(fun (actual, expected) ->
+                              (actual, expected, false)) )
+                  | Alias _ | CanonicalApply _ | ApplyUnit _ ->
+                      Rewriter.return
+                        ( Some
+                            (Module.map_application application
+                               ~target:(fun _ -> qual_functor_ident)
+                               ~args:(fun _ ->
+                                 List.map resolved_args ~f:(fun (qi, _) ->
+                                     Module.ModArg qi))),
+                          shared,
+                          ( check_actual,
+                            mod_inst_type,
+                            match application with
+                            | Alias _ -> (
+                                match parameters with Structure -> true | _ -> false)
+                            | _ -> false )
+                          :: List.map resolved_args ~f:(fun (actual, expected) ->
+                              (actual, expected, false)) ))
+            in
+            let* mod_inst_type =
+              match (mod_inst.mod_inst_def, mod_inst_def) with
+              | Some (Module.Apply (head, _)), Some (Module.Alias canonical) ->
+                  let+ head = Rewriter.resolve head in
+                  if QualIdent.equal mod_inst_type head then canonical else mod_inst_type
+              | _ -> Rewriter.return mod_inst_type
             in
             let symbol =
               Module.ModInst

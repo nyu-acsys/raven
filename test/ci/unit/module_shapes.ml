@@ -35,13 +35,13 @@ let test_legacy_bindings () =
   assert (Option.is_none (make ()).mod_inst_def);
   begin match (make ~def:(target, []) ()).mod_inst_def with
   | Some (Alias actual) -> assert (QualIdent.equal target actual)
-  | None | Some (Apply _ | ApplyUnit _) -> assert false
+  | None | Some (Apply _ | CanonicalApply _ | ApplyUnit _) -> assert false
   end;
   match (make ~def:(target, [ Module.ModArg (qi [ "Argument" ]) ]) ()).mod_inst_def with
   | Some (Apply (actual, [ ModArg argument ])) ->
       assert (QualIdent.equal target actual);
       assert (QualIdent.equal argument (qi [ "Argument" ]))
-  | None | Some (Alias _ | ApplyUnit _ | Apply _) -> assert false
+  | None | Some (Alias _ | ApplyUnit _ | Apply _ | CanonicalApply _) -> assert false
 
 let test_application_rewriting () =
   let original = qi [ "Original" ] and rewritten = qi [ "Rewritten" ] in
@@ -66,7 +66,7 @@ let test_application_rewriting () =
   | Apply (actual, [ TypeArg typ ]) ->
       assert (QualIdent.equal actual rewritten);
       assert (Type.equal typ Type.int)
-  | Alias _ | ApplyUnit _ | Apply _ -> assert false
+  | Alias _ | ApplyUnit _ | Apply _ | CanonicalApply _ -> assert false
   end;
   List.iter [ alias; factory; application ] ~f:(fun application ->
       assert (QualIdent.equal (Module.application_target application) rewritten));

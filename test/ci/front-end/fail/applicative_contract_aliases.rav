@@ -1,0 +1,20 @@
+interface Predicates { pred chunk(x: Int) }
+module Actual : Predicates { pred chunk(x: Int) { x >= 0 } }
+module Other : Predicates { pred chunk(x: Int) { x >= 0 } }
+
+interface Client {
+  module P : Predicates
+
+  proc keep(x: Int)
+    requires P.chunk(x)
+    ensures P.chunk(x)
+}
+
+module Wrong : Client {
+  module P = Actual
+
+  proc keep(x: Int)
+    requires Other.chunk(x)
+    ensures Other.chunk(x)
+  { }
+}

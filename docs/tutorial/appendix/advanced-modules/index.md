@@ -60,21 +60,24 @@ shape, write an explicit instantiation.
 
 ## Instance identity {#sec:module-instance-identity}
 
-Repeated inferred instantiations with the same arguments share a canonical instance. Thus two
-calls to `Box.mk(3)` produce values of the same type, while `Box.mk(true)` uses a different
-instance. The type notation `Box[Int]` shares the canonical instance used by type-based inference.
+Ordinary functor applications are applicative: the same functor applied to the same module
+arguments shares one canonical instance. This applies to explicit declarations, inferred calls,
+and type notation alike. Thus `module BoxTag = Box[Int]` names the same instance that
+`Box.mk(3)` and the type `Box[Int]` use; `BoxTag.S` and `Box[Int]` are the same type.
+`Box.mk(true)` uses a different instance. Module aliases preserve identity, while distinct
+named argument modules remain different arguments even if both represent the same type.
+
 This extends to instances written inside a functor. If a functor `G[E: Library.Type]` uses
 `Box[E]`, then in an instance `module GI = G[Int]` that is the same instance as `Box[Int]`, so a
 value of type `Box[Int]` can be passed where a member of `GI` expects a `Box[E]`, as in
 [`inference.rav`](./inference.rav). The call `G.flag(b)` infers that instance from the argument
 alone, as `E` occurs in `b`'s type `Box[Int]`.
 
-Separately declared instances can introduce distinct nominal types. For example, `BoxTag.S`
-and the canonical `Box[Int]` are distinct, despite both using `Int`. An annotation does not
-make those types equal. Instead, argument types or an expected result type can identify which
-existing instance a function call should use. `Box.get(b)` reads that identity from `b`, and
-`val tag: BoxTag.S := Box.mkTag()` selects `BoxTag` from the expected result type. Conflicting
-instance evidence cannot merge two distinct types.
+Argument types or an expected result type can identify an existing instance for a call.
+`Box.get(b)` reads that identity from `b`, and `val tag: BoxTag.S := Box.mkTag()` selects the
+integer instance from the expected result type. Conflicting evidence for distinct module
+arguments cannot merge their nominal types. Use a unit-parameter factory when separate
+applications must introduce fresh identities, as described next.
 
 When a call has insufficient context, qualify it through the intended module. This also avoids
 relying on contextual inference for constructors or other member forms whose inference rules

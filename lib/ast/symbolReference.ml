@@ -5,6 +5,18 @@ open Base
 open Util
 open AstDef
 
+let application_loc application =
+  let extend loc next =
+    if String.equal (Loc.file_name loc) (Loc.file_name next) then Loc.merge loc next
+    else loc
+  in
+  List.fold
+    (Module.application_args application)
+    ~init:(QualIdent.to_loc (Module.application_target application))
+    ~f:(fun loc -> function
+      | Module.ModArg name -> extend loc (QualIdent.to_loc name)
+      | Module.TypeArg typ -> extend loc (Type.to_loc typ))
+
 (** The declaration of [symbol] as written in its source: from the beginning of the line
     of its name to the end of its header, with [{ … }] in place of a body. *)
 let declaration_text (symbol : Module.symbol) : string option =
@@ -31,14 +43,8 @@ let declaration_text (symbol : Module.symbol) : string option =
           false )
     | FieldDef fd -> (fd.field_loc, [], false)
     | ModInst mi ->
-        let arg_loc = function
-          | Module.ModArg qi -> QualIdent.to_loc qi
-          | TypeArg tp -> Type.to_loc tp
-        in
         ( mi.mod_inst_loc,
-          Option.value_map mi.mod_inst_def ~default:[] ~f:(fun application ->
-              QualIdent.to_loc (Module.application_target application)
-              :: List.map (Module.application_args application) ~f:arg_loc),
+          Option.to_list (Option.map mi.mod_inst_def ~f:application_loc),
           false )
     | symbol -> (Symbol.to_loc symbol, [], false)
   in
@@ -76,6 +82,9 @@ let declaration_text (symbol : Module.symbol) : string option =
       let text =
         match symbol with
         | CallDef _ when not (String.mem text '(') -> text ^ "()"
+        | ModInst { mod_inst_def = Some (ApplyUnit _); _ }
+          when not (String.is_suffix text ~suffix:"()") ->
+            text ^ "()"
         | _ -> text
       in
       if has_body then text ^ " { … }" else text)

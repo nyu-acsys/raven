@@ -1,0 +1,24 @@
+module A {
+  type B = data { case nested }
+}
+type A_B = data { case flat }
+type Anchor = data { case anchor }
+
+module Box[E: Library.Type] : Library.Type {
+  rep type T = data { case box(value: E) }
+}
+module NestedType = Box[(A.B, Anchor)]
+module FlatType = Box[(A_B, Anchor)]
+func distinct_type_arguments(x: NestedType.T) returns (r: FlatType.T) { x }
+
+module Namespace {
+  module Factory[E: Library.Type] : Library.Type {
+    rep type T = data { case nested(value: E) }
+  }
+}
+module Namespace_Factory[E: Library.Type] : Library.Type {
+  rep type T = data { case flat(value: E) }
+}
+module NestedFunctor = Namespace.Factory[Int]
+module FlatFunctor = Namespace_Factory[Int]
+func distinct_functors(x: NestedFunctor.T) returns (r: FlatFunctor.T) { x }

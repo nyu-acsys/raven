@@ -15,47 +15,6 @@ let type_mismatch_error loc exp_ty fnd_ty =
         \  %{Type#user}"
        exp_ty fnd_ty)
 
-(** Why two different type names may stand for the same type: they name the same module
-    [owner], or come from two instantiations of the functor [owner] with the same
-    arguments. *)
-type module_identity =
-  | Same_module of { expected : qual_ident; found : qual_ident; owner : qual_ident }
-  | Same_instantiation of {
-      expected : qual_ident;
-      found : qual_ident;
-      owner : qual_ident;
-    }
-
-let module_identity_explanation = function
-  | Same_module { expected; found; owner } ->
-      Printf.sprintf
-        !"%{QualIdent#user} and %{QualIdent#user} are two different names for the same \
-          module (%{QualIdent#user}). Raven does not currently recognize their members \
-          as the same type -- use one name consistently wherever this type must match"
-        expected found owner
-  | Same_instantiation { expected; found; owner } ->
-      Printf.sprintf
-        !"%{QualIdent#user} and %{QualIdent#user} come from two separately declared \
-          instances of %{QualIdent#user} with the same arguments. A declared instance \
-          has its own types, even when its arguments are those of another instance. \
-          Declare the instance once and use it in both places"
-        expected found owner
-
-(** Like [type_mismatch_error], with the explanation of [identity], if any, appended. *)
-let type_mismatch_error_diagnosed loc exp_ty fnd_ty identity =
-  match identity with
-  | None -> type_mismatch_error loc exp_ty fnd_ty
-  | Some identity ->
-      Error.type_error loc
-        (Printf.sprintf
-           !"Expected an expression of type\n\
-            \  %{Type#user}\n\
-             but found an expression of type\n\
-            \  %{Type#user}.\n\n\
-             %s"
-           exp_ty fnd_ty
-           (module_identity_explanation identity))
-
 let number_to_string kind d =
   if d = 1 then Printf.sprintf "one %s" kind else Printf.sprintf "%d %ss" d kind
 

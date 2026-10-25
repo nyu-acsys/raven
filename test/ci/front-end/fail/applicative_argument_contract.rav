@@ -1,0 +1,6 @@
+interface Required : Library.Type {
+  func identity(x: T) returns (r: T)
+}
+module Argument : Library.Type { rep type T = Int }
+module Uses[E: Required] { }
+module Bad = Uses[Argument]

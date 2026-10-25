@@ -135,7 +135,7 @@
   [Error] File "./unit_factory_sealed_result.rav", line 5, columns 42-47:
   5 | proc cannot_construct() { val x := Hidden.token; }
                                                 ^^^^^
-  Error: Unknown identifier Hidden.token.
+  Error: token is not accessible here: Hidden is sealed with interface Factory and exposes only its members.
   [1]
 
   $ dune exec -- raven --shh ./unit_factory_fresh_outer.rav

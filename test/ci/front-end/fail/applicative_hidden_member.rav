@@ -1,0 +1,8 @@
+interface View { type T }
+module Box[E: Library.Type] : View {
+  type T = data { case box(value: E) }
+}
+module A :> View = Box[Int]
+proc cannot_construct() {
+  val x := A.box(0);
+}

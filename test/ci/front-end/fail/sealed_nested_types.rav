@@ -23,11 +23,3 @@ interface NamedElementSpec {
 module WrongNamedElement :> NamedElementSpec {
   func get(b: Box[Box[Int]]) returns (r: Int) { b.value.value }
 }
-
-module NamedBox = Box[Int]
-interface NamedBoxSpec {
-  func get(b: Box[NamedBox]) returns (r: Int)
-}
-module WrongNamedBox : NamedBoxSpec {
-  func get(b: Box[Box[Int]]) returns (r: Int) { b.value.value }
-}

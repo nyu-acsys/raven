@@ -74,8 +74,8 @@ module NamedClient {
   import NamedFallback.get
   import Open.pick
   import NamedFallback.pick
-  lemma choose(b: Named) { assert get(b); }
-  lemma choose_list(xs: Library.List[Named]) { assert pick(xs); }
+  lemma choose(b: Named) { assert NamedFallback.get(b); }
+  lemma choose_list(xs: Library.List[Named]) { assert NamedFallback.pick(xs); }
 }
 
 module NamedInt : Library.Type { rep type T = Int }

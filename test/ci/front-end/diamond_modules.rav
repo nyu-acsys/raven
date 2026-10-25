@@ -23,7 +23,4 @@ interface D[B1: B] : C {
     B1.p1(x);
   }
 
-  // proc p2(x: B1.A1.T) {
-  //   B1.p1(x);
-  // }
 }

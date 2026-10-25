@@ -26,7 +26,7 @@
   [Error] File "./array_index_ghost.rav", line 8, columns 5-15:
   8 |   {! a[0] := 2; !}
            ^^^^^^^^^^
-  Type Error: Cannot assign to non-ghost field A.value in ghost context.
+  Type Error: Cannot assign to non-ghost field Library.Array[Int].value in ghost context.
   [1]
   $ dune exec -- raven --shh ./array_index_type.rav
   [Error] File "./array_index_type.rav", line 7, columns 9-13:

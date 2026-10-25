@@ -955,17 +955,38 @@ let resolve_generic_functor (qi : qual_ident) : (qual_ident * AstDef.Module.t) o
 
 let inst_mod_ident_prefix = "GenInst$$"
 
+(** Delimiters and escaped characters remain distinct in canonical identity keys. *)
+let canonical_module_name prefix components =
+  let encode component =
+    String.concat_map component ~f:(fun character ->
+        if Char.is_alphanum character then String.of_char character
+        else Printf.sprintf "_%02X" (Char.to_int character))
+  in
+  prefix ^ String.concat ~sep:"$$" (Base.List.map components ~f:encode)
+
+let structural_qid_key qi =
+  canonical_module_name "Q"
+    (Base.List.concat_map (QualIdent.to_list qi) ~f:(fun id ->
+         [ Ident.name id; Int.to_string id.Ident.ident_num ]))
+
+let canonical_type_key =
+  let _, _, _, _, _, _, _, _, _, to_string =
+    AstDef.Type.make_printers_with ~names:AstDef.SourceNames.default
+      ~qual_ident_to_string:structural_qid_key
+      ~type_ext_to_name:AstDef.Type.default_type_ext_to_name
+  in
+  to_string
+
 (** Deterministic name for the module wrapping [tp] as an implementation of
     [interface_qual_ident]. Folds in the interface identity so the same type wrapped for
     two different interfaces doesn't collide/dedup. *)
 let rep_module_name_string ~(interface_qual_ident : qual_ident) (tp : AstDef.type_expr) :
     string =
-  tp_mod_ident_prefix
-  ^ QualIdent.to_string interface_qual_ident
-  ^ "$$" ^ AstDef.Type.to_string tp
+  canonical_module_name tp_mod_ident_prefix
+    [ structural_qid_key interface_qual_ident; canonical_type_key tp ]
 
 (** Like [intros_type_module], generalized to an arbitrary rep-typed interface: wraps [tp]
-    in a fresh module implementing [interface_qual_ident] with rep type [tp]. Kept
+    in a canonical module implementing [interface_qual_ident] with rep type [tp]. Kept
     separate so [intros_type_module]'s existing [Library.Type]-only callers are
     unaffected. *)
 let intros_rep_module ~(loc : location) ?scope
@@ -974,7 +995,7 @@ let intros_rep_module ~(loc : location) ?scope
     qual_ident t =
   let mod_decl =
     let mod_name =
-      Ident.fresh_shared loc (serialize (rep_module_name_string ~interface_qual_ident tp))
+      Ident.make loc (rep_module_name_string ~interface_qual_ident tp) 0
       |> with_type_display ~rep:rep_ident tp
     in
     {
@@ -1009,6 +1030,10 @@ let intros_rep_module ~(loc : location) ?scope
   | Some scope_qi -> introduce_typecheck_symbol_at_scope' ~loc symbol scope_qi
 
 let largest_common_prefix_qi symbols =
+  let program_symbols =
+    Set.filter symbols ~f:(fun qi -> not (Predefs.is_library_qual_ident qi))
+  in
+  let symbols = if Set.is_empty program_symbols then symbols else program_symbols in
   begin match Set.count ~f:(fun _ -> true) symbols with
   | 0 -> Predefs.prog_qual_ident
   | 1 -> Set.choose symbols |> Base.Option.value_exn |> QualIdent.pop
@@ -1076,7 +1101,7 @@ let find_insertion_scope_for_symbols (symbols : (qual_ident, _) Set.t) :
           (scope, scope)
         else Rewriter.return (name, qi)
   in
-  (* A common prefix can lie outside a functor whose parameters the arguments use. *)
+  (* The arguments can depend on a deeper functor or abstract interface scope. *)
   let rec required_functor_scope qi =
     let* found = Rewriter.resolve_and_find_opt ~read_only:true qi in
     match found with
@@ -1084,7 +1109,8 @@ let find_insertion_scope_for_symbols (symbols : (qual_ident, _) Set.t) :
       when (not (Rewriter.Symbol.is_module_instance symbol))
            &&
            match Rewriter.Symbol.orig_symbol symbol with
-           | AstDef.Module.ModDef { mod_decl; _ } -> AstDef.Module.is_functor mod_decl
+           | AstDef.Module.ModDef { mod_decl; _ } ->
+               mod_decl.mod_decl_is_interface || AstDef.Module.is_functor mod_decl
            | _ -> false ->
         let+ scope = find_concrete_scope qi in
         Some scope
@@ -1232,7 +1258,7 @@ let get_or_intros_rep_module ~(loc : location)
   | None -> (
       let canonical_qi =
         QualIdent.append reference_scope
-          (Ident.make loc (serialize (rep_module_name_string ~interface_qual_ident tp)) 0
+          (Ident.make loc (rep_module_name_string ~interface_qual_ident tp) 0
           |> with_type_display ~rep:rep_ident tp)
       in
       let* resolve_result = Rewriter.resolve_opt canonical_qi in
@@ -1267,9 +1293,8 @@ let get_or_intros_rep_module ~(loc : location)
     of the same type are different arguments. *)
 let field_module_name_string ~(interface_qual_ident : qual_ident) (field_qi : qual_ident)
     : string =
-  "FieldMod$$"
-  ^ QualIdent.to_string interface_qual_ident
-  ^ "$$" ^ QualIdent.to_string field_qi
+  canonical_module_name "FieldMod$$"
+    [ structural_qid_key interface_qual_ident; structural_qid_key field_qi ]
 
 (** The field counterpart of [get_or_intros_rep_module]: get (or create) a module
     implementing [interface_qual_ident] whose field stands for [field_qi]. The manifest
@@ -1283,7 +1308,7 @@ let get_or_intros_field_module ~(loc : location) ~(insert_scope : qual_ident)
     qual_ident t =
   let open Rewriter.Syntax in
   let mod_ident =
-    Ident.make loc (serialize (field_module_name_string ~interface_qual_ident field_qi)) 0
+    Ident.make loc (field_module_name_string ~interface_qual_ident field_qi) 0
     |> Ident.with_display ~text:(QualIdent.to_string_user field_qi)
   in
   let canonical_qi = QualIdent.append reference_scope mod_ident in
@@ -1321,6 +1346,71 @@ let get_or_intros_field_module ~(loc : location) ~(insert_scope : qual_ident)
       let+ _ = Rewriter.introduce_typecheck_symbol_at_scope' ~loc symbol insert_scope in
       canonical_qi
 
+(** An inherited canonical binding retains its synthesized name after substitution. *)
+let inherited_canonical_application table ~functor_qual_ident arg_module_qis =
+  let canonical qi = SymbolTbl.identity ~preserve_abstract_owners:true qi table in
+  let rec parents qi =
+    match QualIdent.path qi with
+    | [] -> []
+    | _ ->
+        let parent = QualIdent.pop qi in
+        parent :: parents parent
+  in
+  let scopes =
+    Base.List.concat_map (functor_qual_ident :: arg_module_qis) ~f:parents
+    |> Base.List.dedup_and_sort ~compare:QualIdent.compare
+  in
+  let matching_member scope requalify = function
+    | AstDef.Module.SymbolDef
+        (ModInst
+           {
+             mod_inst_name;
+             mod_inst_def = Some (CanonicalApply (head, args));
+             mod_inst_is_sealed = false;
+             _;
+           }) ->
+        let arguments =
+          Base.List.map args ~f:(function
+            | AstDef.Module.ModArg qi -> Some (canonical (requalify qi))
+            | TypeArg _ -> None)
+          |> Base.Option.all
+        in
+        begin match arguments with
+        | Some arguments
+          when QualIdent.equal (canonical (requalify head)) functor_qual_ident
+               && Base.List.equal QualIdent.equal arguments arg_module_qis ->
+            let candidate = QualIdent.append scope mod_inst_name in
+            begin match SymbolTbl.resolve_and_find ~read_only:true candidate table with
+            | Some (declared, target, _, _)
+              when (not (SymbolTbl.is_poisoned declared table))
+                   && not (SymbolTbl.is_poisoned target table) ->
+                Some candidate
+            | _ -> None
+            end
+        | _ -> None
+        end
+    | _ -> None
+  in
+  Base.List.find_map scopes ~f:(fun scope ->
+      match SymbolTbl.resolve_and_find ~read_only:true scope table with
+      | Some (declared, _, AstDef.Module.ModDef md, subst) ->
+          let requalify = QualIdent.requalify (SymbolTbl.qid_subst subst) in
+          (* Inherited descendants are registered before the module body is complete. *)
+          let registered =
+            if QualIdent.equal declared scope then
+              let scoped = SymbolTbl.goto_scope scope table in
+              SymbolTbl.get_scope_entries scoped.tbl_curr
+              |> Hashtbl.keys
+              |> Base.List.sort ~compare:Ident.compare
+              |> Base.List.filter_map ~f:(fun name ->
+                  Base.Map.find table.tbl_symbols (QualIdent.append scope name)
+                  |> Base.Option.map ~f:(fun symbol -> AstDef.Module.SymbolDef symbol))
+            else []
+          in
+          Base.List.find_map (registered @ md.mod_def)
+            ~f:(matching_member scope requalify)
+      | _ -> None)
+
 (** Get or create (and typecheck) the instantiation of [functor_qual_ident] at
     [arg_module_qis]. Generated instances are keyed by the functor and the argument
     modules, and placed beside the arguments, so that equal applications share one
@@ -1328,9 +1418,17 @@ let get_or_intros_field_module ~(loc : location) ~(insert_scope : qual_ident)
 let rec instantiate_functor_at_modules ~(loc : location)
     ~(functor_qual_ident : qual_ident) (arg_module_qis : qual_ident list) : qual_ident t =
   let open Rewriter.Syntax in
-  let* arg_module_qis = Rewriter.List.map arg_module_qis ~f:Rewriter.resolve in
+  let* table = Rewriter.get_table in
+  let canonical name = SymbolTbl.identity ~preserve_abstract_owners:true name table in
+  let functor_qual_ident = canonical functor_qual_ident in
+  let* arg_module_qis =
+    Rewriter.List.map arg_module_qis ~f:(fun name ->
+        let+ name = Rewriter.resolve name in
+        canonical name)
+  in
   let* insert_scope, reference_scope =
-    find_insertion_scope_for_symbols (Set.of_list (module QualIdent) arg_module_qis)
+    find_insertion_scope_for_symbols
+      (Set.of_list (module QualIdent) (functor_qual_ident :: arg_module_qis))
   in
   let* functor_def =
     let* symbol = Rewriter.find functor_qual_ident in
@@ -1343,10 +1441,9 @@ let rec instantiate_functor_at_modules ~(loc : location)
   in
   let inst_mod_ident =
     let mod_name_string =
-      inst_mod_ident_prefix
-      ^ QualIdent.to_string functor_qual_ident
-      ^ "$$"
-      ^ String.concat ~sep:"," (Base.List.map arg_module_qis ~f:QualIdent.to_string)
+      canonical_module_name inst_mod_ident_prefix
+        (structural_qid_key functor_qual_ident
+        :: Base.List.map arg_module_qis ~f:structural_qid_key)
     in
     let text =
       QualIdent.to_string_user functor_qual_ident
@@ -1354,13 +1451,17 @@ let rec instantiate_functor_at_modules ~(loc : location)
       ^ String.concat ~sep:", " (Base.List.map arg_module_qis ~f:QualIdent.to_string_user)
       ^ "]"
     in
-    Ident.make loc (serialize mod_name_string) 0
-    |> Ident.with_display ~text ?rep:functor_rep
+    Ident.make loc mod_name_string 0 |> Ident.with_display ~text ?rep:functor_rep
   in
   let inst_qi = QualIdent.append reference_scope inst_mod_ident in
   let* resolve_result = Rewriter.resolve_opt inst_qi in
-  match resolve_result with
-  | Some _ -> return inst_qi
+  let existing =
+    match resolve_result with
+    | Some _ -> Some inst_qi
+    | None -> inherited_canonical_application table ~functor_qual_ident arg_module_qis
+  in
+  match existing with
+  | Some instance -> return instance
   | None ->
       let* mod_inst_shared =
         match functor_def with
@@ -1371,10 +1472,12 @@ let rec instantiate_functor_at_modules ~(loc : location)
       let functor_inst =
         AstDef.Module.ModInst
           {
-            (AstDef.Module.mk_mod_inst ~name:inst_mod_ident ~typ:functor_qual_ident
-               ~def:
-                 ( functor_qual_ident,
-                   Base.List.map arg_module_qis ~f:(fun qi -> AstDef.Module.ModArg qi) )
+            (AstDef.Module.mk_mod_binding ~name:inst_mod_ident ~typ:functor_qual_ident
+               ~definition:
+                 (AstDef.Module.CanonicalApply
+                    ( functor_qual_ident,
+                      Base.List.map arg_module_qis ~f:(fun qi -> AstDef.Module.ModArg qi)
+                    ))
                ~loc ())
             with
             mod_inst_shared;
@@ -1452,24 +1555,26 @@ and shared_body_instances ~(loc : location) ~(functor_qual_ident : qual_ident)
         (ModInst
            {
              mod_inst_name;
-             mod_inst_def = Some (Apply (generated_functor, args));
+             mod_inst_def = Some (CanonicalApply (generated_functor, args));
              mod_inst_is_interface = false;
              _;
-           })
-      when String.is_prefix (Ident.name mod_inst_name) ~prefix:inst_mod_ident_prefix ->
+           }) ->
         let args =
           Base.List.filter_map args ~f:(function
             | AstDef.Module.ModArg qi -> Some qi
             | TypeArg _ -> None)
         in
+        let substituted_head = QualIdent.requalify subst generated_functor in
         let substituted = Base.List.map args ~f:(QualIdent.requalify subst) in
         if
-          Base.List.equal QualIdent.equal substituted args
+          QualIdent.equal substituted_head generated_functor
+          && Base.List.equal QualIdent.equal substituted args
+          || is_local substituted_head
           || Base.List.exists substituted ~f:is_local
         then return (subst, shared)
         else
           let+ inst =
-            instantiate_functor_at_modules ~loc ~functor_qual_ident:generated_functor
+            instantiate_functor_at_modules ~loc ~functor_qual_ident:substituted_head
               substituted
           in
           let generated = QualIdent.append functor_qual_ident mod_inst_name in
@@ -1609,7 +1714,11 @@ let instantiation_arg (functor_qual_ident : qual_ident) (tp : AstDef.type_expr) 
       Rewriter.Symbol.extract symbol ~f:(fun _ _ sym ->
           match sym with
           | AstDef.Module.ModInst
-              { mod_inst_def = Some (Apply (f_qi, [ AstDef.Module.ModArg arg_qi ])); _ }
+              {
+                mod_inst_def =
+                  Some (CanonicalApply (f_qi, [ AstDef.Module.ModArg arg_qi ]));
+                _;
+              }
             when QualIdent.(f_qi = functor_qual_ident) ->
               return
                 (Some

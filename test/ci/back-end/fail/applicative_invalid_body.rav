@@ -1,0 +1,9 @@
+module Operations[E: Library.Type] {
+  proc zero() returns (r: Int)
+    ensures r == 0
+  {
+    r := 1;
+  }
+}
+module A = Operations[Int]
+module B = Operations[Int]

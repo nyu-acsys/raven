@@ -403,7 +403,13 @@ let rec resolve_candidates ?(canonical_aliases = false)
                ) subst1) ; *)
               let subst_is_inst, subst_is_abstract, subst_subst = subst in
               let subst1 =
-                List.map subst1 ~f:(fun (s, t) -> (QualIdent.requalify subst_subst s, t))
+                let rebased =
+                  List.map subst1 ~f:(fun (s, t) ->
+                      (QualIdent.requalify subst_subst s, t))
+                in
+                rebased
+                @ List.filter subst1 ~f:(fun (source, _) ->
+                    not (List.Assoc.mem rebased source ~equal:QualIdent.equal))
               in
 
               (* if the first argument is abstract, then it needs to be requalified. The second arg doesn't because this is taken care of by the order in which elements are added to the subst list. QualIdent.requalify will make sure the renaming on the second argument by existing substitutions happens *)
@@ -564,7 +570,23 @@ let resolve ?read_only name tbl =
 let find_sealed_view name tbl : sealed_view option =
   let open Option.Syntax in
   let* _, qual_ident, _ = resolve name tbl in
-  Map.find tbl.tbl_sealed qual_ident
+  match Map.find tbl.tbl_sealed qual_ident with
+  | Some view -> Some view
+  | None when QualIdent.is_qualified qual_ident ->
+      let* parent, _, subst = resolve (QualIdent.pop qual_ident) tbl in
+      let* view =
+        Map.find tbl.tbl_sealed (QualIdent.append parent (QualIdent.unqualify qual_ident))
+      in
+      let requalify = QualIdent.requalify (qid_subst subst) in
+      Some
+        {
+          sealed_functor = requalify view.sealed_functor;
+          sealed_interface = requalify view.sealed_interface;
+          sealed_args =
+            List.map view.sealed_args ~f:(fun (formal, actual) ->
+                (formal, requalify actual));
+        }
+  | None -> None
 
 (** Reports that [name] is unknown, explaining when it names a member hidden by sealing.
 *)
@@ -676,6 +698,73 @@ let resolve_and_find_exn name (tbl : t) =
                QualIdent.pr name QualIdent.pr tbl.tbl_curr.scope_id);*)
       (* Logs.debug (fun m -> m "SymbolTbl.resolve_and_find_exn fail: tbl_symbols: %a" (Util.Print.pr_list_comma QualIdent.pr) (Map.keys (tbl.tbl_symbols))); *)
       unknown_member_error (QualIdent.to_loc name) name tbl)
+
+(** Application provenance does not identify a sealed view with its implementation. *)
+let application_origin name tbl =
+  let open Option.Syntax in
+  let binding name =
+    match Map.find tbl.tbl_symbols name with
+    | Some (Module.ModInst binding) -> Some (binding, Fn.id)
+    | _ when QualIdent.is_qualified name ->
+        let* _, _, parent, subst = resolve_and_find (QualIdent.pop name) tbl in
+        begin match parent with
+        | Module.ModDef parent ->
+            let+ binding =
+              List.find_map parent.mod_def ~f:(function
+                | Module.SymbolDef (ModInst binding)
+                  when Ident.equal binding.mod_inst_name (QualIdent.unqualify name) ->
+                    Some binding
+                | _ -> None)
+            in
+            (binding, QualIdent.requalify (qid_subst subst))
+        | _ -> None
+        end
+    | _ -> None
+  in
+  let rec origin visited name =
+    if Set.mem visited name then None
+    else
+      let visited = Set.add visited name in
+      match find_sealed_view name tbl with
+      | Some view -> Some (view.sealed_functor, view.sealed_args)
+      | None ->
+          begin match binding name with
+          | Some ({ mod_inst_def = Some (Alias target); _ }, requalify) ->
+              origin visited (requalify target)
+          | Some
+              ( {
+                  mod_inst_def = Some (Apply (head, args) | CanonicalApply (head, args));
+                  _;
+                },
+                requalify ) ->
+              let head = requalify head in
+              let* _, head, symbol, _ = resolve_and_find head tbl in
+              begin match symbol with
+              | Module.ModDef module_ ->
+                  begin match List.zip (Module.formals module_.mod_decl) args with
+                  | Unequal_lengths -> None
+                  | Ok pairs ->
+                      let+ arguments =
+                        Option.all
+                          (List.map pairs ~f:(fun (formal, argument) ->
+                               match argument with
+                               | Module.ModArg actual ->
+                                   Some (formal.mod_inst_name, requalify actual)
+                               | Module.TypeArg _ -> None))
+                      in
+                      (head, arguments)
+                  end
+              | _ -> None
+              end
+          | Some ({ mod_inst_def = Some (ApplyUnit head); _ }, requalify) ->
+              let+ _, head, _, _ = resolve_and_find (requalify head) tbl in
+              (head, [])
+          | Some ({ mod_inst_def = None; _ }, _) | None ->
+              let* _, target, _ = resolve name tbl in
+              if QualIdent.equal name target then None else origin visited target
+          end
+  in
+  origin (Set.empty (module QualIdent)) name
 
 (** Find the symbol associated with [name] relative to the current scope in [tbl]. *)
 let find name tbl : (Module.symbol * subst) option =
@@ -1050,19 +1139,23 @@ let add_symbol ?(scope : scope option = None) ~diagnostics symbol tbl =
           symbol_loc symbol_ident (Transparent target_qual_ident) ~duplicate;
         tbl
     | ModInst mod_inst ->
-        let unit_alias =
+        let transparent_alias =
           match mod_inst.mod_inst_def with
           | Some (Module.Alias target) when not mod_inst.mod_inst_is_sealed ->
               let _, public, symbol, _ = resolve_and_find_exn target tbl in
               begin match symbol with
-              | Module.ModDef { mod_decl = { mod_decl_parameters = UnitParameter; _ }; _ }
-                ->
-                  Some public
-              | _ -> None
+              | Module.ModDef
+                  {
+                    mod_decl =
+                      { mod_decl_is_sealed = true; mod_decl_parameters = Structure; _ };
+                    _;
+                  } ->
+                  None
+              | _ -> Some public
               end
           | None | Some _ -> None
         in
-        begin match unit_alias with
+        begin match transparent_alias with
         | Some target ->
             add_to_map tbl
               (get_scope_entries appropriate_scope)
@@ -1088,14 +1181,17 @@ let add_symbol ?(scope : scope option = None) ~diagnostics symbol tbl =
                     | Module.Alias _, Module.ModDef m ->
                         own_instance || Module.is_structure m.mod_decl
                     | Module.Alias _, _ -> false
-                    | Module.Apply _, _ | Module.ApplyUnit _, _ -> true
+                    | Module.Apply _, _
+                    | Module.CanonicalApply _, _
+                    | Module.ApplyUnit _, _ ->
+                        true
                   in
                   let formals =
                     match mod_inst_symbol with
                     | Module.ModDef mdef ->
                         begin match application with
                         | Module.Alias _ -> []
-                        | Apply _ | ApplyUnit _ ->
+                        | Apply _ | CanonicalApply _ | ApplyUnit _ ->
                             if not own_instance then Module.formals mdef.mod_decl else []
                         end
                     | _ ->
@@ -1132,7 +1228,7 @@ let add_symbol ?(scope : scope option = None) ~diagnostics symbol tbl =
                                 QualIdent.to_list
                                   (Module.unit_parameter_path symbol_qual_ident) )
                               :: subst
-                          | Alias _ | Apply _ -> subst)
+                          | Alias _ | Apply _ | CanonicalApply _ -> subst)
                   in
                   let shared =
                     List.map mod_inst.mod_inst_shared ~f:(fun (generated, inst) ->
@@ -1258,13 +1354,31 @@ let add_symbol ?(scope : scope option = None) ~diagnostics symbol tbl =
                                     ( QualIdent.unqualify formal_id,
                                       QualIdent.from_list arg_path ))
                           in
+                          let sealed_functor, sealed_args =
+                            Option.value
+                              (application_origin mod_inst_func tbl)
+                              ~default:(mod_inst_func, sealed_args)
+                          in
                           let unit_markers =
                             List.filter
                               (subst @ qid_subst subst1)
                               ~f:(fun (source, _) -> Module.is_unit_parameter_path source)
                           in
+                          let inherited_shared =
+                            match application with
+                            | Module.Alias _ ->
+                                List.filter (qid_subst subst1) ~f:(fun (source, _) ->
+                                    match Map.find tbl.tbl_symbols source with
+                                    | Some
+                                        (Module.ModInst
+                                           { mod_inst_def = Some (CanonicalApply _); _ })
+                                      ->
+                                        true
+                                    | _ -> false)
+                            | _ -> []
+                          in
                           let iface_subst =
-                            List.fold unit_markers ~init:iface_subst
+                            List.fold (unit_markers @ inherited_shared) ~init:iface_subst
                               ~f:(fun mappings ((source, _) as binding) ->
                                 if List.Assoc.mem mappings source ~equal:QualIdent.equal
                                 then mappings
@@ -1274,7 +1388,7 @@ let add_symbol ?(scope : scope option = None) ~diagnostics symbol tbl =
                             iface_subst @ shared,
                             Some
                               {
-                                sealed_functor = mod_inst_func;
+                                sealed_functor;
                                 sealed_interface = iface_ident;
                                 sealed_args;
                               },

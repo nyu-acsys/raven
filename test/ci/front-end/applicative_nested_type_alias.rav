@@ -1,0 +1,15 @@
+module Box[T: Library.Type] {
+  rep type S = data { case box(value: T) }
+}
+
+module NamedBox = Box[Int]
+interface NamedBoxSpec {
+  func get(b: Box[NamedBox]) returns (r: Int)
+}
+module NamedBoxImplementation : NamedBoxSpec {
+  func get(b: Box[Box[Int]]) returns (r: Int) { b.value.value }
+}
+
+lemma compatible(x: Box[NamedBox]) {
+  val y: Box[Box[Int]] := x;
+}

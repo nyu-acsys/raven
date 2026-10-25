@@ -84,3 +84,13 @@
  (name unit_factories_api)
  (modules unit_factories_api)
  (libraries raven raven-ivl.api base))
+
+(test
+ (name applicative_lifecycle)
+ (modules applicative_lifecycle)
+ (libraries raven-ivl.api base))
+
+(test
+ (name canonical_module_keys)
+ (modules canonical_module_keys)
+ (libraries raven base))

@@ -13,6 +13,6 @@ module Boxes[E: Library.Type] :> Spec[E] {
 
 module NamedBox = Box[Int]
 
-lemma keep_named_instance_distinct(b: NamedBox) {
+lemma use_named_instance_through_sealed_helper(b: NamedBox) {
   assert Boxes.get(b) == b.value;
 }

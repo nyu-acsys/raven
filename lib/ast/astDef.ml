@@ -3438,6 +3438,8 @@ module Module = struct
   type module_application =
     | Alias of QualIdent.t
     | Apply of QualIdent.t * module_inst_arg list
+    | CanonicalApply of QualIdent.t * module_inst_arg list
+        (** Internal binding allocated by ordinary application canonicalization. *)
     | ApplyUnit of QualIdent.t
 
   type module_inst = {
@@ -3491,14 +3493,18 @@ module Module = struct
     | Structure | UnitParameter -> []
 
   let application_target = function
-    | Alias target | Apply (target, _) | ApplyUnit target -> target
+    | Alias target | Apply (target, _) | CanonicalApply (target, _) | ApplyUnit target ->
+        target
 
-  let application_args = function Apply (_, args) -> args | Alias _ | ApplyUnit _ -> []
+  let application_args = function
+    | Apply (_, args) | CanonicalApply (_, args) -> args
+    | Alias _ | ApplyUnit _ -> []
 
   let map_application application ~target ~args =
     match application with
     | Alias name -> Alias (target name)
     | Apply (name, actuals) -> Apply (target name, args actuals)
+    | CanonicalApply (name, actuals) -> CanonicalApply (target name, args actuals)
     | ApplyUnit name -> ApplyUnit (target name)
 
   let legacy_application (target, args) =
@@ -3708,7 +3714,7 @@ module Module = struct
               | None -> ()
               | Some (Alias t) -> fprintf ppf " =@ %a" QualIdent.pr t
               | Some (ApplyUnit t) -> fprintf ppf " =@ %a()" QualIdent.pr t
-              | Some (Apply (t, ts)) ->
+              | Some (Apply (t, ts) | CanonicalApply (t, ts)) ->
                   fprintf ppf " =@ %a[%a]" QualIdent.pr t
                     (Print.pr_list_comma pr_mod_inst_arg)
                     ts)

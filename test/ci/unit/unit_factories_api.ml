@@ -61,11 +61,11 @@ let check_emission program =
       List.iter [ factory_alias; copy ] ~f:(fun alias ->
           match alias.Ast.Module.mod_inst_def with
           | Some (Alias _) -> ()
-          | None | Some (Apply _ | ApplyUnit _) -> assert false);
+          | None | Some (Apply _ | CanonicalApply _ | ApplyUnit _) -> assert false);
       List.iter [ first; second ] ~f:(fun instance ->
           match instance.Ast.Module.mod_inst_def with
           | Some (ApplyUnit _) -> ()
-          | None | Some (Alias _ | Apply _) -> assert false)
+          | None | Some (Alias _ | Apply _ | CanonicalApply _) -> assert false)
   | _ -> failwith "unit factory API emission changed module structure"
   end;
   let diagnostics = Util.Diagnostics.create () in

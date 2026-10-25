@@ -13,6 +13,19 @@ let same_parameter_shape (left : Module.module_parameters)
   | NamedParameters left, NamedParameters right -> List.length left = List.length right
   | _ -> false
 
+let implemented_interfaces symbol =
+  Rewriter.Symbol.extract symbol ~f:(fun _ _ -> function
+    | Module.ModDef module_ ->
+        Set.map
+          (module QualIdent)
+          module_.mod_decl.mod_decl_interfaces
+          ~f:(fun interface ->
+            List.fold (Rewriter.Symbol.subst symbol) ~init:interface
+              ~f:(fun interface (source, target) ->
+                if QualIdent.equal interface source then interface
+                else QualIdent.requalify [ (source, target) ] interface))
+    | _ -> Set.empty (module QualIdent))
+
 (** The module standing for the type [tp] passed for [formal], whose interface is
     [formal_iface] (see [ProgUtils.get_or_intros_rep_module]). *)
 let rep_module_of_type_arg (formal : Module.module_inst) (formal_iface : qual_ident)
@@ -57,6 +70,26 @@ let check_implements_var (var_def : Stmt.var_def) (orig_var_def : Stmt.var_def)
 (* Transparent wrappers do not change a contract's meaning across type instantiation. *)
 let rec normalize_contract_expr seen expr =
   let open Rewriter.Syntax in
+  let* table = Rewriter.get_table in
+  let identity name =
+    if QualIdent.is_qualified name then
+      SymbolTbl.identity ~preserve_abstract_owners:true name table
+    else name
+  in
+  let expr =
+    match expr with
+    | Expr.App (constr, args, attr) ->
+        let constr =
+          match constr with
+          | Expr.Var name -> Expr.Var (identity name)
+          | DataConstr name -> DataConstr (identity name)
+          | DataDestr name -> DataDestr (identity name)
+          | DataTest name -> DataTest (identity name)
+          | _ -> constr
+        in
+        Expr.App (constr, args, attr)
+    | Expr.Binder _ -> expr
+  in
   match expr with
   | Expr.App (Var name, args, attr) when not (Set.mem seen name) ->
       let* args = Rewriter.List.map args ~f:(normalize_contract_expr seen) in
@@ -77,21 +110,23 @@ let rec normalize_contract_expr seen expr =
       end
   | _ -> Rewriter.Expr.descend expr ~f:(normalize_contract_expr seen)
 
-let contracts_equal ~sm (specs : Stmt.spec list) (originals : Stmt.spec list) =
+let contract_exprs_equal ~sm left right =
   let open Rewriter.Syntax in
+  if Expr.alpha_equal ~sm left right then Rewriter.return true
+  else
+    let seen = Set.empty (module QualIdent) in
+    let+ left = normalize_contract_expr seen left
+    and+ right = normalize_contract_expr seen right in
+    Expr.alpha_equal ~sm left right
+
+let contracts_equal ~sm (specs : Stmt.spec list) (originals : Stmt.spec list) =
   match List.zip specs originals with
   | Unequal_lengths -> Rewriter.return false
   | Ok pairs ->
       Rewriter.List.fold_left pairs ~init:true ~f:(fun equal (spec, original) ->
           if (not equal) || Bool.(spec.spec_atomic <> original.spec_atomic) then
             Rewriter.return false
-          else if Expr.alpha_equal ~sm spec.spec_form original.spec_form then
-            Rewriter.return true
-          else
-            let seen = Set.empty (module QualIdent) in
-            let+ form = normalize_contract_expr seen spec.spec_form
-            and+ original = normalize_contract_expr seen original.spec_form in
-            Expr.alpha_equal ~sm form original)
+          else contract_exprs_equal ~sm spec.spec_form original.spec_form)
 
 (** A callable [call_def] implementing [orig_call_def]: the same signature and, unless
     inherited, the same contract. *)
@@ -164,21 +199,20 @@ let check_implements_callable (call_def : Callable.t) (orig_call_def : Callable.
         contract_mismatch_error loc ~clause:"postcondition" (Symbol.kind symbol) ident
           interface_ident
     in
-    let opens_ok =
+    let* opens_ok =
       let entry_expr (qi, args) = Expr.mk_app ~typ:Type.bool (Var qi) args in
       match
         (call_def.call_decl.call_decl_opens, orig_call_def.call_decl.call_decl_opens)
       with
-      | None, None -> true
+      | None, None -> Rewriter.return true
       | Some mask, Some orig_mask -> (
-          match
-            List.for_all2 (Callable.opens_mask mask) (Callable.opens_mask orig_mask)
-              ~f:(fun entry orig_entry ->
-                Expr.alpha_equal ~sm (entry_expr entry) (entry_expr orig_entry))
-          with
-          | Ok res -> res
-          | Unequal_lengths -> false)
-      | _ -> false
+          match List.zip (Callable.opens_mask mask) (Callable.opens_mask orig_mask) with
+          | Ok pairs ->
+              Rewriter.List.fold_left pairs ~init:true ~f:(fun equal (entry, original) ->
+                  if not equal then Rewriter.return false
+                  else contract_exprs_equal ~sm (entry_expr entry) (entry_expr original))
+          | Unequal_lengths -> Rewriter.return false)
+      | _ -> Rewriter.return false
     in
     let _ =
       if not opens_ok then
@@ -238,15 +272,15 @@ let check_implements_mod_inst_by_inst (mod_inst : Module.module_inst)
   else if (not mod_inst.mod_inst_is_interface) && orig_mod_inst.mod_inst_is_interface then
     redeclared_interface_as_module_error loc ident interface_ident
   else
+    let* _, actual_symbol = Rewriter.resolve_and_find mod_inst.mod_inst_type in
     let* mod_inst_def = Rewriter.find_and_reify_module mod_inst.mod_inst_type in
     let* expected = Rewriter.find_and_reify_module orig_mod_inst.mod_inst_type in
     let actual_parameters =
       match mod_inst.mod_inst_def with
-      | Some (Module.Apply _ | ApplyUnit _) -> Module.Structure
+      | Some (Module.Apply _ | CanonicalApply _ | ApplyUnit _) -> Module.Structure
       | None | Some (Alias _) -> mod_inst_def.mod_decl.mod_decl_parameters
     in
-    if
-      not @@ Set.mem mod_inst_def.mod_decl.mod_decl_interfaces orig_mod_inst.mod_inst_type
+    if not @@ Set.mem (implemented_interfaces actual_symbol) orig_mod_inst.mod_inst_type
     then
       must_implement_error loc (Symbol.kind symbol) ident orig_mod_inst.mod_inst_type
         interface_ident
@@ -321,18 +355,7 @@ let check_module_type ?(as_result = false) mod_ident int_ident =
   let interfaces, mod_is_instance =
     Rewriter.Symbol.extract mod_symbol ~f:(fun _ _ -> function
       | Ast.Module.ModDef mod_def ->
-          let interfaces =
-            Set.map
-              (module QualIdent)
-              mod_def.mod_decl.mod_decl_interfaces
-              ~f:(fun interface ->
-                List.fold (Rewriter.Symbol.subst mod_symbol) ~init:interface
-                  ~f:(fun interface (source, target) ->
-                    (* Requalify enclosing modules, retaining the interface's own identity. *)
-                    if QualIdent.equal interface source then interface
-                    else QualIdent.requalify [ (source, target) ] interface))
-          in
-          ( interfaces,
+          ( implemented_interfaces mod_symbol,
             Module.is_structure mod_def.mod_decl
             || Rewriter.Symbol.is_module_instance mod_symbol )
       | _ -> (Set.empty (module QualIdent), true))

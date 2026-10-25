@@ -1,0 +1,8 @@
+module FirstArgument : Library.Type { rep type T = Int }
+module SecondArgument : Library.Type { rep type T = Int }
+module Box[E: Library.Type] : Library.Type {
+  rep type T = data { case box(value: E) }
+}
+module A = Box[FirstArgument]
+module B = Box[SecondArgument]
+func cannot_mix(x: A.T) returns (r: B.T) { x }

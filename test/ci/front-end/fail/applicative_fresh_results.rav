@@ -1,0 +1,6 @@
+module Fresh() : Library.Type {
+  rep type T = data { case fresh }
+}
+module A = Fresh()
+module B = Fresh()
+func cannot_mix(x: A.T) returns (r: B.T) { x }

@@ -1,0 +1,20 @@
+module Box[E: Library.Type] : Library.Type {
+  rep type T = data { case box(value: E) }
+}
+module Generic[E: Library.Type] {
+  func get(b: Box[E]) returns (r: Bool) { true }
+  func pick(xs: Library.List[Box[E]]) returns (r: Bool) { true }
+}
+module Named = Box[Int]
+module Specific {
+  func get(b: Named) returns (r: Bool) { true }
+  func pick(xs: Library.List[Named]) returns (r: Bool) { true }
+}
+import Generic.get
+import Specific.get
+import Generic.pick
+import Specific.pick
+lemma ambiguous(b: Named, xs: Library.List[Named]) {
+  assert get(b);
+  assert pick(xs);
+}

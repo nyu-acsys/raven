@@ -1,0 +1,97 @@
+module Box[E: Library.Type] : Library.Type {
+  rep type T = data { case box(value: E) }
+  func make(value: E) returns (r: T) { box(value) }
+}
+module A = Box[Int]
+module B = Box[Int]
+module BoxAlias = Box
+module C = BoxAlias[Int]
+
+func repeat(x: A.T) returns (r: B.T) { x }
+func functor_alias(x: A.T) returns (r: C.T) { x }
+
+module IntArgument : Library.Type { rep type T = Int }
+module ArgumentAlias = IntArgument
+module NamedArgument = Box[IntArgument]
+module AliasedArgument = Box[ArgumentAlias]
+func argument_alias(x: NamedArgument.T) returns (r: AliasedArgument.T) { x }
+
+module NamedList = Library.List[Int]
+func explicit_to_inferred(x: NamedList.T) returns (r: Library.List[Int]) { x }
+func inferred_to_explicit(x: Library.List[Int]) returns (r: NamedList.T) { x }
+
+lemma inferred_constructor() {
+  val x: A.T := Box.make(3);
+  val y: Box[Int] := B.make(4);
+  assert x.value == 3 && y.value == 4;
+}
+
+module Outer[E: Library.Type] {
+  module Inner[F: Library.Type] : Library.Type {
+    rep type T = data { case pair(outer: E, inner: F) }
+  }
+}
+module OuterOne = Outer[Int]
+module OuterTwo = Outer[Int]
+module InnerOne = OuterOne.Inner[Bool]
+module InnerTwo = OuterTwo.Inner[Bool]
+func nested_repeat(x: InnerOne.T) returns (r: InnerTwo.T) { x }
+
+module Captures[E: Library.Type] {
+  func keep(x: E) returns (r: E) { x }
+
+  module Inner {
+    module Local[F: Library.Type] : Library.Type {
+      rep type T = data { case pair(outer: E, inner: F) }
+      func make(x: E, y: F) returns (r: T) { pair(keep(x), y) }
+    }
+    module Bound = Local[Int]
+  }
+}
+module CapturedOuter = Captures[Int]
+module CapturedAgain = CapturedOuter.Inner.Local[Int]
+func captured_instance(x: CapturedOuter.Inner.Bound.T) returns (r: CapturedAgain.T) { x }
+
+lemma check_captured() {
+  val x: CapturedAgain.T := CapturedOuter.Inner.Bound.make(3, 4);
+  assert x.outer == 3 && x.inner == 4;
+}
+
+module Fresh() : Library.Type {
+  rep type T = data { case fresh }
+}
+module FreshOne = Fresh()
+module FreshResultAlias = FreshOne
+func fresh_result_alias(x: FreshOne.T) returns (r: FreshResultAlias.T) { x }
+module WrappedFresh = Box[FreshOne]
+module WrappedAlias = Box[FreshResultAlias]
+func fresh_argument_alias(x: WrappedFresh.T) returns (r: WrappedAlias.T) { x }
+
+interface View {
+  type T
+}
+module Hidden[E: Library.Type] :> View {
+  type T = data { case hidden(value: E) }
+}
+module HiddenOne = Hidden[Int]
+module HiddenTwo = Hidden[Int]
+func declaration_seal(x: HiddenOne.T) returns (r: HiddenTwo.T) { x }
+
+interface Algebra : Library.Type {
+  func zero() returns (r: T)
+}
+module Numbers[E: Library.Type] : Algebra {
+  rep type T = Int
+  func zero() returns (r: T) { 0 }
+}
+module WrapAlgebra[A: Algebra] : Library.Type {
+  rep type T = data { case wrapped(value: A) }
+}
+interface AlgebraApplications {
+  module N = Numbers[Int]
+  module W = WrapAlgebra[N]
+}
+module InheritedAlgebraApplications : AlgebraApplications { }
+func retain_algebra_argument() returns (r: InheritedAlgebraApplications.W.T) {
+  InheritedAlgebraApplications.W.wrapped(InheritedAlgebraApplications.N.zero())
+}

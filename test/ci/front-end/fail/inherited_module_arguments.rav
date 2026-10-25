@@ -1,0 +1,12 @@
+module Box[E: Library.Type] : Library.Type {
+  rep type T = data { case box(value: E) }
+}
+interface Spec {
+  module Element : Library.Type { rep type T = Int }
+  module B = Box[Element]
+}
+module Impl : Spec { }
+module Other : Spec { }
+
+func cannot_erase_module_argument(x: Impl.B.T) returns (r: Box[Int]) { x }
+func cannot_merge_inherited_modules(x: Impl.B.T) returns (r: Other.B.T) { x }

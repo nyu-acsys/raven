@@ -99,7 +99,7 @@ let application_arguments formals arguments =
   in
   Rewriter.return (Option.map (Option.all arguments) ~f:List.unzip)
 
-(** A canonical application as a read-only type view. Named instances stay nominal. *)
+(** A canonical application as a read-only type view, retaining opaque views. *)
 let generated_application qi =
   let open Rewriter.Syntax in
   if List.is_empty (QualIdent.path qi) then Rewriter.return None
@@ -114,8 +114,13 @@ let generated_application qi =
     else
       let* symbol = generated_symbol instance in
       match symbol with
-      | Some (Module.ModInst { mod_inst_def = Some (Apply (functor_name, arguments)); _ })
-        ->
+      | Some
+          (Module.ModInst
+             {
+               mod_inst_def = Some (CanonicalApply (functor_name, arguments));
+               mod_inst_is_sealed = false;
+               _;
+             }) ->
           let* functor_ = lift (ProgUtils.resolve_generic_functor functor_name) in
           begin match functor_ with
           | Some (functor_name, { mod_decl; _ }) ->
@@ -204,24 +209,14 @@ and resolves_to_instantiation_of ~(functor_qual_ident : qual_ident) (qi : qual_i
 and instantiation_formal_module ~(functor_qual_ident : qual_ident) (qi : qual_ident) :
     (ident -> qual_ident) option t =
   let open Rewriter.Syntax in
-  let* direct = Rewriter.find_absolute qi in
-  let* bindings =
-    match direct with
-    | Some (Module.ModInst { mod_inst_def = Some (Apply (functor_name, args)); _ })
-      when QualIdent.equal functor_name functor_qual_ident ->
-        let+ functor_ = lift (ProgUtils.resolve_generic_functor functor_qual_ident) in
-        Option.bind functor_ ~f:(fun (_, m) ->
-            List.map2_exn (Module.formals m.mod_decl) args ~f:(fun formal -> function
-              | Module.ModArg qi -> Some (formal.Module.mod_inst_name, qi)
-              | Module.TypeArg _ -> None)
-            |> Option.all)
-    | _ -> Rewriter.return None
-  in
-  match bindings with
-  | Some bindings ->
+  let* table = Rewriter.get_table in
+  match SymbolTbl.application_origin qi table with
+  | Some (head, bindings)
+    when QualIdent.equal head
+           (SymbolTbl.identity ~preserve_abstract_owners:true functor_qual_ident table) ->
       Rewriter.return
         (Some (fun formal -> List.Assoc.find_exn bindings formal ~equal:Ident.equal))
-  | None -> instantiation_formal_module_resolved ~functor_qual_ident qi
+  | _ -> instantiation_formal_module_resolved ~functor_qual_ident qi
 
 and instantiation_formal_module_resolved ~(functor_qual_ident : qual_ident) qi =
   let open Rewriter.Syntax in
@@ -363,7 +358,12 @@ and unify_type_list ~(loc : location) ~(functor_qual_ident : qual_ident)
                     instance_of_rep ~functor_qual_ident ~rep_suffixes:m_rep_suffixes qi2
                   in
                   match instance with
-                  | None -> Rewriter.return u
+                  | None ->
+                      let* arg_pairs = instance_arg_pairs qi qi2 in
+                      begin match arg_pairs with
+                      | Some pairs -> go u pairs
+                      | None -> Rewriter.return u
+                      end
                   | Some (_, formal_module) ->
                       Rewriter.List.fold_left formal_reps ~init:u
                         ~f:(fun u (_, formal_ident, rep_ident) ->

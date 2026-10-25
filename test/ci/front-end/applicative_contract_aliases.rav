@@ -1,0 +1,53 @@
+interface Predicates {
+  pred chunk(x: Int)
+  inv guard(owner: Ref)
+}
+
+module Actual : Predicates {
+  pred chunk(x: Int) { x >= 0 }
+  inv guard(owner: Ref) { true }
+}
+
+interface Client {
+  module P : Predicates
+
+  proc keep(x: Int, owner: Ref)
+    requires P.chunk(x)
+    ensures P.chunk(x)
+    opens P.guard(owner)
+}
+
+module Implementation : Client {
+  module P = Actual
+
+  proc keep(x: Int, owner: Ref)
+    requires P.chunk(x)
+    ensures P.chunk(x)
+    opens P.guard(owner)
+  { }
+}
+
+interface Values {
+  val allowed: Bool
+}
+
+module ActualValues : Values {
+  val allowed: Bool = true
+}
+
+interface Filter {
+  module V : Values
+
+  proc keep(x: Int)
+    requires V.allowed
+    ensures V.allowed
+}
+
+module FilterImplementation : Filter {
+  module V = ActualValues
+
+  proc keep(x: Int)
+    requires V.allowed
+    ensures V.allowed
+  { }
+}

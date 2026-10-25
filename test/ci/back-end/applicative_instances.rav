@@ -1,0 +1,38 @@
+module Operations[E: Library.Type] {
+  field f: Int
+
+  proc read(x: Ref, ghost n: Int) returns (r: Int)
+    requires own(x.f, n, 1.0)
+    ensures own(x.f, n, 1.0) && r == n
+  {
+    r := x.f;
+  }
+
+  proc step()
+    atomic requires true
+    atomic ensures true
+  {
+    ghost val token := bindAU();
+    openAU(token);
+    commitAU(token, ());
+  }
+}
+module A = Operations[Int]
+module B = Operations[Int]
+module Alias = A
+
+proc field_identity(x: Ref, ghost n: Int) returns (r: Int)
+  requires own(x.A.f, n, 1.0)
+  ensures own(x.B.f, n + 1, 1.0) && r == n
+{
+  r := B.read(x, n);
+  x.Alias.f := r + 1;
+}
+
+proc token_identity(token: AtomicToken<A.step>)
+  requires au<B.step>(token, ())
+  ensures auCommit<Alias.step>(token, (), ())
+{
+  openAU(token, ());
+  commitAU(token, (), ());
+}

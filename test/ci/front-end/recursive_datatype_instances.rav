@@ -7,6 +7,6 @@ module Rose[E: Library.Type] : Library.Type {
 module Left = Rose[Int]
 module Right = Rose[Int]
 
-lemma reject_named_coercion(x: Left) {
+lemma accept_named_coercion(x: Left) {
   val y: Right := x;
 }

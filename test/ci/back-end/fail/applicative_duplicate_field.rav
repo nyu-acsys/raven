@@ -1,0 +1,11 @@
+module Operations[E: Library.Type] {
+  field f: Int
+}
+module A = Operations[Int]
+module B = Operations[Int]
+
+proc cannot_duplicate(x: Ref, ghost n: Int)
+  requires own(x.A.f, n, 1.0)
+  ensures own(x.A.f, n, 1.0) && own(x.B.f, n, 1.0)
+{
+}

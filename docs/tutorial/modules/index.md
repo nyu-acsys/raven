@@ -201,10 +201,10 @@ against a plain argument, Raven reads the type argument directly off `b`'s infer
 same mechanism covers destructor syntax too. `b.Box.unwrap` resolves identically, without you
 ever having written down which instantiation of `Box` `b` belongs to.
 
-Repeated calls with the same inferred type arguments reuse one implicit instance. A separately
-declared instance can have a distinct type, even with identical arguments. Use calls through
-one instance consistently, or provide argument or result types that identify the instance you
-want. When Raven cannot infer a parameter, write an explicit instantiation.
+Applications of the same functor to the same module arguments share an instance, whether
+written explicitly or inferred. For example, `module IntBox = Box[Int]` names the same instance
+that `Box.mk(3)` uses, so their values have the same type. Aliases preserve that identity.
+When Raven cannot infer a parameter, write an explicit instantiation.
 
 {{ref app:advanced-modules}} covers inference from expected result types, unresolved parameters,
 instance identity, generative factories, and the generic `default` value.

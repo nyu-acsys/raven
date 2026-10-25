@@ -58,56 +58,6 @@ let rec with_map_literal_root (expr : expr) (root : expr) : expr =
       App (MapUpdate, [ with_map_literal_root map root; key; value ], attr)
   | _ -> root
 
-(** Whether [exp_ty] and [fnd_ty], different type names, stand for the same module: both
-    trace back to the same declaration, and, if its module has formals, bind each formal
-    to the same argument. *)
-let module_identity exp_ty fnd_ty =
-  let open Rewriter.Syntax in
-  match (exp_ty, fnd_ty) with
-  | Type.App (Var exp_qi, [], _), Type.App (Var fnd_qi, [], _)
-    when QualIdent.(exp_qi <> fnd_qi) -> (
-      let* expected = Rewriter.resolve_and_find_opt ~read_only:true exp_qi
-      and* found = Rewriter.resolve_and_find_opt ~read_only:true fnd_qi in
-      match (expected, found) with
-      | ( Some (_, (exp_alias, _, (_, _, exp_subst))),
-          Some (_, (fnd_alias, _, (_, _, fnd_subst))) )
-        when QualIdent.(exp_alias = fnd_alias)
-             && not
-                  (List.exists (exp_subst @ fnd_subst) ~f:(fun (source, _) ->
-                       Module.is_unit_parameter_path source)) ->
-          let owner = QualIdent.pop exp_alias in
-          let+ owner_symbol = Rewriter.find_absolute owner in
-          begin match owner_symbol with
-          | Some
-              (Module.ModDef
-                 { mod_decl = { mod_decl_parameters = Module.Structure; _ }; _ }) ->
-              Some (Same_module { expected = exp_qi; found = fnd_qi; owner })
-          | Some
-              (Module.ModDef
-                 {
-                   mod_decl =
-                     { mod_decl_parameters = NamedParameters mod_decl_formals; _ };
-                   _;
-                 }) ->
-              let binding subst (formal : Module.module_inst) =
-                let key = QualIdent.append owner formal.mod_inst_name in
-                List.Assoc.find subst key ~equal:QualIdent.equal
-              in
-              let same_args =
-                List.for_all mod_decl_formals ~f:(fun formal ->
-                    match (binding exp_subst formal, binding fnd_subst formal) with
-                    | Some a, Some b -> List.equal Ident.equal a b
-                    | None, None -> true
-                    | _ -> false)
-              in
-              if same_args then
-                Some (Same_instantiation { expected = exp_qi; found = fnd_qi; owner })
-              else None
-          | _ -> None
-          end
-      | _ -> Rewriter.return None)
-  | _ -> Rewriter.return None
-
 let coerce_checked expr target =
   let open Rewriter.Syntax in
   let* speculative = is_speculative in
@@ -141,8 +91,7 @@ let set_checked_type ?(coerce = true) (expr : expr) (given_typ_lb : type_expr)
           \    expected_typ: %a"
           printers.pr_expr expr printers.pr_type given_typ_lb printers.pr_type
           given_typ_ub printers.pr_type expected_typ);
-    let+ identity = module_identity expected_typ given_typ_ub in
-    type_mismatch_error_diagnosed (Expr.to_loc expr) expected_typ given_typ_ub identity
+    type_mismatch_error (Expr.to_loc expr) expected_typ given_typ_ub
   end
 
 (** Reports a trigger in [trgs] that does not mention one of [var_decls], which the
