@@ -1,0 +1,3 @@
+interface Recursive { module Next: Recursive }
+interface Factory() { module Value: Recursive }
+module Outer[F: Factory] { module Result = F() }

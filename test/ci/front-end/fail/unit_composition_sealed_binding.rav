@@ -1,0 +1,4 @@
+interface Result { type T }
+module Plain : Result { type T = Int }
+module Fresh() { module Hidden :> Result = Plain }
+module Outer[E: Library.Type] { module Value = Fresh() }

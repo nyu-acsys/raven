@@ -1,0 +1,2 @@
+module Fresh() { free val value: Int }
+module Outer[E: Library.Type] { module Value = Fresh() }

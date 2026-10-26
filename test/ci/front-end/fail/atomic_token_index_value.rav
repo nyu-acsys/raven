@@ -1,0 +1,2 @@
+val target: Int = 1
+proc use(ghost token: AtomicToken<target>) { }

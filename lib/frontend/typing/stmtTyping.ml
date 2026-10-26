@@ -262,6 +262,10 @@ let check_au_action (call_decl : Callable.call_decl) (assign_lhs : qual_ident li
         disam_tbl )
   | _ when QualIdent.(qual_ident = QualIdent.from_ident Predefs.bindAU_ident) ->
       (* bindAU *)
+      if
+        (not (Poly.equal call_decl.call_decl_kind Callable.Proc))
+        || not (Callable.is_atomic call_decl)
+      then expected_atomic_procedure_error loc;
       begin match (args, assign_lhs) with
       | [], [ token_qual_ident ] ->
           let* proc_qual_ident = Rewriter.current_scope_id in

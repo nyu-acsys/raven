@@ -40,21 +40,21 @@
   [Error] File "./unit_factory_inside_named.rav", line 5, columns 9-12:
   5 |   module Bad = Fresh()
                ^^^
-  Type Error: A unit factory cannot be applied inside a named-parameter functor.
+  Type Error: A unit factory cannot be applied inside a named-parameter functor when its result introduces a fresh data type (Outer.Bad.T).
   [1]
 
   $ dune exec -- raven --shh ./unit_factory_alias_inside_named.rav
   [Error] File "./unit_factory_alias_inside_named.rav", line 6, columns 9-12:
   6 |   module Bad = Alias()
                ^^^
-  Type Error: A unit factory cannot be applied inside a named-parameter functor.
+  Type Error: A unit factory cannot be applied inside a named-parameter functor when its result introduces a fresh data type (Outer.Bad.T).
   [1]
 
   $ dune exec -- raven --shh ./unit_factory_formal_inside_named.rav
   [Error] File "./unit_factory_formal_inside_named.rav", line 5, columns 9-12:
   5 |   module Bad = F()
                ^^^
-  Type Error: A unit factory cannot be applied inside a named-parameter functor.
+  Type Error: A unit factory cannot be applied inside a named-parameter functor when its result introduces a fresh abstract type (Outer.Bad.T).
   [1]
 
   $ dune exec -- raven --shh ./unit_factory_unused_body.rav

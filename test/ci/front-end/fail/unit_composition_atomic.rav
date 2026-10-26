@@ -1,0 +1,2 @@
+module Fresh() { proc operation() atomic requires true atomic ensures true { } }
+module Outer[E: Library.Type] { module Value = Fresh() }

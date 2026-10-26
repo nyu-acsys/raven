@@ -110,8 +110,14 @@ let rec check (tp_expr : type_expr) : type_expr t =
       let+ tp_list = Rewriter.List.map tp_list ~f:check in
       App (Prod, tp_list, tp_attr)
   | App (AtomicToken qid, [], tp_attr) ->
-      let+ qid = Rewriter.resolve qid in
-      App (AtomicToken qid, [], tp_attr)
+      let+ qid, symbol = Rewriter.resolve_and_find qid in
+      begin match Rewriter.Symbol.orig_symbol symbol with
+      | Module.CallDef call
+        when Poly.equal call.call_decl.call_decl_kind Callable.Proc
+             && Callable.is_atomic call.call_decl ->
+          App (AtomicToken qid, [], tp_attr)
+      | _ -> expected_atomic_procedure_error tp_attr.type_loc
+      end
   | App (TypeExt type_ext, tp_args, tp_attr) ->
       let* ext_hooks = Rewriter.current_ext_hooks in
       (* Extensions work in [Rewriter.t], so pass them a wrapper of [check]

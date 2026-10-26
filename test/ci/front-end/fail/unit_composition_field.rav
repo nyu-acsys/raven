@@ -1,0 +1,2 @@
+module Fresh() { field value: Int }
+module Outer[E: Library.Type] { module Value = Fresh() }

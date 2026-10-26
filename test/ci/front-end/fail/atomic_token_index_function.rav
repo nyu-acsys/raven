@@ -1,0 +1,2 @@
+func target() returns (r: Int) { 1 }
+proc use(ghost token: AtomicToken<target>) { }

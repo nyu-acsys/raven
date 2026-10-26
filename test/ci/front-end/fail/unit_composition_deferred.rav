@@ -1,0 +1,2 @@
+module Fresh() { module Later[E: Library.Type] { type T = data { case item } } }
+module Outer[E: Library.Type] { module Value = Fresh() }

@@ -1,0 +1,97 @@
+field existing: Int
+pred resource(x: Ref) { own(x.existing, 0, 1.0) }
+inv shared(x: Ref) { own(x.existing, 0, 1.0) }
+module Existing { type T = data { case item } }
+module Safe() {
+  type T = Int
+  val value: T = 1
+  func successor(x: T) returns (r: T) { x + value }
+  proc next(x: T) returns (r: T) ensures r == x + 1 { r := successor(x); }
+  field alias = existing
+  pred cell(x: Ref) = resource
+  inv state(x: Ref) = shared
+  module Items = Existing
+}
+module Outer[E: Library.Type] {
+  module Value = Safe()
+  proc use() returns (r: Int) ensures r == 2 { r := Value.next(1); }
+}
+module One = Outer[Int]
+module Two = Outer[Int]
+proc use() returns (r: Int) ensures r == 2 { r := Two.use(); }
+
+interface Values() {
+  type T = Int
+  val one: T = 1
+  func increment(x: T) returns (r: T) { x + one }
+  proc next(x: T) returns (r: T) ensures r == increment(x)
+}
+module ValuesImpl() : Values {
+  proc next(x: T) returns (r: T) { r := increment(x); }
+}
+module Apply[F: Values] {
+  module First = F()
+  module Second = F()
+  proc use(x: Int) returns (r: Int) ensures r == x + 1
+  { r := First.next(x); }
+}
+module Applied = Apply[ValuesImpl]
+
+module NestedSafe() {
+  module Inner = Safe()
+  module Collection = Library.List[Int]
+}
+module NestedOuter[E: Library.Type] { module Value = NestedSafe() }
+module Nested = NestedOuter[Int]
+func existingData(x: Nested.Value.Collection.T) returns (r: Library.List[Int]) { x }
+
+interface ExistingType { type T }
+module Opaque :> ExistingType { type T = Int }
+module AliasFactory() { module Same = Opaque }
+module AliasOuter[E: Library.Type] { module Value = AliasFactory() }
+module AliasResult = AliasOuter[Int]
+func opaqueAlias(x: Opaque.T) returns (r: AliasResult.Value.Same.T) { x }
+
+interface Item { type T }
+module External : Item { type T = Int }
+module Generic[A: Item] { type T = data { case item } }
+module CanonicalFactory() { module Out = Generic[External] }
+module CanonicalOuter[E: Library.Type] { module Value = CanonicalFactory() }
+module Canonical = CanonicalOuter[Int]
+module Known = Generic[External]
+func canonicalAlias(x: Canonical.Value.Out.T) returns (r: Known.T) { x }
+
+module SealedValues() :> Values {
+  proc next(x: T) returns (r: T) { r := increment(x); }
+}
+module SealedApply[E: Library.Type] { module Value = SealedValues() }
+module SealedResult = SealedApply[Int]
+proc sealedValue() returns (r: Int) ensures r == 2
+{ r := SealedResult.Value.next(1); }
+
+lemma sameResource(x: Ref)
+  requires resource(x)
+  ensures One.Value.cell(x)
+{ }
+lemma sameInvariant(x: Ref)
+  requires shared(x)
+  ensures Two.Value.state(x)
+{ }
+lemma sameField(x: Ref, ghost n: Int)
+  requires own(x.existing, n, 1.0)
+  ensures own(x.One.Value.alias, n, 1.0)
+{ }
+
+module Capturing[E: Library.Type] {
+  module Helpers() {
+    type T = E
+    val fallback: T = E.default
+    func identity(x: T) returns (r: T) { x }
+  }
+  module Value = Helpers()
+}
+module Integers = Capturing[Int]
+module Booleans = Capturing[Bool]
+lemma captures()
+  ensures Integers.Value.identity(3) == 3 && Booleans.Value.identity(true)
+{ }

@@ -1,0 +1,7 @@
+interface Item { type T }
+module Generic[A: Item] { type T = data { case item } }
+module Fresh() {
+  module Local : Item { type T = Int }
+  module Out = Generic[Local]
+}
+module Outer[E: Library.Type] { module Value = Fresh() }

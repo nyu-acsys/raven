@@ -6,27 +6,6 @@ open Util
 open TypingMonad
 open TypingErrors
 
-let check_unit_application_context at =
-  let open Rewriter.Syntax in
-  let+ table = Rewriter.get_table in
-  let rec nearest = function
-    | [] -> ()
-    | scope :: rest ->
-        begin match Map.find table.SymbolTbl.tbl_symbols scope.SymbolTbl.scope_id with
-        | Some
-            (Module.ModDef { mod_decl = { mod_decl_parameters = UnitParameter; _ }; _ })
-          ->
-            ()
-        | Some
-            (Module.ModDef
-               { mod_decl = { mod_decl_parameters = NamedParameters _; _ }; _ }) ->
-            Error.type_error at
-              "A unit factory cannot be applied inside a named-parameter functor"
-        | _ -> nearest rest
-        end
-  in
-  nearest (table.tbl_curr :: table.tbl_path)
-
 (** Whether [typ] is word-sized: a base type (Int, Bool, Ref), or a data type with at most
     four constructors, each with at most one base-type argument, which leaves two bits for
     the tag. *)
@@ -775,12 +754,6 @@ and check_instr (m : Module.t) (instr : Module.module_instr) : Module.module_ins
                           "A unit factory must be applied with ()"
                     | (Module.Apply _ | CanonicalApply _), Structure -> []
                   in
-                  let* () =
-                    match application with
-                    | Module.ApplyUnit _ ->
-                        check_unit_application_context mod_inst.mod_inst_loc
-                    | Alias _ | Apply _ | CanonicalApply _ -> Rewriter.return ()
-                  in
                   (* Pair up `args` and formals *)
                   let* args_and_formals =
                     match List.zip mod_inst_args formals with
@@ -898,9 +871,17 @@ and check_instr (m : Module.t) (instr : Module.module_instr) : Module.module_ins
               | Some _ -> lift (Rewriter.declare_symbol symbol)
             in
             (* Check that `args` satisfy module types of formals *)
-            let+ _ =
+            let* () =
               Rewriter.List.iter to_check ~f:(fun (m, i, as_result) ->
                   Interfaces.check_module_type ~as_result m i)
+            in
+            let+ () =
+              match mod_inst_def with
+              | Some (Module.ApplyUnit _) ->
+                  let* scope = Rewriter.current_scope_id in
+                  UnitGenerativity.check_application_context ~loc:mod_inst.mod_inst_loc
+                    (QualIdent.append scope mod_inst.mod_inst_name)
+              | None | Some (Alias _ | Apply _ | CanonicalApply _) -> Rewriter.return ()
             in
             symbol
       in

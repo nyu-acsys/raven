@@ -1,0 +1,2 @@
+module Fresh() { pred resource(x: Ref) { true } }
+module Outer[E: Library.Type] { module Value = Fresh() }

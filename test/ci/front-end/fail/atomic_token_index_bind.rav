@@ -1,0 +1,1 @@
+proc ordinary() { ghost val token := bindAU(); }

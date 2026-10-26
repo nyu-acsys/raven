@@ -1,0 +1,2 @@
+lemma target() { }
+proc use(ghost token: AtomicToken<target>) { }

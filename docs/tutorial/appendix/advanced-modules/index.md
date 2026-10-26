@@ -105,9 +105,39 @@ An interface can declare the same unit parameter, for example
 `interface Factory() { type T }`. A parameter `F: Factory` denotes an unapplied
 factory; use `module Value = F()` before accessing its result members. Raven never
 inserts `()` through inference. A named-parameter functor can define a nested
-factory for its clients to apply, but cannot itself apply a factory in its body.
-Factories may apply other factories. Seal factory declarations or applied results;
-sealing an unapplied factory alias is unsupported.
+factory for its clients to apply.
+
+Factories may apply other factories. A named-parameter functor may also apply a factory
+when the visible result introduces no fresh nominal type, field, predicate, invariant, or
+atomic-update procedure. The check follows inherited and nested members, sealing, and local
+module applications. Aliases to existing resources and shared external functor instances
+preserve their identities and are allowed.
+
+For example, this composition is accepted (also checked in
+[`unit_factories.rav`](./unit_factories.rav)):
+
+```raven
+module Helpers() {
+  type T = Int
+  val one: T = 1
+  func increment(x: T) returns (r: T) { x + one }
+}
+module UsesHelpers[E: Library.Type] {
+  module H = Helpers()
+  func increment(x: Int) returns (r: Int) { H.increment(x) }
+}
+```
+
+The result may contain ordinary procedures and lemmas. Unspecified values and bodyless
+functions are conservatively rejected because they introduce unconstrained logical symbols;
+recursive module result shapes are also rejected.
+Formal factories are checked through their declared interfaces, and abstract result types
+remain fresh even if a concrete implementation uses a manifest type. Nested unapplied
+functors are checked conservatively too, including nominal declarations in their results.
+This rule remains stricter than OCaml's restriction on fresh types alone, since Raven also
+has nominal resources and atomic updates.
+
+Seal factory declarations or applied results; sealing an unapplied factory alias is unsupported.
 
 ## Generic default values {#sec:module-default-values}
 

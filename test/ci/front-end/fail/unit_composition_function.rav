@@ -1,0 +1,2 @@
+module Fresh() { free func choose() returns (r: Int) }
+module Outer[E: Library.Type] { module Value = Fresh() }

@@ -1,0 +1,3 @@
+interface Result() { field value: Int }
+module Fresh() : Result { }
+module Outer[E: Library.Type] { module Value = Fresh() }
