@@ -1,0 +1,53 @@
+interface Leaf {
+  type T
+  proc identity(value: T) returns (r: T) ensures r == value
+}
+interface Factory() : Leaf { }
+interface Public[E: Library.Type] {
+  module Inner: Leaf
+  module Make: Factory
+}
+module Implementation[E: Library.Type] : Public[E] {
+  module Inner: Leaf {
+    type T = E
+    proc identity(value: T) returns (r: T) { r := value; }
+  }
+  module Make() : Factory {
+    type T = E
+    proc identity(value: T) returns (r: T) { r := value; }
+  }
+}
+module Hidden :> Public = Implementation
+module Bound = Hidden[Int]
+module BoundAlias = Bound
+proc nested(value: Bound.Inner.T) returns (r: BoundAlias.Inner.T)
+  ensures r == value
+{ r := Bound.Inner.identity(value); }
+module Fresh = Bound.Make()
+module FreshAlias = Fresh
+proc unit(value: Fresh.T) returns (r: FreshAlias.T)
+  ensures r == value
+{ r := Fresh.identity(value); }
+
+interface Data[E: Library.Type] {
+  type Tag = data { case wrap(value: E) }
+  func make(value: E) returns (r: Tag) ensures r.value == value
+}
+module DataImplementation[E: Library.Type] : Data[E] {
+  func make(value: E) returns (r: Tag) { wrap(value) }
+}
+module DataView :> Data = DataImplementation
+module DataInt = DataView[Int]
+lemma dataExample() { assert DataInt.make(7).value == 7; }
+
+interface WithDefinition[E: Library.Type] {
+  module Inner : Leaf {
+    type T = E
+    proc identity(value: T) returns (r: T) { r := value; }
+  }
+}
+module Defined[E: Library.Type] : WithDefinition[E] { }
+module DefinedView :> WithDefinition = Defined
+module DefinedInt = DefinedView[Int]
+proc definedNested(value: Int) returns (r: Int) ensures r == value
+{ r := DefinedInt.Inner.identity(value); }

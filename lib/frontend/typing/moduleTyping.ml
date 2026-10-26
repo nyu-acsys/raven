@@ -351,8 +351,14 @@ let check_function_signatures (instrs : Module.module_instr list) =
   in
   ()
 
-let rec check (m : Module.t) : Module.t t =
+let rec check ?(pretyped = false) (m : Module.t) : Module.t t =
   let open Rewriter.Syntax in
+  let declared_returns = m.mod_decl.mod_decl_returns in
+  (* A reified schema already contains its inherited members. *)
+  let m =
+    if pretyped then { m with mod_decl = { m.mod_decl with mod_decl_returns = [] } }
+    else m
+  in
   let m = { m with mod_def = assign_function_identities m.mod_def } in
   let _ =
     Logs.info (fun mm -> mm !"Processing module %{Ident}" (Symbol.to_name (ModDef m)))
@@ -485,7 +491,7 @@ let rec check (m : Module.t) : Module.t t =
     {
       m.mod_decl with
       mod_decl_rep;
-      mod_decl_returns;
+      mod_decl_returns = (if pretyped then declared_returns else mod_decl_returns);
       mod_decl_parameters =
         (Module.with_formals m.mod_decl mod_decl_formals).mod_decl_parameters;
       mod_decl_interfaces;
@@ -545,31 +551,36 @@ let rec check (m : Module.t) : Module.t t =
   (* The parameter and return types of overloaded functions are checked before the members
      and recorded in the symbol table. *)
   let* merged_symbols =
-    Rewriter.List.map merged_symbols ~f:(function
-      | Module.SymbolDef (CallDef call)
-        when Option.is_some call.call_decl.call_decl_source_name ->
-          let* _ = Rewriter.enter_callable call in
-          let* formals =
-            Rewriter.List.map call.call_decl.call_decl_formals ~f:TypeExpr.check_var_decl
-          in
-          let* returns =
-            Rewriter.List.map call.call_decl.call_decl_returns ~f:TypeExpr.check_var_decl
-          in
-          let call =
-            {
-              call with
-              call_decl =
-                {
-                  call.call_decl with
-                  call_decl_formals = formals;
-                  call_decl_returns = returns;
-                };
-            }
-          in
-          let* call = Rewriter.exit_callable call in
-          let+ _ = Rewriter.set_symbol (Module.CallDef call) in
-          Module.SymbolDef (CallDef call)
-      | instr -> Rewriter.return instr)
+    (* Reified headers use local instances registered by the ordered member pass. *)
+    if pretyped then Rewriter.return merged_symbols
+    else
+      Rewriter.List.map merged_symbols ~f:(function
+        | Module.SymbolDef (CallDef call)
+          when Option.is_some call.call_decl.call_decl_source_name ->
+            let* _ = Rewriter.enter_callable call in
+            let* formals =
+              Rewriter.List.map call.call_decl.call_decl_formals
+                ~f:TypeExpr.check_var_decl
+            in
+            let* returns =
+              Rewriter.List.map call.call_decl.call_decl_returns
+                ~f:TypeExpr.check_var_decl
+            in
+            let call =
+              {
+                call with
+                call_decl =
+                  {
+                    call.call_decl with
+                    call_decl_formals = formals;
+                    call_decl_returns = returns;
+                  };
+              }
+            in
+            let* call = Rewriter.exit_callable call in
+            let+ _ = Rewriter.set_symbol (Module.CallDef call) in
+            Module.SymbolDef (CallDef call)
+        | instr -> Rewriter.return instr)
   in
 
   (* Members are checked in order. A module's own members, and a module instance, become
@@ -586,7 +597,7 @@ let rec check (m : Module.t) : Module.t t =
           | Module.Import _ -> None
         in
         Rewriter.recover ?poison ~fallback:None
-          (let+ instr = check_instr m instr in
+          (let+ instr = check_instr ~pretyped m instr in
            Some instr))
   in
   let mod_def = List.filter_opt mod_def in
@@ -628,7 +639,8 @@ let rec check (m : Module.t) : Module.t t =
   Rewriter.return Module.{ mod_decl; mod_def }
 
 (** Checks the member [instr] of [m]. *)
-and check_instr (m : Module.t) (instr : Module.module_instr) : Module.module_instr t =
+and check_instr ~pretyped (m : Module.t) (instr : Module.module_instr) :
+    Module.module_instr t =
   let open Rewriter.Syntax in
   match instr with
   | Module.SymbolDef (ModInst binding) when binding.mod_inst_is_checked ->
@@ -662,7 +674,7 @@ and check_instr (m : Module.t) (instr : Module.module_instr) : Module.module_ins
             (Rewriter.introduce_typecheck_symbol' ~loc:binding.mod_inst_loc
                (Module.ModDef adapter))
       in
-      check_instr m
+      check_instr ~pretyped m
         (Module.SymbolDef
            (ModInst
               {
@@ -670,6 +682,58 @@ and check_instr (m : Module.t) (instr : Module.module_instr) : Module.module_ins
                 mod_inst_is_checked = false;
                 mod_inst_def = Some (Module.Alias target);
               }))
+  | Module.SymbolDef
+      (ModInst
+         ({ mod_inst_is_sealed = true; mod_inst_def = Some (Module.Alias target); _ } as
+          binding)) ->
+      let* target, target_symbol = Rewriter.resolve_and_find target in
+      let* definition = Rewriter.Symbol.reify target_symbol in
+      begin match definition with
+      | Module.ModDef definition when Module.is_functor definition.mod_decl ->
+          if binding.mod_inst_is_interface then
+            sealed_interface_error binding.mod_inst_loc binding.mod_inst_name;
+          let name =
+            Ident.fresh_shared binding.mod_inst_loc
+              ("Sealed$" ^ Ident.name binding.mod_inst_name)
+            |> Ident.with_display ~text:(Ident.to_string_user binding.mod_inst_name)
+          in
+          let* schema =
+            SealedFunctors.make ~loc:binding.mod_inst_loc ~name
+              ~interface:binding.mod_inst_type ~target ~target_symbol ~definition
+          in
+          let check_schema = function
+            | Module.ModDef schema ->
+                run_typing
+                  (let* _ = Rewriter.enter_module schema
+                   and* schema = check ~pretyped:true schema in
+                   let* schema = Rewriter.exit_module schema in
+                   let symbol = Module.ModDef schema in
+                   let+ () = Rewriter.set_symbol symbol in
+                   symbol)
+            | _ ->
+                Error.internal_error binding.mod_inst_loc
+                  "Expected a public functor schema"
+          in
+          let* schema =
+            SealedFunctors.introduce ~loc:binding.mod_inst_loc ~check_schema schema
+          in
+          check_definition ~pretyped m
+            (Module.SymbolDef
+               (ModInst
+                  {
+                    binding with
+                    mod_inst_is_sealed = false;
+                    mod_inst_type = schema;
+                    mod_inst_def = Some (Module.Alias schema);
+                  }))
+      | _ -> check_definition ~pretyped m instr
+      end
+  | _ -> check_definition ~pretyped m instr
+
+and check_definition ~pretyped (m : Module.t) (instr : Module.module_instr) :
+    Module.module_instr t =
+  let open Rewriter.Syntax in
+  match instr with
   | Module.SymbolDef symbol ->
       let* symbol_def =
         match symbol with
@@ -681,7 +745,8 @@ and check_instr (m : Module.t) (instr : Module.module_instr) : Module.module_ins
             (* These should not occur directly in a module definition *)
         | CallDef call_def -> CallableTyping.check call_def
         | ModDef mod_def ->
-            let* _ = Rewriter.enter_module mod_def and* mod_def = check mod_def in
+            let* _ = Rewriter.enter_module mod_def
+            and* mod_def = check ~pretyped mod_def in
             let+ mod_def = Rewriter.exit_module mod_def in
             Module.ModDef mod_def
         | ModInst mod_inst ->
@@ -737,11 +802,6 @@ and check_instr (m : Module.t) (instr : Module.module_instr) : Module.module_ins
                   in
                   let formals =
                     match (application, parameters) with
-                    | Module.Alias _, (NamedParameters _ | UnitParameter)
-                      when mod_inst.mod_inst_is_sealed ->
-                        Error.type_error mod_inst.mod_inst_loc
-                          "Seal the functor declaration or its applied result instead of \
-                           an unapplied alias"
                     | Module.Alias _, _ -> []
                     | Module.ApplyUnit _, UnitParameter -> []
                     | (Module.Apply _ | CanonicalApply _), NamedParameters formals ->

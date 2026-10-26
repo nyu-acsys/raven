@@ -26,6 +26,175 @@ let implemented_interfaces symbol =
                 else QualIdent.requalify [ (source, target) ] interface))
     | _ -> Set.empty (module QualIdent))
 
+let declared_parameters symbol =
+  Rewriter.Symbol.extract symbol ~f:(fun _ _ -> function
+    | Module.ModDef module_ -> Module.formals module_.mod_decl
+    | _ -> [])
+
+let arguments symbol formals =
+  let owner = Rewriter.Symbol.orig_qid symbol in
+  let subst = Rewriter.Symbol.subst symbol in
+  List.map formals ~f:(fun formal ->
+      QualIdent.requalify subst (QualIdent.append owner formal.Module.mod_inst_name))
+
+let functor_interface_arguments ~loc ~interface target =
+  let open Rewriter.Syntax in
+  let rec project seen symbol =
+    let owner = Rewriter.Symbol.orig_qid symbol in
+    if Set.mem seen owner then
+      Error.type_error loc "Cannot project a recursive functor interface";
+    if QualIdent.equal owner interface then
+      Rewriter.return (arguments symbol (declared_parameters symbol))
+    else
+      let* definition = Rewriter.Symbol.reify symbol in
+      let parents =
+        match definition with
+        | Module.ModDef definition -> definition.mod_decl.mod_decl_returns
+        | _ -> []
+      in
+      let rec parent = function
+        | [] ->
+            Error.type_error loc "The functor has no declared result for this interface"
+        | (name, actuals) :: rest ->
+            let* name, candidate = Rewriter.resolve_and_find name in
+            if
+              not
+                (QualIdent.equal name interface
+                || Set.mem (implemented_interfaces candidate) interface)
+            then parent rest
+            else
+              let formals =
+                if Rewriter.Symbol.is_module_instance candidate then []
+                else declared_parameters candidate
+              in
+              let actuals =
+                if List.is_empty actuals then arguments symbol formals
+                else
+                  List.map actuals ~f:(function
+                    | Module.ModArg name -> name
+                    | TypeArg _ ->
+                        Error.type_error loc "Expected a resolved interface argument")
+              in
+              begin match List.zip formals actuals with
+              | Unequal_lengths ->
+                  Error.type_error loc
+                    "The functor result has incompatible interface arguments"
+              | Ok pairs ->
+                  let projected =
+                    List.fold pairs ~init:candidate ~f:(fun candidate (formal, actual) ->
+                        Rewriter.Symbol.extend_subst
+                          ( QualIdent.append name formal.mod_inst_name,
+                            QualIdent.to_list actual )
+                          candidate)
+                  in
+                  project (Set.add seen owner) projected
+              end
+      in
+      parent parents
+  in
+  project (Set.empty (module QualIdent)) target
+
+let rec check_functor_signature ~loc actual expected =
+  let open Rewriter.Syntax in
+  let actual_formals = declared_parameters actual in
+  let expected_formals = declared_parameters expected in
+  let actual_arguments = arguments actual actual_formals in
+  let expected_arguments = arguments expected expected_formals in
+  let alignment =
+    List.map2_exn actual_arguments expected_arguments ~f:(fun actual expected ->
+        (actual, QualIdent.to_list expected))
+  in
+  let align qi = QualIdent.requalify alignment qi in
+  let actual_subst = Rewriter.Symbol.subst actual in
+  let expected_subst = Rewriter.Symbol.subst expected in
+  let* () =
+    Rewriter.List.iter (List.zip_exn actual_formals expected_formals)
+      ~f:(fun (actual, expected) ->
+        let actual_type =
+          QualIdent.requalify actual_subst actual.Module.mod_inst_type |> align
+        in
+        let expected_type =
+          QualIdent.requalify expected_subst expected.Module.mod_inst_type
+        in
+        if QualIdent.equal actual_type expected_type then Rewriter.return ()
+        else
+          let* actual = Rewriter.resolve_and_find_opt actual_type in
+          let* expected = Rewriter.resolve_and_find_opt expected_type in
+          match (actual, expected) with
+          | Some (actual, _), Some (expected, symbol)
+            when QualIdent.equal actual expected
+                 || Set.mem (implemented_interfaces symbol) actual ->
+              check_module_type expected actual
+          | _ -> Error.type_error loc "The functor has incompatible parameter constraints")
+  in
+  let* result_arguments =
+    functor_interface_arguments ~loc ~interface:(Rewriter.Symbol.orig_qid expected) actual
+  in
+  if
+    not
+      (List.equal QualIdent.equal (List.map result_arguments ~f:align) expected_arguments)
+  then
+    Error.type_error loc
+      "The functor does not preserve its interface's parameter-to-result mapping";
+  Rewriter.return ()
+
+(** Check that module `mod_ident` (M) implements interface `int_ident` (I) *)
+and check_module_type ?(as_result = false) mod_ident int_ident =
+  let open Rewriter.Syntax in
+  (* Get qualified idents and symbols of M and I *)
+  let* qual_mod_ident, mod_symbol = Rewriter.resolve_and_find mod_ident
+  and* qual_int_ident, int_symbol = Rewriter.resolve_and_find int_ident in
+  (* Extract all interfaces implemented by M and check whether it is fully instantiated *)
+  let interfaces, mod_is_instance =
+    Rewriter.Symbol.extract mod_symbol ~f:(fun _ _ -> function
+      | Ast.Module.ModDef mod_def ->
+          ( implemented_interfaces mod_symbol,
+            Module.is_structure mod_def.mod_decl
+            || Rewriter.Symbol.is_module_instance mod_symbol )
+      | _ -> (Set.empty (module QualIdent), true))
+  in
+  (* Check whether I is fully instantiated *)
+  let int_is_instance =
+    as_result
+    || Rewriter.Symbol.extract int_symbol ~f:(fun _ _subst -> function
+      | Ast.Module.ModDef mod_def ->
+          Module.is_structure mod_def.mod_decl
+          || Rewriter.Symbol.is_module_instance int_symbol
+      | _ -> true)
+  in
+  let parameters symbol =
+    if Rewriter.Symbol.is_module_instance symbol then Module.Structure
+    else
+      match Rewriter.Symbol.orig_symbol symbol with
+      | Module.ModDef module_ -> module_.mod_decl.mod_decl_parameters
+      | _ -> Module.Structure
+  in
+  (* Check if I is one of M's interfaces *)
+  if not (QualIdent.(qual_mod_ident = qual_int_ident) || Set.mem interfaces qual_int_ident)
+  then
+    does_not_implement_error (QualIdent.to_loc mod_ident)
+      (Symbol.kind (Rewriter.Symbol.orig_symbol mod_symbol))
+      mod_ident int_ident
+  else if
+    (not int_is_instance)
+    && not (same_parameter_shape (parameters mod_symbol) (parameters int_symbol))
+  then
+    Error.type_error (QualIdent.to_loc mod_ident)
+      "The module does not have its interface's parameter shape"
+  else if
+    (* Make sure that I is the type of M itself rather than the expected type
+         of the module obtained by instantiating *)
+    int_is_instance && not mod_is_instance
+  then
+    needs_instantiation_error (QualIdent.to_loc mod_ident)
+      (Symbol.kind (Rewriter.Symbol.orig_symbol mod_symbol))
+      mod_ident int_ident
+  else if
+    (not (QualIdent.equal qual_mod_ident qual_int_ident))
+    && (not mod_is_instance) && not int_is_instance
+  then check_functor_signature ~loc:(QualIdent.to_loc mod_ident) mod_symbol int_symbol
+  else Rewriter.return ()
+
 (** The module standing for the type [tp] passed for [formal], whose interface is
     [formal_iface] (see [ProgUtils.get_or_intros_rep_module]). *)
 let rep_module_of_type_arg (formal : Module.module_inst) (formal_iface : qual_ident)
@@ -291,7 +460,9 @@ let check_implements_mod_inst (mod_def : Module.t) (orig_mod_inst : Module.modul
     else
       match orig_mod_inst.mod_inst_def with
       | Some _ -> redefined_error loc (Symbol.kind symbol) ident interface_ident
-      | _ -> Rewriter.return ()
+      | _ ->
+          let* actual = Rewriter.resolve (QualIdent.from_ident ident) in
+          check_module_type actual orig_mod_inst.mod_inst_type
 
 (** A module instance [mod_inst] implementing the module instance [orig_mod_inst]. *)
 let check_implements_mod_inst_by_inst (mod_inst : Module.module_inst)
@@ -327,7 +498,9 @@ let check_implements_mod_inst_by_inst (mod_inst : Module.module_inst)
       | Some _, Some _ -> redefined_error loc (Symbol.kind symbol) ident interface_ident
       | None, Some _ ->
           redeclared_abstract_error loc (Symbol.kind symbol) ident interface_ident
-      | _ -> Rewriter.return ()
+      | _ ->
+          let* actual = Rewriter.resolve (QualIdent.from_ident ident) in
+          check_module_type actual orig_mod_inst.mod_inst_type
 
 (* [manifest_subst] maps a manifest field's name in the interface's specs (`Impl.f`) to
    the field it stands for (`g`), so that specs naming either compare equal. *)
@@ -388,58 +561,6 @@ let check_implements_symbol ?(manifest_subst = Map.empty (module QualIdent))
   | _ ->
       redeclared_from_interface_as_other_kind_error loc (Symbol.kind orig_symbol) ident
         interface_ident (Symbol.kind symbol)
-
-(** Check that module `mod_ident` (M) implements interface `int_ident` (I) *)
-let check_module_type ?(as_result = false) mod_ident int_ident =
-  let open Rewriter.Syntax in
-  (* Get qualified idents and symbols of M and I *)
-  let+ qual_mod_ident, mod_symbol = Rewriter.resolve_and_find mod_ident
-  and+ qual_int_ident, int_symbol = Rewriter.resolve_and_find int_ident in
-  (* Extract all interfaces implemented by M and check whether it is fully instantiated *)
-  let interfaces, mod_is_instance =
-    Rewriter.Symbol.extract mod_symbol ~f:(fun _ _ -> function
-      | Ast.Module.ModDef mod_def ->
-          ( implemented_interfaces mod_symbol,
-            Module.is_structure mod_def.mod_decl
-            || Rewriter.Symbol.is_module_instance mod_symbol )
-      | _ -> (Set.empty (module QualIdent), true))
-  in
-  (* Check whether I is fully instantiated *)
-  let int_is_instance =
-    as_result
-    || Rewriter.Symbol.extract int_symbol ~f:(fun _ _subst -> function
-      | Ast.Module.ModDef mod_def ->
-          Module.is_structure mod_def.mod_decl
-          || Rewriter.Symbol.is_module_instance int_symbol
-      | _ -> true)
-  in
-  let parameters symbol =
-    if Rewriter.Symbol.is_module_instance symbol then Module.Structure
-    else
-      match Rewriter.Symbol.orig_symbol symbol with
-      | Module.ModDef module_ -> module_.mod_decl.mod_decl_parameters
-      | _ -> Module.Structure
-  in
-  (* Check if I is one of M's interfaces *)
-  if not (QualIdent.(qual_mod_ident = qual_int_ident) || Set.mem interfaces qual_int_ident)
-  then
-    does_not_implement_error (QualIdent.to_loc mod_ident)
-      (Symbol.kind (Rewriter.Symbol.orig_symbol mod_symbol))
-      mod_ident int_ident
-  else if
-    (not int_is_instance)
-    && not (same_parameter_shape (parameters mod_symbol) (parameters int_symbol))
-  then
-    Error.type_error (QualIdent.to_loc mod_ident)
-      "The module does not have its interface's parameter shape"
-  else if
-    (* Make sure that I is the type of M itself rather than the expected type
-         of the module obtained by instantiating *)
-    int_is_instance && not mod_is_instance
-  then
-    needs_instantiation_error (QualIdent.to_loc mod_ident)
-      (Symbol.kind (Rewriter.Symbol.orig_symbol mod_symbol))
-      mod_ident int_ident
 
 (** A module may implement several interfaces only if they share no ancestor: Raven
     identifies module types by path, so two routes to the same declaration give types that

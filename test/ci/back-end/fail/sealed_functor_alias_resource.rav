@@ -1,0 +1,9 @@
+interface Counter[E: Library.Type] { field value: Int }
+module Implementation[E: Library.Type] : Counter[E] { }
+module Hidden :> Counter = Implementation
+module Original = Implementation[Int]
+module View = Hidden[Int]
+lemma noTransfer(x: Ref)
+  requires own(x.Original.value, 0, 1.0)
+  ensures own(x.View.value, 0, 1.0)
+{ }

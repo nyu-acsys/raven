@@ -1,0 +1,11 @@
+free func global(x: Int) returns (r: Int)
+interface Signature[E: Library.Type] {
+  func forward(x: Int) returns (r: Int) { global(x) }
+  auto lemma positive(x: Int) ensures forward(x) > 0
+}
+module Bad[E: Library.Type] : Signature[E] {
+  lemma positive(x: Int) { }
+}
+module Hidden :> Signature = Bad
+module Applied = Hidden[Int]
+lemma client() ensures Applied.forward(0) > 0 { }

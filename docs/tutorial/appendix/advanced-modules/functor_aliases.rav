@@ -1,0 +1,27 @@
+interface Box[E: Library.Type] {
+  rep type T
+  func make(value: E) returns (r: T)
+  func get(value: T) returns (r: E)
+  auto lemma inverse(value: E) ensures get(make(value)) == value
+}
+module Implementation[X: Library.Type] : Box[X] {
+  rep type T = X
+  func make(value: X) returns (r: T) { value }
+  func get(value: T) returns (r: X) { value }
+  lemma inverse(value: X) { }
+}
+module Hidden :> Box = Implementation
+module First = Hidden[Int]
+module Second = Hidden[Int]
+module Alias = Hidden
+module ThroughAlias = Alias[Int]
+func same(value: First.T) returns (r: ThroughAlias.T) { value }
+lemma client() ensures Second.get(First.make(4)) == 4 { }
+
+interface TokenFactory() { type T }
+module Tokens() : TokenFactory { type T = Int }
+module HiddenTokens :> TokenFactory = Tokens
+module A = HiddenTokens()
+module B = HiddenTokens()
+module SameA = A
+func keep(value: A.T) returns (r: SameA.T) { value }

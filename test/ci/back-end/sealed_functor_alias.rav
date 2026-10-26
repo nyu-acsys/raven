@@ -1,0 +1,148 @@
+interface Result[E: Library.Type] {
+  rep type T
+  func make(x: E) returns (r: T)
+  func get(x: T) returns (r: E)
+  auto lemma inverse(x: E) ensures get(make(x)) == x
+}
+module Implementation[E: Library.Type] : Result[E] {
+  rep type T = E
+  func make(x: E) returns (r: T) { x }
+  func get(x: T) returns (r: E) { x }
+  lemma inverse(x: E) { }
+  func extra() returns (r: Int) { 99 }
+}
+module Hidden :> Result = Implementation
+module Alias = Hidden
+module First = Hidden[Int]
+module Second = Alias[Int]
+lemma client() { assert First.get(First.make(7)) == 7; }
+func same(x: First.T) returns (r: Second.T) { x }
+interface UnitFactory() { type T
+ proc identity(x: T) returns (r: T) ensures r == x }
+module Unit() : UnitFactory { type T = Int
+ proc identity(x: T) returns (r: T) { r := x; } }
+module HiddenUnit :> UnitFactory = Unit
+module UnitAlias = HiddenUnit
+module U1 = HiddenUnit()
+module U2 = UnitAlias()
+proc unitClient(x: U1.T) returns (r: U1.T) ensures r == x { r := U1.identity(x); }
+
+module Another :> Result = Implementation
+module AnotherInt = Another[Int]
+module Rebound :> Result = Hidden
+module ReboundInt = Rebound[Int]
+module Concrete = Implementation[Int]
+lemma concreteStillVisible() ensures Concrete.extra() == 99 { }
+
+module Uses[F: Result] {
+  module Ints = F[Int]
+  lemma client() { assert Ints.get(Ints.make(8)) == 8; }
+}
+module HigherOrder = Uses[Hidden]
+
+module Swapped[X: Library.Type, Y: Library.Type] : Result[Y] {
+  rep type T = Y
+  func make(x: Y) returns (r: T) { x }
+  func get(x: T) returns (r: Y) { x }
+  lemma inverse(x: Y) { }
+}
+module SwappedView :> Result = Swapped
+module SwappedValue = SwappedView[Int, Bool]
+lemma mapped() { assert SwappedValue.get(SwappedValue.make(true)); }
+
+interface Plain { type T }
+module Unparameterized[E: Library.Type] : Plain { type T = E }
+module PlainView :> Plain = Unparameterized
+module PlainValue = PlainView[Int]
+
+interface Base[E: Library.Type] { func flag(x: E) returns (r: Bool) }
+interface Derived[E: Library.Type] : Base[E] { }
+module DerivedImpl[X: Library.Type] : Derived[X] {
+  func flag(x: X) returns (r: Bool) { true }
+}
+module BaseView :> Base = DerivedImpl
+module BaseValue = BaseView[Int]
+lemma inheritedSignature(x: Int) { val flag: Bool := BaseValue.flag(x); }
+
+interface Manifest[E: Library.Type] {
+  type T = E
+  func identity(x: T) returns (r: T) { x }
+}
+module ManifestImpl[E: Library.Type] : Manifest[E] { }
+module ManifestView :> Manifest = ManifestImpl
+module ManifestInt = ManifestView[Int]
+lemma equation() ensures ManifestInt.identity(9) == 9 { }
+
+module Nested[E: Library.Type] {
+  module View :> Result = Implementation
+  module Applied = View[E]
+  lemma client(x: E) ensures Applied.get(Applied.make(x)) == x { }
+}
+module NestedInt = Nested[Int]
+module NestedBool = Nested[Bool]
+
+interface Fixed = Result[Int]
+module FixedImplementation() : Fixed {
+  rep type T = Int
+  func make(x: Int) returns (r: T) { x }
+  func get(x: T) returns (r: Int) { x }
+  lemma inverse(x: Int) { }
+}
+module FixedView :> Fixed = FixedImplementation
+module FixedValue = FixedView()
+lemma fixed() ensures FixedValue.get(FixedValue.make(4)) == 4 { }
+module FixedRebound :> Fixed = FixedView
+module FixedAgain = FixedRebound()
+lemma fixedAgain() ensures FixedAgain.get(FixedAgain.make(6)) == 6 { }
+
+module Rewrap[F: Result] {
+  module View :> Result = F
+  module Applied = View[Int]
+  lemma client() ensures Applied.get(Applied.make(5)) == 5 { }
+}
+module Rewrapped = Rewrap[Implementation]
+
+lemma inferred() {
+  val hidden := Hidden.make(10);
+  assert Hidden.get(hidden) == 10;
+}
+type HiddenInt = Hidden[Int]
+func sameType(x: HiddenInt) returns (r: First.T) { x }
+func sameLists(x: Library.List[First]) returns (r: Library.List[Hidden[Int]]) { x }
+
+interface Helpers() {
+  type T = Int
+  val one: T = 1
+  func increment(x: T) returns (r: T) { x + one }
+}
+module HelperImplementation() : Helpers { }
+module HelperView :> Helpers = HelperImplementation
+module Composed[E: Library.Type] { module Value = HelperView() }
+module ComposedInt = Composed[Int]
+lemma composed() ensures ComposedInt.Value.increment(2) == 3 { }
+
+module RewrapUnit[F: UnitFactory] {
+  module View :> UnitFactory = F
+}
+module RewrappedUnit = RewrapUnit[Unit]
+module RewrappedValue = RewrappedUnit.View()
+proc rewrappedIdentity(x: RewrappedValue.T) returns (r: RewrappedValue.T)
+  ensures r == x
+{ r := RewrappedValue.identity(x); }
+
+module FixedNamed[X: Library.Type] : Result[Int] {
+  rep type T = Int
+  func make(x: Int) returns (r: T) { x }
+  func get(x: T) returns (r: Int) { x }
+  lemma inverse(x: Int) { }
+}
+module FixedNamedView :> Result = FixedNamed
+module FixedNamedBool = FixedNamedView[Bool]
+lemma fixedNamed() ensures FixedNamedBool.get(FixedNamedBool.make(11)) == 11 { }
+
+interface Model[E: Library.Type] {
+  func identity(x: E) returns (r: E) ensures r == x
+}
+module ModelView :> Model = Model
+module ModelInt = ModelView[Int]
+lemma model() ensures ModelInt.identity(14) == 14 { }

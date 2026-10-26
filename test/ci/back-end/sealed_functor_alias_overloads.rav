@@ -1,0 +1,27 @@
+module Box[E: Library.Type] {
+  rep type T = data { case box(value: E) }
+}
+interface Public[E: Library.Type] {
+  func read(value: Box[E]) returns (r: E)
+    ensures r == value.value
+  func read(value: Bool) returns (r: Bool)
+    ensures r == value
+  func make(value: E) returns (r: Box[E])
+    ensures r.value == value
+}
+module Implementation[X: Library.Type] : Public[X] {
+  func read(value: Bool) returns (r: Bool) { value }
+  func read(value: Box[X]) returns (r: X) { value.value }
+  func make(value: X) returns (r: Box[X]) { Box.box(value) }
+}
+module Hidden :> Public = Implementation
+module Value = Hidden[Int]
+lemma explicit() {
+  val b: Box[Int] := Value.make(5);
+  assert Value.read(b) == 5;
+  assert Value.read(true);
+}
+lemma inferred() {
+  val b: Box[Int] := Hidden.make(6);
+  assert Hidden.read(b) == 6;
+}

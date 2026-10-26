@@ -1,0 +1,60 @@
+import Library.IntAtomics._
+
+interface Counter[E: Library.Type] {
+  field value: Int
+  pred cell(x: Ref; n: Int)
+  inv shared(x: Ref)
+  proc increment(x: Ref, implicit ghost n: Int) returns (r: Int)
+    atomic requires own(x.value, n, 1.0)
+    atomic ensures own(x.value, n + 1, 1.0) && r == n
+  atomic proc observe(x: Ref, ghost n: Int) returns (r: Int)
+    requires own(x.value, n, 1.0)
+    ensures own(x.value, n, 1.0) && r == n
+}
+module Implementation[E: Library.Type] : Counter[E] {
+  pred cell(x: Ref; n: Int) { own(x.value, n, 1.0) }
+  inv shared(x: Ref) { exists n: Int :: own(x.value, n, 1.0) }
+  proc increment(x: Ref, implicit ghost n: Int) returns (r: Int) {
+    ghost val token := bindAU();
+    n := openAU(token);
+    r := faa(x.value, 1);
+    commitAU(token, r);
+  }
+  atomic proc observe(x: Ref, ghost n: Int) returns (r: Int) { r := x.value; }
+}
+module Hidden :> Counter = Implementation
+module Alias = Hidden
+module CounterInt = Hidden[Int]
+module Same = Alias[Int]
+
+lemma sameCell(x: Ref, ghost n: Int)
+  requires CounterInt.cell(x, n)
+  ensures Same.cell(x, n)
+{ }
+lemma sameInvariant(x: Ref)
+  requires CounterInt.shared(x)
+  ensures Same.shared(x)
+{ }
+lemma sameToken(x: Ref, ghost token: AtomicToken<CounterInt.increment>)
+  requires au<CounterInt.increment>(token, x)
+  ensures au<Same.increment>(token, x)
+{ }
+
+inv external(x: Ref) { exists n: Int :: own(x.CounterInt.value, n, 1.0) }
+proc client(x: Ref)
+  requires external(x)
+  ensures external(x)
+{
+  unfold external(x);
+  val old := Same.increment(x);
+  fold external(x);
+}
+inv zero(x: Ref) { own(x.CounterInt.value, 0, 1.0) }
+proc physical(x: Ref)
+  requires zero(x)
+  ensures zero(x)
+{
+  unfold zero(x);
+  val old := Same.observe(x, 0);
+  fold zero(x);
+}

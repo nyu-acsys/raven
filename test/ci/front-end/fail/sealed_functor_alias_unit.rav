@@ -1,0 +1,7 @@
+interface Factory() { type T }
+module Original() : Factory { type T = Int }
+module Hidden :> Factory = Original
+module A = Hidden()
+module Alias = Hidden
+module B = Alias()
+func bad(x: A.T) returns (r: B.T) { x }

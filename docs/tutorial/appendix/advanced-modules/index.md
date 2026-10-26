@@ -137,7 +137,7 @@ functors are checked conservatively too, including nominal declarations in their
 This rule remains stricter than OCaml's restriction on fresh types alone, since Raven also
 has nominal resources and atomic updates.
 
-Seal factory declarations or applied results; sealing an unapplied factory alias is unsupported.
+Seal factory declarations, unapplied aliases, or individual applied results, as described below.
 
 ## Generic default values {#sec:module-default-values}
 
@@ -183,6 +183,38 @@ makes `V` a view of `N` through `I`, and `module V :> Stack = F[Int]` does the s
 for an instance of a functor `F`. `N` or `F` has to declare that it implements the interface, and Raven
 takes the interface's arguments from that declaration. Code that names `N` directly still sees
 its definitions, but to clients of `V`, `V.T` is an abstract type, distinct from `N.T`.
+
+### Sealing unapplied functors
+
+An unapplied functor can also be given a sealed view, as checked in
+[`functor_aliases.rav`](./functor_aliases.rav):
+
+```raven
+module Hidden :> Box = Implementation
+module First = Hidden[Int]
+module Second = Hidden[Int]
+module Alias = Hidden
+```
+
+The target must already implement the selected interface nominally. The alias keeps the
+target's input parameters, including their order and constraints, and exposes the interface
+at the result arguments declared by the target. For example, if `Implementation[X, Y]`
+implements `Box[Y]`, then `Hidden[Int, Bool]` exposes the boolean box interface.
+The interface can also be unparameterized or an already applied interface alias.
+
+Repeated named applications through `Hidden` or `Alias` share their abstract result types.
+Those types are distinct from the original implementation's types and from those of a
+separate sealed view of the same implementation. Manifest equations stated in the interface
+remain visible. Unit-parameter targets retain `()` syntax and produce a fresh result at
+each application, including applications through aliases. Higher-order parameters can use
+these views through their compatible nominal interfaces. Higher-order compatibility
+also checks that the input constraints and parameter-to-result mapping agree: a functor
+returning `Box[Int]` for every input cannot stand for one returning `Box[E]` for input `E`.
+
+The source implementation remains available through its original name, with its original
+representation and additional members. Creating a view does not verify a second copy of its
+body. Interfaces can also be viewed this way as assumed API models, consistent with
+ordinary interface instantiation in Raven.
 
 ## Checked module views {#sec:module-checked-views}
 

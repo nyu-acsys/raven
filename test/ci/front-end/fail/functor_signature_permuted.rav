@@ -1,0 +1,8 @@
+interface Signature[A: Library.Type, B: Library.Type] {
+  func first(a: A, b: B) returns (r: A)
+}
+module Swapped[X: Library.Type, Y: Library.Type] : Signature[Y, X] {
+  func first(a: Y, b: X) returns (r: Y) { a }
+}
+module Client[F: Signature] { }
+module Rejected = Client[Swapped]

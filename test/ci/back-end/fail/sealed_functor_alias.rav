@@ -1,0 +1,8 @@
+interface FalseLaw[E: Library.Type] {
+  auto lemma impossible() ensures false
+}
+module Bad[E: Library.Type] : FalseLaw[E] {
+  lemma impossible() { }
+}
+module Hidden :> FalseLaw = Bad
+module Applied = Hidden[Int]

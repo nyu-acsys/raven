@@ -1,0 +1,11 @@
+interface Signature[E: Library.Type] {
+  func identity(x: E) returns (r: E)
+}
+module Fixed[X: Library.Type] : Signature[Int] {
+  func identity(x: Int) returns (r: Int) { x }
+}
+module Client[F: Signature] {
+  module Values = F[Bool]
+  proc use(x: Bool) returns (r: Bool) { r := Values.identity(x); }
+}
+module Accepted = Client[Fixed]

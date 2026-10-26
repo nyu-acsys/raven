@@ -117,13 +117,6 @@
   Error: Unknown identifier F.T.
   [1]
 
-  $ dune exec -- raven --shh ./unit_factory_sealed_alias.rav
-  [Error] File "./unit_factory_sealed_alias.rav", line 3, columns 7-13:
-  3 | module Hidden :> Factory = Fresh
-             ^^^^^^
-  Type Error: Seal the functor declaration or its applied result instead of an unapplied alias.
-  [1]
-
   $ dune exec -- raven --shh ./unit_factory_bare_type.rav
   [Error] File "./unit_factory_bare_type.rav", line 4, columns 12-17:
   4 | proc bad(x: Fresh) { }

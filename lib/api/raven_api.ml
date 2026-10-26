@@ -317,9 +317,9 @@ module Member = struct
     in
     S.Module.symbol (S.Module.instance ~loc ?def name typ)
 
-  let alias ~loc ?typ name target =
+  let alias ~loc ?typ ?sealed name target =
     S.Module.symbol
-      (S.Module.binding ~loc ~definition:(Ast.Module.Alias target) name
+      (S.Module.binding ~loc ~definition:(Ast.Module.Alias target) ?sealed name
          (Option.value typ ~default:target))
 
   let checked_view ~loc ~typ ?sealed name target =

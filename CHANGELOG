@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Sealed aliases of unapplied functors preserve input parameters and hide result representations.
 - Explicit checked module views verify interface adaptation while preserving resource aliases and nominal argument checks.
 - Named functor applications share instances, while unit factories use `module F()` and `F()` for fresh instances.
 - `Seq.of_list` converts lists to sequences with constructor and length laws.
@@ -35,6 +36,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Higher-order functor arguments must preserve input constraints and parameter-to-result mappings.
 - Atomic token types and bindings require a procedure with a logically atomic specification.
 - Discard stale destination values in bind assignments.
 - Infer dependent fold witnesses across conditional branches.

@@ -1,0 +1,9 @@
+interface Signature[E: Library.Type] {
+  func identity(x: E) returns (r: E)
+}
+interface Restricted : Library.Type { func marker(x: T) returns (r: Bool) }
+module Stronger[X: Restricted] : Signature[X] {
+  func identity(x: X) returns (r: X) { x }
+}
+module Client[F: Signature] { }
+module Rejected = Client[Stronger]

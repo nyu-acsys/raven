@@ -1,0 +1,8 @@
+interface Signature[E: Library.Type] {
+  func identity(x: E) returns (r: E)
+}
+interface Container { module Make: Signature }
+module Fixed[X: Library.Type] : Signature[Int] {
+  func identity(x: Int) returns (r: Int) { x }
+}
+module Rejected : Container { module Make = Fixed }

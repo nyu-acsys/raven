@@ -334,9 +334,10 @@ module Member : sig
   (** The instance [module name : typ = functor[args]], or the abstract module
       [name : typ] if no definition is given. *)
 
-  val alias : loc:Loc.t -> ?typ:Name.t -> Ident.t -> Name.t -> t
+  val alias : loc:Loc.t -> ?typ:Name.t -> ?sealed:bool -> Ident.t -> Name.t -> t
   (** The binding [module name : typ = target], without applying [target]. The declared
-      [typ] defaults to [target]. *)
+      [typ] defaults to [target]; [sealed] hides the target's representation through
+      [typ], including for unapplied functors. *)
 
   val checked_view : loc:Loc.t -> typ:Name.t -> ?sealed:bool -> Ident.t -> Name.t -> t
   (** A view checked against [typ], proving conformance when membership is not already

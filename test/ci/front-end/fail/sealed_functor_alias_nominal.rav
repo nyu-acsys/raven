@@ -1,0 +1,3 @@
+interface Signature[E: Library.Type] { type T }
+module Implementation[E: Library.Type] { type T = Int }
+module Hidden :> Signature = Implementation

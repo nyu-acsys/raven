@@ -1,0 +1,10 @@
+interface Signature[E: Library.Type] { type T }
+module Implementation[E: Library.Type] : Signature[E] {
+  type T = Int
+  func extra() returns (r: Int) { 1 }
+}
+module Hidden :> Signature = Implementation
+module Alias = Hidden
+module First = Hidden[Int]
+module Second = Hidden[Bool]
+func bad(x: First.T) returns (r: Second.T) { x }
