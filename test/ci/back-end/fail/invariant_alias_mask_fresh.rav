@@ -1,0 +1,24 @@
+interface Sig {
+  inv shared(x: Ref)
+  lemma touch(x: Ref) requires shared(x) ensures shared(x)
+}
+
+module Factory() : Sig {
+  inv shared(x: Ref) { true }
+  lemma touch(x: Ref) { }
+}
+
+module First = Factory()
+module Second = Factory()
+
+module Worker[P: Sig] {
+  lemma touch(x: Ref) requires P.shared(x) ensures P.shared(x)
+  { P.touch(x); }
+}
+
+module Applied = Worker[Second]
+
+lemma client(x: Ref)
+  requires First.shared(x) && Second.shared(x)
+  opens First.shared(x)
+{ Applied.touch(x); }

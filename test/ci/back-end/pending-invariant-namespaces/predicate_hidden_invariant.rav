@@ -1,0 +1,10 @@
+field value: Int
+inv cell(x: Ref) { own(x.value, 0, 1.0) }
+
+interface Resource {
+  pred resource(x: Ref)
+}
+
+module Actual : Resource {
+  pred resource(x: Ref) { cell(x) }
+}

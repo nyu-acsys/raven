@@ -771,6 +771,19 @@ let un_free_inherited ~(m : Module.t) ~parent_status ~parent_is_interface symbol
       Module.set_symbol_status NotFree symbol
   | _ -> symbol
 
+let rec remove_generated_datatype_members instructions =
+  List.filter_map instructions ~f:(function
+    | Module.SymbolDef (ConstrDef _ | DestrDef _) -> None
+    | SymbolDef (ModDef definition) ->
+        Some
+          (Module.SymbolDef
+             (ModDef
+                {
+                  definition with
+                  mod_def = remove_generated_datatype_members definition.mod_def;
+                }))
+    | instruction -> Some instruction)
+
 (** The member [parent_symbol] of the interface [parent_ident] as inherited by [m]. *)
 let inherit_member ~(m : Module.t) ~parent_status ~parent_is_interface parent_ident
     parent_symbol =
@@ -825,7 +838,10 @@ let inherit_member ~(m : Module.t) ~parent_status ~parent_is_interface parent_id
         else call
       in
       annotate_error_msg (CallDef call)
-  | ModDef mod_def -> ModDef (Module.set_machine_free mod_def)
+  | ModDef mod_def ->
+      ModDef
+        (Module.set_machine_free
+           { mod_def with mod_def = remove_generated_datatype_members mod_def.mod_def })
   | symbol -> annotate_error_msg symbol
 
 (** Merges the members of the interface [parent_ident] into [mod_def], the members of [m]:

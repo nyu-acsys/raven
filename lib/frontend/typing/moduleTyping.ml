@@ -537,11 +537,13 @@ let rec check ?(pretyped = false) (m : Module.t) : Module.t t =
               (List.length interface_formals))
   in
 
-  (* Declare the remaining members. An instance with a definition is declared when it is
-     checked, once its arguments are known. *)
+  (* Defined instances and field aliases are declared when checked, once their targets
+     are known. *)
   let* _ =
     Rewriter.List.iter merged_symbols ~f:(function
-      | Module.SymbolDef (ModInst { mod_inst_def = Some _; _ }) | Module.Import _ ->
+      | Module.SymbolDef
+          (ModInst { mod_inst_def = Some _; _ } | FieldDef { field_alias = Some _; _ })
+      | Module.Import _ ->
           Rewriter.return ()
       | Module.SymbolDef symbol ->
           if Set.mem header_names (Symbol.to_name symbol) then Rewriter.return ()
@@ -739,7 +741,14 @@ and check_definition ~pretyped (m : Module.t) (instr : Module.module_instr) :
         match symbol with
         | TypeDef type_def -> check_type_def type_def
         | VarDef var_def -> check_var var_def
-        | FieldDef field_def -> check_field field_def
+        | FieldDef field_def ->
+            let* symbol = check_field field_def in
+            let+ () =
+              match field_def.field_alias with
+              | None -> Rewriter.return ()
+              | Some _ -> lift (Rewriter.declare_symbol symbol)
+            in
+            symbol
         | ConstrDef _ | DestrDef _ ->
             Rewriter.return symbol
             (* These should not occur directly in a module definition *)

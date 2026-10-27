@@ -1,0 +1,15 @@
+module World[E: Library.Type] {
+  interface Shape {
+    module Data {
+      type T = data { case box(value: E) }
+    }
+  }
+  module Fresh() : Shape { }
+}
+
+module Selected = World[Int]
+module First = Selected.Fresh()
+module Second = Selected.Fresh()
+
+proc incompatible(x: First.Data.T) returns (r: Second.Data.T)
+{ r := x; }

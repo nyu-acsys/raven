@@ -1,0 +1,18 @@
+func valid(value: Int) returns (r: Bool) { 0 <= value && value <= 10 }
+
+interface Shape {
+  field value: Int where valid
+}
+module Factory() : Shape { }
+module First = Factory()
+
+field alias = First.value
+
+proc read(x: Ref, ghost n: Int) returns (r: Int)
+  requires own(x.alias, n, 1.0)
+  ensures own(x.First.value, n, 1.0) && r == n && 0 <= r && r <= 10
+{ r := x.alias; }
+
+proc allocate() returns (r: Ref)
+  ensures own(r.First.value, 7, 1.0)
+{ r := new(alias: 7); }

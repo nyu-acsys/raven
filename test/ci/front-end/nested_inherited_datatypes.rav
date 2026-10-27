@@ -1,0 +1,40 @@
+module World[E: Library.Type] {
+  interface FirstShape {
+    type T = data { case first(value: E) }
+  }
+
+  interface Shape {
+    module First: FirstShape
+    interface SecondShape {
+      type T = data { case wrap(item: First.T) }
+    }
+    module Second: SecondShape
+  }
+
+  module Fresh() : Shape {
+    module First: FirstShape { }
+    module Second: SecondShape { }
+  }
+
+  module Worker[Layout: Shape] {
+    proc wrap(x: Layout.First.T) returns (r: Layout.Second.T)
+      ensures r.item == x
+    { r := Layout.Second.wrap(x); }
+  }
+}
+
+module Selected = World[Int]
+module First = Selected.Fresh()
+module Second = Selected.Fresh()
+module Applied = Selected.Worker[First]
+module Other = Selected.Worker[Second]
+
+proc client(x: Int) returns (r: First.Second.T)
+  ensures r.item.value == x
+{
+  val first := First.First.first(x);
+  r := Applied.wrap(first);
+  val second := Second.First.first(x);
+  val wrapped := Other.wrap(second);
+  assert wrapped.item.value == x;
+}

@@ -1,0 +1,57 @@
+module World[E: Library.Type] {
+  interface Operations {
+    proc identity(x: E) returns (r: E)
+      ensures r == x
+  }
+
+  interface Shape {
+    type T = data { case box(value: E) }
+    field contents: E
+  }
+
+  module Worker[Ops: Operations, Layout: Shape] {
+    proc roundtrip(x: E) returns (r: E)
+      ensures r == x
+    {
+      val boxed: Layout.T := Layout.box(x);
+      r := Ops.identity(boxed.value);
+    }
+
+    proc store(x: E) returns (r: Ref)
+      ensures own(r.Layout.contents, x, 1.0)
+    { r := new(Layout.contents: x); }
+  }
+}
+
+module Selected = World[Int]
+module SelectedAlias = Selected
+module FirstLayout : Selected.Shape { }
+module SecondLayout : SelectedAlias.Shape { }
+
+module FirstOperations : Selected.Operations {
+  proc identity(x: Int) returns (r: Int)
+    ensures r == x
+  { r := x; }
+}
+
+module SecondOperations : SelectedAlias.Operations {
+  proc identity(x: Int) returns (r: Int)
+    ensures r == x
+  { r := x; }
+}
+
+module First = Selected.Worker[FirstOperations, FirstLayout]
+module Repeated = SelectedAlias.Worker[FirstOperations, FirstLayout]
+module Second = Selected.Worker[SecondOperations, SecondLayout]
+
+proc client(x: Int) returns (r: FirstLayout.T)
+  ensures r.value == x
+{
+  val first := First.roundtrip(x);
+  val repeated := Repeated.roundtrip(first);
+  val second := Second.roundtrip(repeated);
+  assert second == x;
+  r := FirstLayout.box(second);
+  val cell := First.store(x);
+  assert own(cell.FirstLayout.contents, x, 1.0);
+}

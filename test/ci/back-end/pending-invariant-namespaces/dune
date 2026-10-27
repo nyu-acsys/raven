@@ -1,0 +1,7 @@
+; Namespace-contract scenarios are retained until their checks are implemented.
+
+(cram
+ (enabled_if false)
+ (deps
+  %{project_root}/bin/raven.exe
+  (glob_files *.rav)))

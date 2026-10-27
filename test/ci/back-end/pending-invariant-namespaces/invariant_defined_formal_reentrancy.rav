@@ -1,0 +1,26 @@
+field f: Int
+interface Sig {
+  inv shared(x: Ref) { own(x.f, 0, 1.0) }
+  lemma consume(x: Ref)
+    requires shared(x) && own(x.f, 0, 1.0)
+    ensures false
+  {
+    unfold shared(x);
+    assert false;
+    fold shared(x);
+  }
+}
+module Actual : Sig { }
+module Worker[P: Sig] {
+  lemma consume(x: Ref)
+    requires Actual.shared(x) && P.shared(x)
+    ensures false
+  {
+    unfold Actual.shared(x);
+    P.consume(x);
+    fold Actual.shared(x);
+  }
+}
+module Applied = Worker[Actual]
+proc outer(x: Ref) requires Actual.shared(x) ensures false
+{ Applied.consume(x); }

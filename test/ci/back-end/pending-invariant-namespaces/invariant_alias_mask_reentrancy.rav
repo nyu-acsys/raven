@@ -1,0 +1,35 @@
+field f: Int
+inv cell(x: Ref) { own(x.f, 0, 1.0) }
+
+interface Sig {
+  inv shared(x: Ref)
+  lemma consume(x: Ref)
+    requires shared(x) && own(x.f, 0, 1.0)
+    ensures false
+}
+
+module Actual : Sig {
+  inv shared(x: Ref) = cell
+  lemma consume(x: Ref) {
+    unfold shared(x);
+    assert false;
+    fold shared(x);
+  }
+}
+
+module Worker[P: Sig] {
+  lemma consume(x: Ref)
+    requires cell(x) && P.shared(x)
+    ensures false
+  {
+    unfold cell(x);
+    P.consume(x);
+    fold cell(x);
+  }
+}
+module Applied = Worker[Actual]
+
+proc outer(x: Ref)
+  requires cell(x)
+  ensures false
+{ Applied.consume(x); }

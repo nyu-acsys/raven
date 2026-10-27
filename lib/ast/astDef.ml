@@ -3749,14 +3749,23 @@ module Module = struct
           fprintf ppf "@[/* destr %a(%a): %a */@]" Ident.pr def.destr_name Type.pr
             def.destr_arg Type.pr def.destr_return_type
       | FieldDef field_def ->
-          let field_type =
-            match field_def.field_type with App (Fld, [ typ ], _) -> typ | typ -> typ
-          in
-          fprintf ppf "@[%sfield %a: %a%a@]"
-            (if field_def.field_is_ghost then "ghost " else "")
-            Ident.pr field_def.field_name Type.pr field_type
-            (fun ppf -> Option.iter ~f:(fprintf ppf " where %a" QualIdent.pr))
-            field_def.field_constraint
+          begin match field_def.field_alias with
+          | Some target ->
+              fprintf ppf "@[%sfield %a = %a@]"
+                (if field_def.field_is_ghost then "ghost " else "")
+                Ident.pr field_def.field_name QualIdent.pr target
+          | None ->
+              let field_type =
+                match field_def.field_type with
+                | App (Fld, [ typ ], _) -> typ
+                | typ -> typ
+              in
+              fprintf ppf "@[%sfield %a: %a%a@]"
+                (if field_def.field_is_ghost then "ghost " else "")
+                Ident.pr field_def.field_name Type.pr field_type
+                (fun ppf -> Option.iter ~f:(fprintf ppf " where %a" QualIdent.pr))
+                field_def.field_constraint
+          end
       | VarDef vdef -> Stmt.pr_var_def ppf vdef
       | CallDef cdef -> Callable.pr ppf cdef
     in

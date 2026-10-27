@@ -272,6 +272,15 @@ module Callable = struct
         ~postcond:ensures name
     in
     S.Callable.func decl body
+
+  type resource_kind = Predicate | Invariant
+
+  let resource_alias ~loc ?(kind = Predicate) ?formals ?returns name target =
+    let kind : Ast.Callable.call_kind =
+      match kind with Predicate -> Pred | Invariant -> Invariant
+    in
+    let decl = S.Callable.decl ~loc ~kind ?formals ?returns name in
+    S.Callable.func { decl with call_decl_alias = Some target } None
 end
 
 module Member = struct
@@ -279,6 +288,10 @@ module Member = struct
 
   let field ~loc ?(ghost = false) ?where name typ =
     S.Module.symbol (FieldDef (S.Module.field ~loc ~ghost ?where ~type_loc:loc name typ))
+
+  let field_alias ~loc ?(ghost = false) name target =
+    S.Module.symbol
+      (FieldDef (S.Module.field_alias ~loc ~ghost ~type_loc:loc name target))
 
   let type_ ~loc ?(rep = false) name def =
     S.Module.symbol (TypeDef (S.Module.type_def ~loc ~rep name def))

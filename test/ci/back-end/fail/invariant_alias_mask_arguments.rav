@@ -1,0 +1,25 @@
+module Existing {
+  free inv shared(x: Ref)
+}
+
+interface Sig {
+  inv shared(x: Ref)
+  lemma touch(x: Ref) requires shared(x) ensures shared(x)
+}
+
+module Arg : Sig {
+  inv shared(x: Ref) = Existing.shared
+  lemma touch(x: Ref) { }
+}
+
+module Worker[P: Sig] {
+  lemma touch(x: Ref) requires P.shared(x) ensures P.shared(x)
+  { P.touch(x); }
+}
+
+module Applied = Worker[Arg]
+
+lemma client(x: Ref, y: Ref)
+  requires Existing.shared(x) && Existing.shared(y) && x != y
+  opens Existing.shared(x)
+{ Applied.touch(y); }

@@ -1,0 +1,14 @@
+field value: Int
+inv cell(x: Ref) { own(x.value, 0, 1.0) }
+
+interface Resource {
+  pred resource(x: Ref)
+}
+
+module Actual {
+  pred resource(x: Ref) { cell(x) }
+}
+
+module Worker[P: Resource] { }
+module Selected : Resource = checked Actual
+module Applied = Worker[Selected]

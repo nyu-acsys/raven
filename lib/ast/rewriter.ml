@@ -2168,31 +2168,36 @@ module Module = struct
       if Diagnostics.error_count s.state_diagnostics > recorded then Error.fail_with []
       else (s, mdef)
 
+  let rewrite_instance_qual_idents ~f mod_inst =
+    let open Syntax in
+    let open Module in
+    let+ mod_inst_def =
+      Option.map mod_inst.mod_inst_def ~f:(fun application ->
+          let mod_inst_def_args = Module.application_args application in
+          let+ mod_inst_def_args =
+            List.map mod_inst_def_args ~f:(function
+              | Module.ModArg qi -> return (Module.ModArg (f qi))
+              | Module.TypeArg tp ->
+                  let+ tp = Type.rewrite_qual_idents ~f tp in
+                  Module.TypeArg tp)
+          in
+          Module.map_application application ~target:f ~args:(fun _ -> mod_inst_def_args))
+    in
+    let mod_inst_type = f mod_inst.mod_inst_type in
+    let mod_inst_shared =
+      Base.List.map mod_inst.mod_inst_shared ~f:(fun (generated, inst) ->
+          (f generated, f inst))
+    in
+    { mod_inst with mod_inst_type; mod_inst_def; mod_inst_shared }
+
   let rec rewrite_qual_idents_in_symbol ~(f : QualIdent.t -> QualIdent.t) :
       Module.symbol -> (Module.symbol, 'a) t_ext =
     let open Syntax in
     let open Module in
     function
     | ModInst mod_inst ->
-        let+ mod_inst_def =
-          Option.map mod_inst.mod_inst_def ~f:(fun application ->
-              let mod_inst_def_args = Module.application_args application in
-              let+ mod_inst_def_args =
-                List.map mod_inst_def_args ~f:(function
-                  | Module.ModArg qi -> return (Module.ModArg (f qi))
-                  | Module.TypeArg tp ->
-                      let+ tp = Type.rewrite_qual_idents ~f tp in
-                      Module.TypeArg tp)
-              in
-              Module.map_application application ~target:f ~args:(fun _ ->
-                  mod_inst_def_args))
-        in
-        let mod_inst_type = f mod_inst.mod_inst_type in
-        let mod_inst_shared =
-          Base.List.map mod_inst.mod_inst_shared ~f:(fun (generated, inst) ->
-              (f generated, f inst))
-        in
-        ModInst { mod_inst with mod_inst_type; mod_inst_def; mod_inst_shared }
+        let+ mod_inst = rewrite_instance_qual_idents ~f mod_inst in
+        ModInst mod_inst
     | TypeDef type_def ->
         let+ type_def_expr =
           Option.map type_def.type_def_expr ~f:(Type.rewrite_qual_idents ~f)
@@ -2261,7 +2266,10 @@ module Module = struct
     (* TODO: rewrite imports *)
     let open Syntax in
     let open Module in
-    let+ mdef1 = rewrite_symbols ~f:(rewrite_qual_idents_in_symbol ~f) mdef in
+    let* mdef1 = rewrite_symbols ~f:(rewrite_qual_idents_in_symbol ~f) mdef in
+    let+ formals =
+      List.map (Module.formals mdef1.mod_decl) ~f:(rewrite_instance_qual_idents ~f)
+    in
     let mod_decl_interfaces =
       Set.fold mdef1.mod_decl.mod_decl_interfaces
         ~init:(Set.empty (module QualIdent))
@@ -2278,7 +2286,11 @@ module Module = struct
           in
           (f qi, args))
     in
-    let mod_decl = { mdef1.mod_decl with mod_decl_interfaces; mod_decl_returns } in
+    let mod_decl =
+      Module.with_formals
+        { mdef1.mod_decl with mod_decl_interfaces; mod_decl_returns }
+        formals
+    in
     { mdef1 with mod_decl }
 end
 

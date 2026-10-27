@@ -1,0 +1,35 @@
+field value: Int
+free val root: Ref
+
+inv cell(x: Ref) { own(x.value, 0, 1.0) }
+
+interface Resource {
+  inv shared(x: Ref)
+  lemma touch(x: Ref) requires shared(x) ensures shared(x)
+}
+
+module Actual : Resource {
+  inv shared(x: Ref) { cell(root) }
+  lemma touch(x: Ref) {
+    unfold shared(x);
+    unfold cell(root);
+    fold cell(root);
+    fold shared(x);
+  }
+}
+
+module Worker[P: Resource] {
+  lemma touch(x: Ref) requires P.shared(x) ensures P.shared(x)
+  { P.touch(x); }
+}
+
+module Applied = Worker[Actual]
+
+lemma client(x: Ref)
+  requires Actual.shared(x) && cell(root)
+  ensures Actual.shared(x) && cell(root)
+{
+  unfold cell(root);
+  Applied.touch(x);
+  fold cell(root);
+}

@@ -279,6 +279,19 @@ module Callable : sig
     t
   (** The function, predicate or invariant [name] and its body; [inline] has its uses
       replaced by its body. *)
+
+  type resource_kind = Predicate | Invariant
+
+  val resource_alias :
+    loc:Loc.t ->
+    ?kind:resource_kind ->
+    ?formals:Var.t list ->
+    ?returns:Var.t list ->
+    Ident.t ->
+    Name.t ->
+    t
+  (** The predicate or invariant [name] aliased to [target], preserving its parameter
+      types and modes. Results are implicit ghosts, as for [func]. *)
 end
 
 (** The members of modules and programs. *)
@@ -288,6 +301,10 @@ module Member : sig
   val field : loc:Loc.t -> ?ghost:bool -> ?where:Name.t -> Ident.t -> Type.t -> t
   (** The field [name] of type [typ], whose values satisfy the func [where] if given:
       owning the field implies it, and allocations and writes must establish it. *)
+
+  val field_alias : loc:Loc.t -> ?ghost:bool -> Ident.t -> Name.t -> t
+  (** The field [name] aliased to [target], inheriting its type and constraint. The ghost
+      modifier must agree with the target. *)
 
   val type_ : loc:Loc.t -> ?rep:bool -> Ident.t -> Type.t option -> t
   (** The type [name], defined as [def] if given, a representation type if [rep]. *)

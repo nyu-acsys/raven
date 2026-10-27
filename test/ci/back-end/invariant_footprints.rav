@@ -1,0 +1,40 @@
+field left: Int
+field right: Int
+
+inv left_cell(x: Ref) { own(x.left, 0, 1.0) }
+inv right_cell(x: Ref) { own(x.right, 0, 1.0) }
+
+interface Regions {
+  inv first(x: Ref)
+  inv second(x: Ref)
+  pred resource(x: Ref)
+}
+
+module Disjoint : Regions {
+  inv first(x: Ref) { left_cell(x) }
+  inv second(x: Ref) { right_cell(x) }
+  pred resource(x: Ref) { own(x.left, 0, 1.0) }
+}
+
+module Structural {
+  inv first(x: Ref) { left_cell(x) }
+  inv second(x: Ref) { right_cell(x) }
+  pred resource(x: Ref) { own(x.left, 0, 1.0) }
+}
+
+module Worker[P: Regions] {
+  inv first(x: Ref) = P.first
+  inv second(x: Ref) = P.second
+}
+
+module Nominal = Worker[Disjoint]
+module Selected : Regions = checked Structural
+module Adapted = Worker[Selected]
+
+// Manifest sharing in the signature remains sharing in its implementation.
+interface Shared {
+  inv first(x: Ref) = left_cell
+  inv second(x: Ref) = left_cell
+}
+
+module SharedImplementation : Shared { }

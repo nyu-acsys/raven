@@ -2,6 +2,16 @@ open Base
 open Ast
 open Util
 
+(** Resolve aliases after module substitution, then merge coincident mask entries. *)
+let resolve_mask (mask : Callable.mask) : (Callable.mask, 'a) Rewriter.t_ext =
+  let open Rewriter.Syntax in
+  let+ mask =
+    Rewriter.List.map mask ~f:(fun (name, args) ->
+        let+ name = Rewriter.resolve name in
+        (name, args))
+  in
+  Callable.mask_canon mask
+
 (* Longest prefix of [args] whose free variables are all among
    [formal_idents] -- walking stops at the first non-expressible argument,
    since a prefix can't skip past an unpinned link and still describe a
@@ -65,7 +75,7 @@ let rec inv_applications (expr : Expr.t) :
   let open Rewriter.Syntax in
   match expr with
   | Expr.App (Expr.Var qual_ident, args, _) -> (
-      let* _, (_, symbol, _) = Rewriter.resolve_and_find qual_ident in
+      let* qual_ident, (_, symbol, _) = Rewriter.resolve_and_find qual_ident in
       let* nested = Rewriter.List.map args ~f:inv_applications in
       let nested = List.concat nested in
       match symbol with
@@ -272,6 +282,7 @@ let fixpoint_compute_masks (c : Callable.t) : (Callable.t, bool) Rewriter.t_ext 
         | None -> compute_proc_lemma_mask c)
     | Func -> Rewriter.return []
   in
+  let* new_mask = resolve_mask new_mask in
 
   if
     Option.is_some c.call_decl.call_decl_needs_mask
@@ -361,16 +372,18 @@ let restrict_grants_to_opens (c : Callable.t) (grants : Callable.mask) :
   match c.call_decl.call_decl_opens with
   | None -> Rewriter.return grants
   | Some clause ->
-      let opens = Callable.opens_mask clause in
+      let* opens = resolve_mask (Callable.opens_mask clause) in
       let covers entry grant =
         match Callable.mask_entry_meet entry grant with
         | Some meet -> Callable.compare_mask_entry meet grant = 0
         | None -> false
       in
-      let+ inferred = compute_proc_lemma_mask c in
-      List.filter grants ~f:(fun ((qi, _) as grant) ->
-          List.exists opens ~f:(fun entry -> covers entry grant)
-          || not (List.exists inferred ~f:(fun (qi', _) -> QualIdent.equal qi qi')))
+      let* inferred = compute_proc_lemma_mask c in
+      let* inferred = resolve_mask inferred in
+      Rewriter.return
+        (List.filter grants ~f:(fun ((qi, _) as grant) ->
+             List.exists opens ~f:(fun entry -> covers entry grant)
+             || not (List.exists inferred ~f:(fun (qi', _) -> QualIdent.equal qi qi'))))
 
 let rewrite_grants_mask (c : Callable.t) : Callable.t Rewriter.t =
   let open Rewriter.Syntax in
@@ -414,6 +427,7 @@ let rewrite_grants_mask (c : Callable.t) : Callable.t Rewriter.t =
         in
         Rewriter.return (Callable.mask_canon entries)
   in
+  let* grants = resolve_mask grants in
   let* grants = restrict_grants_to_opens c grants in
   Rewriter.return
     { c with call_decl = { c.call_decl with call_decl_grants_mask = Some grants } }
@@ -519,10 +533,12 @@ let check_interface_reach_back (n : Module.t) : (unit, 'a) Rewriter.t_ext =
                     | Some target -> Rewriter.find_and_reify_callable target
                   in
                   let* self_qual_ident = Rewriter.resolve (QualIdent.from_ident name) in
+                  let* mask =
+                    resolve_mask
+                      (Option.value call.call_decl.call_decl_needs_mask ~default:[])
+                  in
                   let mask_names =
-                    Option.value call.call_decl.call_decl_needs_mask ~default:[]
-                    |> List.map ~f:fst
-                    |> Set.of_list (module QualIdent)
+                    mask |> List.map ~f:fst |> Set.of_list (module QualIdent)
                   in
                   let reach_back =
                     Set.remove (Set.inter mask_names owned) self_qual_ident

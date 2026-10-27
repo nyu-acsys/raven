@@ -1,0 +1,16 @@
+field value: Int
+inv cell(x: Ref) { own(x.value, 0, 1.0) }
+
+interface Regions {
+  inv first(x: Ref)
+  inv second(x: Ref)
+}
+
+module Actual {
+  inv first(x: Ref) { cell(x) }
+  inv second(x: Ref) { cell(x) }
+}
+
+module Worker[P: Regions] { }
+module Selected : Regions = checked Actual
+module Applied = Worker[Selected]

@@ -1,0 +1,44 @@
+// A different invariant alias does not supply the generic worker's mask.
+module Existing {
+  free inv shared(x: Ref)
+  free proc touch(x: Ref)
+    requires shared(x)
+    ensures shared(x)
+}
+
+module Other {
+  free inv shared(x: Ref)
+  free proc touch(x: Ref)
+    requires shared(x)
+    ensures shared(x)
+}
+
+interface Sig {
+  inv shared(x: Ref)
+  proc touch(x: Ref)
+    requires shared(x)
+    ensures shared(x)
+}
+
+module Wrong : Sig {
+  inv shared(x: Ref) = Other.shared
+  proc touch(x: Ref)
+    requires shared(x)
+    ensures shared(x)
+  { Other.touch(x); }
+}
+
+module Worker[P: Sig] {
+  proc touch(x: Ref)
+    requires P.shared(x)
+    ensures P.shared(x)
+  { P.touch(x); }
+}
+
+module Applied = Worker[Wrong]
+
+proc client(x: Ref)
+  requires Existing.shared(x)
+{
+  Applied.touch(x);
+}

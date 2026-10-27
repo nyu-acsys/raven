@@ -1148,7 +1148,9 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
            itself resolve) rather than aborting, so a genuine alignment gap
            surfaces as an ordinary (safe) mask-unavailability check instead
            of crashing the compiler. *)
-        let callee_mask = Option.value_exn call_decl.call_decl_needs_mask in
+        let* callee_mask =
+          Masks.resolve_mask (Option.value_exn call_decl.call_decl_needs_mask)
+        in
         let needs_substitution =
           List.exists callee_mask ~f:(fun (_, args) -> not (List.is_empty args))
         in
@@ -1247,8 +1249,11 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
            call's lhs bindings (the callee's own return variables), since
            a grants-set entry -- unlike [call_decl_needs_mask] -- can be
            expressed via either. *)
+        let* grants =
+          Masks.resolve_mask (Option.value call_decl.call_decl_grants_mask ~default:[])
+        in
         let* atomicity_state =
-          match Option.value call_decl.call_decl_grants_mask ~default:[] with
+          match grants with
           | [] -> Rewriter.return atomicity_state
           | grants ->
               let needs_substitution =
@@ -1341,7 +1346,9 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
         let* _ = Rewriter.set_user_state atomicity_state in
         Rewriter.return stmt
     | Basic (Use use_desc) -> (
-        let* symbol = Rewriter.find use_desc.use_name in
+        let* use_name, symbol = Rewriter.resolve_and_find use_desc.use_name in
+        let use_desc = { use_desc with use_name } in
+        let stmt = { stmt with stmt_desc = Basic (Use use_desc) } in
         match Rewriter.Symbol.orig_symbol symbol with
         | CallDef _ -> (
             let* decl = Rewriter.Symbol.reify_callable_decl symbol in
@@ -1986,6 +1993,9 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
 
 let rewrite_atomicity_analysis (c : Callable.t) : Callable.t Rewriter.t =
   let open Rewriter.Syntax in
+  let* mask =
+    Masks.resolve_mask (Option.value c.call_decl.call_decl_needs_mask ~default:[])
+  in
   let* scope_id = Rewriter.current_scope_id in
   Logs.debug (fun m ->
       m
@@ -2002,7 +2012,7 @@ let rewrite_atomicity_analysis (c : Callable.t) : Callable.t Rewriter.t =
           preds_unfolded = [];
           atomic_step_taken = false;
           in_atomic_block = false;
-          mask = Option.value c.call_decl.call_decl_needs_mask ~default:[];
+          mask;
         }
       (Rewriter.Callable.rewrite_stmts ~f:rewrite_au_cmnds c)
   in

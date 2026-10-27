@@ -1,0 +1,24 @@
+module World[E: Library.Type] {
+  interface Operations {
+    proc identity(x: E) returns (r: E)
+  }
+  interface Shape {
+    type T = data { case box(value: E) }
+  }
+  module Worker[Ops: Operations, Layout: Shape] { }
+}
+
+module Selected = World[Int]
+module Other = World[Bool]
+
+module Operations : Selected.Operations {
+  proc identity(x: Int) returns (r: Int) { r := x; }
+}
+module OtherOperations : Other.Operations {
+  proc identity(x: Bool) returns (r: Bool) { r := x; }
+}
+module Layout : Selected.Shape { }
+module OtherLayout : Other.Shape { }
+
+module WrongOperations = Selected.Worker[OtherOperations, Layout]
+module WrongLayout = Selected.Worker[Operations, OtherLayout]

@@ -1,0 +1,109 @@
+// An invariant alias remains the same mask entry through generic substitution.
+module Existing {
+  free inv shared(x: Ref)
+  free proc touch(x: Ref)
+    requires shared(x)
+    ensures shared(x)
+}
+
+interface Sig {
+  inv shared(x: Ref)
+  proc touch(x: Ref)
+    requires shared(x)
+    ensures shared(x)
+}
+
+module Arg : Sig {
+  inv shared(x: Ref) = Existing.shared
+  proc touch(x: Ref)
+    requires shared(x)
+    ensures shared(x)
+  { Existing.touch(x); }
+}
+
+module Alias = Arg
+
+module Worker[P: Sig] {
+  proc touch(x: Ref)
+    requires P.shared(x)
+    ensures P.shared(x)
+  { P.touch(x); }
+}
+
+module Applied = Worker[Alias]
+
+proc client(x: Ref)
+  requires Existing.shared(x)
+  ensures Existing.shared(x)
+{ Applied.touch(x); }
+
+// A generic worker can use a returned invariant grant through its parameter.
+interface Producer {
+  inv item(x: Ref)
+  proc create() returns (x: Ref) ensures item(x)
+}
+
+module Make[P: Producer] {
+  proc create() returns (x: Ref) ensures P.item(x)
+  { x := P.create(); }
+}
+
+field value: Int
+inv value_inv(x: Ref) { own(x.value, 0) }
+
+module Concrete : Producer {
+  inv item(x: Ref) = value_inv
+  proc create() returns (x: Ref) ensures item(x) {
+    x := new(value: 0);
+    fold item(x);
+  }
+}
+
+module MakeConcrete = Make[Concrete]
+
+proc granted_client() {
+  var x: Ref := MakeConcrete.create();
+  unfold value_inv(x);
+  val v := x.value;
+  assert v == 0;
+  fold Concrete.item(x);
+}
+
+// Explicit wildcard opens clauses retain the first argument after substitution.
+field payload: Int
+inv pair(x: Ref, y: Ref) { own(y.payload, 0, 1.0) }
+module PairSource {
+  inv paired(x: Ref, y: Ref) = pair
+}
+
+interface PairSig {
+  inv pair(x: Ref, y: Ref)
+  lemma touch(x: Ref, y: Ref)
+    requires pair(x, y)
+    ensures pair(x, y)
+    opens pair(x, _)
+}
+
+module PairImpl : PairSig {
+  inv pair(x: Ref, y: Ref) = PairSource.paired
+  lemma touch(x: Ref, y: Ref) {
+    unfold pair(x, y);
+    fold pair(x, y);
+  }
+}
+
+module PairWorker[P: PairSig] {
+  lemma touch(x: Ref, y: Ref)
+    requires P.pair(x, y)
+    ensures P.pair(x, y)
+    opens P.pair(x, _)
+  { P.touch(x, y); }
+}
+
+module PairApplied = PairWorker[PairImpl]
+
+proc pair_client(x: Ref, y: Ref)
+  requires pair(x, y)
+  ensures pair(x, y)
+  opens pair(x, _)
+{ PairApplied.touch(x, y); }
