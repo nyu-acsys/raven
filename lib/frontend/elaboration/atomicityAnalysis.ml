@@ -88,7 +88,15 @@ let compare_separation left right =
   | order -> order
 
 let union_separation left right =
-  List.dedup_and_sort (left @ right) ~compare:compare_separation
+  let canonical requirement =
+    if
+      List.compare Callable.compare_mask_entry requirement.NamespaceContract.left
+        requirement.right
+      <= 0
+    then requirement
+    else { requirement with left = requirement.right; right = requirement.left }
+  in
+  List.map (left @ right) ~f:canonical |> List.dedup_and_sort ~compare:compare_separation
 
 (* Cross-namespace assumptions are lifted to whole families, without local binders. *)
 let require_separation ~loc required (state : atomicity_check) =

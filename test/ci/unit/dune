@@ -139,3 +139,8 @@
  (name namespace_atomicity)
  (modules namespace_atomicity)
  (libraries raven base))
+
+(test
+ (name namespace_closure)
+ (modules namespace_closure)
+ (libraries raven base))

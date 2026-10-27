@@ -233,7 +233,7 @@ let summarize equations seed =
   in
   { NamespaceContract.requires; grants; separation = [] }
 
-let infer ?(namespaces = []) program =
+let infer ?(namespaces = []) ?(callables = []) program =
   let open Rewriter.Syntax in
   let init : collection =
     {
@@ -253,7 +253,41 @@ let infer ?(namespaces = []) program =
   in
   let+ namespaces = complete_namespaces state in
   let equations = NamespaceEquations.solve (Map.data namespaces) in
-  { namespaces; equations; callables = Map.map state.seeds ~f:(summarize equations) }
+  let callables =
+    Map.of_alist_exn (module QualIdent) callables |> fun imported ->
+    Map.fold state.seeds ~init:imported ~f:(fun ~key ~data:seed summaries ->
+        Map.set summaries ~key ~data:(summarize equations seed))
+  in
+  { namespaces; equations; callables }
+
+(* Imported equations can expose aliases only after expansion. *)
+let normalize_required draft mask =
+  let open Rewriter.Syntax in
+  let rec normalize seen mask =
+    let* resolved = Masks.resolve_mask mask in
+    let expanded = NamespaceEquations.expand_required draft.equations resolved in
+    let* resolved = Masks.resolve_mask expanded in
+    if Callable.mask_equal mask resolved then Rewriter.return resolved
+    else
+      let next =
+        List.map resolved ~f:(fun ((head, _) as entry) ->
+            let same_head =
+              List.filter seen ~f:(fun (previous, _) ->
+                  Callable.equal_mask_head head previous)
+            in
+            if
+              (not (List.is_empty same_head))
+              && not
+                   (List.exists same_head ~f:(fun previous ->
+                        Callable.compare_mask_entry previous entry = 0))
+            then (head, [])
+            else entry)
+        |> Callable.mask_canon
+      in
+      if Callable.mask_equal mask next then Rewriter.return next
+      else normalize (Callable.mask_union seen mask) next
+  in
+  normalize [] mask
 
 (** Reify only summary metadata; callable bodies are never needed at a call site. *)
 let find_callable draft name =
@@ -270,7 +304,7 @@ let find_callable draft name =
           ~expr:(Rewriter.Expr.rewrite_qual_idents ~f:requalify)
           summary
       in
-      let* requires = Masks.resolve_mask summary.requires in
+      let* requires = normalize_required draft summary.requires in
       let* grants = Masks.resolve_mask summary.grants in
       let+ separation =
         Rewriter.List.map summary.separation ~f:(fun requirement ->
@@ -278,10 +312,4 @@ let find_callable draft name =
             let+ right = Masks.resolve_mask requirement.right in
             { requirement with left; right })
       in
-      Some
-        {
-          NamespaceContract.requires =
-            NamespaceEquations.expand_required draft.equations requires;
-          grants;
-          separation;
-        }
+      Some { NamespaceContract.requires; grants; separation }

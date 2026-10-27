@@ -8,3 +8,4 @@ module Elaboration = Elaboration
 module NamespaceEquations = NamespaceEquations
 module NamespaceInference = NamespaceInference
 module AtomicityAnalysis = AtomicityAnalysis
+module NamespaceClosure = NamespaceClosure
