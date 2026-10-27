@@ -5,3 +5,5 @@ module Parser = Parser
 module Terminals = Terminals
 module Typing = Typing
 module Elaboration = Elaboration
+module NamespaceEquations = NamespaceEquations
+module NamespaceInference = NamespaceInference

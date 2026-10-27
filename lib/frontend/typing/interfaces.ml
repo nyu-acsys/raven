@@ -400,7 +400,10 @@ let check_implements_callable (call_def : Callable.t) (orig_call_def : Callable.
           interface_ident
     in
     let* opens_ok =
-      let entry_expr (qi, args) = Expr.mk_app ~typ:Type.bool (Var qi) args in
+      let entry_expr (head, args) =
+        let name = Callable.invariant_mask_name ~loc head in
+        Expr.mk_app ~typ:Type.bool (Var name) args
+      in
       match
         (call_def.call_decl.call_decl_opens, orig_call_def.call_decl.call_decl_opens)
       with

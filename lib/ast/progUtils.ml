@@ -219,6 +219,7 @@ let intros_constraint_module ~(loc : location)
       AstDef.Module.mod_decl_name =
         Ident.make loc (serialize ("Constraint$" ^ Ident.to_string field_name)) 0;
       mod_decl_parameters = AstDef.Module.Structure;
+      mod_decl_mask_contract = None;
       mod_decl_returns = [ (Predefs.lib_value_constraint_mod_qual_ident, []) ];
       mod_decl_is_sealed = false;
       mod_decl_interfaces = Set.empty (module QualIdent);
@@ -262,6 +263,7 @@ let intros_type_module ~(loc : location) ?scope
     {
       AstDef.Module.mod_decl_name = mod_name;
       mod_decl_parameters = AstDef.Module.Structure;
+      mod_decl_mask_contract = None;
       mod_decl_returns = [ (Predefs.lib_type_mod_qual_ident, []) ];
       mod_decl_is_sealed = false;
       mod_decl_interfaces = Set.empty (module QualIdent);
@@ -1001,6 +1003,7 @@ let intros_rep_module ~(loc : location) ?scope
     {
       AstDef.Module.mod_decl_name = mod_name;
       mod_decl_parameters = AstDef.Module.Structure;
+      mod_decl_mask_contract = None;
       mod_decl_returns = [ (interface_qual_ident, []) ];
       mod_decl_is_sealed = false;
       mod_decl_interfaces = Set.empty (module QualIdent);
@@ -1320,6 +1323,7 @@ let get_or_intros_field_module ~(loc : location) ~(insert_scope : qual_ident)
         {
           AstDef.Module.mod_decl_name = mod_ident;
           mod_decl_parameters = AstDef.Module.Structure;
+          mod_decl_mask_contract = None;
           mod_decl_returns = [ (interface_qual_ident, []) ];
           mod_decl_is_sealed = false;
           mod_decl_interfaces = Set.empty (module QualIdent);

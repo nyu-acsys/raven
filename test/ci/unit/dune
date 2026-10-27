@@ -86,6 +86,21 @@
  (libraries raven base))
 
 (test
+ (name namespace_contracts)
+ (modules namespace_contracts)
+ (libraries raven base))
+
+(test
+ (name namespace_inference)
+ (modules namespace_inference)
+ (libraries raven base))
+
+(test
+ (name namespace_equations)
+ (modules namespace_equations)
+ (libraries raven base))
+
+(test
  (name unit_factories_api)
  (modules unit_factories_api)
  (libraries raven raven-ivl.api base))

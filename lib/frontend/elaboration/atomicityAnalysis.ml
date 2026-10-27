@@ -119,7 +119,7 @@ let same_open_au (au1 : au_token) (au2 : au_token) : bool =
    variable names, which can merely cause a (sound) rejection. *)
 let same_open_invs (l1 : invs list) (l2 : invs list) : bool =
   let sorted l =
-    List.map l ~f:(fun inv -> (inv.inv_name, inv.inv_args))
+    List.map l ~f:(fun inv -> Callable.invariant_mask_entry inv.inv_name inv.inv_args)
     |> List.sort ~compare:Callable.compare_mask_entry
   in
   List.equal (fun e1 e2 -> Callable.compare_mask_entry e1 e2 = 0) (sorted l1) (sorted l2)
@@ -132,7 +132,9 @@ let same_open_invs (l1 : invs list) (l2 : invs list) : bool =
 let snapshot_sync_stmts ~loc ~(from : invs list) ~(into : invs list) : Stmt.t list =
   let sorted l =
     List.sort l ~compare:(fun i1 i2 ->
-        Callable.compare_mask_entry (i1.inv_name, i1.inv_args) (i2.inv_name, i2.inv_args))
+        Callable.compare_mask_entry
+          (Callable.invariant_mask_entry i1.inv_name i1.inv_args)
+          (Callable.invariant_mask_entry i2.inv_name i2.inv_args))
   in
   let copy ~src ~dst =
     if Expr.alpha_equal src dst then None
@@ -285,23 +287,25 @@ let unify_omitted_implicit_mask ~(ambient_mask : Callable.mask)
     (Callable.mask, 'a) Rewriter.t_ext =
   let open Rewriter.Syntax in
   let renaming_map, resolved = call_formal_actual_alignment formals call_args in
-  Rewriter.List.map mask ~f:(fun (qi, args) ->
+  Rewriter.List.map mask ~f:(fun (head, args) ->
       let resolved_len =
         List.length
           (List.take_while args ~f:(fun arg ->
                Set.is_subset (Expr.local_vars arg) ~of_:resolved))
       in
       let substituted = List.map args ~f:(fun e -> Expr.alpha_renaming e renaming_map) in
-      if resolved_len = List.length args then Rewriter.return (qi, substituted)
+      if resolved_len = List.length args then Rewriter.return (head, substituted)
       else
         let known_prefix = List.take substituted resolved_len in
-        let truncated = (qi, known_prefix) in
-        let* n_formals = explicit_arity qi ~default:(List.length args) in
+        let truncated = (head, known_prefix) in
+        let* n_formals =
+          explicit_arity (Callable.mask_head_name head) ~default:(List.length args)
+        in
         if resolved_len < n_formals then Rewriter.return truncated
         else
           let candidates =
-            List.filter ambient_mask ~f:(fun (qi', cand_args) ->
-                QualIdent.equal qi' qi
+            List.filter ambient_mask ~f:(fun (head', cand_args) ->
+                Callable.equal_mask_head head' head
                 && List.length cand_args = List.length args
                 &&
                 match
@@ -313,7 +317,7 @@ let unify_omitted_implicit_mask ~(ambient_mask : Callable.mask)
                 | Unequal_lengths -> false)
           in
           match candidates with
-          | (_, cand_args) :: _ -> Rewriter.return (qi, cand_args)
+          | (_, cand_args) :: _ -> Rewriter.return (head, cand_args)
           | [] -> Rewriter.return truncated)
 
 (* [args] identifies an instance of [opened]'s declaration, possibly by a
@@ -708,13 +712,14 @@ let open_inv ~loc (inv_name, inv_args, inv_snapshot, inv_updated_flag) atomicity
      take the first plausible candidate and require equality at whatever
      positions aren't already syntactically identical. *)
   let candidates =
-    List.filter atomicity_state.mask ~f:(fun (qi, _) -> QualIdent.equal qi inv_name)
+    List.filter atomicity_state.mask ~f:(fun (head, _) ->
+        Callable.equal_mask_head head (Callable.MaskHead.Invariant inv_name))
   in
   let scored =
-    List.filter_map candidates ~f:(fun (qi, args) ->
+    List.filter_map candidates ~f:(fun (head, args) ->
         match membership_conditions ~loc ~candidate:args ~target:inv_args with
         | None -> None
-        | Some conds -> Some ((qi, args), conds))
+        | Some conds -> Some ((head, args), conds))
   in
   let chosen, membership_conds =
     match List.find scored ~f:(fun (_, conds) -> List.is_empty conds) with
@@ -782,7 +787,8 @@ let open_inv ~loc (inv_name, inv_args, inv_snapshot, inv_updated_flag) atomicity
    shared [Call] handling, not per-branch. *)
 let call_reentrancy_asserts ~loc (atomicity_state : atomicity_check)
     (required : Callable.mask) : Stmt.t list =
-  List.concat_map required ~f:(fun (qi, args) ->
+  List.concat_map required ~f:(fun (head, args) ->
+      let qi = Callable.invariant_mask_name ~loc head in
       let same_name_open =
         List.filter atomicity_state.invs_opened ~f:(fun inv ->
             QualIdent.equal inv.inv_name qi)
@@ -844,7 +850,9 @@ let close_inv ~(inv_name : QualIdent.t) ~(inv_args : Expr.t list)
   | None ->
       {
         atomicity_state with
-        mask = Callable.mask_union atomicity_state.mask [ (inv_name, inv_args) ];
+        mask =
+          Callable.mask_union atomicity_state.mask
+            [ Callable.invariant_mask_entry inv_name inv_args ];
       }
   | Some inv ->
       let invs_opened =
@@ -1178,7 +1186,8 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
            callee-internal ident by [unify_omitted_implicit_mask] above, so
            every position here is safe to name in a caller-side assert. *)
         let* required_with_arity =
-          Rewriter.List.map required_at_call_site ~f:(fun (qi, args) ->
+          Rewriter.List.map required_at_call_site ~f:(fun (head, args) ->
+              let qi = Callable.invariant_mask_name ~loc head in
               let+ n_explicit = explicit_arity qi ~default:(List.length args) in
               (qi, args, n_explicit))
         in
@@ -1196,8 +1205,10 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
                 membership_conditions ~loc ~candidate:cand_args ~target:target_args
               in
               let candidates =
-                List.filter_map atomicity_state.mask ~f:(fun (qi', cand_args) ->
-                    if QualIdent.equal qi' qi then covering_conditions cand_args else None)
+                List.filter_map atomicity_state.mask ~f:(fun (head, cand_args) ->
+                    if Callable.equal_mask_head head (Callable.MaskHead.Invariant qi) then
+                      covering_conditions cand_args
+                    else None)
               in
               if List.exists candidates ~f:List.is_empty then None
               else
@@ -1281,8 +1292,9 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
                   | Unequal_lengths -> formal_map
                 in
                 let credited =
-                  List.map grants ~f:(fun (qi, args) ->
-                      (qi, List.map args ~f:(fun e -> Expr.alpha_renaming e renaming_map)))
+                  List.map grants ~f:(fun (head, args) ->
+                      ( head,
+                        List.map args ~f:(fun e -> Expr.alpha_renaming e renaming_map) ))
                 in
                 Rewriter.return
                   {

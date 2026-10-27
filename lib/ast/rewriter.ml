@@ -1959,7 +1959,11 @@ module Callable = struct
           (f qi, args))
     in
     let rewrite_mask mask =
-      let+ mask = rewrite_mask_entries mask in
+      let+ mask =
+        List.map mask ~f:(fun (head, args) ->
+            let+ args = List.map args ~f:(Expr.rewrite_qual_idents ~f) in
+            (AstDef.Callable.map_mask_head head ~f, args))
+      in
       Callable.mask_canon mask
     in
     let* call_decl_needs_mask =
@@ -2002,6 +2006,13 @@ module Callable = struct
       }
     in
     return callable
+end
+
+module NamespaceContract = struct
+  let rewrite_qual_idents ~f contract =
+    AstDef.NamespaceContract.map_state
+      ~name:(fun name -> return (f name))
+      ~expr:(Expr.rewrite_qual_idents ~f) ~typ:(Type.rewrite_qual_idents ~f) contract
 end
 
 module Module = struct
@@ -2267,8 +2278,12 @@ module Module = struct
     let open Syntax in
     let open Module in
     let* mdef1 = rewrite_symbols ~f:(rewrite_qual_idents_in_symbol ~f) mdef in
-    let+ formals =
+    let* formals =
       List.map (Module.formals mdef1.mod_decl) ~f:(rewrite_instance_qual_idents ~f)
+    in
+    let+ mod_decl_mask_contract =
+      Option.map mdef1.mod_decl.mod_decl_mask_contract
+        ~f:(NamespaceContract.rewrite_qual_idents ~f)
     in
     let mod_decl_interfaces =
       Set.fold mdef1.mod_decl.mod_decl_interfaces
@@ -2288,7 +2303,12 @@ module Module = struct
     in
     let mod_decl =
       Module.with_formals
-        { mdef1.mod_decl with mod_decl_interfaces; mod_decl_returns }
+        {
+          mdef1.mod_decl with
+          mod_decl_interfaces;
+          mod_decl_returns;
+          mod_decl_mask_contract;
+        }
         formals
     in
     { mdef1 with mod_decl }

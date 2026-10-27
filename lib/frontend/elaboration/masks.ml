@@ -6,9 +6,9 @@ open Util
 let resolve_mask (mask : Callable.mask) : (Callable.mask, 'a) Rewriter.t_ext =
   let open Rewriter.Syntax in
   let+ mask =
-    Rewriter.List.map mask ~f:(fun (name, args) ->
-        let+ name = Rewriter.resolve name in
-        (name, args))
+    Rewriter.List.map mask ~f:(fun (head, args) ->
+        let+ name = Rewriter.resolve (Callable.mask_head_name head) in
+        (Callable.map_mask_head head ~f:(fun _ -> name), args))
   in
   Callable.mask_canon mask
 
@@ -144,7 +144,9 @@ let compute_proc_lemma_mask (c : Callable.t) : (Callable.mask, 'a) Rewriter.t_ex
             let expressible =
               if spec_atomic then non_implicit_formal_idents else formal_idents
             in
-            Some (qi, truncate_to_formal_expressible expressible args)
+            Some
+              (Callable.invariant_mask_entry qi
+                 (truncate_to_formal_expressible expressible args))
         | Callable.Pred -> None
         | Callable.Func | Callable.Proc | Callable.Lemma -> assert false)
   in
@@ -254,7 +256,9 @@ let fixpoint_compute_masks (c : Callable.t) : (Callable.t, bool) Rewriter.t_ext 
               |> List.filter_map ~f:(fun (qi, kind, args) ->
                   match kind with
                   | Callable.Invariant ->
-                      Some (qi, truncate_to_formal_expressible formal_idents args)
+                      Some
+                        (Callable.invariant_mask_entry qi
+                           (truncate_to_formal_expressible formal_idents args))
                   | Callable.Pred -> None
                   | Callable.Func | Callable.Proc | Callable.Lemma -> assert false)
             in
@@ -383,7 +387,9 @@ let restrict_grants_to_opens (c : Callable.t) (grants : Callable.mask) :
       Rewriter.return
         (List.filter grants ~f:(fun ((qi, _) as grant) ->
              List.exists opens ~f:(fun entry -> covers entry grant)
-             || not (List.exists inferred ~f:(fun (qi', _) -> QualIdent.equal qi qi'))))
+             || not
+                  (List.exists inferred ~f:(fun (qi', _) ->
+                       Callable.equal_mask_head qi qi'))))
 
 let rewrite_grants_mask (c : Callable.t) : Callable.t Rewriter.t =
   let open Rewriter.Syntax in
@@ -421,7 +427,9 @@ let rewrite_grants_mask (c : Callable.t) : Callable.t Rewriter.t =
                       return_idents
                   in
                   let prefix = truncate_to_formal_expressible expressible args in
-                  if List.length prefix = List.length args then Some (qi, args) else None
+                  if List.length prefix = List.length args then
+                    Some (Callable.invariant_mask_entry qi args)
+                  else None
               | Callable.Pred -> None
               | Callable.Func | Callable.Proc | Callable.Lemma -> assert false)
         in
@@ -538,7 +546,11 @@ let check_interface_reach_back (n : Module.t) : (unit, 'a) Rewriter.t_ext =
                       (Option.value call.call_decl.call_decl_needs_mask ~default:[])
                   in
                   let mask_names =
-                    mask |> List.map ~f:fst |> Set.of_list (module QualIdent)
+                    mask
+                    |> List.map ~f:(fun (head, _) ->
+                        Callable.invariant_mask_name ~loc:call.call_decl.call_decl_loc
+                          head)
+                    |> Set.of_list (module QualIdent)
                   in
                   let reach_back =
                     Set.remove (Set.inter mask_names owned) self_qual_ident

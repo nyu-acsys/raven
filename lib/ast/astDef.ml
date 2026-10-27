@@ -2889,48 +2889,46 @@ module Callable = struct
       [ProcDef]), so this only has observable effect for [Proc]/[Lemma]. *)
   let is_ghost_kind = function Lemma | Pred | Invariant -> true | Proc | Func -> false
 
-  type mask_entry = QualIdent.t * expr list
-  (** A mask entry [(inv_name, arg_prefix)] identifies an invariant declaration together
-      with a (possibly empty) prefix of its own formal-argument list, taken positionally:
-      [] means "the whole declaration, any instance"; a full-length list means one exact
-      instance; anything in between denotes the upward closure of everything chained under
-      it. Declaration identity alone (the QualIdent) already gives cross-declaration
-      apartness for free, so no separate namespace-token type is needed here. *)
+  module MaskHead = struct
+    type t = Invariant of QualIdent.t | Dependencies of QualIdent.t [@@deriving compare]
+  end
 
-  (* [expr] (a plain alias to [Expr.t], not itself annotated) doesn't resolve
-     through ppx_compare, so this is spelled out via [Expr.compare]/
-     [QualIdent.compare] directly rather than [@@deriving compare]. *)
-  let compare_mask_entry ((qi1, args1) : mask_entry) ((qi2, args2) : mask_entry) : int =
-    let c = QualIdent.compare qi1 qi2 in
+  type mask_head = MaskHead.t
+
+  type mask_entry = mask_head * expr list
+  (** Entries denote invariant identities or dependency namespaces, with an argument
+      prefix. An empty prefix covers all instances. Symbolic heads do not imply apartness.
+  *)
+
+  let compare_mask_head = MaskHead.compare
+  let equal_mask_head left right = compare_mask_head left right = 0
+  let mask_head_name = function MaskHead.Invariant name | Dependencies name -> name
+
+  let map_mask_head head ~f =
+    match head with
+    | MaskHead.Invariant name -> MaskHead.Invariant (f name)
+    | Dependencies name -> Dependencies (f name)
+
+  let invariant_mask_entry name prefix = (MaskHead.Invariant name, prefix)
+
+  let invariant_mask_name ~loc = function
+    | MaskHead.Invariant name -> name
+    | Dependencies _ ->
+        Error.internal_error loc "Symbolic dependency masks require namespace analysis"
+
+  let pr_mask_head ppf = function
+    | MaskHead.Invariant name -> QualIdent.pr ppf name
+    | Dependencies name -> Stdlib.Format.fprintf ppf "dependencies(%a)" QualIdent.pr name
+
+  let compare_mask_entry ((head1, args1) : mask_entry) ((head2, args2) : mask_entry) =
+    let c = compare_mask_head head1 head2 in
     if c <> 0 then c else List.compare Expr.compare args1 args2
 
-  (* A mask entry that's a syntactic prefix of another entry for the same
-     declaration denotes the *same* underlying access right, described at
-     two different granularities -- not two independent rights (a shorter
-     prefix is the upward closure of everything a longer one would have
-     needed, per [mask_entry]'s own doc comment). This is [Antichain.Make]'s
-     [Ord.meet] for [mask_entry]: [None] for two entries naming different
-     declarations, or two same-declaration entries that are provably (or
-     just not provably) neither a prefix of the other (purely syntactic,
-     [Expr.alpha_equal] position by position -- no SMT, matching how the
-     rest of this mask machinery avoids the solver where it can; an
-     under-approximated meet here is always safe, just narrower); otherwise
-     [Some] the longer (more specific) of the two, since its region is
-     already a subset of the shorter, coarser one's. This single function
-     is what gives both [mask_canon] (keeping only the maximal entries --
-     e.g. dropping a redundant, specific `(i, [x])` once a coarser `(i,
-     [])` for the same [i] is also present, so the right can't be spent
-     twice under two different descriptions) and [mask_inter] (correctly
-     computing that `{(i, [])}` met with `{(i, [x])}` is `{(i, [x])}` --
-     the largest thing guaranteed by *both* sides -- rather than the empty
-     set a plain element-wise intersection would give, since neither side
-     literally contains the other's exact entry) their correct, consistent
-     behavior for free, from the single underlying partial order. *)
-  let mask_entry_meet ((qi1, args1) : mask_entry) ((qi2, args2) : mask_entry) :
-      mask_entry option =
-    if not (QualIdent.equal qi1 qi2) then None
+  (* This computes a guaranteed common region, not symbolic disjointness. *)
+  let mask_entry_meet ((head1, args1) : mask_entry) ((head2, args2) : mask_entry) =
+    if not (equal_mask_head head1 head2) then None
     else
-      let is_prefix ~(shorter : expr list) ~(longer : expr list) : bool =
+      let is_prefix ~shorter ~longer =
         List.length shorter <= List.length longer
         &&
         match
@@ -2941,14 +2939,10 @@ module Callable = struct
         | Ok b -> b
         | Unequal_lengths -> false
       in
-      if is_prefix ~shorter:args1 ~longer:args2 then Some (qi2, args2)
-      else if is_prefix ~shorter:args2 ~longer:args1 then Some (qi1, args1)
+      if is_prefix ~shorter:args1 ~longer:args2 then Some (head2, args2)
+      else if is_prefix ~shorter:args2 ~longer:args1 then Some (head1, args1)
       else None
 
-  (* [mask_entry] embeds [expr], which has no [sexp_of_t] (see
-     [Antichain]'s own doc comment for why), so [Base.Set]/[Comparator.Make]
-     isn't available here -- [Antichain.Make] only needs [compare] and
-     [meet]. *)
   module MaskSet = Antichain.Make (struct
     type t = mask_entry
 
@@ -2957,17 +2951,14 @@ module Callable = struct
   end)
 
   type mask = MaskSet.t
-  (** A callable's required mask: a set of [mask_entry]. Transparently a plain list
-      (matching [call_decl_precond]/[call_decl_postcond] in the same record), so ordinary
-      [List] operations on a [mask] value still work; use [mask_union]/[mask_equal]
-      (below) rather than raw list concatenation/equality to keep it in canonical (sorted,
-      deduplicated, maximal-elements-only, see [mask_entry_meet]) form -- see [Antichain]
-      for why that matters (the mask fixpoint's convergence check relies on it). *)
+  (** Canonical unions of mask entries under known prefix subsumption. *)
 
   let mask_canon = MaskSet.canon
   let mask_equal = MaskSet.equal
   let mask_union = MaskSet.union
   let mask_union_list = MaskSet.union_list
+
+  (** A guaranteed lower bound; an empty result does not prove symbolic disjointness. *)
   let mask_inter = MaskSet.inter
 
   type opens_clause = {
@@ -2981,7 +2972,8 @@ module Callable = struct
 
   let opens_mask clause : mask =
     List.map clause.opens_entries ~f:(fun (qi, args) ->
-        (qi, List.take_while args ~f:(fun e -> not (is_opens_wildcard e))))
+        invariant_mask_entry qi
+          (List.take_while args ~f:(fun e -> not (is_opens_wildcard e))))
 
   type call_decl = {
     call_decl_kind : call_kind;  (** kind of declaration *)
@@ -3128,10 +3120,10 @@ module Callable = struct
         | ls -> fprintf ppf "@\n/*locals (@[<0>%a@])*/" Expr.pr_var_decl_list ls
       in
       let pr_mask_entries ppf mask =
-        let pr_entry ppf (qi, args) =
+        let pr_entry ppf (head, args) =
           match args with
-          | [] -> fprintf ppf "%a" QualIdent.pr qi
-          | _ -> fprintf ppf "%a(%a)" QualIdent.pr qi (Print.pr_list_comma Expr.pr) args
+          | [] -> fprintf ppf "%a" pr_mask_head head
+          | _ -> fprintf ppf "%a(%a)" pr_mask_head head (Print.pr_list_comma Expr.pr) args
         in
         fprintf ppf "(@[<0>%a@])" (Print.pr_list_comma pr_entry) mask
       in
@@ -3414,6 +3406,143 @@ module Callable = struct
     | FuncDef { func_body } -> Option.fold func_body ~init:acc ~f:of_expr
 end
 
+(** Frozen namespace contracts *)
+
+module NamespaceContract = struct
+  type namespace_definition = Abstract | Defined of Callable.mask
+
+  type namespace_decl = {
+    name : QualIdent.t;
+    formals : Type.var_decl list;
+    definition : namespace_definition;
+  }
+
+  type separation_requirement = {
+    left : Callable.mask;
+    right : Callable.mask;
+    loc : Loc.t;
+  }
+
+  type callable_summary = {
+    requires : Callable.mask;
+    grants : Callable.mask;
+    separation : separation_requirement list;
+  }
+
+  type t = Module of module_summary | Functor of functor_summary
+
+  and module_summary = {
+    namespaces : namespace_decl list;
+    separation : separation_requirement list;
+    callables : (Ident.t * callable_summary) list;
+    modules : (Ident.t * t) list;
+  }
+
+  and functor_summary = {
+    parameters : (Ident.t * t) list;
+    separation : separation_requirement list;
+    result : t;
+  }
+
+  let empty = Module { namespaces = []; separation = []; callables = []; modules = [] }
+
+  let map_state_mask ~name ~expr mask =
+    let open State.Syntax in
+    let+ mask =
+      State.List.map mask ~f:(fun (head, prefix) ->
+          let* rewritten_name = name (Callable.mask_head_name head) in
+          let head = Callable.map_mask_head ~f:(fun _ -> rewritten_name) head in
+          let+ prefix = State.List.map prefix ~f:expr in
+          (head, prefix))
+    in
+    Callable.mask_canon mask
+
+  let map_state_namespace_decl ~name ~expr ~typ (declaration : namespace_decl) =
+    let open State.Syntax in
+    let* rewritten_name = name declaration.name in
+    let* formals =
+      State.List.map declaration.formals ~f:(fun formal ->
+          let+ var_type = typ formal.Type.var_type in
+          { formal with Type.var_type })
+    in
+    let+ definition =
+      match declaration.definition with
+      | Abstract -> State.return Abstract
+      | Defined mask ->
+          let+ mask = map_state_mask ~name ~expr mask in
+          Defined mask
+    in
+    { name = rewritten_name; formals; definition }
+
+  let map_state_separation ~name ~expr (requirement : separation_requirement) =
+    let open State.Syntax in
+    let* left = map_state_mask ~name ~expr requirement.left in
+    let+ right = map_state_mask ~name ~expr requirement.right in
+    { requirement with left; right }
+
+  let map_state_callable_summary ~name ~expr (summary : callable_summary) =
+    let open State.Syntax in
+    let* requires = map_state_mask ~name ~expr summary.requires in
+    let* grants = map_state_mask ~name ~expr summary.grants in
+    let+ separation =
+      State.List.map summary.separation ~f:(map_state_separation ~name ~expr)
+    in
+    { requires; grants; separation }
+
+  let rec traverse_state ~name ~expr ~typ =
+    let open State.Syntax in
+    function
+    | Module summary ->
+        let* namespaces =
+          State.List.map summary.namespaces ~f:(map_state_namespace_decl ~name ~expr ~typ)
+        in
+        let* separation =
+          State.List.map summary.separation ~f:(map_state_separation ~name ~expr)
+        in
+        let* callables =
+          State.List.map summary.callables ~f:(fun (id, summary) ->
+              let+ summary = map_state_callable_summary ~name ~expr summary in
+              (id, summary))
+        in
+        let+ modules =
+          State.List.map summary.modules ~f:(fun (id, summary) ->
+              let+ summary = traverse_state ~name ~expr ~typ summary in
+              (id, summary))
+        in
+        Module { namespaces; separation; callables; modules }
+    | Functor summary ->
+        let* parameters =
+          State.List.map summary.parameters ~f:(fun (id, summary) ->
+              let+ summary = traverse_state ~name ~expr ~typ summary in
+              (id, summary))
+        in
+        let* separation =
+          State.List.map summary.separation ~f:(map_state_separation ~name ~expr)
+        in
+        let+ result = traverse_state ~name ~expr ~typ summary.result in
+        Functor { parameters; separation; result }
+
+  let map_state = traverse_state
+  let lift f value state = (state, f value)
+
+  let map_mask ~name ~expr mask =
+    snd (map_state_mask ~name:(lift name) ~expr:(lift expr) mask ())
+
+  let map_namespace_decl ~name ~expr ~typ declaration =
+    snd
+      (map_state_namespace_decl ~name:(lift name) ~expr:(lift expr) ~typ:(lift typ)
+         declaration ())
+
+  let map_separation ~name ~expr requirement =
+    snd (map_state_separation ~name:(lift name) ~expr:(lift expr) requirement ())
+
+  let map_callable_summary ~name ~expr summary =
+    snd (map_state_callable_summary ~name:(lift name) ~expr:(lift expr) summary ())
+
+  let map ~name ~expr ~typ summary =
+    snd (map_state ~name:(lift name) ~expr:(lift expr) ~typ:(lift typ) summary ())
+end
+
 (** Modules *)
 
 module Module = struct
@@ -3539,6 +3668,9 @@ module Module = struct
     mod_decl_is_ra : bool;
     mod_decl_is_interface : bool;
     mod_decl_status : free_status;  (** See [call_decl_status]/[free_status] *)
+    mod_decl_mask_contract : NamespaceContract.t option;
+        (** [None] until inferred; [Some NamespaceContract.empty] is a frozen empty
+            contract. *)
     mod_decl_loc : location;
   }
 
@@ -3796,6 +3928,7 @@ module Module = struct
   let empty_decl =
     {
       mod_decl_name = Ident.make Loc.dummy "" 0;
+      mod_decl_mask_contract = None;
       mod_decl_parameters = Structure;
       mod_decl_returns = [];
       mod_decl_is_sealed = false;
@@ -4172,6 +4305,7 @@ let merge_prog (prog1 : Module.t) (prog2 : Module.t) =
   let mod_decl =
     {
       Module.mod_decl_name = prog1.mod_decl.mod_decl_name;
+      mod_decl_mask_contract = None;
       mod_decl_parameters = Module.Structure;
       mod_decl_returns = prog2.mod_decl.mod_decl_returns;
       mod_decl_is_sealed = prog2.mod_decl.mod_decl_is_sealed;
@@ -4189,6 +4323,9 @@ let merge_prog (prog1 : Module.t) (prog2 : Module.t) =
     }
   in
 
+  (* Program concatenation precedes namespace-contract inference. *)
+  assert (Option.is_none prog1.mod_decl.mod_decl_mask_contract);
+  assert (Option.is_none prog2.mod_decl.mod_decl_mask_contract);
   let mod_def = prog1.mod_def @ prog2.mod_def in
 
   { Module.mod_decl; mod_def }
