@@ -1,0 +1,21 @@
+// A logically atomic callee may abort and retry any number of times, so the caller's
+// resources where it opened cInv must be restorable from the state on abort. Here
+// the caller gives up x.d after opening cInv, which a retry would need again.
+
+field c: Int
+field d: Int
+
+inv cInv(x: Ref) { exists n: Int :: own(x.c, n, 1.0) }
+
+free proc incr(x: Ref, implicit ghost n: Int)
+  atomic requires own(x.c, n, 1.0)
+  atomic ensures own(x.c, n + 1, 1.0)
+
+proc spends(x: Ref)
+  requires cInv(x) && own(x.d, 0, 1.0)
+{
+  unfold cInv(x);
+  exhale own(x.d, 0, 1.0);
+  incr(x);
+  fold cInv(x);
+}

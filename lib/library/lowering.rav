@@ -100,6 +100,10 @@ module HeapUtils[RA: Library.ResourceAlgebra, K: Library.Type] {
   func heapChunkCompare(x1: T, x2: T) returns (ret: Bool) {
     RA.valid(heapChunkFrame(x1, x2))
   }
+
+  // `h` with the chunks of `s` taken out, as by an exhale of every chunk of `s`.
+  free func frameHeap(h: Map[K, T], s: Map[K, T]) returns (ret: Map[K, T])
+    ensures forall l: K :: {ret[l]} ret[l] == RA.frame(h[l], s[l])
 }
 
 // HeapUtils for the heap of a fractional field, whose null entry is the identity.
@@ -127,6 +131,10 @@ module FracHeapUtils[RA: Library.ResourceAlgebra] {
   func heapChunkCompare(x1: T, x2: T) returns (ret: Bool) {
     RA.valid(heapChunkFrame(x1, x2))
   }
+
+  // `h` with the chunks of `s` taken out, as by an exhale of every chunk of `s`.
+  free func frameHeap(h: Map[Ref, T], s: Map[Ref, T]) returns (ret: Map[Ref, T])
+    ensures forall l: Ref :: {ret[l]} ret[l] == RA.frame(h[l], s[l])
 }
 
 // The resource algebra of an invariant without return values: a single element. It does

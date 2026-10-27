@@ -1,0 +1,22 @@
+// A logically atomic call gives up its ordinary precondition where the invariant open
+// around it was opened, so the precondition cannot depend on a local written since.
+
+field c: Int
+field d: Int
+
+inv cInv(x: Ref) { exists n: Int :: own(x.c, n, 1.0) }
+
+free proc incr(x: Ref, y: Ref, implicit ghost n: Int)
+  requires own(y.d, 0, 1.0)
+  ensures own(y.d, 0, 1.0)
+  atomic requires own(x.c, n, 1.0)
+  atomic ensures own(x.c, n + 1, 1.0)
+
+proc caller(x: Ref, y: Ref)
+  requires cInv(x) && own(y.d, 0, 1.0)
+{
+  unfold cInv(x);
+  var z: Ref := y;
+  incr(x, z);
+  fold cInv(x);
+}

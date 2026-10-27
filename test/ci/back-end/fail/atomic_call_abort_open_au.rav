@@ -1,8 +1,7 @@
-// A logically atomic call may abort and keep its ordinary precondition, so the atomic
-// update open around it must then still be abortable, together with closing every
-// open invariant. Here dInv and w's atomic precondition each hold half of x.d, and p
-// keeps one half if it aborts: dInv could be closed, or w's update aborted, but not
-// both.
+// A logically atomic call keeps its ordinary precondition across aborts, so it is given
+// up where what is open around the call was opened, here dInv. Here dInv and w's
+// atomic precondition each hold half of x.d, and w holds none of it before opening
+// them, so p's half cannot be given up there.
 
 import Library.IntAtomics._
 

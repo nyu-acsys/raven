@@ -1547,8 +1547,22 @@ let rewrite_introduce_heaps (c : Callable.t) : Callable.t Rewriter.t =
         HeapsExplicitTrnsl.introduce_heaps_in_stmts ~loc:c.call_decl.call_decl_loc
           ~fields_list ~preds_list ~au_preds_list body
       in
-
-      Rewriter.return { c with call_def = ProcDef { proc_body = Some body } }
+      let perm_vars, locals =
+        List.partition_tf c.call_decl.call_decl_locals ~f:(fun var ->
+            Type.equal (Type.set_ghost false var.var_type) Type.perm)
+      in
+      let+ body =
+        match perm_vars with
+        | [] -> Rewriter.return body
+        | _ :: _ ->
+            HeapsExplicitTrnsl.eliminate_perm_vars ~loc:c.call_decl.call_decl_loc
+              ~fields_list ~preds_list ~au_preds_list perm_vars body
+      in
+      Callable.
+        {
+          call_decl = { c.call_decl with call_decl_locals = locals };
+          call_def = ProcDef { proc_body = Some body };
+        }
 
 (** The current version of each variable in [var_map], one per source name. A loop's
     procedure has its variables twice, as parameters and as returns; the version that was

@@ -217,8 +217,8 @@ module Make[E: Library.Type, LockF: Lock] : PArray {
       unfold parr(pa);
       var lck := pa.lock;
       fold parr(pa);
-      unfold parr(pa);
       fold R.resource(pa, (len, m));
+      unfold parr(pa);
       L.release(lck, pa);
       fold parr(pa);
       pb := new (lock: null, desc: base(b), dist: 0);
@@ -241,8 +241,8 @@ module Make[E: Library.Type, LockF: Lock] : PArray {
       unfold parr(pa);
       lck := pa.lock;
       fold parr(pa);
-      unfold parr(pa);
       fold R.resource(pa, (len, m))[m1 := m[x := e]];
+      unfold parr(pa);
       L.release(lck, pa);
       fold parr(pa);
       return pb;

@@ -2007,6 +2007,9 @@ module Stmt = struct
     | Use of use_desc
     | AUAction of auaction_desc
     | Fpu of fpu_desc
+    | Snapshot of qual_ident
+        (** Sets the [Perm] local to the resources currently held. Internal: emitted by
+            the atomicity analysis and eliminated by lowering. *)
     | BasicStmtExt of (stmt_ext * expr list)
         (** Extension point for statements that don't need to carry nested statements of
             their own -- [basic_stmt_desc] has no case that does, by design. An extension
@@ -2186,6 +2189,7 @@ module Stmt = struct
       | Havoc hvc ->
           fprintf ppf "@[<2>havoc@ %a%s@]" QualIdent.pr hvc.havoc_var
             (if hvc.havoc_is_init then " (init)" else "")
+      | Snapshot x -> fprintf ppf "@[<2>%a :=@ snapshot@]" QualIdent.pr x
       | New nstm ->
           fprintf ppf "@[<2>%a :=@ new(@[%a@])@]" QualIdent.pr nstm.new_lhs
             (Print.pr_list_comma (fun ppf -> function
@@ -2599,6 +2603,7 @@ module Stmt = struct
               scan_expr_list accesses [ fw_desc.field_write_ref; fw_desc.field_write_val ]
           | Havoc hvc ->
               if not hvc.havoc_is_init then Set.add accesses hvc.havoc_var else accesses
+          | Snapshot x -> Set.add accesses x
           | Call call_desc ->
               (* The callee itself is a symbol this statement depends on -- without this,
              a Proc/Lemma's call graph edges (unlike a Func's, captured via ordinary
@@ -2709,6 +2714,7 @@ module Stmt = struct
                 Error.internal_error s.stmt_loc
                   "Only local variables should be havoc-ed; caught in \
                    stmt_local_vars_modified"
+          | Snapshot x -> [ QualIdent.to_ident x ]
           | Call call_desc ->
               if call_desc.call_is_init then []
               else
@@ -2805,7 +2811,7 @@ module Stmt = struct
           | Bind bind_desc -> Expr.expr_fields_accessed bind_desc.bind_rhs.spec_form
           | FieldRead fr_desc -> [ fr_desc.field_read_field ]
           | FieldWrite fw_desc -> [ fw_desc.field_write_field ]
-          | Havoc _ -> []
+          | Havoc _ | Snapshot _ -> []
           | Call call_desc ->
               Logs.debug (fun m ->
                   m
@@ -3371,6 +3377,7 @@ module Callable = struct
           | FieldRead fr -> of_expr (of_qi acc fr.field_read_lhs) fr.field_read_ref
           | FieldWrite fw -> of_exprs acc [ fw.field_write_ref; fw.field_write_val ]
           | Havoc h -> of_qi acc h.havoc_var
+          | Snapshot x -> of_qi acc x
           | Call cd -> of_exprs (List.fold cd.call_lhs ~init:acc ~f:of_qi) cd.call_args
           | Return e -> of_expr acc e
           | Use u ->

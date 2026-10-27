@@ -47,7 +47,6 @@ module Type : sig
   val bool : loc:Loc.t -> t
   val real : loc:Loc.t -> t
   val ref : loc:Loc.t -> t
-  val perm : loc:Loc.t -> t
 
   val infer : loc:Loc.t -> t
   (** A type left to the type checker. *)

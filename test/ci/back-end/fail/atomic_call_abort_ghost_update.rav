@@ -1,10 +1,9 @@
-// A logically atomic call may abort and hand back its atomic precondition, so an
-// invariant open around it must be closable from that state too. Here the writer
-// advances the ghost authority past the physical counter before the call: only the
-// committed postcondition closes counterInv, the atomic precondition does not. If
-// this were accepted, the observer could read the bound published by incr before
-// its increment and reach `assert false`. No abort is needed for that, and the fpu
-// cannot be deferred to incr's openAU either: incr needs frag(1) at entry.
+// A logically atomic call gives up its ordinary precondition where the invariant open
+// around it was opened. Here incr needs frag(1), which exists only after the writer
+// advances the ghost authority past the physical counter, inside counterInv. If this
+// were accepted, the observer could read the bound published by incr before its
+// increment and reach `assert false`. No abort is needed for that, and the fpu cannot
+// be deferred to incr's openAU either: incr needs frag(1) at entry.
 
 import Library.Auth
 import Library.MaxNat

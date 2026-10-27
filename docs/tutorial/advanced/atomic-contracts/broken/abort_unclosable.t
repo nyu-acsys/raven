@@ -1,14 +1,14 @@
   $ dune exec -- raven --shh ./abort_unclosable.rav
-  [Error] File "./abort_unclosable.rav", line 40, columns 2-7:
-  40 |   p(x);
+  [Error] File "./abort_unclosable.rav", line 42, columns 2-7:
+  42 |   p(x);
          ^^^^^
-  Verification Error: An invariant open around this atomic call may not be closable if the call aborts.
-  [Error] File "./abort_unclosable.rav", line 39, columns 2-17:
-  39 |   unfold dInv(x);
+  Verification Error: A precondition may not hold for this call where the atomic update or invariant open around it was opened, which is where it is given up.
+  [Error] File "./abort_unclosable.rav", line 41, columns 2-17:
+  41 |   unfold dInv(x);
          ^^^^^^^^^^^^^^^
-  Related Location: This invariant may not be closable again if the call aborts.
-  [Error] File "./abort_unclosable.rav", line 18, columns 19-35:
-  18 |   exists n: Int :: own(x.d, 0, 1.0) && own(x.c, n, 1.0)
-                          ^^^^^^^^^^^^^^^^
+  Related Location: It was opened here.
+  [Error] File "./abort_unclosable.rav", line 25, columns 11-27:
+  25 |   requires own(x.d, 0, 1.0)
+                  ^^^^^^^^^^^^^^^^
   Related Location: This own predicate may not hold.
   [1]

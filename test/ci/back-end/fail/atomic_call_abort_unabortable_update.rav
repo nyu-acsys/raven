@@ -1,0 +1,27 @@
+// An atomic update open around a logically atomic call must be abortable if the call
+// aborts. Here w advances its ghost authority before calling p, and only w's committed
+// postcondition matches that.
+
+import Library.Auth
+import Library.MaxNat
+
+module AuthMaxNat = Auth[MaxNat]
+import AuthMaxNat._
+
+field c: Int
+ghost field g: AuthMaxNat
+
+free proc p(x: Ref, implicit ghost n: Int)
+  atomic requires own(x.c, n, 1.0)
+  atomic ensures own(x.c, n + 1, 1.0)
+
+proc w(x: Ref, implicit ghost n: Int)
+  atomic requires own(x.c, n, 1.0) && own(x.g, auth_frag(n, n))
+  atomic ensures own(x.c, n + 1, 1.0) && own(x.g, auth_frag(n + 1, n + 1))
+{
+  ghost var phi := bindAU();
+  n := openAU(phi);
+  fpu(x.g, auth_frag(n, n), auth_frag(n + 1, n + 1));
+  p(x);
+  commitAU(phi, ());
+}

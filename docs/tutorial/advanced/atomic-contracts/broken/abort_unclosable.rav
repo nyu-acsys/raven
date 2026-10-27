@@ -1,10 +1,12 @@
 // DELIBERATELY BROKEN: `writer` calls the atomically specified `p` while
 // `dInv` is open. Folding `dInv` after the call succeeds, but `p` keeps its
-// ordinary precondition `own(x.d, 0, 1.0)` for its whole run, so `dInv` could
-// not be closed if `p` aborted. Raven rejects the call with:
+// ordinary precondition `own(x.d, 0, 1.0)` for its whole run, so it must come
+// from what `writer` holds before opening `dInv`, not from `dInv`. Raven
+// rejects the call with:
 //
-//   [Verification Error] An invariant open around this atomic call may not be
-//   closable if the call aborts
+//   [Verification Error] A precondition may not hold for this call where the
+//   atomic update or invariant open around it was opened, which is where it is
+//   given up
 //
 // with the `unfold` of `dInv` as a Related Location.
 

@@ -232,11 +232,15 @@ atomic precondition from the invariant's contents, and fold the invariant again 
 postcondition.
 
 The call is one step only logically, though. While the callee runs its other steps, the
-invariant is in fact closed, and other threads can open it. The callee may also abort and retry,
-as `acquire` does above, which hands its atomic precondition back. So the invariant has to be
-closable not only after the call commits, but also if it aborts: from what the caller still
-holds, together with the atomic precondition, but without what the ordinary precondition handed
-to the callee for the whole call. Raven checks this for the invariants open around the call.
+invariant is in fact closed, and other threads can open it. So the callee's ordinary
+precondition, which it holds for the whole call, cannot come out of the invariant: Raven gives
+it up where the invariant was opened, before anything is taken from it.
+
+The callee may also abort and retry any number of times, as `acquire` does above, handing its
+atomic precondition back each time. Each attempt has to be able to start from where the
+previous one left off. So if the call aborts, the caller must be able to close the invariant
+again, and to get back everything else it held where it opened the invariant. Raven checks
+both.
 
 [`broken/abort_unclosable.rav`](./broken/abort_unclosable.rav) shows a call that this check
 rejects, although folding the invariant after the call succeeds:
@@ -263,19 +267,21 @@ proc writer(x: Ref)
 
 `p` holds `own(x.d, 0, 1.0)` for its whole run, and its body writes `1` to `x.d` before its
 linearization point, while `dInv` is closed and other threads rely on `x.d` being `0`. Raven
-reports `An invariant open around this atomic call may not be closable if the call aborts` at
-the call, with the `unfold` of `dInv` as a Related Location. To fix such a call, give it the
-resources of its ordinary precondition from outside the invariant, or move them into its atomic
-precondition, so that the callee uses them only at its linearization point.
+reports `A precondition may not hold for this call where the atomic update or invariant open
+around it was opened` at the call, with the `unfold` of `dInv` as a Related Location. To fix
+such a call, give it the resources of its ordinary precondition from outside the invariant, or
+move them into its atomic precondition, so that the callee uses them only at its
+linearization point. Since the ordinary precondition is given up where the invariant is
+opened, it also cannot mention a variable assigned after that point, and a call made in only
+one branch after the `unfold` needs the `unfold` moved into that branch.
 
 The same holds for an atomic update that is open around the call: if the callee aborts, the
 caller must still be able to abort its own update, giving back its atomic precondition, while
 also closing every open invariant. Before checking this, Raven refolds the predicates unfolded
 since the update or invariant was opened, using the variables an `unfold` bound its
-existentials to as witnesses. A ghost update that cannot be undone this way, such as an `fpu`,
-belongs after the call. Otherwise Raven reports `The atomic update open around this atomic call
-may not be abortable if the call aborts`, or `A predicate unfolded around this atomic call may
-not be refoldable if the call aborts`.
+existentials to as witnesses. A ghost update that cannot be undone this way, such as an `fpu`
+or a `fold` of the caller's own resources, belongs before the `unfold` or `openAU`, or after
+the call. Otherwise Raven reports at the call which part of this may fail if the call aborts.
 
 ## Debugging Corner
 
@@ -288,10 +294,9 @@ opened the token as a Related Location, exactly like Part 4's never-folded invar
 thing is to recognize these as *the same family* of errors as in Part 4. There's nothing new to
 learn here, just new statements to which the same one-step discipline applies.
 
-One message is specific to calling an atomically specified procedure while an invariant is open:
-`An invariant open around this atomic call may not be closable if the call aborts`, explained in
-{{ref sec:atomic-call-during-invariant-access}}, together with its counterparts for an open
-atomic update and for predicates unfolded since.
+A few messages are specific to calling an atomically specified procedure while an invariant is
+open, such as `An invariant open around this atomic call may not be closable if the call
+aborts`. {{ref sec:atomic-call-during-invariant-access}} explains them.
 
 ## What's next
 

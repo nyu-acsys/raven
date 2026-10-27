@@ -380,19 +380,22 @@ interface GiveUpTemplate[Node: NodeImpl] {
         ghost var contents1: Map[Ref, Set[K]];
         ghost var intf1: Map[Ref, Flow_K];
         
+        // unlockNodeHigh takes nodePred(r, n, ...) where the update is opened for it,
+        // so n1's membership in the footprint is established in a step of its own.
+        ghost val c0: Set[K] := openAU(phi);
+        unfold css(r, c0);
+        g_i1, lockval1, contents1, intf1 :| cssR(r, c0, g_i1, lockval1, contents1, intf1);
+
+        cssInFp(r, n, c0, g_i1, lockval1, contents1, intf1);
+        fpInStep(r, n, n1, k, c0, g_i1, lockval1, contents1, intf1, c_n, i_n);
+        fpInCss(r, n1, c0, g_i1, lockval1, contents1, intf1);
+
+        assert cssR(r, c0, g_i1, lockval1, contents1, intf1);
+        fold css(r, c0);
+        abortAU(phi);
+
         ghost val c1: Set[K] := openAU(phi);
-        unfold css(r, c1);
-        g_i1, lockval1, contents1, intf1 :| cssR(r, c1, g_i1, lockval1, contents1, intf1);
-
-        cssInFp(r, n, c1, g_i1, lockval1, contents1, intf1);
-        fpInStep(r, n, n1, k, c1, g_i1, lockval1, contents1, intf1, c_n, i_n);
-        fpInCss(r, n1, c1, g_i1, lockval1, contents1, intf1);
-
-        assert cssR(r, c1, g_i1, lockval1, contents1, intf1);
-        fold css(r, c1);
-
         unlockNodeHigh(r, n, c_n, i_n, c1);
-
         abortAU(phi);
 
         ghost val c2: Set[K] := openAU(phi);
@@ -446,7 +449,11 @@ interface GiveUpTemplate[Node: NodeImpl] {
       
       assert cssR(r, c1, g_i1, lockval1, contents1, intf1);
       fold css(r, c1);
-      nn, cnn, i_nn := traverse(r, r, k, c1);
+      // traverse takes inFP(r, r) where the update is opened for it.
+      abortAU(phi);
+
+      ghost val c2: Set[K] := openAU(phi);
+      nn, cnn, i_nn := traverse(r, r, k, c2);
 
       commitAU(phi, (nn, cnn, i_nn));
     }
@@ -508,8 +515,11 @@ interface GiveUpTemplate[Node: NodeImpl] {
     fpInCss(r, r, c0, g_i0, lockval0, contents0, intf0);
     assert cssR(r, c0, g_i0, lockval0, contents0, intf0);
     fold css(r, c0);
-    
-    n, c_n, i_n := traverse(r, r, k, c0);
+    // traverse takes inFP(r, r) where the update is opened for it.
+    abortAU(phi);
+
+    ghost val c0': Set[K] := openAU(phi);
+    n, c_n, i_n := traverse(r, r, k, c0');
 
     abortAU(phi);
 

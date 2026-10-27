@@ -79,7 +79,7 @@ and basic_stmt_arities (bs : Stmt.basic_stmt_desc) : Set.M(Int).t =
   | Bind bd -> expr_arities bd.bind_rhs.spec_form
   | FieldRead frd -> expr_arities frd.field_read_ref
   | FieldWrite fwd -> exprs_arities [ fwd.field_write_ref; fwd.field_write_val ]
-  | Havoc _ -> empty_arities
+  | Havoc _ | Snapshot _ -> empty_arities
   | Call cd -> exprs_arities cd.call_args
   | Return e -> expr_arities e
   | Use ud ->

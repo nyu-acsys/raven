@@ -1549,7 +1549,7 @@ module ProgStats = struct
       Stmt.pr_basic_stmt b
     ); *)
     match b with
-    | Stmt.VarDef _ | Havoc _ | AUAction { auaction_kind = BindAU _ } ->
+    | Stmt.VarDef _ | Havoc _ | Snapshot _ | AUAction { auaction_kind = BindAU _ } ->
         Rewriter.return init_prog_stats
     | Assign assign_desc ->
         let+ is_ghost =

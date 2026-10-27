@@ -1,0 +1,31 @@
+// An invariant open around a logically atomic call must be closable if the call
+// aborts. Here the ghost authority is advanced past the counter before the call, and
+// only the committed postcondition closes counterInv again.
+
+import Library.Auth
+import Library.MaxNat
+
+module AuthMaxNat = Auth[MaxNat]
+import AuthMaxNat._
+
+field count: Int
+ghost field g: AuthMaxNat
+
+inv counterInv(x: Ref) {
+  exists n: Int :: own(x.count, n, 1.0) && own(x.g, auth_frag(n, n))
+}
+
+free proc incr(x: Ref, implicit ghost n: Int)
+  atomic requires own(x.count, n, 1.0)
+  atomic ensures own(x.count, n + 1, 1.0)
+
+proc writer(x: Ref)
+  requires counterInv(x)
+{
+  unfold counterInv(x);
+  ghost var n: Int;
+  n :| own(x.count, n, 1.0) && own(x.g, auth_frag(n, n));
+  fpu(x.g, auth_frag(n, n), auth_frag(n + 1, n + 1));
+  incr(x);
+  fold counterInv(x);
+}

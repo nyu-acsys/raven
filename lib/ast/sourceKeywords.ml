@@ -47,7 +47,6 @@ type t =
   | Null
   | Opens
   | Own
-  | Perm
   | Pred
   | Proc
   | Ref
@@ -129,7 +128,6 @@ let entries =
     ("null", Null);
     ("opens", Opens);
     ("own", Own);
-    ("Perm", Perm);
     ("pred", Pred);
     ("proc", Proc);
     ("Ref", Ref);

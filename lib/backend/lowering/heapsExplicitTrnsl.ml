@@ -1056,6 +1056,115 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
 
   Rewriter.return (Stmt.mk_block_stmt ~loc (init_assumes @ [ body ]))
 
+(* The heaps of the given fields, predicates and atomic updates, each with the utils
+   module of its chunks. *)
+let heaps_with_utils ~loc ~fields_list ~preds_list ~au_preds_list :
+    (var_decl * qual_ident) list Rewriter.t =
+  let open Rewriter.Syntax in
+  let* field_heaps =
+    Rewriter.List.map fields_list ~f:(fun field_name ->
+        let* field_symbol = Rewriter.find field_name in
+        let* elem_type = Rewriter.Symbol.reify_field_type loc field_symbol in
+        let+ utils = ProgUtils.get_field_utils_module field_name in
+        ( Type.mk_var_decl ~loc (field_heap_name field_name)
+            (Type.mk_map loc Type.ref elem_type),
+          utils ))
+  in
+  let* pred_heaps =
+    Rewriter.List.map preds_list ~f:(fun pred_name ->
+        let* rep = ProgUtils.get_pred_utils_rep_type pred_name in
+        let* in_types = ProgUtils.pred_in_types pred_name in
+        let+ utils = ProgUtils.get_pred_utils_module pred_name in
+        ( Type.mk_var_decl ~loc (pred_heap_name pred_name)
+            (Type.mk_map loc (Type.mk_prod loc in_types) (Type.mk_var rep)),
+          utils ))
+  in
+  let+ au_heaps =
+    Rewriter.List.map au_preds_list ~f:(fun call_name ->
+        let* rep = ProgUtils.get_au_utils_rep_type call_name in
+        let+ utils = ProgUtils.get_au_utils_module call_name in
+        ( Type.mk_var_decl ~loc (au_heap_name call_name)
+            (Type.mk_map loc (Type.atomic_token call_name) (Type.mk_var rep)),
+          utils ))
+  in
+  field_heaps @ pred_heaps @ au_heaps
+
+(* Eliminates the [Perm] locals [perm_vars] of [body], whose heaps are those of the given
+   fields, predicates and atomic updates: each holds a copy of every heap, taken by
+   [Snapshot v]; [exhale v] frames every heap by its copy. *)
+let eliminate_perm_vars ~loc ~fields_list ~preds_list ~au_preds_list
+    (perm_vars : var_decl list) (body : Stmt.t) : Stmt.t Rewriter.t =
+  let open Rewriter.Syntax in
+  let* heaps = heaps_with_utils ~loc ~fields_list ~preds_list ~au_preds_list in
+  let* copies =
+    Rewriter.List.map perm_vars ~f:(fun (perm_var : var_decl) ->
+        let+ heap_copies =
+          Rewriter.List.map heaps ~f:(fun ((heap : var_decl), utils) ->
+              let copy =
+                {
+                  heap with
+                  var_name =
+                    Ident.fresh loc
+                      (Ident.name perm_var.var_name ^ "$" ^ Ident.name heap.var_name);
+                }
+              in
+              let+ () =
+                Rewriter.introduce_symbol
+                  (Module.VarDef
+                     { var_decl = copy; var_init = None; var_is_free = NotFree })
+              in
+              (heap, utils, copy))
+        in
+        (perm_var.var_name, heap_copies))
+  in
+  let copies_of (qi : qual_ident) =
+    if List.is_empty qi.qual_path then
+      List.Assoc.find copies ~equal:Ident.equal qi.qual_base
+    else None
+  in
+  let take_snapshot ~loc heap_copies =
+    List.map heap_copies ~f:(fun ((heap : var_decl), _, (copy : var_decl)) ->
+        Stmt.mk_assign ~loc
+          [ QualIdent.from_ident copy.var_name ]
+          (Expr.from_var_decl heap))
+  in
+  let exhale_snapshot ~loc ~spec_error heap_copies =
+    List.concat_map heap_copies ~f:(fun ((heap : var_decl), utils, copy) ->
+        let heap_expr = Expr.from_var_decl heap in
+        let framed =
+          Expr.mk_app ~loc ~typ:heap.var_type
+            (Var (QualIdent.append utils (Ident.make loc "frameHeap" 0)))
+            [ heap_expr; Expr.from_var_decl copy ]
+        in
+        let valid =
+          Expr.mk_app ~loc ~typ:Type.bool
+            (Var (QualIdent.append utils (ProgUtils.heap_utils_valid_ident loc)))
+            [ heap_expr ]
+        in
+        [
+          Stmt.mk_assign ~loc [ QualIdent.from_ident heap.var_name ] framed;
+          Stmt.mk_assert_expr ~loc ~spec_error valid;
+        ])
+  in
+  let rec rewrite (stmt : Stmt.t) : Stmt.t Rewriter.t =
+    let loc = stmt.stmt_loc in
+    match stmt.stmt_desc with
+    | Basic (Snapshot lhs) -> (
+        match copies_of lhs with
+        | Some heap_copies ->
+            Rewriter.return (Stmt.mk_block_stmt ~loc (take_snapshot ~loc heap_copies))
+        | None ->
+            Error.internal_error loc "snapshot assigned to a variable not of type Perm")
+    | Basic (Spec (Exhale, { spec_form = App (Var qi, [], _); spec_error; _ })) -> (
+        match copies_of qi with
+        | Some heap_copies ->
+            Rewriter.return
+              (Stmt.mk_block_stmt ~loc (exhale_snapshot ~loc ~spec_error heap_copies))
+        | None -> Rewriter.return stmt)
+    | _ -> Rewriter.Stmt.descend stmt ~f:rewrite
+  in
+  rewrite body
+
 let rec rewrite_fpu (stmt : Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
   match stmt.stmt_desc with
@@ -4183,6 +4292,8 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
       | VarDef _ | Use _ | New _ | Assign _ | Bind _ | Havoc _ | Return _ | AUAction _
       | Fpu _ | Call _ | BasicStmtExt _ ->
           Rewriter.return s
+      | Snapshot _ ->
+          Error.internal_error s.stmt_loc "A snapshot should have been eliminated by now"
       | Spec (spec_kind, spec) ->
           let* translated =
             match spec_kind with

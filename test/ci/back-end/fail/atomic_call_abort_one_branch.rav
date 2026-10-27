@@ -1,0 +1,24 @@
+// A logically atomic call gives up its ordinary precondition where the invariant open
+// around it was opened. If only one branch after that point makes the call, the other
+// would have given it up too, so the invariant must be opened within the branch.
+
+field c: Int
+field d: Int
+
+inv cInv(x: Ref) { exists n: Int :: own(x.c, n, 1.0) }
+
+free proc incr(x: Ref, y: Ref, implicit ghost n: Int)
+  requires own(y.d, 0, 1.0)
+  ensures own(y.d, 0, 1.0)
+  atomic requires own(x.c, n, 1.0)
+  atomic ensures own(x.c, n + 1, 1.0)
+
+proc caller(x: Ref, y: Ref, b: Bool)
+  requires cInv(x) && own(y.d, 0, 1.0)
+{
+  unfold cInv(x);
+  if (b) {
+    incr(x, y);
+  }
+  fold cInv(x);
+}

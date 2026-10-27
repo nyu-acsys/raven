@@ -518,6 +518,8 @@ let rec check_basic call_decl (basic_stmt : Stmt.basic_stmt_desc) (stmt_loc : Lo
   | Call call_desc -> check_call call_desc call_decl stmt_loc disam_tbl ~is_ghost_scope
   | AUAction _au_action_kind ->
       internal_error stmt_loc "Did not expect AU action stmts in AST at this stage."
+  | Snapshot _ ->
+      internal_error stmt_loc "Did not expect snapshot stmts in AST at this stage."
   | Fpu fpu_desc -> check_fpu fpu_desc disam_tbl
   | BasicStmtExt (stmt_ext, expr_list) ->
       let* ext_hooks = Rewriter.current_ext_hooks in

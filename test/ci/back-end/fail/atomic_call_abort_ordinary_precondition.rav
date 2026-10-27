@@ -1,7 +1,7 @@
-// An atomic call keeps its ordinary precondition if it aborts, so an invariant open
-// around the call must be closable without it. Here p takes x.d from dInv for its
-// whole run and writes 1 to it before restoring 0. If this were accepted, the observer
-// could read 1 and fail its assertion, although no ghost update precedes the call.
+// An atomic call keeps its ordinary precondition for its whole run, across aborts, so
+// it is given up where the invariant open around the call was opened, and cannot come
+// out of that invariant. Here p would take x.d from dInv and write 1 to it before
+// restoring 0. If this were accepted, the observer could read 1 and fail its assertion.
 
 import Library.IntAtomics._
 

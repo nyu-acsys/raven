@@ -1,6 +1,6 @@
-// The call and its abort check share the exhale of p's ordinary precondition, some
-// fraction of x.d, which can be all of it: dInv, which needs half of x.d, may not be
-// closable if the call aborts.
+// p's ordinary precondition takes some fraction of x.d. It is given up where dInv is
+// opened, so it comes out of the writer's own half and leaves dInv's half for closing
+// dInv, whether the call commits or aborts.
 
 import Library.IntAtomics._
 

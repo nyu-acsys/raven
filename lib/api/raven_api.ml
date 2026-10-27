@@ -44,7 +44,6 @@ module Type = struct
   let bool = S.Type.bool
   let real = S.Type.real
   let ref = S.Type.ref
-  let perm = S.Type.perm
   let infer = S.Type.any
   let map = S.Type.map
   let set = S.Type.set
