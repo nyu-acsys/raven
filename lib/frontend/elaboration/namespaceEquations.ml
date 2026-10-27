@@ -41,7 +41,7 @@ let expand by_name upper_bounds mask =
       | Callable.MaskHead.Invariant _ -> [ entry ]
       | Dependencies name ->
           begin match (Map.find by_name name, Map.find upper_bounds name) with
-          | Some declaration, Some bound ->
+          | Some (declaration : NamespaceContract.namespace_decl), Some bound ->
               instantiate declaration.NamespaceContract.formals args bound
           | _ -> [ entry ]
           end)
@@ -50,6 +50,34 @@ let expand by_name upper_bounds mask =
 (** Upper bounds are safe for required masks, never for masks granted by a contract. *)
 let expand_required equations mask =
   expand equations.by_name equations.required_upper_bounds mask
+
+(** Normalize aliases exposed by expansion; widening applies only to requirements. *)
+let normalize_required ~resolve equations mask =
+  let open State.Syntax in
+  let rec normalize seen mask =
+    let* resolved = resolve mask in
+    let expanded = expand_required equations resolved in
+    let* resolved = resolve expanded in
+    if Callable.mask_equal mask resolved then State.return resolved
+    else
+      let next =
+        List.map resolved ~f:(fun ((head, _) as entry) ->
+            let previous =
+              List.filter seen ~f:(fun (other, _) -> Callable.equal_mask_head head other)
+            in
+            if
+              (not (List.is_empty previous))
+              && not
+                   (List.exists previous ~f:(fun old ->
+                        Callable.compare_mask_entry old entry = 0))
+            then (head, [])
+            else entry)
+        |> Callable.mask_canon
+      in
+      if Callable.mask_equal mask next then State.return next
+      else normalize (Callable.mask_union seen mask) next
+  in
+  normalize [] mask
 
 let solve declarations =
   let by_name =

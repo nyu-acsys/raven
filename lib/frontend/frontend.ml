@@ -9,3 +9,5 @@ module NamespaceEquations = NamespaceEquations
 module NamespaceInference = NamespaceInference
 module AtomicityAnalysis = AtomicityAnalysis
 module NamespaceClosure = NamespaceClosure
+module NamespaceEntailment = NamespaceEntailment
+module NamespaceRealization = NamespaceRealization

@@ -3424,6 +3424,8 @@ module NamespaceContract = struct
   }
 
   type callable_summary = {
+    formals : Type.var_decl list;
+    returns : Type.var_decl list;
     requires : Callable.mask;
     grants : Callable.mask;
     separation : separation_requirement list;
@@ -3457,14 +3459,16 @@ module NamespaceContract = struct
     in
     Callable.mask_canon mask
 
+  let map_state_binders ~typ binders =
+    let open State.Syntax in
+    State.List.map binders ~f:(fun binder ->
+        let+ var_type = typ binder.Type.var_type in
+        { binder with Type.var_type })
+
   let map_state_namespace_decl ~name ~expr ~typ (declaration : namespace_decl) =
     let open State.Syntax in
     let* rewritten_name = name declaration.name in
-    let* formals =
-      State.List.map declaration.formals ~f:(fun formal ->
-          let+ var_type = typ formal.Type.var_type in
-          { formal with Type.var_type })
-    in
+    let* formals = map_state_binders ~typ declaration.formals in
     let+ definition =
       match declaration.definition with
       | Abstract -> State.return Abstract
@@ -3480,14 +3484,16 @@ module NamespaceContract = struct
     let+ right = map_state_mask ~name ~expr requirement.right in
     { requirement with left; right }
 
-  let map_state_callable_summary ~name ~expr (summary : callable_summary) =
+  let map_state_callable_summary ~name ~expr ~typ (summary : callable_summary) =
     let open State.Syntax in
+    let* formals = map_state_binders ~typ summary.formals in
+    let* returns = map_state_binders ~typ summary.returns in
     let* requires = map_state_mask ~name ~expr summary.requires in
     let* grants = map_state_mask ~name ~expr summary.grants in
     let+ separation =
       State.List.map summary.separation ~f:(map_state_separation ~name ~expr)
     in
-    { requires; grants; separation }
+    { formals; returns; requires; grants; separation }
 
   let rec traverse_state ~name ~expr ~typ =
     let open State.Syntax in
@@ -3501,7 +3507,7 @@ module NamespaceContract = struct
         in
         let* callables =
           State.List.map summary.callables ~f:(fun (id, summary) ->
-              let+ summary = map_state_callable_summary ~name ~expr summary in
+              let+ summary = map_state_callable_summary ~name ~expr ~typ summary in
               (id, summary))
         in
         let+ modules =
@@ -3536,8 +3542,10 @@ module NamespaceContract = struct
   let map_separation ~name ~expr requirement =
     snd (map_state_separation ~name:(lift name) ~expr:(lift expr) requirement ())
 
-  let map_callable_summary ~name ~expr summary =
-    snd (map_state_callable_summary ~name:(lift name) ~expr:(lift expr) summary ())
+  let map_callable_summary ~name ~expr ~typ summary =
+    snd
+      (map_state_callable_summary ~name:(lift name) ~expr:(lift expr) ~typ:(lift typ)
+         summary ())
 
   let map ~name ~expr ~typ summary =
     snd (map_state ~name:(lift name) ~expr:(lift expr) ~typ:(lift typ) summary ())
@@ -3668,6 +3676,8 @@ module Module = struct
     mod_decl_is_ra : bool;
     mod_decl_is_interface : bool;
     mod_decl_status : free_status;  (** See [call_decl_status]/[free_status] *)
+    mod_decl_sealed_target : QualIdent.t option;
+        (** Implementation provenance of a generated public functor schema. *)
     mod_decl_mask_contract : NamespaceContract.t option;
         (** [None] until inferred; [Some NamespaceContract.empty] is a frozen empty
             contract. *)
@@ -3928,6 +3938,7 @@ module Module = struct
   let empty_decl =
     {
       mod_decl_name = Ident.make Loc.dummy "" 0;
+      mod_decl_sealed_target = None;
       mod_decl_mask_contract = None;
       mod_decl_parameters = Structure;
       mod_decl_returns = [];
@@ -4305,6 +4316,7 @@ let merge_prog (prog1 : Module.t) (prog2 : Module.t) =
   let mod_decl =
     {
       Module.mod_decl_name = prog1.mod_decl.mod_decl_name;
+      mod_decl_sealed_target = None;
       mod_decl_mask_contract = None;
       mod_decl_parameters = Module.Structure;
       mod_decl_returns = prog2.mod_decl.mod_decl_returns;

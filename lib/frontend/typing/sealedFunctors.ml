@@ -89,6 +89,7 @@ let make ~loc ~name ~interface ~target ~target_symbol ~definition =
               mod_decl_parameters = parameters;
               mod_decl_returns = returns;
               mod_decl_is_sealed = true;
+              mod_decl_sealed_target = Some target;
               mod_decl_interfaces =
                 Set.inter
                   (Interfaces.implemented_interfaces target_symbol)

@@ -2309,6 +2309,8 @@ module Module = struct
           mod_decl_interfaces;
           mod_decl_returns;
           mod_decl_mask_contract;
+          mod_decl_sealed_target =
+            Base.Option.map mdef1.mod_decl.mod_decl_sealed_target ~f;
         }
         formals
     in

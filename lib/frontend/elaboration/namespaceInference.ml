@@ -12,6 +12,8 @@ let namespace draft name = Map.find draft.namespaces name
 let callable draft name = Map.find draft.callables name
 
 type callable_seed = {
+  formals : Type.var_decl list;
+  returns : Type.var_decl list;
   required : Callable.mask;
   inferred : Callable.mask;
   granted : Callable.mask;
@@ -148,7 +150,14 @@ let collect symbol =
                   { (Option.value_exn previous) with definition })
         in
         let seed =
-          { required = Option.value opens ~default:inferred; inferred; granted; opens }
+          {
+            formals = decl.call_decl_formals;
+            returns = decl.call_decl_returns;
+            required = Option.value opens ~default:inferred;
+            inferred;
+            granted;
+            opens;
+          }
         in
         Rewriter.set_user_state
           { namespaces; seeds = Map.set state.seeds ~key:name ~data:seed }
@@ -231,7 +240,13 @@ let summarize equations seed =
             || List.for_all inferred ~f:(fun entry ->
                 List.exists opens ~f:(fun opened -> covers opened entry)))
   in
-  { NamespaceContract.requires; grants; separation = [] }
+  {
+    NamespaceContract.formals = seed.formals;
+    returns = seed.returns;
+    requires;
+    grants;
+    separation = [];
+  }
 
 let infer ?(namespaces = []) ?(callables = []) program =
   let open Rewriter.Syntax in
@@ -262,32 +277,7 @@ let infer ?(namespaces = []) ?(callables = []) program =
 
 (* Imported equations can expose aliases only after expansion. *)
 let normalize_required draft mask =
-  let open Rewriter.Syntax in
-  let rec normalize seen mask =
-    let* resolved = Masks.resolve_mask mask in
-    let expanded = NamespaceEquations.expand_required draft.equations resolved in
-    let* resolved = Masks.resolve_mask expanded in
-    if Callable.mask_equal mask resolved then Rewriter.return resolved
-    else
-      let next =
-        List.map resolved ~f:(fun ((head, _) as entry) ->
-            let same_head =
-              List.filter seen ~f:(fun (previous, _) ->
-                  Callable.equal_mask_head head previous)
-            in
-            if
-              (not (List.is_empty same_head))
-              && not
-                   (List.exists same_head ~f:(fun previous ->
-                        Callable.compare_mask_entry previous entry = 0))
-            then (head, [])
-            else entry)
-        |> Callable.mask_canon
-      in
-      if Callable.mask_equal mask next then Rewriter.return next
-      else normalize (Callable.mask_union seen mask) next
-  in
-  normalize [] mask
+  NamespaceEquations.normalize_required ~resolve:Masks.resolve_mask draft.equations mask
 
 (** Reify only summary metadata; callable bodies are never needed at a call site. *)
 let find_callable draft name =
@@ -302,6 +292,7 @@ let find_callable draft name =
         NamespaceContract.map_state_callable_summary
           ~name:(fun name -> Rewriter.return (requalify name))
           ~expr:(Rewriter.Expr.rewrite_qual_idents ~f:requalify)
+          ~typ:(Rewriter.Type.rewrite_qual_idents ~f:requalify)
           summary
       in
       let* requires = normalize_required draft summary.requires in
@@ -312,4 +303,4 @@ let find_callable draft name =
             let+ right = Masks.resolve_mask requirement.right in
             { requirement with left; right })
       in
-      Some { NamespaceContract.requires; grants; separation }
+      Some { summary with NamespaceContract.requires; grants; separation }

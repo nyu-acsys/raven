@@ -144,3 +144,8 @@
  (name namespace_closure)
  (modules namespace_closure)
  (libraries raven base))
+
+(test
+ (name namespace_realization)
+ (modules namespace_realization)
+ (libraries raven base))

@@ -37,6 +37,48 @@ let arguments symbol formals =
   List.map formals ~f:(fun formal ->
       QualIdent.requalify subst (QualIdent.append owner formal.Module.mod_inst_name))
 
+(** Bind at the effective parameter path, after preceding ancestor substitutions. *)
+let bind_parameter symbol formal actual =
+  let path =
+    QualIdent.append (Rewriter.Symbol.orig_qid symbol) formal.Module.mod_inst_name
+    |> QualIdent.requalify (Rewriter.Symbol.subst symbol)
+  in
+  Rewriter.Symbol.extend_subst (path, QualIdent.to_list actual) symbol
+
+(** Project a typed parent header onto this implementation's namespace. *)
+let realize_parent ~owner (parent, actuals) =
+  let open Rewriter.Syntax in
+  let* _, symbol = Rewriter.resolve_and_find parent in
+  let formals =
+    if Rewriter.Symbol.is_module_instance symbol then [] else declared_parameters symbol
+  in
+  let actuals =
+    match actuals with
+    | [] ->
+        List.map formals ~f:(fun formal ->
+            QualIdent.append owner formal.Module.mod_inst_name)
+    | actuals ->
+        List.map actuals ~f:(function
+          | Module.ModArg actual -> actual
+          | TypeArg _ ->
+              Error.internal_error (QualIdent.to_loc parent)
+                "Expected a typed parent argument")
+  in
+  let symbol =
+    match
+      List.fold2 formals actuals ~init:symbol ~f:(fun symbol formal actual ->
+          bind_parameter symbol formal actual)
+    with
+    | Ok symbol -> symbol
+    | Unequal_lengths ->
+        Error.internal_error (QualIdent.to_loc parent)
+          "Inconsistent typed parent parameters"
+  in
+  let source =
+    QualIdent.requalify (Rewriter.Symbol.subst symbol) (Rewriter.Symbol.orig_qid symbol)
+  in
+  Rewriter.return (Rewriter.Symbol.extend_subst (source, QualIdent.to_list owner) symbol)
+
 let functor_interface_arguments ~loc ~interface target =
   let open Rewriter.Syntax in
   let rec project seen symbol =
@@ -985,10 +1027,7 @@ let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_iden
                             requalify formal.mod_inst_type)
                       in
                       let+ () = check_module_type arg_qi formal_iface in
-                      Rewriter.Symbol.extend_subst
-                        ( QualIdent.append qual_interface_ident formal.mod_inst_name,
-                          QualIdent.to_list arg_qi )
-                        sym)
+                      bind_parameter sym formal arg_qi)
               | Unequal_lengths ->
                   arg_mismatch_error "Interface" (QualIdent.to_loc mid) (Type.Var mid)
                     (List.length formals))

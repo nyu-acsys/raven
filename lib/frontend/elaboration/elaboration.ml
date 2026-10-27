@@ -1222,7 +1222,11 @@ let rec elaborate_phase_2 ?(namespace_contracts = false) (m : Module.t) :
       m1 "Elaboration.elaborate_phase_2: Starting rewrite_atomicity_analysis on module %a"
         Ident.pr m.mod_decl.mod_decl_name);
   let* m =
-    if namespace_contracts then NamespaceClosure.elaborate m
+    if namespace_contracts then
+      let* collected = NamespaceClosure.collect m in
+      let* draft = NamespaceClosure.close collected in
+      let* m = NamespaceClosure.freeze draft collected.program in
+      NamespaceRealization.validate ~draft m
     else
       Rewriter.Module.rewrite_callables ~f:AtomicityAnalysis.rewrite_atomicity_analysis m
   in
@@ -1286,7 +1290,7 @@ let rewrites_stmt_ext (m : Module.t) : Module.t Rewriter.t =
 
   Rewriter.return m
 
-(* Namespace contracts remain an internal opt-in until realization validation exists;
+(* Namespace contracts remain an internal opt-in pending full regression integration;
    every compilation unit in a run must use the same mode. *)
 
 (** Elaborates [m] into the core language and adds the proof obligations of its funcs'

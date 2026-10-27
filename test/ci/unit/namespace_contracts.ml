@@ -38,6 +38,8 @@ let test_collapsing_substitution () =
           [
             ( id "call",
               {
+                formals = [];
+                returns = [];
                 requires = Callable.mask_union left right;
                 grants = left;
                 separation = [ requirement left right ];
@@ -85,6 +87,7 @@ let rename =
 
 let named_type name = Type.mk_app (Var name) []
 let formal = Type.mk_var_decl ~loc (id "x") (named_type (source "T"))
+let returned = Type.mk_var_decl ~loc (id "result") (named_type (source "T"))
 
 let argument =
   Expr.mk_app ~typ:formal.var_type (Var (source "value")) [ Expr.from_var_decl formal ]
@@ -101,7 +104,16 @@ let higher_order_summary () =
         namespaces = [ declaration ];
         separation = [ requirement region [ own [ "Source"; "I" ] [] ] ];
         callables =
-          [ (id "call", { requires = region; grants = region; separation = [] }) ];
+          [
+            ( id "call",
+              {
+                formals = [ formal ];
+                returns = [ returned ];
+                requires = region;
+                grants = region;
+                separation = [];
+              } );
+          ];
         modules = [];
       }
   in
@@ -128,6 +140,12 @@ let check_higher_order = function
               let transformed = List.hd_exn declaration.formals in
               assert (Ident.equal transformed.var_name formal.var_name);
               assert (Type.equal transformed.var_type (named_type (target "T")));
+              List.iter
+                [ (callable.formals, formal); (callable.returns, returned) ]
+                ~f:(fun (binders, original) ->
+                  let binder = List.hd_exn binders in
+                  assert (Ident.equal binder.var_name original.Type.var_name);
+                  assert (Type.equal binder.var_type (named_type (target "T"))));
               let expected =
                 Expr.mk_app ~typ:transformed.var_type
                   (Var (target "value"))

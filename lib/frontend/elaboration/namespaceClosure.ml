@@ -185,11 +185,12 @@ let find_module_contract name =
 
 type freezing = Building | Frozen of Module.t
 
-let freeze draft program =
+let freeze ?(refresh = false) ?(requirements = Map.empty (module QualIdent)) draft program
+    =
   let open Rewriter.Syntax in
   let root = QualIdent.from_ident program.Module.mod_decl.mod_decl_name in
   let rec index name m modules =
-    if Option.is_some m.Module.mod_decl.mod_decl_mask_contract then
+    if (not refresh) && Option.is_some m.Module.mod_decl.mod_decl_mask_contract then
       Error.internal_error m.mod_decl.mod_decl_loc
         "A module namespace contract was frozen twice";
     List.fold m.mod_def ~init:(Map.set modules ~key:name ~data:m)
@@ -291,6 +292,10 @@ let freeze draft program =
           | NamespaceContract.Module summary ->
               Requirements.union separation summary.separation
           | Functor _ -> separation)
+    in
+    let separation =
+      Requirements.union separation
+        (Option.value (Map.find requirements owner) ~default:[])
     in
     let definitions =
       List.map definitions ~f:(function
