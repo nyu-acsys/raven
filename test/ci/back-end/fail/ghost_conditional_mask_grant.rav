@@ -1,0 +1,14 @@
+inv instance(x: Int) { true }
+
+lemma make(ghost x: Int)
+  ensures instance(x)
+{
+  fold instance(x);
+}
+
+lemma use(ghost x: Int, ghost branch: Bool)
+{
+  if (branch) {} else { make(x); }
+  unfold instance(x);
+  fold instance(x);
+}

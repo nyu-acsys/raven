@@ -790,11 +790,12 @@ let recover ?(poison : Ident.t option) ~(fallback : 'a) (m : ('a, 'b) t_ext) :
       SymbolTbl.close_recovery_point s.state_table checkpoint;
       raise exn
 
-let eval_with_user_state ~init (f : 'a state -> 'a state * 'b) : 'b t =
+let eval_with_user_state ~init (f : 'a state -> 'a state * 'b) : ('b, 'c) t_ext =
  fun st ->
+  let previous = st.state_user_data in
   let st, v = f { st with state_user_data = init } in
 
-  let st = { st with state_user_data = () } in
+  let st = { st with state_user_data = previous } in
   (st, v)
 
 let init s _ = (s, ())

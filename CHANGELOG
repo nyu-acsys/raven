@@ -36,6 +36,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Ghost conditionals retain invariant mask credit only when both branches provide it.
 - Resolve invariant aliases in masks after functor instantiation.
 - Higher-order functor arguments must preserve input constraints and parameter-to-result mappings.
 - Atomic token types and bindings require a procedure with a logically atomic specification.

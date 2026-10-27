@@ -134,3 +134,8 @@
  (name field_aliases_api)
  (modules field_aliases_api)
  (libraries raven raven-ivl.api base))
+
+(test
+ (name namespace_atomicity)
+ (modules namespace_atomicity)
+ (libraries raven base))

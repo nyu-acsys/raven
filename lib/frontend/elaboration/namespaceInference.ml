@@ -254,3 +254,34 @@ let infer ?(namespaces = []) program =
   let+ namespaces = complete_namespaces state in
   let equations = NamespaceEquations.solve (Map.data namespaces) in
   { namespaces; equations; callables = Map.map state.seeds ~f:(summarize equations) }
+
+(** Reify only summary metadata; callable bodies are never needed at a call site. *)
+let find_callable draft name =
+  let open Rewriter.Syntax in
+  let* _, symbol = Rewriter.resolve_and_find name in
+  let original = Rewriter.Symbol.orig_qid symbol in
+  match Map.find draft.callables original with
+  | None -> Rewriter.return None
+  | Some summary ->
+      let requalify = QualIdent.requalify (Rewriter.Symbol.subst symbol) in
+      let* summary =
+        NamespaceContract.map_state_callable_summary
+          ~name:(fun name -> Rewriter.return (requalify name))
+          ~expr:(Rewriter.Expr.rewrite_qual_idents ~f:requalify)
+          summary
+      in
+      let* requires = Masks.resolve_mask summary.requires in
+      let* grants = Masks.resolve_mask summary.grants in
+      let+ separation =
+        Rewriter.List.map summary.separation ~f:(fun requirement ->
+            let* left = Masks.resolve_mask requirement.NamespaceContract.left in
+            let+ right = Masks.resolve_mask requirement.right in
+            { requirement with left; right })
+      in
+      Some
+        {
+          NamespaceContract.requires =
+            NamespaceEquations.expand_required draft.equations requires;
+          grants;
+          separation;
+        }

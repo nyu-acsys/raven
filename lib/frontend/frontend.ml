@@ -7,3 +7,4 @@ module Typing = Typing
 module Elaboration = Elaboration
 module NamespaceEquations = NamespaceEquations
 module NamespaceInference = NamespaceInference
+module AtomicityAnalysis = AtomicityAnalysis
