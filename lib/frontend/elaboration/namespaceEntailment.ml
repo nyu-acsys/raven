@@ -48,9 +48,21 @@ let canonical_name ?(rename = Fn.id) name =
 
 let canonical_mask ?(rename = Fn.id) mask =
   let open Rewriter.Syntax in
+  let* table = Rewriter.get_table in
+  (* Argument aliases share values without identifying abstract module owners. *)
+  let canonical_argument name =
+    let name = rename name in
+    if QualIdent.is_qualified name then
+      SymbolTbl.identity ~preserve_abstract_owners:true name table
+    else name
+  in
   let+ mask =
     Rewriter.List.map mask ~f:(fun (head, args) ->
-        let+ name = canonical_name ~rename (Callable.mask_head_name head) in
+        let* name = canonical_name ~rename (Callable.mask_head_name head) in
+        let+ args =
+          Rewriter.List.map args
+            ~f:(Rewriter.Expr.rewrite_qual_idents ~f:canonical_argument)
+        in
         (Callable.map_mask_head ~f:(fun _ -> name) head, args))
   in
   Callable.mask_canon mask

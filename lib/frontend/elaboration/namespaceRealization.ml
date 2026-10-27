@@ -129,35 +129,12 @@ let align_callable (actual : NamespaceContract.callable_summary)
     ~expr:(fun expression -> Expr.alpha_renaming expression renaming)
     ~typ:Fn.id expected
 
-(* Grant identities stay exact, but aliases in their argument expressions share a value. *)
-let canonical_grant_mask ?(rename = Fn.id) mask =
-  let open Rewriter.Syntax in
-  let* table = Rewriter.get_table in
-  let canonical_name name =
-    let name = rename name in
-    if QualIdent.is_qualified name then
-      SymbolTbl.identity ~preserve_abstract_owners:true name table
-    else name
-  in
-  let* mask = Entailment.canonical_mask ~rename mask in
-  let+ mask =
-    Rewriter.List.map mask ~f:(fun (head, args) ->
-        let+ args =
-          Rewriter.List.map args
-            ~f:
-              (Rewriter.Expr.rewrite_qual_idents_m ~f:(fun name ->
-                   Rewriter.return (canonical_name name)))
-        in
-        (head, args))
-  in
-  Callable.mask_canon mask
-
 let grants_cover ?(rename = Fn.id) context ~assumptions provided promised =
   let open Rewriter.Syntax in
   let check assumptions required =
     let* available = Entailment.available_grants ~rename context ~assumptions provided in
-    let* available = canonical_grant_mask ~rename available in
-    let+ required = canonical_grant_mask ~rename required in
+    let* available = Entailment.canonical_mask ~rename available in
+    let+ required = Entailment.canonical_mask ~rename required in
     Entailment.covered ~by:available required
   in
   let* unconditional = check assumptions promised.NamespaceContract.grants in

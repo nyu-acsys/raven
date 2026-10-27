@@ -1,0 +1,50 @@
+module CellT { free type T }
+
+module Source {
+  free inv shared(x: CellT.T)
+  free proc touch(x: CellT.T)
+    requires shared(x)
+    ensures shared(x)
+}
+
+module World[T: Library.Type] {
+  interface Argument {
+    type Value = World.T
+    inv shared(x: Argument.Value)
+    proc touch(x: Argument.Value)
+      requires Argument.shared(x)
+      ensures Argument.shared(x)
+  }
+
+  interface Shape {
+    module Data {
+      type T = data { case item(cell: World.T, other: World.T) }
+    }
+  }
+
+  module Fresh() : World.Shape {}
+
+  module Generic[P: World.Argument, Layout: World.Shape] {
+    proc touch(item: World.Generic.Layout.Data.T)
+      requires World.Generic.P.shared(item.cell)
+      ensures World.Generic.P.shared(item.cell)
+    { World.Generic.P.touch(item.cell); }
+  }
+}
+
+module Selected : World = World[CellT.T]
+module Layout : Selected.Fresh = Selected.Fresh()
+
+module Checked : Selected.Argument {
+  inv shared(x: CellT.T) = Source.shared
+  proc touch(x: CellT.T)
+    requires Source.shared(x)
+    ensures Source.shared(x)
+  { Source.touch(x); }
+}
+
+module Applied : Selected.Generic = Selected.Generic[Checked, Layout]
+
+proc bad(item: Layout.Data.T)
+  requires Source.shared(item.other)
+{ Applied.touch(item); }
