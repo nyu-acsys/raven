@@ -172,6 +172,17 @@ let concrete_origin table name =
           && Option.is_none definition.mod_decl.mod_decl_sealed_target
       | _ -> true)
 
+let defined_invariant_origin table name =
+  match Map.find table.SymbolTbl.tbl_symbols name with
+  | Some
+      (Module.CallDef
+         {
+           call_decl = { call_decl_kind = Invariant; call_decl_alias = None; _ };
+           call_def = FuncDef { func_body = Some _ };
+         }) ->
+      true
+  | _ -> false
+
 let ground table name =
   let rec check seen name =
     if Set.mem seen name then false
@@ -212,8 +223,10 @@ let rigid table left right =
               (SymbolTbl.goto right table) )
         with
         | Some (source_left, _, _, _), Some (source_right, _, _, _) ->
-            concrete_origin table source_left
-            && concrete_origin table source_right
+            (concrete_origin table source_left
+            || defined_invariant_origin table source_left)
+            && (concrete_origin table source_right
+               || defined_invariant_origin table source_right)
             && ((not (QualIdent.equal source_left source_right))
                || (ground table left && ground table right))
         | _ -> false
@@ -283,6 +296,7 @@ and mentions ?(rename = Fn.id) ?(conservative = false) ~roots mask =
   let open Rewriter.Syntax in
   if Set.is_empty roots then Rewriter.return false
   else
+    let original_mask = mask in
     let* mask = canonical_mask ~rename mask in
     let+ table = Rewriter.get_table in
     let rec depends seen name =
@@ -316,5 +330,5 @@ and mentions ?(rename = Fn.id) ?(conservative = false) ~roots mask =
                       let actual = QualIdent.from_list actual in
                       (not (Module.is_unit_parameter_path actual)) && depends seen actual)
     in
-    List.exists mask ~f:(fun (head, _) ->
+    List.exists (original_mask @ mask) ~f:(fun (head, _) ->
         depends (Set.empty (module QualIdent)) (Callable.mask_head_name head))

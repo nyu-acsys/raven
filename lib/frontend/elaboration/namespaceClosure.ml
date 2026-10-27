@@ -287,11 +287,18 @@ let freeze ?(refresh = false) ?(requirements = Map.empty (module QualIdent)) dra
           Requirements.union separation summary.NamespaceContract.separation)
     in
     let separation =
-      List.fold modules ~init:separation ~f:(fun separation (_, contract) ->
+      List.fold modules ~init:separation ~f:(fun separation (name, contract) ->
+          let interface =
+            List.exists definitions ~f:(function
+              | Module.SymbolDef (ModDef child) ->
+                  Ident.equal name child.mod_decl.mod_decl_name
+                  && child.mod_decl.mod_decl_is_interface
+              | _ -> false)
+          in
           match contract with
-          | NamespaceContract.Module summary ->
+          | NamespaceContract.Module summary when not interface ->
               Requirements.union separation summary.separation
-          | Functor _ -> separation)
+          | Module _ | Functor _ -> separation)
     in
     let separation =
       Requirements.union separation
@@ -317,12 +324,17 @@ let freeze ?(refresh = false) ?(requirements = Map.empty (module QualIdent)) dra
                  })
         | definition -> definition)
     in
+    let modules = List.rev modules in
+    let parameter_members =
+      List.filter parameters ~f:(fun (name, _) ->
+          not (List.Assoc.mem modules name ~equal:Ident.equal))
+    in
     let result =
       NamespaceContract.Module
         {
           namespaces = List.rev namespaces;
           callables = List.rev callables;
-          modules = List.rev modules;
+          modules = parameter_members @ modules;
           separation;
         }
     in

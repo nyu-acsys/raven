@@ -129,6 +129,40 @@ let align_callable (actual : NamespaceContract.callable_summary)
     ~expr:(fun expression -> Expr.alpha_renaming expression renaming)
     ~typ:Fn.id expected
 
+let normalized_formals (summary : NamespaceContract.callable_summary) =
+  let open Rewriter.Syntax in
+  let+ types =
+    Rewriter.List.map summary.formals ~f:(fun formal ->
+        CandidateTypes.normalize ~lookup:CandidateTypes.lookup formal.Type.var_type)
+  in
+  Result.all types
+
+let matching_callable actual name promised =
+  let open Rewriter.Syntax in
+  let candidates =
+    List.filter actual ~f:(fun (candidate, _) ->
+        String.equal (Ident.name candidate) (Ident.name name))
+  in
+  match candidates with
+  | [] -> Rewriter.return None
+  | [ (_, provided) ] -> Rewriter.return (Some provided)
+  | candidates ->
+      let* expected = normalized_formals promised in
+      begin match expected with
+      | Error _ -> Rewriter.return None
+      | Ok expected ->
+          let+ candidates =
+            Rewriter.List.map candidates ~f:(fun (_, provided) ->
+                let+ actual = normalized_formals provided in
+                match actual with
+                | Ok actual when List.equal Type.equal actual expected -> Some provided
+                | Ok _ | Error _ -> None)
+          in
+          let matches = List.filter_opt candidates in
+          begin match matches with [ provided ] -> Some provided | _ -> None
+          end
+      end
+
 let signature_error loc message =
   Error.type_error loc ("Incompatible module namespace contracts: " ^ message)
 
@@ -185,10 +219,19 @@ let rec compatible ~declarations ~owner ~loc environment ~actual_path ~expected_
       in
       let* () =
         Rewriter.List.iter expected.callables ~f:(fun (name, promised) ->
-            match List.Assoc.find actual.callables name ~equal:Ident.equal with
+            let* provided = matching_callable actual.callables name promised in
+            match provided with
             | None -> signature_error loc "a callable summary is missing"
             | Some provided ->
                 let promised = align_callable provided promised in
+                let abstract_resource =
+                  List.exists expected.namespaces ~f:(fun declaration ->
+                      QualIdent.equal declaration.name (QualIdent.append actual_path name)
+                      &&
+                      match declaration.definition with
+                      | Abstract -> true
+                      | Defined _ -> false)
+                in
                 let* required =
                   Entailment.normalize_mask ~rename context provided.requires
                 in
@@ -199,7 +242,9 @@ let rec compatible ~declarations ~owner ~loc environment ~actual_path ~expected_
                 let* promised_grants =
                   Entailment.canonical_mask ~rename promised.grants
                 in
-                if not (Entailment.covered ~by:allowed required) then
+                if
+                  (not abstract_resource) && not (Entailment.covered ~by:allowed required)
+                then
                   signature_error loc
                     ("the required mask of " ^ Ident.to_string name
                    ^ " exceeds the promised mask")

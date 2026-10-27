@@ -1,10 +1,7 @@
   $ dune exec -- raven --shh ./invariant_defined_formal_reentrancy.rav
+  [Error] Type Error: Cannot establish invariant namespace separation between Actual.shared and Actual.shared
   [Error] File "./invariant_defined_formal_reentrancy.rav", line 20, columns 4-17:
   20 |     P.consume(x);
            ^^^^^^^^^^^^^
-  Verification Error: Missing fold for unfolded invariant shared(x).
-  [Error] File "./invariant_defined_formal_reentrancy.rav", line 19, columns 4-28:
-  19 |     unfold Actual.shared(x);
-           ^^^^^^^^^^^^^^^^^^^^^^^^
-  Related Location: shared(x) was unfolded here.
+  Related Location: This generic check requires the namespaces to be disjoint.
   [1]

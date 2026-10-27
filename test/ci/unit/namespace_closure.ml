@@ -234,6 +234,54 @@ let test_aliases_exposed_by_imported_equations () =
   in
   assert (List.is_empty (assertions body))
 
+let test_realization_preserves_bodies () =
+  let _, tbl, typed = parse cyclic_source in
+  let tbl, collected = Rewriter.eval (Closure.collect typed) tbl in
+  let tbl, draft = Rewriter.eval (Closure.close collected) tbl in
+  let tbl, frozen = Rewriter.eval (Closure.freeze draft collected.program) tbl in
+  let bodies program =
+    let rec gather owner program bodies =
+      List.fold program.Module.mod_def ~init:bodies ~f:(fun bodies -> function
+        | Module.SymbolDef (CallDef call) ->
+            Map.set bodies
+              ~key:(QualIdent.append owner call.call_decl.call_decl_name)
+              ~data:call.call_def
+        | SymbolDef (ModDef child) ->
+            gather (QualIdent.append owner child.mod_decl.mod_decl_name) child bodies
+        | SymbolDef
+            (ModInst _ | TypeDef _ | VarDef _ | FieldDef _ | ConstrDef _ | DestrDef _)
+        | Import _ ->
+            bodies)
+    in
+    gather
+      (QualIdent.from_ident program.Module.mod_decl.mod_decl_name)
+      program
+      (Map.empty (module QualIdent))
+  in
+  let before = bodies frozen in
+  let _, validated =
+    Rewriter.eval (Frontend.NamespaceRealization.validate ~draft frozen) tbl
+  in
+  assert (Map.equal phys_equal before (bodies validated))
+
+let test_conditional_interface_requirements () =
+  let _, tbl, typed =
+    parse
+      "interface Conditional { inv cell(x: Int) pred resource(x: Int) lemma helper(ghost \
+       x: Int) requires resource(x) {} lemma use(ghost x: Int) requires cell(x) && \
+       resource(x) { unfold cell(x); helper(x); fold cell(x); } }"
+  in
+  let tbl, collected = Rewriter.eval (Closure.collect typed) tbl in
+  let tbl, draft = Rewriter.eval (Closure.close collected) tbl in
+  let tbl, frozen = Rewriter.eval (Closure.freeze draft collected.program) tbl in
+  let root = module_summary (contract frozen) in
+  assert (List.is_empty root.separation);
+  let conditional = module_summary (child root "Conditional") in
+  assert (not (List.is_empty conditional.separation));
+  ignore
+    (Rewriter.eval (Frontend.NamespaceRealization.validate ~draft frozen) tbl
+      : SymbolTbl.t * Module.t)
+
 let test_standard_library_headers () =
   let ext_hooks = Ext.to_ext_hooks (Ext.module_map Ext.DefaultExt) in
   let source = String.concat ~sep:"\n" (List.map Library.library_sources ~f:snd) in
@@ -254,13 +302,27 @@ let test_forward_header_dependency () =
   | Module _ -> assert false
   | Functor summary -> assert (List.length summary.parameters = 1)
 
-let test_pipeline_opt_in () =
-  let ext_hooks = Ext.to_ext_hooks (Ext.module_map Ext.DefaultExt) in
-  let diagnostics, tbl, typed = parse "lemma use() { while (false) {} }" in
-  let _, default =
-    Frontend.Elaboration.elaborate_module ~ext_hooks ~tbl ~diagnostics typed
+let test_formal_nested_member () =
+  let _, tbl, typed =
+    parse
+      "interface Element { inv value() } interface Container { module E : Element } \
+       module Make[E: Element] : Container {}"
   in
-  assert (Option.is_none default.mod_decl.mod_decl_mask_contract);
+  let tbl, collected = Rewriter.eval (Closure.collect typed) tbl in
+  let tbl, draft = Rewriter.eval (Closure.close collected) tbl in
+  let tbl, frozen = Rewriter.eval (Closure.freeze draft collected.program) tbl in
+  let root = module_summary (contract frozen) in
+  let result =
+    match child root "Make" with
+    | Module _ -> assert false
+    | Functor summary -> module_summary summary.result
+  in
+  let element = module_summary (child result "E") in
+  assert (List.length element.namespaces = 1);
+  ignore (Rewriter.eval (Frontend.NamespaceRealization.validate ~draft frozen) tbl)
+
+let test_pipeline () =
+  let ext_hooks = Ext.to_ext_hooks (Ext.module_map Ext.DefaultExt) in
   let diagnostics, tbl, typed = parse "lemma use() { while (false) {} }" in
   let _, frozen =
     Frontend.Elaboration.elaborate_module ~namespace_contracts:true ~ext_hooks ~tbl
@@ -279,7 +341,10 @@ let () =
     test_prior_instantiated_compilation_unit ();
     test_module_binding_signatures ();
     test_forward_header_dependency ();
-    test_pipeline_opt_in ();
+    test_formal_nested_member ();
+    test_pipeline ();
+    test_conditional_interface_requirements ();
+    test_realization_preserves_bodies ();
     test_aliases_exposed_by_imported_equations ();
     test_standard_library_headers ()
   with

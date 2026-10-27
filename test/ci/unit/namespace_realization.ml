@@ -54,6 +54,12 @@ let test_fixed_namespaces () =
      lemma use(ghost x: Int) requires first(x) && second(x) {\n\
      unfold first(x); unfold second(x); fold second(x); fold first(x); }"
 
+let test_defined_interface_invariants () =
+  accept
+    "interface Defined { inv first(x: Int) { true } inv second(x: Int) { true } lemma \
+     use(ghost x: Int) requires first(x) && second(x) { unfold first(x); unfold \
+     second(x); fold second(x); fold first(x); } }"
+
 let test_aliases () =
   let actual right =
     regions ^ opening_functor
@@ -89,6 +95,11 @@ let test_unused_aliases () =
    ^ "inv hidden(x: Int) { true }\n\
       module Actual: Regions { inv i(x: Int) = hidden inv j(x: Int) = hidden }\n\
       module Unused[P: Regions] {} module Instance = Unused[Actual]")
+
+let test_abstract_resource_body () =
+  accept
+    "inv hidden() { true } interface Resource { inv exposed() }\n\
+     module Actual: Resource { inv exposed() { hidden() } }"
 
 let test_views () =
   let source binding right =
@@ -190,6 +201,15 @@ let test_callable_mask_variance () =
   expect_namespace_error (fun () -> compare "Stronger");
   expect_namespace_error (fun () -> compare "Weaker")
 
+let test_sealed_overload_selection () =
+  accept
+    "interface Element { rep type T }\n\
+     interface Public[E: Element] {\n\
+     func ++(a: E, b: E) returns (r: E) ensures r == a }\n\
+     module Operators[E: Element] :> Public[E] {\n\
+     func ++(a: Bool, b: Bool) returns (r: Bool) { a && b }\n\
+     func ++(a: E, b: E) returns (r: E) { a } }"
+
 let test_sealed_constructor_outputs () =
   let source unit collapsed =
     let signature, constructor, application =
@@ -241,16 +261,19 @@ let test_concrete_functor_formal () =
 let () =
   match
     test_fixed_namespaces ();
+    test_defined_interface_invariants ();
     test_aliases ();
     test_unit_freshness ();
     test_opaque_dependencies ();
     test_unused_aliases ();
+    test_abstract_resource_body ();
     test_views ();
     test_inheritance ();
     test_residual_application ();
     test_functor_requirements ();
     test_higher_order_application ();
     test_callable_mask_variance ();
+    test_sealed_overload_selection ();
     test_sealed_constructor_outputs ();
     test_concrete_module_formal ();
     test_concrete_functor_formal ()
