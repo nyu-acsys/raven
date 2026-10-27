@@ -216,11 +216,12 @@ different, more recursive, multi-step path internally.
 
 The opposite direction exists too, and is worth knowing about even though it isn't needed
 here: code that really does take several steps, which you want *treated* as one. This is
-`atomic { ... }`. Unlike everything else in this section, it is asserted rather than proved.
-By definition, Raven's semantics executes the block as a single step, and whether the target
-machine actually does so is up to you. It is how a hand-written atomic primitive discharges
-a contract like the one above, and more generally how any procedure stands in for something the
-target machine does indivisibly. {{ref sec:atomic-block-standalone}} covers it. Strict mode
+`atomic { ... }`, or `atomic proc` for a whole procedure body. Unlike everything else in this
+section, it is asserted rather than proved. By definition, Raven's semantics executes the block
+as a single step, and whether the target machine actually does so is up to you. It is how the
+library's primitives, such as `cas`, are written: as an `atomic proc` with an ordinary contract
+describing its one step, which needs no atomic update token, since there is no other step to
+hide. {{ref sec:anatomy}} and {{ref sec:atomic-block-standalone}} cover both forms. Strict mode
 flags this assumption; see {{ref sec:strict-mode}} for how to enable it in VS Code.
 
 ## Calling an atomic procedure during invariant accesses {#sec:atomic-call-during-invariant-access}

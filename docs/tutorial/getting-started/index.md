@@ -98,8 +98,8 @@ reports three kinds, introduced in later chapters:
 
 - Explicit `free` declarations, whose contracts are taken as given.
 - Termination of recursive functions and lemmas without a `decreases` clause.
-- Physical atomicity of `atomic { ... }` blocks, whose bodies are assumed to execute as a
-  single machine step.
+- Physical atomicity of `atomic { ... }` blocks and `atomic proc` bodies, which are assumed
+  to execute as a single machine step.
 
 Run **Raven: Verify File in Strict Mode** from the Command Palette to review these assumptions
 in the active file. This performs one strict check without changing your settings. To enable

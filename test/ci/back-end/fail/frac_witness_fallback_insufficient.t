@@ -3,8 +3,8 @@
   14 |   val b := cas(x.f, 1, 2)
          ^^^^^^^^^^^^^^^^^^^^^^^
   Verification Error: A precondition may not hold for this call.
-  [Error] File "lib/library/atomics.rav", line 59, columns 20-36:
-  59 |     atomic requires own(x.A.f, v, q) && (v == old_val ? q == 1.0 : q > 0)
-                           ^^^^^^^^^^^^^^^^
+  [Error] File "lib/library/atomics.rav", line 57, columns 13-29:
+  57 |     requires own(x.A.f, v, q) && (v == old_val ? q == 1.0 : q > 0)
+                    ^^^^^^^^^^^^^^^^
   Related Location: This own predicate may not hold.
   [1]

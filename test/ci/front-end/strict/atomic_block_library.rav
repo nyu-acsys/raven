@@ -1,15 +1,15 @@
-// The standard library's atomic primitives are each built on an `atomic { ... }`
-// block, so a program that merely *calls* one -- this file -- risks picking up
-// warnings about code it did not write. It doesn't: the standard library is
-// loaded with every concrete proc's body stripped before type-checking even
-// begins (the library is trusted, not reverified per program), so the embedded
-// `cas`'s `atomic` block never exists as far as this analysis is concerned.
+// The standard library's atomic primitives are each an `atomic proc`, whose body
+// is assumed to be one machine step, so a program that merely *calls* one -- this
+// file -- risks picking up warnings about code it did not write. It doesn't: the
+// standard library is loaded with every concrete proc's body stripped before
+// type-checking even begins (the library is trusted, not reverified per program),
+// so the embedded `cas`'s body never exists as far as this analysis is concerned.
 // There is nothing to warn about, not merely something suppressed.
 //
 // Compare atomic_block.rav, where the block is the user's own and is flagged.
 // Checking lib/library/atomics.rav *directly as a program* (rather than
 // importing it) sidesteps the free-marking above entirely -- its bodies are
-// then intact and its blocks are warned about under `--strict` like any other
+// then intact and warned about under `--strict` like any other
 // input; see lib/library/library.t.
 
 import Library.Atomics._

@@ -16,29 +16,21 @@ module MaxOps[A: Library.IntField] {
   //    names the field being operated on. The declaration then reads the way the
   //    call site does.
   //
-  // 2. The contract is *logically* atomic (`atomic requires` / `atomic ensures`),
-  //    so a caller may hold an invariant open across the call and commit at the
-  //    linearization point.
+  // 2. `atomic proc` makes the body *physically* atomic: the read and the
+  //    conditional write below count as one machine step, so a caller may hold
+  //    an invariant open across the call.
   //
-  // 3. The body is *physically* atomic (`atomic { ... }`), so the three
-  //    statements below count as the one machine step the contract promises.
+  // 3. The contract is an ordinary one, describing that one step.
   //
   // `v` is an implicit ghost: the caller never passes it, and the value in the
-  // field at the linearization point is solved for at the call site.
-  proc fetch_and_max(x.A.f, n: Int, implicit ghost v: Int)
+  // field is solved for at the call site.
+  atomic proc fetch_and_max(x.A.f, n: Int, implicit ghost v: Int)
     returns (old_val: Int)
-    atomic requires own(x.A.f, v, 1.0)
-    atomic ensures  own(x.A.f, v > n ? v : n, 1.0) && old_val == v
+    requires own(x.A.f, v, 1.0)
+    ensures own(x.A.f, v > n ? v : n, 1.0) && old_val == v
   {
-    atomic {
-      ghost val phi := bindAU();
-      v := openAU(phi);
-
-      old_val := x.A.f;
-      if (old_val < n) { x.A.f := n; }
-
-      commitAU(phi, old_val);
-    }
+    old_val := x.A.f;
+    if (old_val < n) { x.A.f := n; }
   }
 }
 

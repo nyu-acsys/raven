@@ -58,7 +58,7 @@
     separate clauses with adjacent ownership transfers fuse. Add a regression
     covering both forms; consider dependency-safe fusion across intervening pure
     assertions separately.
-- [ ] Update the tutorial discussion of atomic operations and the Atomics library
+- [x] Update the tutorial discussion of atomic operations and the Atomics library
     to use `atomic proc`.
 
 21 oct, 2026:

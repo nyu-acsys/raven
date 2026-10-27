@@ -3,14 +3,12 @@
 // Nothing here is privileged: a user needing a primitive this file does not
 // provide writes it the same way, with nothing to change in the verifier.
 //
-// Three things carry the encoding. Each contract is *logically* atomic, so a caller
-// may open an invariant around the call and commit at the linearization point. Each
-// body is *physically* atomic -- a read plus a conditional write, which the hardware
-// collapses into one instruction -- and the `atomic { ... }` block is what lets the
-// second discharge the first; without it the body takes several steps and could not
-// commit an atomic update. The field each primitive operates on arrives through the
-// module parameter, and a caller never names an instance: the parameter is solved
-// from the field its location argument names.
+// Each primitive is an `atomic proc`: its body -- a read plus a conditional write,
+// which the hardware collapses into one instruction -- is one physical step, so a
+// caller may open an invariant or atomic update around the call. The contract is
+// an ordinary one, describing that step. The field each primitive operates on
+// arrives through the module parameter, and a caller never names an instance: the
+// parameter is solved from the field its location argument names.
 //
 // Import what you need; nothing here is in scope by default.
 //
@@ -54,67 +52,46 @@ module Atomics[A: AtomicField] {
 
   // Compare-and-swap: write `new_val` if the field holds `old_val`, and report
   // whether it did.
-  proc cas(x.A.f, old_val: A.E, new_val: A.E, implicit ghost v: A.E, implicit ghost q: Real)
+  atomic proc cas(x.A.f, old_val: A.E, new_val: A.E, implicit ghost v: A.E, implicit ghost q: Real)
     returns (b: Bool)
-    atomic requires own(x.A.f, v, q) && (v == old_val ? q == 1.0 : q > 0)
-    atomic ensures  own(x.A.f, v == old_val ? new_val : v, q)
-                 && b == (v == old_val)
+    requires own(x.A.f, v, q) && (v == old_val ? q == 1.0 : q > 0)
+    ensures own(x.A.f, v == old_val ? new_val : v, q)
+          && b == (v == old_val)
   {
-    atomic {
-      ghost val phi := bindAU();
-      v, q := openAU(phi);
-
-      val cur: A.E := x.A.f;
-      if (cur == old_val) {
-        x.A.f := new_val;
-        b := true;
-      } else {
-        b := false;
-      }
-
-      commitAU(phi, b);
+    val cur: A.E := x.A.f;
+    if (cur == old_val) {
+      x.A.f := new_val;
+      b := true;
+    } else {
+      b := false;
     }
   }
 
   // As `cas`, but also reports the value it found. That extra value is the only
   // difference between the two.
-  proc cmpxchg(x.A.f, old_val: A.E, new_val: A.E, implicit ghost v: A.E, implicit ghost q: Real)
+  atomic proc cmpxchg(x.A.f, old_val: A.E, new_val: A.E, implicit ghost v: A.E, implicit ghost q: Real)
     returns (res: (A.E, Bool))
-    atomic requires own(x.A.f, v, q) && (v == old_val ? q == 1.0 : q > 0)
-    atomic ensures  own(x.A.f, v == old_val ? new_val : v, q)
-                 && res == (v, v == old_val)
+    requires own(x.A.f, v, q) && (v == old_val ? q == 1.0 : q > 0)
+    ensures own(x.A.f, v == old_val ? new_val : v, q)
+          && res == (v, v == old_val)
   {
-    atomic {
-      ghost val phi := bindAU();
-      v, q := openAU(phi);
-
-      val cur: A.E := x.A.f;
-      if (cur == old_val) {
-        x.A.f := new_val;
-        res := (cur, true);
-      } else {
-        res := (cur, false);
-      }
-
-      commitAU(phi, res);
+    val cur: A.E := x.A.f;
+    if (cur == old_val) {
+      x.A.f := new_val;
+      res := (cur, true);
+    } else {
+      res := (cur, false);
     }
   }
 
   // Unconditional swap, returning the value replaced.
-  proc xchg(x.A.f, new_val: A.E, implicit ghost v: A.E)
+  atomic proc xchg(x.A.f, new_val: A.E, implicit ghost v: A.E)
     returns (old_val: A.E)
-    atomic requires own(x.A.f, v, 1.0)
-    atomic ensures  own(x.A.f, new_val, 1.0) && old_val == v
+    requires own(x.A.f, v, 1.0)
+    ensures own(x.A.f, new_val, 1.0) && old_val == v
   {
-    atomic {
-      ghost val phi := bindAU();
-      v := openAU(phi);
-
-      old_val := x.A.f;
-      x.A.f := new_val;
-
-      commitAU(phi, old_val);
-    }
+    old_val := x.A.f;
+    x.A.f := new_val;
   }
 }
 
@@ -125,19 +102,12 @@ module Atomics[A: AtomicField] {
 module IntAtomics[A: IntField] : Atomics[A] {
 
   // Fetch-and-add, returning the value before the addition.
-  proc faa(x.A.f, n: Int, implicit ghost v: Int)
+  atomic proc faa(x.A.f, n: Int, implicit ghost v: Int)
     returns (old_val: Int)
-    atomic requires own(x.A.f, v, 1.0)
-    atomic ensures  own(x.A.f, v + n, 1.0) && old_val == v
+    requires own(x.A.f, v, 1.0)
+    ensures own(x.A.f, v + n, 1.0) && old_val == v
   {
-    atomic {
-      ghost val phi := bindAU();
-      v := openAU(phi);
-
-      old_val := x.A.f;
-      x.A.f := old_val + n;
-
-      commitAU(phi, old_val);
-    }
+    old_val := x.A.f;
+    x.A.f := old_val + n;
   }
 }

@@ -16,7 +16,7 @@ machine-free, so its bodies are never re-verified in a user's program -- is what
 makes covering it here worth doing.
 
 Checked as an ordinary program rather than imported, its bodies are intact and
-genuinely reverified, so `--strict` warns about its four `atomic { ... }` blocks
+genuinely reverified, so `--strict` warns about the bodies of its four `atomic proc`s
 exactly as it would for any other input -- the four primitives are library code,
 not privileged, and take on the same trust obligation any hand-written one does.
 When the same file is instead loaded as the standard library (the ordinary case,
@@ -24,21 +24,21 @@ every other test in this repo), those bodies are stripped before type-checking
 and the warnings cannot occur at all; see test/ci/front-end/strict/atomic_block_library.rav.
 
   $ dune exec -- raven --shh --strict ./atomics.rav
-  [Warning] File "./atomics.rav", line 63, column 4 to line 76, column 5:
-  63 |     atomic {
-           ^^^^^^^^
+  [Warning] File "./atomics.rav", line 60, column 2 to line 68, column 3:
+  60 |   {
+         ^
   this `atomic` block's body is assumed to be a single machine step, not checked; Raven has no model of the target machine to verify that against
-  [Warning] File "./atomics.rav", line 87, column 4 to line 100, column 5:
-  87 |     atomic {
-           ^^^^^^^^
+  [Warning] File "./atomics.rav", line 77, column 2 to line 85, column 3:
+  77 |   {
+         ^
   this `atomic` block's body is assumed to be a single machine step, not checked; Raven has no model of the target machine to verify that against
-  [Warning] File "./atomics.rav", line 109, column 4 to line 117, column 5:
-  109 |     atomic {
-            ^^^^^^^^
+  [Warning] File "./atomics.rav", line 92, column 2 to line 95, column 3:
+  92 |   {
+         ^
   this `atomic` block's body is assumed to be a single machine step, not checked; Raven has no model of the target machine to verify that against
-  [Warning] File "./atomics.rav", line 133, column 4 to line 141, column 5:
-  133 |     atomic {
-            ^^^^^^^^
+  [Warning] File "./atomics.rav", line 109, column 2 to line 112, column 3:
+  109 |   {
+          ^
   this `atomic` block's body is assumed to be a single machine step, not checked; Raven has no model of the target machine to verify that against
   Verification successful.
 

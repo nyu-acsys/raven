@@ -1,12 +1,11 @@
 # Adding a Hardware Primitive
 
 *Assumes: {{ref sec:threads-and-atomics}} (atomic heap operations), Part 3 (interfaces and
-functors), and {{ref sec:au-mechanics}} (atomic contracts and `bindAU`/`openAU`/
-`commitAU`).*
+functors), and Part 4's rule that an open invariant allows one atomic step.*
 
 Part 4 introduced `faa` as one of "the atomic heap operations the standard library provides",
 and mentioned in passing that none of them are built into the language. This appendix follows
-up on that remark. It shows what it takes to add a new one, which is a functor and about fifteen
+up on that remark. It shows what it takes to add a new one, which is a functor and about ten
 lines of ordinary Raven.
 
 This matters for more than convenience. A verifier whose atomic operations are fixed by its
@@ -15,17 +14,17 @@ a machine with a primitive Raven has never heard of (or a *restricted* version o
 one, or an operation that is atomic only on your target), you can write it in the language
 itself, and it is as much a first-class citizen as `cas`.
 
-The construct that makes this possible, `atomic { ... }`, is more general than the recipe in
-which it is introduced here. It declares that any multi-step computation counts as one physical
-step, anywhere in a program, and doesn't need a primitive or functor around it.
-{{ref sec:atomic-block-standalone}} covers that use on its own, and
-{{ref sec:trust-boundary}} covers what you are taking on by writing it.
+The construct that makes this possible is `atomic proc`, which declares that a procedure's
+whole body is one physical step. It is the procedure-level form of `atomic { ... }`, which
+declares the same of any multi-step computation, anywhere in a program, without a primitive or
+functor around it. {{ref sec:atomic-block-standalone}} covers that use on its own, and
+{{ref sec:trust-boundary}} covers what you are taking on by writing either.
 
 ## What the library gives you, and what it doesn't {#sec:what-the-library-gives}
 
 `Library.Atomics` provides `cas`, `cmpxchg` and `xchg` over any word-sized field.
 `Library.IntAtomics` adds `faa` and inherits the other three at `Int` fields. Neither is
-privileged. You can read the whole thing (about a hundred and thirty lines) with
+privileged. You can read the whole thing (about a hundred and ten lines) with
 
 ```
 raven --print-library-source lib/library/atomics.rav
@@ -60,44 +59,39 @@ rather than once per field it is ever used on.
 nothing else in the way. This is the library's own definition, verbatim:
 
 ```raven
-proc xchg(x.A.f, new_val: A.E, implicit ghost v: A.E)
+atomic proc xchg(x.A.f, new_val: A.E, implicit ghost v: A.E)
   returns (old_val: A.E)
-  atomic requires own(x.A.f, v, 1.0)
-  atomic ensures  own(x.A.f, new_val, 1.0) && old_val == v
+  requires own(x.A.f, v, 1.0)
+  ensures own(x.A.f, new_val, 1.0) && old_val == v
 {
-  atomic {
-    ghost val phi := bindAU();
-    v := openAU(phi);
-
-    old_val := x.A.f;
-    x.A.f := new_val;
-
-    commitAU(phi, old_val);
-  }
+  old_val := x.A.f;
+  x.A.f := new_val;
 }
 ```
 
-Four separate ingredients are at work here. It's worth looking at each of them individually,
-because each is useful on its own:
+Four separate ingredients are at work here. It's worth looking at each of them individually:
 
 **The location parameter, `x.A.f`.** It binds `x` as the `Ref` and names the field this
 operates on. It is a destructuring binder, not a new kind of value (the field still comes from
 the module parameter `A`), but it makes the declaration read the way the call site does.
 Callers may pass either `xchg(c.count, 1)` or a bare `Ref`.
 
-**The logically atomic contract.** `atomic requires` / `atomic ensures`, rather than plain
-`requires` / `ensures`, is what lets a caller hold an invariant open across the call and commit
-at the linearization point. {{ref sec:au-mechanics}} covers what that means and why
-the ordinary kind of contract is not enough.
+**The physically atomic procedure, `atomic proc`.** The body reads the field and then writes
+it: two steps. `atomic proc` declares that the whole body is a single machine step, as if it
+were wrapped in `atomic { ... }`. A call to it therefore counts as one atomic step, so a caller
+may make it while an invariant or atomic update is open, exactly like a field read or write.
+The body may open invariants itself, but only ones that are closed at the call: Raven checks
+at each call that the invariants the callee opens are still in the caller's mask.
 
-**The physically atomic body, `atomic { ... }`.** The body reads the field and then writes it:
-two steps. The contract promises one. The block is what reconciles them, declaring that the
-whole body is a single machine step. It is not specific to writing primitives. It is a general
-construct for asserting that a multi-step computation is one physical step, and
-{{ref sec:atomic-block-standalone}} uses it without any primitive involved.
+**The ordinary contract.** `requires` / `ensures` describe that one step: the state of the
+field before it and after it. Since the call is a single step, there is nothing between the two
+states for another thread to observe, and no need for the logically atomic contracts of
+{{ref sec:linearizability-to-client}}, with their `atomic requires` / `atomic ensures` and
+atomic update tokens. Those are for operations that take many physical steps but promise one
+logical one, such as a lock's `acquire`. An `atomic proc` cannot have them.
 
-**The implicit ghost `v`.** The caller never passes it. It stands for the value in the field at
-the linearization point, and is solved for at each call site.
+**The implicit ghost `v`.** The caller never passes it. It stands for the value in the field
+when the call is made, and is solved for at each call site from the precondition.
 
 ## Worked example: fetch-and-max {#sec:fetch-and-max}
 
@@ -106,20 +100,13 @@ Real hardware has a fetch-and-max, but Raven's library does not. Here is the who
 
 ```raven
 module MaxOps[A: Library.IntField] {
-  proc fetch_and_max(x.A.f, n: Int, implicit ghost v: Int)
+  atomic proc fetch_and_max(x.A.f, n: Int, implicit ghost v: Int)
     returns (old_val: Int)
-    atomic requires own(x.A.f, v, 1.0)
-    atomic ensures  own(x.A.f, v > n ? v : n, 1.0) && old_val == v
+    requires own(x.A.f, v, 1.0)
+    ensures own(x.A.f, v > n ? v : n, 1.0) && old_val == v
   {
-    atomic {
-      ghost val phi := bindAU();
-      v := openAU(phi);
-
-      old_val := x.A.f;
-      if (old_val < n) { x.A.f := n; }
-
-      commitAU(phi, old_val);
-    }
+    old_val := x.A.f;
+    if (old_val < n) { x.A.f := n; }
   }
 }
 ```
@@ -158,17 +145,15 @@ Two things are worth noticing about that client, because both are automation tha
 gets without asking for it.
 
 The call sits between `unfold` and `fold`, i.e. with the invariant open. This is legal because
-`fetch_and_max` has a logically atomic specification, so the atomicity analysis counts the call
-as *one* atomic step. How many physical steps the implementation takes doesn't matter here. The
-`atomic { ... }` block in the body is what lets the implementation meet that specification, but
-the client only relies on the contract. Add a second call in the same window and the atomicity
-analysis rejects the procedure. This is the same rule that governs `faa` in Part 4.
+`fetch_and_max` is an `atomic proc`, so the atomicity analysis counts the call as *one* atomic
+step, however many statements its body has. Add a second call in the same window and the
+atomicity analysis rejects the procedure. This is the same rule that governs `faa` in Part 4.
 
 And neither the `unfold` nor the `fold` supplies a witness for `n`. It would be easy to assume
 a hand-written primitive needs help here, and to write `fold water(c)[ n := ... ]` out of
 caution, but it does not. The value to fold back is read off the heap by the witness computation
-({{ref sec:witness-computation}}), from the `own` in your `atomic ensures`, exactly as it would
-be for any other procedure.
+({{ref sec:witness-computation}}), from the `own` in your `ensures`, exactly as it would be for
+any other procedure.
 
 ## Worked example: two locations at once {#sec:dcas}
 
@@ -180,36 +165,29 @@ resolved separately at the call site. From [`dcas.rav`](./dcas.rav):
 
 ```raven
 module DCas[A: Library.AtomicField, B: Library.AtomicField] {
-  proc dcas(x.A.f, y.B.f, old_a: A.E, new_a: A.E, old_b: B.E, new_b: B.E,
-            implicit ghost va: A.E, implicit ghost vb: B.E)
+  atomic proc dcas(x.A.f, y.B.f, old_a: A.E, new_a: A.E, old_b: B.E, new_b: B.E,
+                   implicit ghost va: A.E, implicit ghost vb: B.E)
     returns (b: Bool)
-    atomic requires own(x.A.f, va, 1.0) && own(y.B.f, vb, 1.0)
-    atomic ensures  own(x.A.f, (va == old_a && vb == old_b) ? new_a : va, 1.0)
-                 && own(y.B.f, (va == old_a && vb == old_b) ? new_b : vb, 1.0)
-                 && b == (va == old_a && vb == old_b)
+    requires own(x.A.f, va, 1.0) && own(y.B.f, vb, 1.0)
+    ensures own(x.A.f, (va == old_a && vb == old_b) ? new_a : va, 1.0)
+         && own(y.B.f, (va == old_a && vb == old_b) ? new_b : vb, 1.0)
+         && b == (va == old_a && vb == old_b)
   {
-    atomic {
-      ghost val phi := bindAU();
-      va, vb := openAU(phi);
-
-      val cur_a: A.E := x.A.f;
-      val cur_b: B.E := y.B.f;
-      if (cur_a == old_a && cur_b == old_b) {
-        x.A.f := new_a;
-        y.B.f := new_b;
-        b := true;
-      } else {
-        b := false;
-      }
-
-      commitAU(phi, b);
+    val cur_a: A.E := x.A.f;
+    val cur_b: B.E := y.B.f;
+    if (cur_a == old_a && cur_b == old_b) {
+      x.A.f := new_a;
+      y.B.f := new_b;
+      b := true;
+    } else {
+      b := false;
     }
   }
 }
 ```
 
-There are two field parameters, two location parameters, and two implicit ghosts, so `openAU`
-returns a tuple. The client is a pair of fields that an invariant keeps in sync:
+There are two field parameters, two location parameters, and two implicit ghosts, one per
+field. The client is a pair of fields that an invariant keeps in sync:
 
 ```raven
 inv agreed(c: Ref) {
@@ -232,11 +210,13 @@ operates on one location twice.
 
 ## `atomic { }` on its own {#sec:atomic-block-standalone}
 
-Everything so far has used `atomic { ... }` inside a primitive's body, which is where it is
-most obviously needed. But it is not tied to that use. To state it plainly: **it is the general
-way to declare that a multi-step computation is a single physical step, and it can be written
-wherever a step is being counted**, that is, wherever an invariant is open or an atomic update
-is in progress. It needs no functor, no contract, and no procedure of its own.
+Everything so far has declared a whole procedure body to be one step, which is what a
+primitive needs. `atomic { ... }` makes the same claim for part of a body. To state it plainly:
+**it is the general way to declare that a multi-step computation is a single physical step, and
+it can be written wherever a step is being counted**, that is, wherever an invariant is open or
+an atomic update is in progress. It needs no functor, no contract, and no procedure of its own.
+An `atomic proc` is the same claim made once in the procedure, rather than at each place its
+body would otherwise be written out.
 
 If a pair of fields has to move together and you only need it in one place, you do not need
 `dcas` at all ([`atomic_block.rav`](./atomic_block.rav)):
@@ -285,10 +265,11 @@ them, and cannot check any of them. This is the subject of the next section.
 
 ## Where the trust boundary is {#sec:trust-boundary}
 
-In Raven's semantics, an `atomic { ... }` block executes as a single step by definition, so there
-is nothing for the verifier to check. Whether that matches reality depends on your target
-machine, which lies outside Raven's semantics. When you write the block, you are asserting that
-the enclosed code compiles to something indivisible, and the verifier takes that as given.
+In Raven's semantics, an `atomic { ... }` block, like the body of an `atomic proc`, executes as
+a single step by definition, so there is nothing for the verifier to check. Whether that matches
+reality depends on your target machine, which lies outside Raven's semantics. When you write the
+block, you are asserting that the enclosed code compiles to something indivisible, and the
+verifier takes that as given.
 
 That is a real obligation, and it is worth being precise about who carries it. Everything else
 in a Raven proof is checked. This is the one place where anyone, whether a primitive's author or
@@ -303,16 +284,17 @@ inside is plausibly one instruction. Second, be wary of loops or recursion insid
 "a single machine step" is least credible. Raven permits them without complaint.
 
 {{ref sec:strict-mode}} explains how to review assumptions in VS Code. In strict mode, each
-`atomic { ... }` block you write produces a warning that its body is assumed to be a single
-machine step. The warning makes the claim visible; it does not check it against your platform.
+`atomic { ... }` block and each `atomic proc` body you write produces a warning that it is
+assumed to be a single machine step. The warning makes the claim visible; it does not check it
+against your platform.
 
-A program that merely calls `cas` is not warned about a block it did not write, but not because
-of anything specific to `atomic { }`. The standard library is loaded once per run, with every
+A program that merely calls `cas` is not warned about a body it did not write, but not because
+of anything specific to `atomic proc`. The standard library is loaded once per run, with every
 concrete procedure's body stripped before type-checking even begins, since it is trusted rather
-than reverified for each program. `cas`'s block is gone by the time this check runs, like
-everything else in its body. Check `lib/library/atomics.rav` itself as an ordinary
-program, rather than importing it, and its bodies are intact and its blocks are flagged like
-anyone else's (`lib/library/library.t` in the repository pins exactly that).
+than reverified for each program. `cas`'s body is gone by the time this check runs. Check
+`lib/library/atomics.rav` itself as an ordinary program, rather than importing it, and its
+bodies are intact and flagged like anyone else's (`lib/library/library.t` in the repository
+pins exactly that).
 
 ## When you need the Extension API instead {#sec:when-extension-api}
 
