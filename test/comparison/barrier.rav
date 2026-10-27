@@ -20,12 +20,14 @@ interface AbstractPredicates {
         requires resource(x)
         ensures P2.p_chunk(x, 1.0)
         ensures resource(x)
+        opens resource(x)
 
     axiom p2_to_p1(x: Ref)
         requires P2.p_chunk(x, 1.0)
         requires resource(x)
         ensures P1.p_chunk(x, 1.0)
         ensures resource(x)
+        opens resource(x)
 }
 
 module Barrier[N: NumThreads, A: AbstractPredicates] {
@@ -215,6 +217,7 @@ module Barrier[N: NumThreads, A: AbstractPredicates] {
         requires is_barrier(l, r)
         requires 0 <= v && own(l.tickets, ticket(v))
         ensures Tk2.token(r)
+        opens is_barrier(l, r), A.resource(r)
     {
         {! threads_gt_zero(); !}
 
@@ -293,6 +296,7 @@ module Barrier[N: NumThreads, A: AbstractPredicates] {
     proc sync_up(l: Ref, r: Ref)
         requires is_barrier(l, r) && Tk1.token(r)
         ensures Tk2.token(r)
+        opens is_barrier(l, r), A.resource(r)
     {
         var z: Int := sync_up_enter(l, r);
         sync_up_exit(l, r, z);
@@ -302,6 +306,7 @@ module Barrier[N: NumThreads, A: AbstractPredicates] {
         returns (z: Int)
         requires is_barrier(l, r) && Tk2.token(r)
         ensures 0 <= z && own(l.tickets, ticket(z))
+        opens is_barrier(l, r), A.resource(r)
     {
         {! threads_gt_zero(); !}
 
@@ -438,6 +443,7 @@ module Barrier[N: NumThreads, A: AbstractPredicates] {
     proc sync_down(l: Ref, r: Ref)
         requires is_barrier(l, r) && Tk2.token(r)
         ensures Tk1.token(r)
+        opens is_barrier(l, r), A.resource(r)
     {
         var z: Int := sync_down_enter(l, r);
         sync_down_exit(l, r, z);

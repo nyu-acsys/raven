@@ -380,18 +380,19 @@ let opens_on_pure_callable_error loc name =
        !"%{Ident#user} may not have an opens clause; only procedures and lemmas can"
        name)
 
-let opens_not_invariant_error loc kind qual_ident =
+let opens_not_resource_error loc kind qual_ident =
   Error.type_error loc
     (Printf.sprintf
-       !"Expected an invariant in this opens clause, but found %s %{QualIdent#user}"
+       !"Expected a predicate or invariant in this opens clause, but found %s \
+         %{QualIdent#user}"
        kind qual_ident)
 
-let opens_arity_error loc inv_name ~expected ~given =
+let opens_arity_error loc resource_name ~kind ~expected ~given =
   Error.type_error loc
     (Printf.sprintf
-       !"Invariant %{Ident#user} takes %d argument(s), but %d are given here; write `_` \
-         for an argument left unspecified"
-       inv_name expected given)
+       !"%s %{Ident#user} takes %d argument(s), but %d are given here; write `_` for an \
+         argument left unspecified"
+       kind resource_name expected given)
 
 let opens_non_formal_error loc ident ~is_atomic =
   Error.type_error loc

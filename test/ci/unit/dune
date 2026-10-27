@@ -91,6 +91,11 @@
  (libraries raven base))
 
 (test
+ (name namespace_witnesses)
+ (modules namespace_witnesses)
+ (libraries raven base))
+
+(test
  (name namespace_inference)
  (modules namespace_inference)
  (libraries raven base))
@@ -153,4 +158,19 @@
 (test
  (name namespace_grants)
  (modules namespace_grants)
+ (libraries raven base))
+
+(test
+ (name namespace_defaults)
+ (modules namespace_defaults)
+ (libraries raven base))
+
+(test
+ (name namespace_guarded_grants)
+ (modules namespace_guarded_grants)
+ (libraries raven base))
+
+(test
+ (name namespace_origins)
+ (modules namespace_origins)
  (libraries raven base))

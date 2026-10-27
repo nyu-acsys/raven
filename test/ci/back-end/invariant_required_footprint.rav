@@ -5,7 +5,8 @@ inv cell(x: Ref) { own(x.value, 0, 1.0) }
 
 interface Resource {
   inv shared(x: Ref)
-  lemma touch(x: Ref) requires shared(x) ensures shared(x)
+  pred footprint(x: Ref) { shared(x) }
+  lemma touch(x: Ref) requires shared(x) ensures shared(x) opens footprint(x)
 }
 
 module Actual : Resource {
@@ -19,7 +20,7 @@ module Actual : Resource {
 }
 
 module Worker[P: Resource] {
-  lemma touch(x: Ref) requires P.shared(x) ensures P.shared(x)
+  lemma touch(x: Ref) requires P.shared(x) ensures P.shared(x) opens P.footprint(x)
   { P.touch(x); }
 }
 

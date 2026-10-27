@@ -482,8 +482,8 @@ let rec rewrite_loops (enclosing : Callable.call_decl) (stmt : Stmt.t) : Stmt.t 
             {
               clause with
               opens_entries =
-                List.map clause.opens_entries ~f:(fun (qi, args) ->
-                    ( qi,
+                List.map clause.opens_entries ~f:(fun (head, args) ->
+                    ( head,
                       List.map args ~f:(fun arg ->
                           Expr.alpha_renaming arg loop_arg_renaming_map) ));
             })
@@ -1208,8 +1208,7 @@ let rec elaborate_phase_1 (m : Module.t) : (Module.t * scc_map) Rewriter.t =
 
   Rewriter.return (m, scc_map)
 
-let rec elaborate_phase_2 ?(namespace_contracts = false) (m : Module.t) :
-    Module.t Rewriter.t =
+let elaborate_phase_2 (m : Module.t) : Module.t Rewriter.t =
   let open Rewriter.Syntax in
   Logs.debug (fun m1 ->
       m1
@@ -1221,17 +1220,10 @@ let rec elaborate_phase_2 ?(namespace_contracts = false) (m : Module.t) :
   Logs.debug (fun m1 ->
       m1 "Elaboration.elaborate_phase_2: Starting rewrite_atomicity_analysis on module %a"
         Ident.pr m.mod_decl.mod_decl_name);
-  let* m =
-    if namespace_contracts then
-      let* collected = NamespaceClosure.collect m in
-      let* draft = NamespaceClosure.close collected in
-      let* m = NamespaceClosure.freeze draft collected.program in
-      NamespaceRealization.validate ~draft m
-    else
-      Rewriter.Module.rewrite_callables ~f:AtomicityAnalysis.rewrite_atomicity_analysis m
-  in
-
-  Rewriter.return m
+  let* collected = NamespaceClosure.collect m in
+  let* draft = NamespaceClosure.close collected in
+  let* m = NamespaceClosure.freeze draft collected.program in
+  NamespaceRealization.validate ~draft m
 
 let rewrites_type_ext (m : Module.t) : Module.t Rewriter.t =
   Logs.debug (fun m1 ->
@@ -1290,16 +1282,13 @@ let rewrites_stmt_ext (m : Module.t) : Module.t Rewriter.t =
 
   Rewriter.return m
 
-(* Namespace contracts remain an internal opt-in pending full regression integration;
-   every compilation unit in a run must use the same mode. *)
-
 (** Elaborates [m] into the core language and adds the proof obligations of its funcs'
     contracts. Every compilation unit goes through these before any is lowered (see
     [Lowering.lower_module]): lowering rewrites the types of fields, while the front end
     of a later unit still type-checks code that uses an earlier unit's fields, e.g. when
     it turns loops into procedures. *)
 let elaborate_module ?(tbl = SymbolTbl.create ()) ?ext_hooks ?cli_config ?diagnostics
-    ?(namespace_contracts = false) (m : Module.t) =
+    (m : Module.t) =
   assert (SymbolTbl.curr_is_root tbl);
 
   (* assert Ident.(m.mod_decl.mod_decl_name = QualIdent.to_ident (SymbolTbl.root_ident tbl)); *)
@@ -1308,19 +1297,7 @@ let elaborate_module ?(tbl = SymbolTbl.create ()) ?ext_hooks ?cli_config ?diagno
   in
 
   let tbl, m =
-    Rewriter.eval ?ext_hooks ?cli_config ?diagnostics (Masks.compute_masks m) tbl
-  in
-
-  let tbl, m =
-    Rewriter.eval ?ext_hooks ?cli_config ?diagnostics
-      (Masks.check_no_interface_reach_back m)
-      tbl
-  in
-
-  let tbl, m =
-    Rewriter.eval ?ext_hooks ?cli_config ?diagnostics
-      (elaborate_phase_2 ~namespace_contracts m)
-      tbl
+    Rewriter.eval ?ext_hooks ?cli_config ?diagnostics (elaborate_phase_2 m) tbl
   in
 
   let tbl, m =

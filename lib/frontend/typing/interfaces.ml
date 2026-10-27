@@ -443,7 +443,7 @@ let check_implements_callable (call_def : Callable.t) (orig_call_def : Callable.
     in
     let* opens_ok =
       let entry_expr (head, args) =
-        let name = Callable.invariant_mask_name ~loc head in
+        let name = Callable.mask_head_name head in
         Expr.mk_app ~typ:Type.bool (Var name) args
       in
       match
@@ -455,7 +455,21 @@ let check_implements_callable (call_def : Callable.t) (orig_call_def : Callable.
           | Ok pairs ->
               Rewriter.List.fold_left pairs ~init:true ~f:(fun equal (entry, original) ->
                   if not equal then Rewriter.return false
-                  else contract_exprs_equal ~sm (entry_expr entry) (entry_expr original))
+                  else
+                    let head, _ = entry in
+                    let original_head, _ = original in
+                    let same_kind =
+                      match (head, original_head) with
+                      | Callable.MaskHead.Invariant _, Callable.MaskHead.Invariant _
+                      | Callable.MaskHead.Dependencies _, Callable.MaskHead.Dependencies _
+                        ->
+                          true
+                      | Callable.MaskHead.Invariant _, Callable.MaskHead.Dependencies _
+                      | Callable.MaskHead.Dependencies _, Callable.MaskHead.Invariant _ ->
+                          false
+                    in
+                    if not same_kind then Rewriter.return false
+                    else contract_exprs_equal ~sm (entry_expr entry) (entry_expr original))
           | Unequal_lengths -> Rewriter.return false)
       | _ -> Rewriter.return false
     in
@@ -898,7 +912,7 @@ let merge_defs ~(m : Module.t) ~(mod_qual_ident : qual_ident)
     ~(mod_def_formals : Module.module_instr list) ~(defined_symbols : Set.M(Ident).t)
     ~parent_status ~parent_is_interface parent_ident parent_mod_def mod_def =
   let open Rewriter.Syntax in
-  let* matches, parent_mod_def =
+  let* matches, parent_mod_def, instance_subst =
     OverloadMatching.match_overloads ~m ~mod_qual_ident ~mod_def_formals ~mod_def
       ~parent_ident parent_mod_def
   in
@@ -940,7 +954,8 @@ let merge_defs ~(m : Module.t) ~(mod_qual_ident : qual_ident)
   Rewriter.return
     ( order_members ~mod_qual_ident ~fixed ~others:(List.map inherited ~f:inherited_instr),
       to_check,
-      List.map inherited ~f:(fun parent_symbol -> (parent_ident, parent_symbol)) )
+      List.map inherited ~f:(fun parent_symbol -> (parent_ident, parent_symbol)),
+      instance_subst )
 
 (** The parents of [m]: its return types, the interfaces it implements, its first parent
     and that parent's formals, and its members merged with theirs, with those to check
@@ -1073,24 +1088,25 @@ let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_iden
         else Set.add m.mod_decl.mod_decl_interfaces mod_qual_ident
       in
       Rewriter.return
-        ([], interfaces, mod_ident, None, (m.mod_def, Map.empty (module Ident), []))
+        ([], interfaces, mod_ident, None, [], (m.mod_def, Map.empty (module Ident), []))
   | first_parent :: _ ->
       (* Merge each parent in turn, threading the accumulated definition, so
              a later parent sees earlier parents' members as already defined. *)
-      let* returns, interfaces, formals, merged, to_check, inherited =
+      let* returns, interfaces, formals, instance_subst, merged, to_check, inherited =
         Rewriter.List.fold_left parent_defs
           ~init:
             ( [],
               Set.empty (module QualIdent),
               None,
+              [],
               m.mod_def,
               Map.empty (module Ident),
               [] )
           ~f:(fun
-              (returns, interfaces, formals, mod_def, to_check, inherited)
+              (returns, interfaces, formals, instance_subst, mod_def, to_check, inherited)
               (qual_interface_ident, _mid, args, parent_is_interface, interface)
             ->
-            let* merged, to_check', inherited' =
+            let* merged, to_check', inherited', parent_instance_subst =
               merge_defs ~m ~mod_qual_ident ~mod_def_formals ~defined_symbols
                 ~parent_status:interface.mod_decl.mod_decl_status ~parent_is_interface
                 qual_interface_ident interface.mod_def mod_def
@@ -1127,6 +1143,7 @@ let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_iden
                 Set.union interfaces
                   (Set.add interface.mod_decl.mod_decl_interfaces qual_interface_ident),
                 formals,
+                instance_subst @ parent_instance_subst,
                 merged,
                 to_check,
                 inherited' :: inherited ))
@@ -1137,6 +1154,7 @@ let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_iden
           interfaces,
           qual_first,
           formals,
+          instance_subst,
           (merged, to_check, List.concat (List.rev inherited)) )
 
 (** A callable that omits its contract -- no `requires`, `ensures` or `opens` -- inherits
@@ -1195,8 +1213,8 @@ let inherit_contract ~diagnostics
                         {
                           clause with
                           opens_entries =
-                            List.map clause.opens_entries ~f:(fun (qi, args) ->
-                                (qi, List.map args ~f:rename));
+                            List.map clause.opens_entries ~f:(fun (head, args) ->
+                                (head, List.map args ~f:rename));
                         });
                 }
               in

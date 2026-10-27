@@ -1955,9 +1955,9 @@ module Callable = struct
        persist as an un-deduped duplicate (see [Callable.mask_canon]); both
        [call_decl_needs_mask] and [call_decl_grants_mask] need the same rewrite. *)
     let rewrite_mask_entries entries =
-      List.map entries ~f:(fun (qi, args) ->
+      List.map entries ~f:(fun (head, args) ->
           let+ args = List.map args ~f:(Expr.rewrite_qual_idents ~f) in
-          (f qi, args))
+          (AstDef.Callable.map_mask_head head ~f, args))
     in
     let rewrite_mask mask =
       let+ mask =
@@ -2309,6 +2309,10 @@ module Module = struct
           mod_decl_interfaces;
           mod_decl_returns;
           mod_decl_mask_contract;
+          mod_decl_instance_subst =
+            Base.List.map mdef1.mod_decl.mod_decl_instance_subst
+              ~f:(fun (source, target) ->
+                (f source, QualIdent.to_list (f (QualIdent.from_list target))));
           mod_decl_sealed_target =
             Base.Option.map mdef1.mod_decl.mod_decl_sealed_target ~f;
         }

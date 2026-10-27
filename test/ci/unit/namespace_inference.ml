@@ -87,11 +87,8 @@ let test_opaque_formal_namespace () =
   assert (Poly.equal formal_predicate.definition NamespaceContract.Abstract);
   let x = argument symbols [ "F"; "use" ] in
   let use = callable draft [ "F"; "use" ] in
-  assert (has_mask_entry use.requires (dependency [ "F"; "P"; "p" ] [ x ]));
-  assert (has_mask_entry use.requires (own [ "F"; "P"; "i" ] [ x ]));
-  assert (has_mask_entry use.requires (dependency [ "F"; "P"; "i" ] [ x ]));
-  assert (has_mask_entry use.grants (own [ "F"; "P"; "i" ] [ x ]));
-  assert (has_mask_entry use.grants (dependency [ "F"; "P"; "i" ] [ x ]))
+  assert (Callable.mask_equal use.requires [ own [ "F"; "P"; "i" ] [ x ] ]);
+  assert (Callable.mask_equal use.grants [ own [ "F"; "P"; "i" ] [ x ] ])
 
 let test_alias_does_not_create_identity () =
   let _, draft =

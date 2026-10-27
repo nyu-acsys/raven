@@ -1,4 +1,4 @@
-// An opens clause names invariants, not predicates.
+// An opens clause names predicates or invariants, not functions.
 field f: Int
 
 inv cell(x: Ref) {
@@ -9,8 +9,8 @@ inv pair(x: Ref, y: Ref) {
   own(y.f, 0, 1.0)
 }
 
-pred p(x: Ref) {
-  own(x.f, 0, 1.0)
+func p(x: Ref) returns (r: Bool) {
+  true
 }
 
 lemma l(x: Ref)

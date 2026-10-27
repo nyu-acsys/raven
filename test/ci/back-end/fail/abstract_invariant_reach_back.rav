@@ -1,3 +1,5 @@
+// Implementations cannot widen an inherited mask through opaque resource bodies.
+
 field f: Int
 
 interface M {

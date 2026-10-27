@@ -170,7 +170,8 @@ let add_requirements separation = function
         { summary with separation = Requirements.union separation summary.separation }
 
 (** Reify a header, consuming only parameters bound by this application. *)
-let reify_module_contract ((original, symbol, substitution) as resolved) contract =
+let reify_module_contract ?(retain_parameter_members = true)
+    ((original, symbol, substitution) as resolved) contract =
   let open Rewriter.Syntax in
   match symbol with
   | Module.ModDef m ->
@@ -182,6 +183,21 @@ let reify_module_contract ((original, symbol, substitution) as resolved) contrac
       begin match rewritten with
       | NamespaceContract.Module _ -> rewritten
       | Functor summary ->
+          let result =
+            if retain_parameter_members then summary.result
+            else
+              match summary.result with
+              | NamespaceContract.Module result ->
+                  Module
+                    {
+                      result with
+                      modules =
+                        List.filter result.modules ~f:(fun (name, _) ->
+                            not
+                              (List.Assoc.mem summary.parameters name ~equal:Ident.equal));
+                    }
+              | Functor _ as result -> result
+          in
           let parameters =
             List.filter summary.parameters ~f:(fun (parameter, _) ->
                 not
@@ -196,8 +212,8 @@ let reify_module_contract ((original, symbol, substitution) as resolved) contrac
                 SymbolTbl.module_is_instantiated original m.mod_decl substitution
             | NamedParameters _ -> List.is_empty parameters
           in
-          if consumed then add_requirements summary.separation summary.result
-          else Functor { summary with parameters }
+          if consumed then add_requirements summary.separation result
+          else Functor { summary with parameters; result }
       end
   | _ ->
       Error.internal_error (QualIdent.to_loc original)
@@ -211,10 +227,10 @@ let declared_contract name symbol =
       Error.internal_error (QualIdent.to_loc name)
         "A module namespace contract is needed before it has been frozen"
 
-let find_module_contract name =
+let find_module_contract ?(retain_parameter_members = true) name =
   let open Rewriter.Syntax in
   let* _, resolved = Rewriter.resolve_and_find name in
-  reify_module_contract resolved
+  reify_module_contract ~retain_parameter_members resolved
     (declared_contract name (Rewriter.Symbol.orig_symbol resolved))
 
 type freezing = Building | Frozen of Module.t

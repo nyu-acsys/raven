@@ -183,6 +183,7 @@ module BarrierClient[N: NumThreads] {
             requires resource(x)
             ensures P2.p_chunk(x, 1.0)
             ensures resource(x)
+            opens resource(x)
         {
             ghost var n1: Int; ghost var n2: Int;
             unfold P1.p_chunk(x, 1.0)[n1 := n1, n2 := n2];
@@ -203,6 +204,7 @@ module BarrierClient[N: NumThreads] {
             requires resource(x)
             ensures P1.p_chunk(x, 1.0)
             ensures resource(x)
+            opens resource(x)
         {
             ghost var n1: Int; ghost var n2: Int;
             unfold P2.p_chunk(x, 1.0)[n1 := n1, n2 := n2];

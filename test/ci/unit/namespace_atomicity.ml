@@ -76,8 +76,9 @@ let test_symbolic_call () =
     run
       "interface S { inv i(x: Int) pred p(x: Int) }\n\
        module F[P: S] {\n\
-       lemma helper(ghost x: Int) requires P.p(x) {}\n\
-       lemma use(ghost x: Int) requires P.i(x) && P.p(x) {\n\
+       lemma helper(ghost x: Int) requires P.p(x) opens P.p(x) {}\n\
+       lemma use(ghost x: Int) requires P.i(x) && P.p(x)\n\
+       opens P.i(x), P.p(x) {\n\
        unfold P.i(x); helper(x); fold P.i(x); } }"
   in
   let result = analysis results [ "F"; "use" ] in
@@ -148,10 +149,11 @@ let test_branch_union () =
     run
       "interface S { inv i(x: Int) pred p(x: Int) pred q(x: Int) }\n\
        module F[P: S] {\n\
-       lemma left(ghost x: Int) requires P.p(x) {}\n\
-       lemma right(ghost x: Int) requires P.q(x) {}\n\
+       lemma left(ghost x: Int) requires P.p(x) opens P.p(x) {}\n\
+       lemma right(ghost x: Int) requires P.q(x) opens P.q(x) {}\n\
        lemma use(ghost x: Int, ghost branch: Bool)\n\
-       requires P.i(x) && P.p(x) && P.q(x) {\n\
+       requires P.i(x) && P.p(x) && P.q(x)\n\
+       opens P.i(x), P.p(x), P.q(x) {\n\
        unfold P.i(x); if (branch) { left(x); } else { right(x); } fold P.i(x); } }"
   in
   let result = analysis results [ "F"; "use" ] in
@@ -229,7 +231,9 @@ let test_predicate_credit_through_abstract_calls () =
        lemma create(ghost c: Int) ensures valid(c, 0)\n\
        lemma increment(ghost c: Int, ghost v: Int)\n\
        requires valid(c, v) ensures valid(c, v + 1)\n\
+       opens valid(c, v)\n\
        lemma get(ghost c: Int, ghost v: Int) requires valid(c, v)\n\
+       opens valid(c, v)\n\
        }\n\
        module Client[C: Counter] {\n\
        lemma use(ghost c: Int) {\n\
@@ -259,7 +263,8 @@ let test_predicate_credit_dropped_after_assignment () =
       "interface Counter { pred valid(c: Int, v: Int) }\n\
        module Client[C: Counter] {\n\
        lemma create(ghost c: Int) ensures C.valid(c, 0) {}\n\
-       lemma get(ghost c: Int) requires C.valid(c, 0) {}\n\
+       lemma get(ghost c: Int) requires C.valid(c, 0)\n\
+       opens C.valid(c, 0) {}\n\
        lemma use(ghost c: Int) {\n\
        ghost var current: Int := c;\n\
        create(current); current := current + 1; get(current);\n\
@@ -273,7 +278,8 @@ let test_predicate_credit_intersects_at_branch_join () =
       "interface Counter { pred valid(c: Int, v: Int) }\n\
        module Client[C: Counter] {\n\
        lemma create(ghost c: Int) ensures C.valid(c, 0) {}\n\
-       lemma get(ghost c: Int) requires C.valid(c, 0) {}\n\
+       lemma get(ghost c: Int) requires C.valid(c, 0)\n\
+       opens C.valid(c, 0) {}\n\
        lemma use(ghost c: Int, ghost branch: Bool) {\n\
        if (branch) { create(c); } else {} get(c);\n\
        } }"
@@ -286,11 +292,30 @@ let test_predicate_credit_needs_implicit_actual () =
       "interface Counter { pred valid(c: Int) }\n\
        module Client[C: Counter] {\n\
        lemma create(implicit ghost c: Int) ensures C.valid(c) {}\n\
-       lemma get(ghost c: Int) requires C.valid(c) {}\n\
+       lemma get(ghost c: Int) requires C.valid(c)\n\
+       opens C.valid(c) {}\n\
        lemma use(ghost c: Int) { create(); get(c); }\n\
        }"
   in
   assert_missing_predicate_credit (analysis results [ "Client"; "use" ])
+
+let test_call_result_overwrites_input_credit () =
+  let results =
+    run
+      "interface S { pred p(x: Int)\n\
+       lemma make_old(ghost x: Int) returns (ghost y: Int) ensures p(x)\n\
+       lemma make_new(ghost x: Int) returns (ghost y: Int) ensures p(y)\n\
+       lemma need(ghost x: Int) requires p(x) opens p(x) }\n\
+       module Client[P: S] {\n\
+       lemma old(ghost x: Int) {\n\
+       ghost var current: Int := x;\n\
+       current := P.make_old(current); P.need(current); }\n\
+       lemma returned(ghost x: Int) {\n\
+       ghost var current: Int := x;\n\
+       current := P.make_new(current); P.need(current); } }"
+  in
+  assert_missing_predicate_credit (analysis results [ "Client"; "old" ]);
+  assert (List.is_empty (mask_assertions (analysis results [ "Client"; "returned" ])))
 
 let test_predicate_opens_does_not_restore_credit () =
   let update_draft (draft : Inference.t) =
@@ -314,8 +339,9 @@ let test_granted_predicate_under_open_invariant () =
       "interface S { inv i(x: Int) pred p(x: Int) }\n\
        module F[P: S] {\n\
        lemma make(ghost x: Int) ensures P.p(x) {}\n\
-       lemma need(ghost x: Int) requires P.p(x) {}\n\
-       lemma use(ghost x: Int) requires P.i(x) {\n\
+       lemma need(ghost x: Int) requires P.p(x) opens P.p(x) {}\n\
+       lemma use(ghost x: Int) requires P.i(x)\n\
+       opens P.i(x), P.p(x) {\n\
        unfold P.i(x); make(x); need(x); fold P.i(x);\n\
        } }"
   in
@@ -336,8 +362,10 @@ let test_call_kinds () =
       let source =
         Printf.sprintf
           "interface S { inv i(x: Int) pred p(x: Int) }\n\
-           module F[P: S] { %s helper(ghost x: Int) %s P.p(x) {}\n\
-           proc use(ghost x: Int) requires P.i(x) && P.p(x) {\n\
+           module F[P: S] { %s helper(ghost x: Int) %s P.p(x)\n\
+           opens P.p(x) {}\n\
+           proc use(ghost x: Int) requires P.i(x) && P.p(x)\n\
+           opens P.i(x), P.p(x) {\n\
            atomic { unfold P.i(x); %s; fold P.i(x); } } }"
           kind requires call
       in
@@ -400,6 +428,7 @@ let () =
     test_predicate_credit_dropped_after_assignment ();
     test_predicate_credit_intersects_at_branch_join ();
     test_predicate_credit_needs_implicit_actual ();
+    test_call_result_overwrites_input_credit ();
     test_predicate_opens_does_not_restore_credit ();
     test_granted_predicate_under_open_invariant ();
     test_call_kinds ();

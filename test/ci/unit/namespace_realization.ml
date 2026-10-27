@@ -84,8 +84,8 @@ let test_opaque_dependencies () =
      interface Predicate { pred p(x: Int) }\n\
      module Actual: Predicate { pred p(x: Int) { cell(x) } }\n\
      module Worker[P: Predicate] {\n\
-     lemma helper(ghost x: Int) requires P.p(x) {}\n\
-     lemma use(ghost x: Int) requires cell(x) && P.p(x) {\n\
+     lemma helper(ghost x: Int) requires P.p(x) opens P.p(x) {}\n\
+     lemma use(ghost x: Int) requires cell(x) && P.p(x) opens cell(x), P.p(x) {\n\
      unfold cell(x); helper(x); fold cell(x); } }\n\
      module Instance = Worker[Actual]"
 
@@ -94,7 +94,7 @@ let test_granted_predicate_overlap () =
     "inv shared(x: Int) { true }\n\
      interface S { pred p(x: Int)\n\
      lemma make(ghost x: Int) ensures p(x)\n\
-     lemma touch(ghost x: Int) requires p(x) }\n\
+     lemma touch(ghost x: Int) requires p(x) opens p(x) }\n\
      module Actual: S { pred p(x: Int) { " ^ body
     ^ " }\n\
        lemma make(ghost x: Int) { fold shared(x); fold p(x); }\n\
@@ -227,6 +227,33 @@ let test_sealed_overload_selection () =
      func ++(a: Bool, b: Bool) returns (r: Bool) { a && b }\n\
      func ++(a: E, b: E) returns (r: E) { a } }"
 
+let test_aliases_in_grant_arguments () =
+  accept
+    "interface Element { rep type T val default: T }\n\
+     module Generic[E: Element] {\n\
+     pred p(m: Map[Int, E]) { true }\n\
+     free proc make() ensures p({ i: Int :: E.default }) }\n\
+     module Utility[E: Element] { module A = Generic[E] }\n\
+     module Wrapper[E: Element] { module U = Utility[E] }"
+
+let test_inherited_generated_grant_heads () =
+  accept
+    "interface Element { rep type T val default: T }\n\
+     module Base[E: Element] {\n\
+     rep type T = Int\n\
+     pred arr(a: T, m: Map[Int, E]) { true }\n\
+     free proc alloc() returns (a: T)\n\
+     ensures arr(a, { i: Int :: E.default }) }\n\
+     module ArrayLike[E: Element] {\n\
+     module A = Base[E]\n\
+     free proc copy(a: A.T, m: Map[Int, E]) returns (b: A.T)\n\
+     requires A.arr(a, m)\n\
+     ensures A.arr(a, m) && A.arr(b, m) }\n\
+     interface View {\n\
+     module E: Element\n\
+     module AU = ArrayLike[E] }\n\
+     module Make[E: Element]: View {}"
+
 let test_sealed_constructor_outputs () =
   let source unit collapsed =
     let signature, constructor, application =
@@ -292,6 +319,8 @@ let () =
     test_higher_order_application ();
     test_callable_mask_variance ();
     test_sealed_overload_selection ();
+    test_aliases_in_grant_arguments ();
+    test_inherited_generated_grant_heads ();
     test_sealed_constructor_outputs ();
     test_concrete_module_formal ();
     test_concrete_functor_formal ()

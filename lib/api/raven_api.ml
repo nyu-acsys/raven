@@ -225,7 +225,12 @@ module Callable = struct
   type proc_kind = Proc | Lemma | Axiom
 
   let opens_clause (loc, entries) : Ast.Callable.opens_clause =
-    { opens_entries = entries; opens_loc = loc }
+    {
+      opens_entries =
+        List.map entries ~f:(fun (name, args) ->
+            Ast.Callable.invariant_mask_entry name args);
+      opens_loc = loc;
+    }
 
   let proc ~loc ?(kind = Proc) ?(atomic = false) ?(auto = false) ?formals ?returns
       ?(requires = []) ?(ensures = []) ?opens ?(decreases = []) name body =

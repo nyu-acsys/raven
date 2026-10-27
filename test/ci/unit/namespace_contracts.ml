@@ -38,10 +38,13 @@ let test_collapsing_substitution () =
           [
             ( id "call",
               {
+                kind = Callable.Lemma;
                 formals = [];
                 returns = [];
                 requires = Callable.mask_union left right;
                 grants = left;
+                guarded_grants =
+                  [ { grants = right; conditions = [ requirement left right ] } ];
                 separation = [ requirement left right ];
               } );
           ];
@@ -56,7 +59,13 @@ let test_collapsing_substitution () =
       assert (same_mask separation.left separation.right);
       assert (List.length callable.requires = 2);
       assert (List.length callable.separation = 1);
-      assert (same_mask callable.grants separation.left)
+      assert (same_mask callable.grants separation.left);
+      begin match callable.guarded_grants with
+      | [ { grants; conditions = [ condition ] } ] ->
+          assert (same_mask grants separation.left);
+          assert (same_mask condition.left condition.right)
+      | _ -> assert false
+      end
   | _ -> assert false
 
 let test_unknown_namespace () =
@@ -107,10 +116,18 @@ let higher_order_summary () =
           [
             ( id "call",
               {
+                kind = Callable.Lemma;
                 formals = [ formal ];
                 returns = [ returned ];
                 requires = region;
                 grants = region;
+                guarded_grants =
+                  [
+                    {
+                      grants = region;
+                      conditions = [ requirement region [ own [ "Source"; "I" ] [] ] ];
+                    };
+                  ];
                 separation = [];
               } );
           ];
@@ -154,6 +171,13 @@ let check_higher_order = function
               let expected_mask = [ dependencies [ "Target"; "P" ] [ expected ] ] in
               assert (same_mask callable.requires expected_mask);
               assert (same_mask callable.grants expected_mask);
+              begin match callable.guarded_grants with
+              | [ { grants; conditions = [ condition ] } ] ->
+                  assert (same_mask grants expected_mask);
+                  assert (same_mask condition.left expected_mask);
+                  assert (same_mask condition.right [ own [ "Target"; "I" ] [] ])
+              | _ -> assert false
+              end;
               begin match declaration.definition with
               | Defined body -> assert (same_mask body expected_mask)
               | Abstract -> assert false
@@ -192,8 +216,44 @@ let test_requalification () =
   | Some summary -> check_higher_order summary
   | None -> assert false
 
+let test_guarded_grants () =
+  let open NamespaceContract in
+  let plain = [ own [ "P" ] [] ] in
+  let guarded = [ dependencies [ "Q" ] [] ] in
+  let condition = requirement plain [ own [ "Q" ] [] ] in
+  let summary : callable_summary =
+    {
+      kind = Callable.Lemma;
+      formals = [];
+      returns = [];
+      requires = [];
+      grants = plain;
+      guarded_grants = [ { grants = guarded; conditions = [ condition ] } ];
+      separation = [];
+    }
+  in
+  let query assumptions =
+    let open Rewriter.Syntax in
+    let* state = Frontend.NamespaceEntailment.create [] in
+    let* available =
+      Frontend.NamespaceEntailment.available_grants state ~assumptions summary
+    in
+    let+ impossible =
+      Frontend.NamespaceEntailment.impossible_conditions state [ requirement plain plain ]
+    in
+    (available, impossible)
+  in
+  let _, (without, impossible) = Rewriter.eval (query []) (SymbolTbl.create ()) in
+  let _, (with_condition, _) =
+    Rewriter.eval (query [ condition ]) (SymbolTbl.create ())
+  in
+  assert (same_mask without plain);
+  assert (same_mask with_condition (Callable.mask_union plain guarded));
+  assert impossible
+
 let () =
   test_prefixes ();
   test_collapsing_substitution ();
   test_unknown_namespace ();
-  test_requalification ()
+  test_requalification ();
+  test_guarded_grants ()

@@ -51,12 +51,12 @@ let rec map_symbol source target symbol =
       let+ call_decl_opens =
         Rewriter.Option.map declaration.call_decl_opens ~f:(fun clause ->
             let+ opens_entries =
-              Rewriter.List.map clause.Callable.opens_entries ~f:(fun (qi, args) ->
+              Rewriter.List.map clause.Callable.opens_entries ~f:(fun (head, args) ->
                   let+ args =
                     Rewriter.List.map args ~f:(fun e ->
                         lift (Rewriter.Expr.rewrite_qual_idents ~f e))
                   in
-                  (f qi, args))
+                  (Callable.map_mask_head head ~f, args))
             in
             { clause with opens_entries })
       in

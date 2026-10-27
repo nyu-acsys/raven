@@ -221,6 +221,7 @@ let intros_constraint_module ~(loc : location)
       mod_decl_parameters = AstDef.Module.Structure;
       mod_decl_sealed_target = None;
       mod_decl_mask_contract = None;
+      mod_decl_instance_subst = [];
       mod_decl_returns = [ (Predefs.lib_value_constraint_mod_qual_ident, []) ];
       mod_decl_is_sealed = false;
       mod_decl_interfaces = Set.empty (module QualIdent);
@@ -266,6 +267,7 @@ let intros_type_module ~(loc : location) ?scope
       mod_decl_parameters = AstDef.Module.Structure;
       mod_decl_sealed_target = None;
       mod_decl_mask_contract = None;
+      mod_decl_instance_subst = [];
       mod_decl_returns = [ (Predefs.lib_type_mod_qual_ident, []) ];
       mod_decl_is_sealed = false;
       mod_decl_interfaces = Set.empty (module QualIdent);
@@ -1007,6 +1009,7 @@ let intros_rep_module ~(loc : location) ?scope
       mod_decl_parameters = AstDef.Module.Structure;
       mod_decl_sealed_target = None;
       mod_decl_mask_contract = None;
+      mod_decl_instance_subst = [];
       mod_decl_returns = [ (interface_qual_ident, []) ];
       mod_decl_is_sealed = false;
       mod_decl_interfaces = Set.empty (module QualIdent);
@@ -1328,6 +1331,7 @@ let get_or_intros_field_module ~(loc : location) ~(insert_scope : qual_ident)
           mod_decl_parameters = AstDef.Module.Structure;
           mod_decl_sealed_target = None;
           mod_decl_mask_contract = None;
+          mod_decl_instance_subst = [];
           mod_decl_returns = [ (interface_qual_ident, []) ];
           mod_decl_is_sealed = false;
           mod_decl_interfaces = Set.empty (module QualIdent);

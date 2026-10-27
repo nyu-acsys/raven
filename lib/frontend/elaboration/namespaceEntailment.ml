@@ -8,11 +8,30 @@ type t = {
   equations : NamespaceEquations.t;
 }
 
+let rec prefixes name =
+  name :: (if QualIdent.is_qualified name then prefixes (QualIdent.pop name) else [])
+
+let project_instances table name =
+  List.fold (prefixes name) ~init:name ~f:(fun name prefix ->
+      match
+        SymbolTbl.resolve_and_find ~implementation:true ~read_only:true prefix
+          (SymbolTbl.goto prefix table)
+      with
+      | Some (_, _, Module.ModDef module_, substitution) ->
+          let reify = QualIdent.requalify (SymbolTbl.qid_subst substitution) in
+          let witness =
+            List.map module_.mod_decl.mod_decl_instance_subst ~f:(fun (source, target) ->
+                (reify source, QualIdent.to_list (reify (QualIdent.from_list target))))
+          in
+          QualIdent.requalify witness name
+      | Some (_, _, _, _) | None -> name)
+
 let canonical_name ?(rename = Fn.id) name =
   let open Rewriter.Syntax in
   let rec fixed seen name =
     let renamed = rename name in
     let* table = Rewriter.get_table in
+    let renamed = project_instances table renamed in
     let resolved =
       match
         SymbolTbl.resolve_and_find ~implementation:true ~read_only:true renamed
@@ -158,9 +177,6 @@ let covered ~by mask =
           | None -> false
           | Some meet -> Callable.compare_mask_entry meet entry = 0))
 
-let rec prefixes name =
-  name :: (if QualIdent.is_qualified name then prefixes (QualIdent.pop name) else [])
-
 let concrete_origin table name =
   let owners =
     if QualIdent.is_qualified name then prefixes (QualIdent.pop name) else []
@@ -233,8 +249,43 @@ let rigid table left right =
         end
   | _ -> false
 
+(* Invariant identity follows owners and constructor heads, not constructor arguments. *)
+let identity_mentions ?(rename = Fn.id) ~roots mask =
+  let open Rewriter.Syntax in
+  if Set.is_empty roots then Rewriter.return false
+  else
+    let* canonical = canonical_mask ~rename mask in
+    let+ table = Rewriter.get_table in
+    let rec depends seen name =
+      let name =
+        if Module.is_unit_parameter_path name then QualIdent.pop name else name
+      in
+      if List.exists (prefixes name) ~f:(Set.mem roots) then true
+      else if Set.mem seen name then false
+      else
+        let seen = Set.add seen name in
+        List.exists (prefixes name) ~f:(fun owner ->
+            let alias =
+              match
+                SymbolTbl.resolve_and_find ~implementation:true ~read_only:true owner
+                  (SymbolTbl.goto owner table)
+              with
+              | Some (original, resolved, _, _) ->
+                  depends seen original || depends seen resolved
+              | None -> false
+            in
+            alias
+            ||
+            match SymbolTbl.application_origin owner table with
+            | Some (head, _) -> depends seen head
+            | None -> false)
+    in
+    List.exists (mask @ canonical) ~f:(fun (head, _) ->
+        depends (Set.empty (module QualIdent)) (Callable.mask_head_name head))
+
 let rec entails ?(rename = Fn.id) state ~assumptions requirement =
   let open Rewriter.Syntax in
+  let original_requirement = requirement in
   let canonical requirement =
     let* left = canonical_mask ~rename requirement.left in
     let+ right = canonical_mask ~rename requirement.right in
@@ -276,13 +327,18 @@ let rec entails ?(rename = Fn.id) state ~assumptions requirement =
                 | _ -> roots)
           | _ -> roots)
     in
+    let* original_symbolic =
+      identity_mentions ~rename ~roots
+        (original_requirement.left @ original_requirement.right)
+    in
     let* symbolic =
       Rewriter.List.map (left @ right) ~f:(fun ((head, _) as entry) ->
-          let+ variable = mentions ~rename ~roots [ entry ] in
+          let+ variable = identity_mentions ~rename ~roots [ entry ] in
           (head, variable))
     in
     let variable head =
-      List.exists symbolic ~f:(fun (other, variable) ->
+      original_symbolic
+      || List.exists symbolic ~f:(fun (other, variable) ->
           variable && Callable.equal_mask_head head other)
     in
     Rewriter.return
@@ -332,3 +388,30 @@ and mentions ?(rename = Fn.id) ?(conservative = false) ~roots mask =
     in
     List.exists (original_mask @ mask) ~f:(fun (head, _) ->
         depends (Set.empty (module QualIdent)) (Callable.mask_head_name head))
+
+let available_grants ?(rename = Fn.id) state ~assumptions
+    (summary : NamespaceContract.callable_summary) =
+  let open Rewriter.Syntax in
+  let+ guarded =
+    Rewriter.List.map summary.guarded_grants ~f:(fun grant ->
+        let+ available =
+          Rewriter.List.for_all grant.conditions ~f:(entails ~rename state ~assumptions)
+        in
+        if available then grant.grants else [])
+  in
+  List.fold guarded ~init:summary.grants ~f:Callable.mask_union
+
+let impossible_conditions ?(rename = Fn.id) state conditions =
+  let open Rewriter.Syntax in
+  let+ impossible =
+    Rewriter.List.map conditions ~f:(fun condition ->
+        let* left = normalize_mask ~rename state condition.left in
+        let+ right = normalize_mask ~rename state condition.right in
+        List.exists left ~f:(fun (head, _) ->
+            match head with
+            | Callable.MaskHead.Dependencies _ -> false
+            | Invariant _ ->
+                List.exists right ~f:(fun (other, _) ->
+                    Callable.equal_mask_head head other)))
+  in
+  List.exists impossible ~f:Fn.id

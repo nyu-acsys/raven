@@ -295,11 +295,19 @@ let call_formal_actual_alignment (formals : Type.var_decl list) (call_args : Exp
 let call_formal_actual_map (formals : Type.var_decl list) (call_args : Expr.t list) =
   fst (call_formal_actual_alignment formals call_args)
 
-(* A grant is discarded, rather than widened, if an omitted input has no actual. *)
+(* Omitted inputs and inputs overwritten by a return cannot give exact credit. *)
 let instantiate_grants ~strict (decl : Callable.call_decl) (call : Stmt.call_desc) grants
     =
   let formal_map, resolved =
     call_formal_actual_alignment decl.call_decl_formals call.call_args
+  in
+  let overwritten = Set.of_list (module QualIdent) call.call_lhs in
+  let unsafe_inputs =
+    Map.fold formal_map
+      ~init:(Set.empty (module Ident))
+      ~f:(fun ~key:formal ~data:actual unsafe ->
+        if Set.is_empty (Set.inter overwritten (Expr.symbols actual)) then unsafe
+        else Set.add unsafe (QualIdent.unqualify formal))
   in
   let renaming, resolved =
     match
@@ -315,9 +323,11 @@ let instantiate_grants ~strict (decl : Callable.call_decl) (call : Stmt.call_des
   in
   List.filter_map grants ~f:(fun (head, args) ->
       if
-        strict
-        && List.exists args ~f:(fun arg ->
-            not (Set.is_subset (Expr.local_vars arg) ~of_:resolved))
+        List.exists args ~f:(fun arg ->
+            not (Set.is_empty (Set.inter (Expr.local_vars arg) unsafe_inputs)))
+        || strict
+           && List.exists args ~f:(fun arg ->
+               not (Set.is_subset (Expr.local_vars arg) ~of_:resolved))
       then None
       else Some (head, List.map args ~f:(fun arg -> Expr.alpha_renaming arg renaming)))
   |> Callable.mask_canon

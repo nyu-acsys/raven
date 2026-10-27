@@ -441,4 +441,8 @@ let match_overloads ~(m : Module.t) ~(mod_qual_ident : qual_ident)
   let+ parent_mod_def =
     Rewriter.List.map parent_mod_def ~f:(rewrite_member ~f:rename_function)
   in
-  (matches, parent_mod_def)
+  let instance_subst =
+    Map.to_alist instances
+    |> List.map ~f:(fun (source, target) -> (source, QualIdent.to_list target))
+  in
+  (matches, parent_mod_def, instance_subst)

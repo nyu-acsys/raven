@@ -29,6 +29,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Default masks stop at opaque predicate boundaries, and `opens` clauses can request predicate footprints.
 - Reduce SSA lowering overhead by maintaining substitutions incrementally.
 - `Library.UnitRA` is renamed to `Library.Unit`.
 - Hide the library modules that only the verifier uses (`AtomicTokenRA`, `Prophecy`, `ErrorCreds`).

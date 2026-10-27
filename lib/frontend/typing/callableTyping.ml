@@ -7,14 +7,14 @@ open TypingMonad
 open TypingErrors
 open ProgUtils
 
-(* Checks an `opens` clause. Each entry names an invariant, with no arguments (any
-   instance) or one per parameter, implicit ones included, of which a trailing run may be
-   `_` and is preserved. Arguments may mention only the callable's formals, except, for an
-   atomic callable, its implicit ones (see [Masks.compute_proc_lemma_mask]). *)
+(* Checks an `opens` clause. Each entry names a predicate or invariant, with no arguments
+   (any instance) or one per parameter, implicit ones included, of which a trailing run
+   may be `_` and is preserved. Arguments may mention only the callable's formals,
+   except, for an atomic callable, its implicit ones (see [Masks.compute_proc_lemma_mask]). *)
 let check_opens (call_decl : Callable.call_decl) (formals : Type.var_decl list)
     (precond : Stmt.spec list) (postcond : Stmt.spec list)
-    (disam_tbl : DisambiguationTbl.t) (entries : (qual_ident * expr list) list) :
-    (qual_ident * expr list) list t =
+    (disam_tbl : DisambiguationTbl.t) (entries : Callable.mask_entry list) :
+    Callable.mask_entry list t =
   let open Rewriter.Syntax in
   let () =
     match call_decl.call_decl_kind with
@@ -30,31 +30,42 @@ let check_opens (call_decl : Callable.call_decl) (formals : Type.var_decl list)
         if is_atomic && vd.Type.var_implicit then None else Some vd.var_name)
     |> Set.of_list (module Ident)
   in
-  Rewriter.List.map entries ~f:(fun (qi, args) ->
+  Rewriter.List.map entries ~f:(fun (source_head, args) ->
+      let qi = Callable.mask_head_name source_head in
       let loc = QualIdent.to_loc qi in
       let* qi, symbol =
         let* id = StmtTyping.disambiguate_ident qi disam_tbl in
         Rewriter.resolve_and_find id
       in
       let* symbol = Rewriter.Symbol.reify symbol in
-      let inv_decl =
+      let resource_decl, head =
         match symbol with
         | CallDef { call_decl = { call_decl_kind = Invariant; _ } as inv_decl; _ } ->
-            inv_decl
-        | _ -> opens_not_invariant_error loc (Symbol.kind symbol) qi
+            (inv_decl, Callable.MaskHead.Invariant qi)
+        | CallDef { call_decl = { call_decl_kind = Pred; _ } as pred_decl; _ } ->
+            (pred_decl, Callable.MaskHead.Dependencies qi)
+        | _ -> opens_not_resource_error loc (Symbol.kind symbol) qi
       in
-      let inv_params = inv_decl.call_decl_formals @ inv_decl.call_decl_returns in
+      let resource_params =
+        resource_decl.call_decl_formals @ resource_decl.call_decl_returns
+      in
       let () =
-        if (not (List.is_empty args)) && List.length args <> List.length inv_params then
-          opens_arity_error loc inv_decl.call_decl_name ~expected:(List.length inv_params)
-            ~given:(List.length args)
+        if (not (List.is_empty args)) && List.length args <> List.length resource_params
+        then
+          let kind =
+            match head with
+            | Callable.MaskHead.Invariant _ -> "Invariant"
+            | Callable.MaskHead.Dependencies _ -> "Predicate"
+          in
+          opens_arity_error loc resource_decl.call_decl_name ~kind
+            ~expected:(List.length resource_params) ~given:(List.length args)
       in
       let prefix =
         List.take_while args ~f:(fun e -> not (Callable.is_opens_wildcard e))
       in
       let+ prefix =
         Rewriter.List.map2_exn prefix
-          (List.take inv_params (List.length prefix))
+          (List.take resource_params (List.length prefix))
           ~f:(fun arg param ->
             let+ arg =
               StmtTyping.disambiguate_and_check_expr arg
@@ -68,7 +79,7 @@ let check_opens (call_decl : Callable.call_decl) (formals : Type.var_decl list)
             in
             arg)
       in
-      (qi, prefix @ List.drop args (List.length prefix)))
+      (head, prefix @ List.drop args (List.length prefix)))
 
 let check_alias (callable : Callable.t) target : Module.symbol t =
   let open Rewriter.Syntax in

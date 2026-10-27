@@ -1,6 +1,6 @@
   $ dune exec -- raven --shh ./abstract_invariant_reach_back.rav
-  [Error] File "./abstract_invariant_reach_back.rav", line 35, columns 6-7:
-  35 |   inv i(x: Ref) {
-             ^
-  Type Error: invariant i implements interface M's abstract i, but its definition depends on N.test, which M also declares.
+  [Error] File "./abstract_invariant_reach_back.rav", line 49, columns 4-18:
+  49 |     unfold test(x)
+           ^^^^^^^^^^^^^^
+  Verification Error: Invariant test is not in the current mask.
   [1]

@@ -547,9 +547,10 @@ let check_interface_reach_back (n : Module.t) : (unit, 'a) Rewriter.t_ext =
                   in
                   let mask_names =
                     mask
-                    |> List.map ~f:(fun (head, _) ->
-                        Callable.invariant_mask_name ~loc:call.call_decl.call_decl_loc
-                          head)
+                    |> List.filter_map ~f:(fun (head, _) ->
+                        match head with
+                        | Callable.MaskHead.Invariant name -> Some name
+                        | Callable.MaskHead.Dependencies _ -> None)
                     |> Set.of_list (module QualIdent)
                   in
                   let reach_back =

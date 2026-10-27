@@ -4,6 +4,7 @@ open Ast
 type t = {
   namespaces : NamespaceContract.namespace_decl Map.M(QualIdent).t;
   equations : NamespaceEquations.t;
+  entailment : NamespaceEntailment.t;
   callables : NamespaceContract.callable_summary Map.M(QualIdent).t;
 }
 (** Draft inference; installing a frozen contract requires subsequent validation. *)
@@ -12,6 +13,8 @@ let namespace draft name = Map.find draft.namespaces name
 let callable draft name = Map.find draft.callables name
 
 type callable_seed = {
+  kind : Callable.call_kind;
+  origin : NamespaceOrigins.t option;
   formals : Type.var_decl list;
   returns : Type.var_decl list;
   required : Callable.mask;
@@ -104,6 +107,11 @@ let collect symbol =
     | Module.CallDef ({ call_decl = { call_decl_alias = None; _ } as decl; _ } as call) ->
         let* owner = Rewriter.current_scope_id in
         let name = QualIdent.append owner decl.call_decl_name in
+        let* origin =
+          match decl.call_decl_kind with
+          | Proc | Lemma -> NamespaceOrigins.find ~owner decl
+          | Func | Pred | Invariant -> Rewriter.return None
+        in
         let* _ = Rewriter.enter_callable call in
         let* definition, inferred, granted, opens =
           match decl.call_decl_kind with
@@ -147,6 +155,8 @@ let collect symbol =
         in
         let seed =
           {
+            kind = decl.call_decl_kind;
+            origin;
             formals = decl.call_decl_formals;
             returns = decl.call_decl_returns;
             required = Option.value opens ~default:inferred;
@@ -224,25 +234,119 @@ let covers entry grant =
   | None -> false
 
 let summarize equations seed =
-  let requires = NamespaceEquations.expand_required equations seed.required in
+  let expanded = NamespaceEquations.expand_required equations seed.required in
+  let requires =
+    match (seed.kind, seed.opens) with
+    | (Callable.Proc | Lemma), None ->
+        List.filter expanded ~f:(fun (head, _) ->
+            match head with
+            | Callable.MaskHead.Invariant _ -> true
+            | Dependencies _ -> false)
+    | (Func | Pred | Invariant), _ | (Proc | Lemma), Some _ -> expanded
+  in
   let inferred = NamespaceEquations.expand_required equations seed.inferred in
-  let grants =
-    match seed.opens with
-    | None -> seed.granted
-    | Some opens ->
-        (* Unknown omitted dependencies cannot justify fresh mask credit. *)
-        List.filter seed.granted ~f:(fun grant ->
-            List.exists opens ~f:(fun entry -> covers entry grant)
-            || List.for_all inferred ~f:(fun entry ->
-                List.exists opens ~f:(fun opened -> covers opened entry)))
+  let omitted =
+    List.filter inferred ~f:(fun entry ->
+        not (List.exists requires ~f:(fun permitted -> covers permitted entry)))
+  in
+  let grants, guarded_grants =
+    List.partition_tf seed.granted ~f:(fun grant ->
+        List.exists requires ~f:(fun entry -> covers entry grant) || List.is_empty omitted)
+  in
+  let guarded_grants =
+    List.map guarded_grants ~f:(fun ((head, _) as grant) ->
+        let conditions =
+          List.map omitted ~f:(fun (other, _) ->
+              {
+                NamespaceContract.left = [ (head, []) ];
+                right = [ (other, []) ];
+                loc = QualIdent.to_loc (Callable.mask_head_name head);
+              })
+        in
+        { NamespaceContract.grants = [ grant ]; conditions })
   in
   {
+    NamespaceContract.kind = seed.kind;
     NamespaceContract.formals = seed.formals;
     returns = seed.returns;
     requires;
     grants;
+    guarded_grants;
     separation = [];
   }
+
+let inherit_summary seed origin summary =
+  let open Rewriter.Syntax in
+  let requalify = QualIdent.requalify origin.NamespaceOrigins.substitution in
+  let* summary =
+    NamespaceContract.map_state_callable_summary
+      ~name:(fun name -> Rewriter.return (requalify name))
+      ~expr:(Rewriter.Expr.rewrite_qual_idents ~f:requalify)
+      ~typ:(Rewriter.Type.rewrite_qual_idents ~f:requalify)
+      summary
+  in
+  let pairs =
+    match
+      List.zip
+        (summary.NamespaceContract.formals @ summary.returns)
+        (seed.formals @ seed.returns)
+    with
+    | Ok pairs -> pairs
+    | Unequal_lengths ->
+        Util.Error.internal_error
+          (QualIdent.to_loc origin.name)
+          "Inherited mask contracts have different binder arities"
+  in
+  let renaming =
+    List.fold pairs
+      ~init:(Map.empty (module QualIdent))
+      ~f:(fun renaming (source, target) ->
+        Map.set renaming
+          ~key:(QualIdent.from_ident source.Type.var_name)
+          ~data:(Expr.from_var_decl target))
+  in
+  let summary =
+    NamespaceContract.map_callable_summary ~name:Fn.id ~typ:Fn.id
+      ~expr:(fun expression -> Expr.alpha_renaming expression renaming)
+      summary
+  in
+  Rewriter.return { summary with formals = seed.formals; returns = seed.returns }
+
+(** Resolve declaration budgets before substituting their implementation resources. *)
+let freeze_budgets ~equations ~seeds imported =
+  let open Rewriter.Syntax in
+  let rec freeze path completed name =
+    match Map.find completed name with
+    | Some summary -> Rewriter.return (completed, summary)
+    | None ->
+        if Set.mem path name then
+          Util.Error.internal_error (QualIdent.to_loc name)
+            "Cyclic inherited mask contract";
+        let path = Set.add path name in
+        let seed =
+          match Map.find seeds name with
+          | Some seed -> seed
+          | None ->
+              Util.Error.internal_error (QualIdent.to_loc name)
+                ("Missing declaration for inherited mask contract "
+               ^ QualIdent.to_string name)
+        in
+        let* completed, summary =
+          match seed.origin with
+          | None -> Rewriter.return (completed, summarize equations seed)
+          | Some origin ->
+              let* completed, parent = freeze path completed origin.name in
+              let+ summary =
+                Rewriter.in_scope_of name (inherit_summary seed origin parent)
+              in
+              (completed, summary)
+        in
+        Rewriter.return (Map.set completed ~key:name ~data:summary, summary)
+  in
+  let imported = Map.filter_keys imported ~f:(fun name -> not (Map.mem seeds name)) in
+  Rewriter.List.fold_left (Map.keys seeds) ~init:imported ~f:(fun completed name ->
+      let+ completed, _ = freeze (Set.empty (module QualIdent)) completed name in
+      completed)
 
 let infer ?(namespaces = []) ?(callables = []) program =
   let open Rewriter.Syntax in
@@ -262,14 +366,14 @@ let infer ?(namespaces = []) ?(callables = []) program =
        let* _ = Rewriter.Module.rec_rewrite_symbols ~f:collect program in
        Rewriter.current_user_state)
   in
-  let+ namespaces = complete_namespaces state in
+  let* namespaces = complete_namespaces state in
   let equations = NamespaceEquations.solve (Map.data namespaces) in
-  let callables =
-    Map.of_alist_exn (module QualIdent) callables |> fun imported ->
-    Map.fold state.seeds ~init:imported ~f:(fun ~key ~data:seed summaries ->
-        Map.set summaries ~key ~data:(summarize equations seed))
+  let* callables =
+    freeze_budgets ~equations ~seeds:state.seeds
+      (Map.of_alist_exn (module QualIdent) callables)
   in
-  { namespaces; equations; callables }
+  let+ entailment = NamespaceEntailment.create (Map.data namespaces) in
+  { namespaces; equations; entailment; callables }
 
 (* Imported equations can expose aliases only after expansion. *)
 let normalize_required draft mask =
@@ -293,10 +397,19 @@ let find_callable draft name =
       in
       let* requires = normalize_required draft summary.requires in
       let* grants = Masks.resolve_mask summary.grants in
-      let+ separation =
+      let* separation =
         Rewriter.List.map summary.separation ~f:(fun requirement ->
             let* left = Masks.resolve_mask requirement.NamespaceContract.left in
             let+ right = Masks.resolve_mask requirement.right in
             { requirement with left; right })
       in
-      Some { summary with NamespaceContract.requires; grants; separation }
+      let summary = { summary with NamespaceContract.requires; grants; separation } in
+      let+ grants =
+        if List.is_empty summary.guarded_grants then Rewriter.return grants
+        else
+          let* available =
+            NamespaceEntailment.available_grants draft.entailment ~assumptions:[] summary
+          in
+          Masks.resolve_mask available
+      in
+      Some { summary with NamespaceContract.grants }

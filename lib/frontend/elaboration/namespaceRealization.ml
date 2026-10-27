@@ -129,39 +129,54 @@ let align_callable (actual : NamespaceContract.callable_summary)
     ~expr:(fun expression -> Expr.alpha_renaming expression renaming)
     ~typ:Fn.id expected
 
-let normalized_formals (summary : NamespaceContract.callable_summary) =
+(* Grant identities stay exact, but aliases in their argument expressions share a value. *)
+let canonical_grant_mask ?(rename = Fn.id) mask =
   let open Rewriter.Syntax in
-  let+ types =
-    Rewriter.List.map summary.formals ~f:(fun formal ->
-        CandidateTypes.normalize ~lookup:CandidateTypes.lookup formal.Type.var_type)
+  let* table = Rewriter.get_table in
+  let canonical_name name =
+    let name = rename name in
+    if QualIdent.is_qualified name then
+      SymbolTbl.identity ~preserve_abstract_owners:true name table
+    else name
   in
-  Result.all types
+  let* mask = Entailment.canonical_mask ~rename mask in
+  let+ mask =
+    Rewriter.List.map mask ~f:(fun (head, args) ->
+        let+ args =
+          Rewriter.List.map args
+            ~f:
+              (Rewriter.Expr.rewrite_qual_idents_m ~f:(fun name ->
+                   Rewriter.return (canonical_name name)))
+        in
+        (head, args))
+  in
+  Callable.mask_canon mask
 
-let matching_callable actual name promised =
+let grants_cover ?(rename = Fn.id) context ~assumptions provided promised =
   let open Rewriter.Syntax in
-  let candidates =
-    List.filter actual ~f:(fun (candidate, _) ->
-        String.equal (Ident.name candidate) (Ident.name name))
+  let check assumptions required =
+    let* available = Entailment.available_grants ~rename context ~assumptions provided in
+    let* available = canonical_grant_mask ~rename available in
+    let+ required = canonical_grant_mask ~rename required in
+    Entailment.covered ~by:available required
   in
-  match candidates with
-  | [] -> Rewriter.return None
-  | [ (_, provided) ] -> Rewriter.return (Some provided)
-  | candidates ->
-      let* expected = normalized_formals promised in
-      begin match expected with
-      | Error _ -> Rewriter.return None
-      | Ok expected ->
-          let+ candidates =
-            Rewriter.List.map candidates ~f:(fun (_, provided) ->
-                let+ actual = normalized_formals provided in
-                match actual with
-                | Ok actual when List.equal Type.equal actual expected -> Some provided
-                | Ok _ | Error _ -> None)
-          in
-          let matches = List.filter_opt candidates in
-          begin match matches with [ provided ] -> Some provided | _ -> None
-          end
-      end
+  let* unconditional = check assumptions promised.NamespaceContract.grants in
+  if not unconditional then Rewriter.return false
+  else
+    Rewriter.List.for_all promised.guarded_grants ~f:(fun grant ->
+        let* impossible =
+          Entailment.impossible_conditions ~rename context grant.conditions
+        in
+        if impossible then Rewriter.return true
+        else check (Requirements.union assumptions grant.conditions) grant.grants)
+
+let matching_callable actual name kind =
+  let candidates =
+    List.filter actual ~f:(fun (candidate, provided) ->
+        String.equal (Ident.name candidate) (Ident.name name)
+        && Poly.(provided.NamespaceContract.kind = kind))
+  in
+  match candidates with [ (_, provided) ] -> Some provided | _ -> None
 
 let signature_error loc message =
   Error.type_error loc ("Incompatible module namespace contracts: " ^ message)
@@ -219,41 +234,49 @@ let rec compatible ~declarations ~owner ~loc environment ~actual_path ~expected_
       in
       let* () =
         Rewriter.List.iter expected.callables ~f:(fun (name, promised) ->
-            let* provided = matching_callable actual.callables name promised in
-            match provided with
-            | None -> signature_error loc "a callable summary is missing"
-            | Some provided ->
-                let promised = align_callable provided promised in
-                let abstract_resource =
-                  List.exists expected.namespaces ~f:(fun declaration ->
-                      QualIdent.equal declaration.name (QualIdent.append actual_path name)
-                      &&
-                      match declaration.definition with
-                      | Abstract -> true
-                      | Defined _ -> false)
-                in
-                let* required =
-                  Entailment.normalize_mask ~rename context provided.requires
-                in
-                let* allowed =
-                  Entailment.normalize_mask ~rename budget promised.requires
-                in
-                let* granted = Entailment.canonical_mask ~rename provided.grants in
-                let* promised_grants =
-                  Entailment.canonical_mask ~rename promised.grants
-                in
-                if
-                  (not abstract_resource) && not (Entailment.covered ~by:allowed required)
-                then
-                  signature_error loc
-                    ("the required mask of " ^ Ident.to_string name
-                   ^ " exceeds the promised mask")
-                else if not (Entailment.covered ~by:granted promised_grants) then
-                  signature_error loc
-                    ("the granted mask of " ^ Ident.to_string name
-                   ^ " is weaker than promised")
-                else
-                  require_all ~rename ~context ~owner ~loc environment provided.separation)
+            (* Functions have no namespace effects; nominal typing matches their overloads. *)
+            match promised.NamespaceContract.kind with
+            | Callable.Func -> Rewriter.return ()
+            | Proc | Lemma | Pred | Invariant ->
+                let provided = matching_callable actual.callables name promised.kind in
+                begin match provided with
+                | None -> signature_error loc "a callable summary is missing"
+                | Some provided ->
+                    let promised = align_callable provided promised in
+                    let abstract_resource =
+                      List.exists expected.namespaces ~f:(fun declaration ->
+                          QualIdent.equal declaration.name
+                            (QualIdent.append actual_path name)
+                          &&
+                          match declaration.definition with
+                          | Abstract -> true
+                          | Defined _ -> false)
+                    in
+                    let* required =
+                      Entailment.normalize_mask ~rename context provided.requires
+                    in
+                    let* allowed =
+                      Entailment.normalize_mask ~rename budget promised.requires
+                    in
+                    let* grants_ok =
+                      grants_cover ~rename context ~assumptions:environment.assumptions
+                        provided promised
+                    in
+                    if
+                      (not abstract_resource)
+                      && not (Entailment.covered ~by:allowed required)
+                    then
+                      signature_error loc
+                        ("the required mask of " ^ Ident.to_string name
+                       ^ " exceeds the promised mask")
+                    else if not grants_ok then
+                      signature_error loc
+                        ("the granted mask of " ^ Ident.to_string name
+                       ^ " is weaker than promised")
+                    else
+                      require_all ~rename ~context ~owner ~loc environment
+                        provided.separation
+                end)
       in
       Rewriter.List.iter expected.modules ~f:(fun (name, promised) ->
           match List.Assoc.find actual.modules name ~equal:Ident.equal with
@@ -326,15 +349,28 @@ let rec compatible ~declarations ~owner ~loc environment ~actual_path ~expected_
               ~expected_path:path ~rename:actual_rename ~established:true supplied
               demanded)
       in
+      let without_formal_members parameters = function
+        | NamespaceContract.Module result ->
+            Module
+              {
+                result with
+                modules =
+                  List.filter result.modules ~f:(fun (name, _) ->
+                      not (List.Assoc.mem parameters name ~equal:Ident.equal));
+              }
+        | Functor _ as result -> result
+      in
       compatible ~declarations ~owner ~loc environment ~actual_path
-        ~expected_path:actual_path ~rename:actual_rename ~established:true actual.result
-        expected.result
+        ~expected_path:actual_path ~rename:actual_rename ~established:true
+        (without_formal_members actual.parameters actual.result)
+        (without_formal_members expected.parameters expected.result)
   | Module _, Functor _ | Functor _, Module _ ->
       signature_error loc "module/functor shapes differ"
 
 let snapshot_contract ?(implementation = false) name =
   let open Rewriter.Syntax in
-  if not implementation then NamespaceClosure.find_module_contract name
+  if not implementation then
+    NamespaceClosure.find_module_contract ~retain_parameter_members:false name
   else
     let* table = Rewriter.get_table in
     match
@@ -352,10 +388,14 @@ let snapshot_contract ?(implementation = false) name =
 let validate_pass ~declarations program pending =
   let open Rewriter.Syntax in
   let* context = Entailment.create declarations in
-  let rec walk environment owner m =
+  let rec walk environment owner (m : Module.t) =
     Rewriter.in_scope_of
       (Module.unit_parameter_path owner)
-      (let contract = Option.value_exn m.Module.mod_decl.mod_decl_mask_contract in
+      (let* contract =
+         Rewriter.NamespaceContract.rewrite_qual_idents
+           ~f:(QualIdent.requalify m.mod_decl.mod_decl_instance_subst)
+           (Option.value_exn m.Module.mod_decl.mod_decl_mask_contract)
+       in
        let here =
          if m.mod_decl.mod_decl_is_interface || Module.is_functor m.mod_decl then
            { environment with roots = Set.add environment.roots owner }
@@ -393,7 +433,13 @@ let validate_pass ~declarations program pending =
                  (Rewriter.Symbol.orig_symbol parent_symbol)
              in
              let* promised =
-               NamespaceClosure.reify_module_contract parent_symbol parent_contract
+               NamespaceClosure.reify_module_contract ~retain_parameter_members:false
+                 parent_symbol parent_contract
+             in
+             let* promised =
+               Rewriter.NamespaceContract.rewrite_qual_idents
+                 ~f:(QualIdent.requalify m.mod_decl.mod_decl_instance_subst)
+                 promised
              in
              let* () =
                require_all ~context ~owner ~loc:m.mod_decl.mod_decl_loc here

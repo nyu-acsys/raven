@@ -27,8 +27,7 @@ let verify source =
   let tbl, program = parse ~root:Predefs.prog_ident ~free:false tbl source in
   let tbl, elaborated =
     List.fold_map [ library; lowering; program ] ~init:tbl ~f:(fun tbl typed ->
-        Frontend.Elaboration.elaborate_module ~namespace_contracts:true ~ext_hooks ~tbl
-          ~diagnostics typed)
+        Frontend.Elaboration.elaborate_module ~ext_hooks ~tbl ~diagnostics typed)
   in
   let tbl, processed =
     List.fold_map elaborated ~init:tbl ~f:(fun tbl elaborated ->

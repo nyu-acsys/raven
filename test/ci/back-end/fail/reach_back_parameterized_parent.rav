@@ -1,10 +1,4 @@
-// The abstract-invariant reach-back check must survive a parameterised parent.
-//
-// Same hazard as abstract_invariant_reach_back.rav: bar is verified once against
-// M's abstract i, so if a later concrete i nests test -- another invariant M
-// itself declares -- helper could reopen test while bar still holds it open,
-// without bar ever being re-checked. Inheriting from an *application* of M
-// rather than from M directly must not let that through.
+// Implementations cannot widen an inherited mask through opaque resource bodies.
 
 field f: Int
 

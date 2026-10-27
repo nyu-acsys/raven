@@ -2961,19 +2961,15 @@ module Callable = struct
   (** A guaranteed lower bound; an empty result does not prove symbolic disjointness. *)
   let mask_inter = MaskSet.inter
 
-  type opens_clause = {
-    opens_entries : (qual_ident * expr list) list;
-    opens_loc : location;
-  }
+  type opens_clause = { opens_entries : mask_entry list; opens_loc : location }
   (** An explicit opens clause, retaining trailing wildcards and its source span. *)
 
   let is_opens_wildcard e =
     Expr.is_ident e && String.equal (Ident.name (Expr.to_ident e)) "_"
 
   let opens_mask clause : mask =
-    List.map clause.opens_entries ~f:(fun (qi, args) ->
-        invariant_mask_entry qi
-          (List.take_while args ~f:(fun e -> not (is_opens_wildcard e))))
+    List.map clause.opens_entries ~f:(fun (head, args) ->
+        (head, List.take_while args ~f:(fun e -> not (is_opens_wildcard e))))
 
   type call_decl = {
     call_decl_kind : call_kind;  (** kind of declaration *)
@@ -3138,7 +3134,8 @@ module Callable = struct
         | None -> ()
         | Some { opens_entries = []; _ } -> fprintf ppf "@\nopens {}"
         | Some { opens_entries = mask; _ } ->
-            let pr_entry ppf (qi, args) =
+            let pr_entry ppf (head, args) =
+              let qi = mask_head_name head in
               match args with
               | [] -> QualIdent.pr ppf qi
               | _ ->
@@ -3422,11 +3419,18 @@ module NamespaceContract = struct
     loc : Loc.t;
   }
 
+  type guarded_grant = {
+    grants : Callable.mask;
+    conditions : separation_requirement list;
+  }
+
   type callable_summary = {
+    kind : Callable.call_kind;
     formals : Type.var_decl list;
     returns : Type.var_decl list;
     requires : Callable.mask;
     grants : Callable.mask;
+    guarded_grants : guarded_grant list;
     separation : separation_requirement list;
   }
 
@@ -3483,16 +3487,35 @@ module NamespaceContract = struct
     let+ right = map_state_mask ~name ~expr requirement.right in
     { requirement with left; right }
 
+  let map_state_guarded_grant ~name ~expr (grant : guarded_grant) =
+    let open State.Syntax in
+    let* grants = map_state_mask ~name ~expr grant.grants in
+    let+ conditions =
+      State.List.map grant.conditions ~f:(map_state_separation ~name ~expr)
+    in
+    { grants; conditions }
+
   let map_state_callable_summary ~name ~expr ~typ (summary : callable_summary) =
     let open State.Syntax in
     let* formals = map_state_binders ~typ summary.formals in
     let* returns = map_state_binders ~typ summary.returns in
     let* requires = map_state_mask ~name ~expr summary.requires in
     let* grants = map_state_mask ~name ~expr summary.grants in
+    let* guarded_grants =
+      State.List.map summary.guarded_grants ~f:(map_state_guarded_grant ~name ~expr)
+    in
     let+ separation =
       State.List.map summary.separation ~f:(map_state_separation ~name ~expr)
     in
-    { formals; returns; requires; grants; separation }
+    {
+      kind = summary.kind;
+      formals;
+      returns;
+      requires;
+      grants;
+      guarded_grants;
+      separation;
+    }
 
   let rec traverse_state ~name ~expr ~typ =
     let open State.Syntax in
@@ -3680,6 +3703,9 @@ module Module = struct
     mod_decl_mask_contract : NamespaceContract.t option;
         (** [None] until inferred; [Some NamespaceContract.empty] is a frozen empty
             contract. *)
+    mod_decl_instance_subst : QualIdent.subst;
+        (** Typed correspondence from inherited implicit instances to this module's
+            instances. *)
     mod_decl_loc : location;
   }
 
@@ -3939,6 +3965,7 @@ module Module = struct
       mod_decl_name = Ident.make Loc.dummy "" 0;
       mod_decl_sealed_target = None;
       mod_decl_mask_contract = None;
+      mod_decl_instance_subst = [];
       mod_decl_parameters = Structure;
       mod_decl_returns = [];
       mod_decl_is_sealed = false;
@@ -4309,6 +4336,8 @@ let merge_prog (prog1 : Module.t) (prog2 : Module.t) =
   assert (Set.is_empty prog2.mod_decl.mod_decl_interfaces);
   assert (Option.is_none prog1.mod_decl.mod_decl_rep);
   assert (Option.is_none prog2.mod_decl.mod_decl_rep);
+  assert (List.is_empty prog1.mod_decl.mod_decl_instance_subst);
+  assert (List.is_empty prog2.mod_decl.mod_decl_instance_subst);
   assert (not prog1.mod_decl.mod_decl_is_ra);
   assert (not prog2.mod_decl.mod_decl_is_ra);
 
@@ -4317,6 +4346,7 @@ let merge_prog (prog1 : Module.t) (prog2 : Module.t) =
       Module.mod_decl_name = prog1.mod_decl.mod_decl_name;
       mod_decl_sealed_target = None;
       mod_decl_mask_contract = None;
+      mod_decl_instance_subst = [];
       mod_decl_parameters = Module.Structure;
       mod_decl_returns = prog2.mod_decl.mod_decl_returns;
       mod_decl_is_sealed = prog2.mod_decl.mod_decl_is_sealed;

@@ -428,6 +428,7 @@ let rec check ?(pretyped = false) (m : Module.t) : Module.t t =
          mod_decl_interfaces,
          interface_ident,
          interface_parameters,
+         mod_decl_instance_subst,
          (merged_symbols, symbols_to_check, inherited_members) ) =
     Interfaces.merge_parents ~m ~is_root ~mod_qual_ident ~mod_def ~mod_def_formals
       ~defined_symbols
@@ -495,6 +496,8 @@ let rec check ?(pretyped = false) (m : Module.t) : Module.t t =
       mod_decl_parameters =
         (Module.with_formals m.mod_decl mod_decl_formals).mod_decl_parameters;
       mod_decl_interfaces;
+      mod_decl_instance_subst =
+        (if pretyped then m.mod_decl.mod_decl_instance_subst else mod_decl_instance_subst);
       mod_decl_is_ra;
     }
   in

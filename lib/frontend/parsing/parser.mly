@@ -496,7 +496,7 @@ contract:
 }
 ;
 
-(* An entry of an `opens` clause: an invariant, optionally applied to arguments of
+(* An entry of an `opens` clause: a resource, optionally applied to arguments of
    which a trailing run may be `_`. The `_`s are kept here and dropped by the type
    checker, once it has checked the entry against the invariant's arity. *)
 opens_entry:
@@ -514,7 +514,7 @@ opens_entry:
         else check_trailing false es
   in
   check_trailing false es;
-  (Expr.to_qual_ident x, es)
+  Callable.invariant_mask_entry (Expr.to_qual_ident x) es
 }
 ;
 

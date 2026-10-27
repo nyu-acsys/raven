@@ -207,7 +207,7 @@ let test_imported_projection_preserves_concrete_namespace () =
   let _, tbl, library =
     parse ~root:(id "Previous")
       "interface S { pred p(x: Int) }\n\
-       module F[P: S] { lemma relay(ghost x: Int) requires P.p(x) {} }\n\
+       module F[P: S] { lemma relay(ghost x: Int) requires P.p(x) opens P.p(x) {} }\n\
        module Actual: S { pred p(x: Int) { true } }\n\
        module Instance = F[Actual]"
   in
@@ -265,7 +265,8 @@ let test_aliases_exposed_by_imported_equations () =
        module Instance = F[Actual]\n\
        interface Predicate { pred p(x: Int) }\n\
        module Wrapped: Predicate { pred p(x: Int) { Instance.wrapper(x) } }\n\
-       module G[P: Predicate] { lemma helper(ghost x: Int) requires P.p(x) {} }\n\
+       module G[P: Predicate] { lemma helper(ghost x: Int) requires P.p(x) opens P.p(x) \
+       {} }\n\
        module Action = G[Wrapped]"
   in
   let tbl, _ = Rewriter.eval (Closure.elaborate library) tbl in
@@ -317,8 +318,9 @@ let test_conditional_interface_requirements () =
   let _, tbl, typed =
     parse
       "interface Conditional { inv cell(x: Int) pred resource(x: Int) lemma helper(ghost \
-       x: Int) requires resource(x) {} lemma use(ghost x: Int) requires cell(x) && \
-       resource(x) { unfold cell(x); helper(x); fold cell(x); } }"
+       x: Int) requires resource(x) opens resource(x) {} lemma use(ghost x: Int) \
+       requires cell(x) && resource(x) opens cell(x), resource(x) { unfold cell(x); \
+       helper(x); fold cell(x); } }"
   in
   let tbl, collected = Rewriter.eval (Closure.collect typed) tbl in
   let tbl, draft = Rewriter.eval (Closure.close collected) tbl in
@@ -338,8 +340,7 @@ let test_standard_library_headers () =
     parse ~root:Predefs.lib_ident ~free:true ~ext_hooks source
   in
   let _, frozen =
-    Frontend.Elaboration.elaborate_module ~namespace_contracts:true ~ext_hooks ~tbl
-      ~diagnostics typed
+    Frontend.Elaboration.elaborate_module ~ext_hooks ~tbl ~diagnostics typed
   in
   ignore (module_summary (contract frozen) : NamespaceContract.module_summary)
 
@@ -374,8 +375,7 @@ let test_pipeline () =
   let ext_hooks = Ext.to_ext_hooks (Ext.module_map Ext.DefaultExt) in
   let diagnostics, tbl, typed = parse "lemma use() { while (false) {} }" in
   let _, frozen =
-    Frontend.Elaboration.elaborate_module ~namespace_contracts:true ~ext_hooks ~tbl
-      ~diagnostics typed
+    Frontend.Elaboration.elaborate_module ~ext_hooks ~tbl ~diagnostics typed
   in
   let summary = module_summary (contract frozen) in
   assert (List.length summary.callables >= 2)

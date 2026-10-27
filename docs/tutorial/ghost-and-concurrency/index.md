@@ -89,8 +89,9 @@ before any SMT solving even starts:
 **Masks, in a nutshell.** How does Raven know, at any given point in a proof, which invariants
 can legally be opened? It tracks a *mask*, the set of invariant instances available to unfold at
 that specific point. Usually you don't write a mask by hand: Raven infers a callable's mask
-automatically from the invariants its `requires` clause mentions, together with the invariants
-mentioned inside those invariants' own definitions. The mask catches two concrete mistakes, both
+automatically from the invariants its `requires` clause mentions and those reachable through
+visible resource definitions. Inference stops at opaque predicates: holding an abstract resource
+does not by default authorize opening invariants hidden inside it. The mask catches two concrete mistakes, both
 purely structural (no solver call is needed to catch either):
 
 - **Re-entrant unfolding.** Unfolding the same instance twice without folding in between, as in
@@ -111,12 +112,21 @@ the `client` in [`hit_counter_invariant.rav`](./hit_counter_invariant.rav) spawn
 interleaved with each other or with its own read. The invariant is what makes that uncertainty
 irrelevant to the proof.
 
-**Declaring what a callable opens.** The inferred mask covers every invariant reachable from
-`requires`, whether or not the body ever opens it, and callers must have room for all of it.
-When that is too much, a procedure or lemma can say what it opens with an `opens` clause, which
-replaces the inferred mask: `opens {}` for nothing, `opens evenCount(c)` for one instance, or
-`opens inner(x, _)` for every instance whose first argument is `x`. Raven checks the body
-against the clause, and callers only need room for what it lists.
+**Declaring what a callable opens.** A procedure or lemma can replace its default mask with an
+`opens` clause: `opens {}` needs no caller-supplied mask, `opens evenCount(c)` names one invariant
+instance, and `opens inner(x, _)` names every instance whose first argument is `x`. A predicate
+entry such as `opens resource(x)` explicitly requests permission for its invariant dependency
+footprint, including dependencies hidden behind an opaque declaration. Entries can be combined
+with commas. Raven checks the body against the clause, and callers must provide the specified
+mask.
+
+A method's default mask is inferred at its declaration and retained by its implementations.
+Giving an abstract predicate a concrete body does not enlarge that inherited mask. A method
+that merely transfers the abstract resource therefore needs no clause; accessing its hidden
+invariants requires an explicit predicate entry. Returning an input resource does not restore
+opening permissions excluded by the method's mask. A constructor can nevertheless grant
+permission for its output invariants when their namespaces are provably disjoint from the
+excluded input dependencies; it needs no extra `opens` clause for that.
 
 ## Ghost fields and resource algebras {#sec:ghost-fields-resource-algebras}
 
