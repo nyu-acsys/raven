@@ -67,15 +67,11 @@ let granted_specs decl =
             (expressible_formals decl spec.spec_atomic)
             (formal_names decl.call_decl_returns)
         in
-        List.filter_map applications ~f:(fun (name, kind, args) ->
-            match kind with
-            | Callable.Invariant ->
-                let prefix = Masks.truncate_to_formal_expressible expressible args in
-                if List.length prefix = List.length args then
-                  Some (Callable.invariant_mask_entry name args)
-                else None
-            | Pred -> None
-            | Func | Proc | Lemma -> assert false))
+        List.concat_map applications ~f:(fun (name, kind, args) ->
+            let prefix = Masks.truncate_to_formal_expressible expressible args in
+            if List.length prefix = List.length args then
+              application_entries (name, kind, args)
+            else []))
   in
   Callable.mask_canon (List.concat masks)
 

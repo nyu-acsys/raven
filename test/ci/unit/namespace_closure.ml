@@ -174,6 +174,63 @@ let test_prior_instantiated_compilation_unit () =
       assert (QualIdent.equal name previous_leaf)
   | _ -> assert false
 
+let rec assertions statement =
+  match statement.Stmt.stmt_desc with
+  | Basic (Spec (Assert, spec)) -> [ spec.spec_form ]
+  | Block block -> List.concat_map block.block_body ~f:assertions
+  | Cond branch -> assertions branch.cond_then @ assertions branch.cond_else
+  | Loop loop -> assertions loop.loop_prebody @ assertions loop.loop_postbody
+  | Basic _ | StmtExt _ -> []
+
+let test_imported_namespace_merge_aligns_formals () =
+  let x = Type.mk_var_decl ~loc:Util.Loc.dummy (id "x") Type.int in
+  let y = Type.mk_var_decl ~loc:Util.Loc.dummy (id "y") Type.int in
+  let declaration formal definition : NamespaceContract.namespace_decl =
+    { name = qi [ "shared" ]; formals = [ formal ]; definition }
+  in
+  let left = (own [ "left" ], [ Expr.from_var_decl x ]) in
+  let right_with_y = (own [ "right" ], [ Expr.from_var_decl y ]) in
+  let right_with_x = (own [ "right" ], [ Expr.from_var_decl x ]) in
+  let defined = declaration x (Defined [ left ]) in
+  let other_defined = declaration y (Defined [ right_with_y ]) in
+  let abstract = declaration x Abstract in
+  let expect merged entries =
+    match merged.NamespaceContract.definition with
+    | Defined body -> assert (Callable.mask_equal body entries)
+    | Abstract -> assert false
+  in
+  expect (Closure.merge_imported_namespace defined other_defined) [ left; right_with_x ];
+  expect (Closure.merge_imported_namespace defined (declaration y Abstract)) [ left ];
+  expect (Closure.merge_imported_namespace abstract other_defined) [ right_with_x ]
+
+let test_imported_projection_preserves_concrete_namespace () =
+  let _, tbl, library =
+    parse ~root:(id "Previous")
+      "interface S { pred p(x: Int) }\n\
+       module F[P: S] { lemma relay(ghost x: Int) requires P.p(x) {} }\n\
+       module Actual: S { pred p(x: Int) { true } }\n\
+       module Instance = F[Actual]"
+  in
+  let tbl, _ = Rewriter.eval (Closure.elaborate library) tbl in
+  let _, tbl, program =
+    parse ~tbl "lemma use(ghost x: Int) { Previous.Instance.relay(x); }"
+  in
+  let _, collected = Rewriter.eval (Closure.collect program) tbl in
+  let actual_p = QualIdent.from_list [ id "Previous"; id "Actual"; id "p" ] in
+  begin match
+    (Map.find_exn collected.draft.namespaces actual_p).NamespaceContract.definition
+  with
+  | Defined [] -> ()
+  | Abstract | Defined _ -> assert false
+  end;
+  let use = Map.find_exn collected.analyses (qi [ "use" ]) in
+  let body =
+    match use.callable.call_def with
+    | ProcDef { proc_body = Some body } -> body
+    | FuncDef _ | ProcDef { proc_body = None } -> assert false
+  in
+  assert (List.is_empty (assertions body))
+
 let test_module_binding_signatures () =
   let _, tbl, typed =
     parse
@@ -197,14 +254,6 @@ let test_module_binding_signatures () =
       assert (List.is_empty summary.parameters);
       ignore
         (call (module_summary summary.result) "make" : NamespaceContract.callable_summary)
-
-let rec assertions statement =
-  match statement.Stmt.stmt_desc with
-  | Basic (Spec (Assert, spec)) -> [ spec.spec_form ]
-  | Block block -> List.concat_map block.block_body ~f:assertions
-  | Cond branch -> assertions branch.cond_then @ assertions branch.cond_else
-  | Loop loop -> assertions loop.loop_prebody @ assertions loop.loop_postbody
-  | Basic _ | StmtExt _ -> []
 
 let test_aliases_exposed_by_imported_equations () =
   let _, tbl, library =
@@ -339,6 +388,8 @@ let () =
     test_nested_and_unit_signatures ();
     test_prior_compilation_unit ();
     test_prior_instantiated_compilation_unit ();
+    test_imported_namespace_merge_aligns_formals ();
+    test_imported_projection_preserves_concrete_namespace ();
     test_module_binding_signatures ();
     test_forward_header_dependency ();
     test_formal_nested_member ();

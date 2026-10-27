@@ -89,6 +89,23 @@ let test_opaque_dependencies () =
      unfold cell(x); helper(x); fold cell(x); } }\n\
      module Instance = Worker[Actual]"
 
+let test_granted_predicate_overlap () =
+  let source body =
+    "inv shared(x: Int) { true }\n\
+     interface S { pred p(x: Int)\n\
+     lemma make(ghost x: Int) ensures p(x)\n\
+     lemma touch(ghost x: Int) requires p(x) }\n\
+     module Actual: S { pred p(x: Int) { " ^ body
+    ^ " }\n\
+       lemma make(ghost x: Int) { fold shared(x); fold p(x); }\n\
+       lemma touch(ghost x: Int) {} }\n\
+       module F[P: S] { lemma use(ghost x: Int) requires shared(x) {\n\
+       unfold shared(x); P.make(x); P.touch(x); fold shared(x); } }\n\
+       module Applied = F[Actual]"
+  in
+  accept (source "true");
+  reject (source "shared(x)")
+
 let test_unused_aliases () =
   accept
     (regions
@@ -265,6 +282,7 @@ let () =
     test_aliases ();
     test_unit_freshness ();
     test_opaque_dependencies ();
+    test_granted_predicate_overlap ();
     test_unused_aliases ();
     test_abstract_resource_body ();
     test_views ();

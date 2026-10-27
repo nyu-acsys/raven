@@ -17,6 +17,38 @@ type collected = {
   analyses : AtomicityAnalysis.namespace_analysis Map.M(QualIdent).t;
 }
 
+let merge_imported_namespace (previous : NamespaceContract.namespace_decl)
+    (incoming : NamespaceContract.namespace_decl) =
+  let open NamespaceContract in
+  let pairs =
+    match List.zip incoming.formals previous.formals with
+    | Ok pairs -> pairs
+    | Unequal_lengths ->
+        Error.internal_error
+          (QualIdent.to_loc incoming.name)
+          "Imported namespace declarations have different formal arities"
+  in
+  let renaming =
+    List.fold pairs
+      ~init:(Map.empty (module QualIdent))
+      ~f:(fun renaming (source, target) ->
+        Map.set renaming
+          ~key:(QualIdent.from_ident source.Type.var_name)
+          ~data:(Expr.from_var_decl target))
+  in
+  let align body =
+    List.map body ~f:(fun (head, args) ->
+        (head, List.map args ~f:(fun arg -> Expr.alpha_renaming arg renaming)))
+  in
+  let definition =
+    match (previous.definition, incoming.definition) with
+    | Abstract, Abstract -> Abstract
+    | Defined body, Abstract -> Defined body
+    | Abstract, Defined body -> Defined (align body)
+    | Defined left, Defined right -> Defined (Callable.mask_union left (align right))
+  in
+  { previous with definition }
+
 (* Imported summaries are read from headers, never reconstructed from lowered bodies. *)
 let imported_summaries () =
   let open Rewriter.Syntax in
@@ -26,7 +58,9 @@ let imported_summaries () =
     | NamespaceContract.Module summary ->
         let namespaces =
           List.fold summary.namespaces ~init:namespaces ~f:(fun namespaces declaration ->
-              Map.set namespaces ~key:declaration.NamespaceContract.name ~data:declaration)
+              Map.update namespaces declaration.NamespaceContract.name ~f:(function
+                | None -> declaration
+                | Some previous -> merge_imported_namespace previous declaration))
         in
         let callables =
           List.fold summary.callables ~init:callables ~f:(fun callables (name, summary) ->

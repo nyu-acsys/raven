@@ -3010,10 +3010,9 @@ module Callable = struct
             [call_decl_precond] (see [masks.ml]); also the starting mask for checking this
             callable's own body. *)
     call_decl_grants_mask : mask option;
-        (** Invariant mask entries a caller is guaranteed to gain by calling this
-            callable, regardless of what it supplies -- computed purely from
-            [call_decl_postcond]. Used only by other callables' checking passes at their
-            own call sites into this one. *)
+        (** Exact resource mask entries granted by the postcondition, subject to the
+            [opens] restrictions. Dependency entries remain symbolic; their upper bounds
+            are never granted. Used at callers' call sites. *)
     call_decl_opens : opens_clause option;
         (** The user's [opens] clause, if any: replaces the [call_decl_needs_mask]
             otherwise inferred from [call_decl_precond]. *)

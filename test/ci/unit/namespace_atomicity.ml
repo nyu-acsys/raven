@@ -85,13 +85,36 @@ let test_symbolic_call () =
   assert (Set.mem result.callees (qi [ "F"; "helper" ]));
   assert_closed_requirements result
 
-let rec assertions statement =
+let rec assertion_specs statement =
   match statement.Stmt.stmt_desc with
-  | Basic (Spec (Assert, spec)) -> [ spec.spec_form ]
-  | Block block -> List.concat_map block.block_body ~f:assertions
-  | Cond branch -> assertions branch.cond_then @ assertions branch.cond_else
-  | Loop loop -> assertions loop.loop_prebody @ assertions loop.loop_postbody
+  | Basic (Spec (Assert, spec)) -> [ spec ]
+  | Block block -> List.concat_map block.block_body ~f:assertion_specs
+  | Cond branch -> assertion_specs branch.cond_then @ assertion_specs branch.cond_else
+  | Loop loop -> assertion_specs loop.loop_prebody @ assertion_specs loop.loop_postbody
   | Basic _ | StmtExt _ -> []
+
+let assertions statement =
+  List.map (assertion_specs statement) ~f:(fun spec -> spec.Stmt.spec_form)
+
+let body (result : Analysis.namespace_analysis) =
+  match result.callable.call_def with
+  | ProcDef { proc_body = Some body } -> body
+  | ProcDef { proc_body = None } | FuncDef _ -> assert false
+
+let mask_assertions result =
+  List.filter
+    (assertion_specs (body result))
+    ~f:(fun spec ->
+      List.exists
+        (Stmt.spec_error_msg spec (qi [ "use" ]) Util.Loc.dummy)
+        ~f:(function Util.Error.Verification Mask, _, _ -> true | _ -> false))
+
+let assert_missing_predicate_credit result =
+  assert (
+    List.exists (mask_assertions result) ~f:(fun spec ->
+        match spec.Stmt.spec_form with
+        | Expr.App (Bool false, [], _) -> true
+        | App _ | Binder _ -> false))
 
 let rec contains_negation = function
   | Expr.App (Not, _, _) -> true
@@ -107,12 +130,7 @@ let test_same_identity_checks () =
   in
   let result = analysis results [ "use" ] in
   assert (List.is_empty result.separation);
-  let body =
-    match result.callable.call_def with
-    | ProcDef { proc_body = Some body } -> body
-    | ProcDef { proc_body = None } | FuncDef _ -> assert false
-  in
-  assert (List.exists (assertions body) ~f:contains_negation);
+  assert (List.exists (assertions (body result)) ~f:contains_negation);
   match
     run
       "inv i(x: Int) { true }\n\
@@ -203,6 +221,109 @@ let test_omitted_implicit_does_not_grant_credit () =
      lemma make(implicit ghost x: Int) ensures i(x) {}\n\
      lemma use(ghost y: Int) { make(); unfold i(y); fold i(y); }"
 
+let test_predicate_credit_through_abstract_calls () =
+  let results =
+    run
+      "interface Counter {\n\
+       pred valid(c: Int, v: Int)\n\
+       lemma create(ghost c: Int) ensures valid(c, 0)\n\
+       lemma increment(ghost c: Int, ghost v: Int)\n\
+       requires valid(c, v) ensures valid(c, v + 1)\n\
+       lemma get(ghost c: Int, ghost v: Int) requires valid(c, v)\n\
+       }\n\
+       module Client[C: Counter] {\n\
+       lemma use(ghost c: Int) {\n\
+       C.create(c); C.increment(c, 0); C.get(c, 0 + 1);\n\
+       } }"
+  in
+  let result = analysis results [ "Client"; "use" ] in
+  assert (List.is_empty (mask_assertions result));
+  assert (Set.mem result.callees (qi [ "Client"; "C"; "create" ]));
+  assert (Set.mem result.callees (qi [ "Client"; "C"; "increment" ]));
+  assert (Set.mem result.callees (qi [ "Client"; "C"; "get" ]))
+
+let test_invariant_dependencies_granted_through_calls () =
+  let results =
+    run
+      "interface S { inv i(x: Int) }\n\
+       module F[P: S] {\n\
+       lemma make(ghost x: Int) ensures P.i(x) {}\n\
+       lemma need(ghost x: Int) requires P.i(x) {}\n\
+       lemma use(ghost x: Int) { make(x); need(x); } }"
+  in
+  assert (List.is_empty (mask_assertions (analysis results [ "F"; "use" ])))
+
+let test_predicate_credit_dropped_after_assignment () =
+  let results =
+    run
+      "interface Counter { pred valid(c: Int, v: Int) }\n\
+       module Client[C: Counter] {\n\
+       lemma create(ghost c: Int) ensures C.valid(c, 0) {}\n\
+       lemma get(ghost c: Int) requires C.valid(c, 0) {}\n\
+       lemma use(ghost c: Int) {\n\
+       ghost var current: Int := c;\n\
+       create(current); current := current + 1; get(current);\n\
+       } }"
+  in
+  assert_missing_predicate_credit (analysis results [ "Client"; "use" ])
+
+let test_predicate_credit_intersects_at_branch_join () =
+  let results =
+    run
+      "interface Counter { pred valid(c: Int, v: Int) }\n\
+       module Client[C: Counter] {\n\
+       lemma create(ghost c: Int) ensures C.valid(c, 0) {}\n\
+       lemma get(ghost c: Int) requires C.valid(c, 0) {}\n\
+       lemma use(ghost c: Int, ghost branch: Bool) {\n\
+       if (branch) { create(c); } else {} get(c);\n\
+       } }"
+  in
+  assert_missing_predicate_credit (analysis results [ "Client"; "use" ])
+
+let test_predicate_credit_needs_implicit_actual () =
+  let results =
+    run
+      "interface Counter { pred valid(c: Int) }\n\
+       module Client[C: Counter] {\n\
+       lemma create(implicit ghost c: Int) ensures C.valid(c) {}\n\
+       lemma get(ghost c: Int) requires C.valid(c) {}\n\
+       lemma use(ghost c: Int) { create(); get(c); }\n\
+       }"
+  in
+  assert_missing_predicate_credit (analysis results [ "Client"; "use" ])
+
+let test_predicate_opens_does_not_restore_credit () =
+  let update_draft (draft : Inference.t) =
+    let pass = Option.value_exn (Inference.callable draft (qi [ "Client"; "pass" ])) in
+    assert (List.is_empty pass.grants);
+    draft
+  in
+  let _ =
+    run ~update_draft
+      "interface Counter { pred valid(c: Int) }\n\
+       module Client[C: Counter] {\n\
+       lemma pass(ghost c: Int)\n\
+       requires C.valid(c) ensures C.valid(c) opens {} {}\n\
+       }"
+  in
+  ()
+
+let test_granted_predicate_under_open_invariant () =
+  let results =
+    run
+      "interface S { inv i(x: Int) pred p(x: Int) }\n\
+       module F[P: S] {\n\
+       lemma make(ghost x: Int) ensures P.p(x) {}\n\
+       lemma need(ghost x: Int) requires P.p(x) {}\n\
+       lemma use(ghost x: Int) requires P.i(x) {\n\
+       unfold P.i(x); make(x); need(x); fold P.i(x);\n\
+       } }"
+  in
+  let result = analysis results [ "F"; "use" ] in
+  assert (List.is_empty (mask_assertions result));
+  assert (has_separation result (own [ "F"; "P"; "i" ]) (dependencies [ "F"; "P"; "p" ]));
+  assert_closed_requirements result
+
 let test_call_kinds () =
   List.iter
     [
@@ -274,6 +395,13 @@ let () =
     test_ordinary_branch_credit_intersection ();
     test_credit_only_requires_separation_when_used ();
     test_omitted_implicit_does_not_grant_credit ();
+    test_predicate_credit_through_abstract_calls ();
+    test_invariant_dependencies_granted_through_calls ();
+    test_predicate_credit_dropped_after_assignment ();
+    test_predicate_credit_intersects_at_branch_join ();
+    test_predicate_credit_needs_implicit_actual ();
+    test_predicate_opens_does_not_restore_credit ();
+    test_granted_predicate_under_open_invariant ();
     test_call_kinds ();
     test_recursive_call_edges ();
     test_ghost_branch_credit_intersection ();
