@@ -1969,7 +1969,7 @@ module ScalarResource = struct
         guarded (Expr.mk_not guard :: conds) body
     | expr -> (Expr.mk_and (List.rev conds), expr)
 
-  let fuse_inhale_exhale inhale spec guard r =
+  let fuse_inhale_exhale ~between inhale spec guard r =
     let loc = inhale.stmt_loc in
     let lookup = Expr.mk_maplookup ~loc r.heap r.key in
     let condition, composed = composition ~loc r lookup in
@@ -1996,9 +1996,12 @@ module ScalarResource = struct
       | Generic | Lattice | Persistent _ ->
           [ assign_entry ~loc r guard (remainder ~loc r composed) ]
     in
-    Stmt.mk_block_stmt ~loc (assumptions @ updates)
+    Stmt.mk_block_stmt ~loc (assumptions @ between @ updates)
 
-  let fuse ~reverse first second pre post =
+  (* The fusion of the transfers [pre] of [first] and [post] of [second], given the
+     statements [between] them, which are pure: they go after the first transfer's
+     checks or assumptions and before any update, as without fusion. *)
+  let fuse ~reverse first second pre post : (Stmt.t list -> Stmt.t) option Rewriter.t =
     let open Rewriter.Syntax in
     let guard_out, atom_out = guarded [] pre.spec_form in
     let guard_in, atom_in = guarded [] post.spec_form in
@@ -2014,7 +2017,8 @@ module ScalarResource = struct
                 ~f:stable ->
         if reverse then
           if Expr.alpha_equal r.chunk s.chunk then
-            Rewriter.return (Some (fuse_inhale_exhale first pre guard_out r))
+            Rewriter.return
+              (Some (fun between -> fuse_inhale_exhale ~between first pre guard_out r))
           else Rewriter.return None
         else
           let exhale, inhale = (first, second) in
@@ -2075,7 +2079,9 @@ module ScalarResource = struct
           in
           Rewriter.return
             (Some
-               (Stmt.mk_block_stmt ~loc ((check_stmt :: update_stmts) @ [ assume_stmt ])))
+               (fun between ->
+                 Stmt.mk_block_stmt ~loc
+                   ((check_stmt :: between) @ update_stmts @ [ assume_stmt ])))
     | _ -> Rewriter.return None
 end
 
@@ -4270,6 +4276,48 @@ let flatten_resource_blocks stmts =
   in
   flatten [ stmts ] []
 
+(* An inhale or exhale of a conjunction as one per conjunct, each under the
+   conjunction's guards, so that its transfers can fuse with those next to it. Not if
+   a conjunct has a quantifier, as the inverse functions of a clause are indexed by
+   position. *)
+let split_conjunctive_spec (stmt : Stmt.t) : Stmt.t list =
+  let rec has_forall = function
+    | Expr.Binder (Forall, _, _, _, _) -> true
+    | Binder (_, _, _, body, _) -> has_forall body
+    | App (_, args, _) -> List.exists args ~f:has_forall
+  in
+  let rec conjuncts = function
+    | Expr.App (And, es, _) -> List.concat_map es ~f:conjuncts
+    | e -> [ e ]
+  in
+  match stmt.stmt_desc with
+  | Basic (Spec (((Inhale | Exhale) as kind), spec)) when not (has_forall spec.spec_form)
+    -> (
+      let guard, body = ScalarResource.guarded [] spec.spec_form in
+      match conjuncts body with
+      | [] | [ _ ] -> [ stmt ]
+      | conjuncts ->
+          List.map conjuncts ~f:(fun conjunct ->
+              let spec_form =
+                match guard with
+                | App (Bool true, [], _) -> conjunct
+                | _ -> Expr.mk_impl ~loc:(Expr.to_loc conjunct) guard conjunct
+              in
+              { stmt with stmt_desc = Basic (Spec (kind, { spec with spec_form })) }))
+  | _ -> [ stmt ]
+
+(* The longest prefix of [stmts] of pure inhales and exhales, and the rest. *)
+let rec pure_spec_prefix (stmts : Stmt.t list) : (Stmt.t list * Stmt.t list) Rewriter.t =
+  let open Rewriter.Syntax in
+  match stmts with
+  | ({ stmt_desc = Basic (Spec ((Inhale | Exhale), spec)); _ } as stmt) :: rest ->
+      let* pure = ProgUtils.is_expr_pure spec.spec_form in
+      if pure then
+        let+ prefix, rest = pure_spec_prefix rest in
+        (stmt :: prefix, rest)
+      else Rewriter.return ([], stmts)
+  | _ -> Rewriter.return ([], stmts)
+
 let rec inherit_spec_name name stmt =
   match stmt.stmt_desc with
   | Basic (Spec (kind, spec)) when Option.is_none spec.spec_name ->
@@ -4283,7 +4331,10 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
   | Stmt.Block block ->
       let* _ = Rewriter.enter_block block in
       let* block_body =
-        translate_resource_sequence [] (flatten_resource_blocks block.block_body)
+        translate_resource_sequence []
+          (List.concat_map
+             (flatten_resource_blocks block.block_body)
+             ~f:split_conjunctive_spec)
       in
       let+ () = Rewriter.exit_block in
       { s with stmt_desc = Block { block with block_body } }
@@ -4559,44 +4610,49 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
 
       Rewriter.return s
 
-and translate_resource_sequence acc = function
-  | ({ stmt_desc = Basic (Spec ((Exhale as kind), pre)); _ } as first)
-    :: ({ stmt_desc = Basic (Spec (Inhale, post)); _ } as second)
-    :: rest
-  | ({ stmt_desc = Basic (Spec ((Inhale as kind), pre)); _ } as first)
-    :: ({ stmt_desc = Basic (Spec (Exhale, post)); _ } as second)
-    :: rest ->
-      let open Rewriter.Syntax in
-      (* Prefer an existing forward fusion when the pairs overlap. *)
-      let* forward =
-        match (kind, rest) with
-        | Inhale, ({ stmt_desc = Basic (Spec (Inhale, third)); _ } as next) :: tail ->
-            let+ fused = ScalarResource.fuse ~reverse:false second next post third in
-            Option.map fused ~f:(fun stmt -> (stmt, tail))
-        | _ -> Rewriter.return None
-      in
-      begin match forward with
-      | Some (stmt, tail) ->
-          let* first = rewrite_make_heaps_explicit first in
-          let* stmt = rewrite_make_heaps_explicit stmt in
-          translate_resource_sequence (stmt :: first :: acc) tail
-      | None ->
-          let* fused =
-            ScalarResource.fuse
-              ~reverse:(match kind with Inhale -> true | _ -> false)
-              first second pre post
+and translate_resource_sequence acc stmts =
+  let open Rewriter.Syntax in
+  let translate_first first rest =
+    let* first = rewrite_make_heaps_explicit first in
+    translate_resource_sequence (first :: acc) rest
+  in
+  match stmts with
+  | ({ stmt_desc = Basic (Spec (((Exhale | Inhale) as kind), pre)); _ } as first) :: rest
+    -> (
+      let* between, after = pure_spec_prefix rest in
+      match (kind, after) with
+      | Exhale, ({ stmt_desc = Basic (Spec (Inhale, post)); _ } as second) :: tail
+      | Inhale, ({ stmt_desc = Basic (Spec (Exhale, post)); _ } as second) :: tail -> (
+          (* Prefer an existing forward fusion when the pairs overlap. *)
+          let* forward =
+            match (kind, between) with
+            | Inhale, [] -> (
+                let* between, after = pure_spec_prefix tail in
+                match after with
+                | ({ stmt_desc = Basic (Spec (Inhale, third)); _ } as next) :: tail ->
+                    let+ fused =
+                      ScalarResource.fuse ~reverse:false second next post third
+                    in
+                    Option.map fused ~f:(fun fuse -> (fuse between, tail))
+                | _ -> Rewriter.return None)
+            | _ -> Rewriter.return None
           in
-          begin match fused with
-          | Some stmt ->
-              let* stmt = rewrite_make_heaps_explicit stmt in
-              translate_resource_sequence (stmt :: acc) rest
-          | None ->
+          match forward with
+          | Some (stmt, tail) ->
               let* first = rewrite_make_heaps_explicit first in
-              translate_resource_sequence (first :: acc) (second :: rest)
-          end
-      end
-  | stmt :: rest ->
-      let open Rewriter.Syntax in
-      let* stmt = rewrite_make_heaps_explicit stmt in
-      translate_resource_sequence (stmt :: acc) rest
+              let* stmt = rewrite_make_heaps_explicit stmt in
+              translate_resource_sequence (stmt :: first :: acc) tail
+          | None -> (
+              let* fused =
+                ScalarResource.fuse
+                  ~reverse:(match kind with Inhale -> true | _ -> false)
+                  first second pre post
+              in
+              match fused with
+              | Some fuse ->
+                  let* stmt = rewrite_make_heaps_explicit (fuse between) in
+                  translate_resource_sequence (stmt :: acc) tail
+              | None -> translate_first first rest))
+      | _ -> translate_first first rest)
+  | stmt :: rest -> translate_first stmt rest
   | [] -> Rewriter.return (List.rev acc)

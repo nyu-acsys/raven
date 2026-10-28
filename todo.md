@@ -50,7 +50,7 @@
     alias to a function works; investigate constructor instantiation inference.
 
 23 oct, 2026:
-- [ ] Make inhale/exhale fusion insensitive to contract conjunction grouping:
+- [x] Make inhale/exhale fusion insensitive to contract conjunction grouping:
     normalize conjunctive assertions before matching resource transfers, preserving
     order, guards, source locations, and diagnostics. A fractional read with
     `requires own(x.contents, v, q) && q > 0.0` and

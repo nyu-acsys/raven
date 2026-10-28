@@ -1,0 +1,49 @@
+// Transfers fuse whether the pure facts of a contract are in the same clause as the
+// ownership or in clauses of their own, under a guard, and across pure facts.
+
+field contents: Int
+
+free proc read_grouped(x: Ref, implicit ghost v: Int, implicit ghost q: Real)
+  returns (r: Int)
+  requires own(x.contents, v, q) && q > 0.0
+  ensures own(x.contents, v, q) && r == v
+
+free proc read_separate(x: Ref, implicit ghost v: Int, implicit ghost q: Real)
+  returns (r: Int)
+  requires q > 0.0
+  requires own(x.contents, v, q)
+  ensures own(x.contents, v, q)
+  ensures r == v
+
+free proc read_guarded(x: Ref, b: Bool, implicit ghost v: Int)
+  returns (r: Int)
+  requires b ==> own(x.contents, v, 0.5) && v > 0
+  ensures b ==> own(x.contents, v, 0.5) && r == v
+
+proc grouped(x: Ref) returns (r: Int)
+  requires own(x.contents, 1, 0.5)
+  ensures own(x.contents, 1, 0.5) && r == 1
+{
+  r := read_grouped(x);
+}
+
+proc separate(x: Ref) returns (r: Int)
+  requires own(x.contents, 1, 0.5)
+  ensures own(x.contents, 1, 0.5) && r == 1
+{
+  r := read_separate(x);
+}
+
+proc guarded(x: Ref, b: Bool) returns (r: Int)
+  requires b ==> own(x.contents, 1, 0.5)
+  ensures b ==> own(x.contents, 1, 0.5) && r == 1
+{
+  r := read_guarded(x, b);
+}
+
+proc reverse(x: Ref, n: Int)
+{
+  inhale own(x.contents, 1, 0.5) && n > 0;
+  exhale own(x.contents, 1, 0.5);
+  assert n > 0;
+}
