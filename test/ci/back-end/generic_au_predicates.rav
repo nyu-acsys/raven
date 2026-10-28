@@ -1,0 +1,67 @@
+module Generic[E: Library.Type] {
+  proc operation()
+    atomic requires true
+    atomic ensures true
+  {
+    ghost val token := bindAU();
+    openAU(token);
+    commitAU(token, ());
+  }
+
+  lemma preserve_pending(token: AtomicToken<Generic.operation>)
+    requires au<Generic.operation>(token, ())
+    ensures au<Generic.operation>(token, ())
+  { }
+
+  lemma preserve_committed(token: AtomicToken<Generic.operation>)
+    requires auCommit<Generic.operation>(token, (), ())
+    ensures auCommit<Generic.operation>(token, (), ())
+  { }
+}
+
+module First = Generic[Int]
+module Second = Generic[Bool]
+module FirstAgain = Generic[Int]
+module Alias = First
+
+lemma first_pending(token: AtomicToken<First.operation>)
+  requires au<First.operation>(token, ())
+  ensures au<First.operation>(token, ())
+{
+  First.preserve_pending(token);
+}
+
+lemma second_pending(token: AtomicToken<Second.operation>)
+  requires au<Second.operation>(token, ())
+  ensures au<Second.operation>(token, ())
+{
+  Second.preserve_pending(token);
+}
+
+lemma first_committed(token: AtomicToken<First.operation>)
+  requires auCommit<First.operation>(token, (), ())
+  ensures auCommit<First.operation>(token, (), ())
+{
+  First.preserve_committed(token);
+}
+
+lemma second_committed(token: AtomicToken<Second.operation>)
+  requires auCommit<Second.operation>(token, (), ())
+  ensures auCommit<Second.operation>(token, (), ())
+{
+  Second.preserve_committed(token);
+}
+
+lemma repeated_pending(token: AtomicToken<FirstAgain.operation>)
+  requires au<FirstAgain.operation>(token, ())
+  ensures au<FirstAgain.operation>(token, ())
+{
+  FirstAgain.preserve_pending(token);
+}
+
+lemma alias_committed(token: AtomicToken<Alias.operation>)
+  requires auCommit<Alias.operation>(token, (), ())
+  ensures auCommit<Alias.operation>(token, (), ())
+{
+  Alias.preserve_committed(token);
+}

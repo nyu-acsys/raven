@@ -1496,6 +1496,12 @@ module Expr = struct
           | DataTest qual_ident ->
               let+ qual_ident = f qual_ident in
               Expr.DataTest qual_ident
+          | AUPred qual_ident ->
+              let+ qual_ident = f qual_ident in
+              Expr.AUPred qual_ident
+          | AUPredCommit qual_ident ->
+              let+ qual_ident = f qual_ident in
+              Expr.AUPredCommit qual_ident
           | _ -> return constr
         in
         Expr.App (constr, expr_list, expr_attr)
@@ -1520,6 +1526,8 @@ module Expr = struct
           | DataConstr qual_ident -> Expr.DataConstr (f qual_ident)
           | DataDestr qual_ident -> Expr.DataDestr (f qual_ident)
           | DataTest qual_ident -> Expr.DataTest (f qual_ident)
+          | AUPred qual_ident -> Expr.AUPred (f qual_ident)
+          | AUPredCommit qual_ident -> Expr.AUPredCommit (f qual_ident)
           | _ -> constr
         in
         Expr.App (constr, expr_list, expr_attr)
