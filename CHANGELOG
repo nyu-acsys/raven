@@ -31,6 +31,7 @@ All notable changes to this project will be documented in this file.
 
 - Default masks stop at opaque predicate boundaries, and `opens` clauses can request predicate footprints.
 - Reduce SSA lowering overhead by maintaining substitutions incrementally.
+- Comprehensions applying a function to map entries at the bound index are encoded without quantifiers.
 - `Library.UnitRA` is renamed to `Library.Unit`.
 - Hide the library modules that only the verifier uses (`AtomicTokenRA`, `Prophecy`, `ErrorCreds`).
 - Set and sequence literals are written without pipes, as `{1, 2}` and `[1, 2]`; pipes are deprecated.

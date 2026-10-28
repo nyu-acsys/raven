@@ -31,6 +31,28 @@ let rec is_pointwise_body (x : ident) (body : expr) : bool =
   | App (MapLookUp, [ m; index ], _) when is_x index -> is_bool body && not (mentions_x m)
   | e -> is_bool e && not (mentions_x e)
 
+(** The map [m] if [e] is its entry [m[x]] at the bound index [x]. *)
+let entry_map_at (x : ident) (e : expr) : expr option =
+  match e with
+  | App (MapLookUp, [ m; App (Var y, [], _) ], _)
+    when QualIdent.equal y (QualIdent.from_ident x)
+         && not (Map.mem (AstDef.Expr.signature m) (QualIdent.from_ident x)) ->
+      Some m
+  | _ -> None
+
+let is_entry_at (x : ident) (e : expr) : bool = Base.Option.is_some (entry_map_at x e)
+
+(** Whether a comprehension body applies a function to entries at the bound index [x] and
+    to terms without [x], at least one of them an entry: it is encoded by applying the
+    function pointwise with an array map combinator. *)
+let is_map_application (x : ident) (body : expr) : bool =
+  let mentions_x e = Map.mem (AstDef.Expr.signature e) (QualIdent.from_ident x) in
+  match body with
+  | App (Var _, (_ :: _ as args), _) ->
+      Base.List.exists args ~f:(is_entry_at x)
+      && Base.List.for_all args ~f:(fun arg -> is_entry_at x arg || not (mentions_x arg))
+  | _ -> false
+
 let sealed_impl_suffix = AstDef.Module.sealed_impl_suffix
 
 (** The name of a module as written in the program: [M] for the module [M$Impl] holding

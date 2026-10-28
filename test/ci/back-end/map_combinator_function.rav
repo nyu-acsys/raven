@@ -1,0 +1,48 @@
+// Comprehensions applying a function to entries at the bound index use map combinators.
+
+type Opt = data {
+  case none
+  case some(v: Int)
+}
+
+inline func agrees(x: Opt, y: Opt) returns (r: Bool) {
+  x == none || x == y
+}
+
+// Write-once maps: [a] is included in [b] if [b] keeps every entry of [a].
+inline func included(a: Map[Int, Opt], b: Map[Int, Opt]) returns (r: Bool) {
+  {i: Int :: agrees(a[i], b[i])} == {i: Int :: true}
+}
+
+func max_opt(x: Opt, y: Opt) returns (r: Opt) {
+  x == none ? y : (y == none ? x : (x.v < y.v ? y : x))
+}
+
+lemma included_trans(a: Map[Int, Opt], b: Map[Int, Opt], c: Map[Int, Opt])
+  requires included(a, b) && included(b, c)
+  ensures included(a, c)
+{}
+
+lemma included_fresh(a: Map[Int, Opt], n: Int, x: Int)
+  requires a[n] == none
+  ensures included(a, a[n := some(x)])
+{}
+
+lemma included_entry(a: Map[Int, Opt], b: Map[Int, Opt], k: Int, x: Int)
+  requires a[k] == some(x) && included(a, b)
+  ensures b[k] == some(x)
+{}
+
+lemma included_overwrite(a: Map[Int, Opt], k: Int, x: Int, y: Int)
+  requires a[k] == some(x) && x != y
+  ensures included(a, a[k := some(y)]) == false
+{}
+
+// A function without a body, and a term without the bound index, as arguments.
+lemma max_with_none(a: Map[Int, Opt])
+  ensures a == {i: Int :: max_opt(a[i], none)}
+{}
+
+lemma included_fails(a: Map[Int, Opt], b: Map[Int, Opt])
+  ensures included(a, b)
+{}

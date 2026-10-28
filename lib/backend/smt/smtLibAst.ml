@@ -229,6 +229,19 @@ let rec pr_term ppf (term : term) =
             ("pr_term: unexpected term: " ^ Expr.to_string term))
   | Binder (Compr, [ v ], _, body, _) when ProgUtils.is_pointwise_body v.var_name body ->
       pr_pointwise v.var_name (Expr.to_type term) ppf body
+  | Binder (Compr, [ v ], _, (App (Var f, args, _) as body), _)
+    when ProgUtils.is_map_application v.var_name body ->
+      let pr_arg ppf t =
+        match ProgUtils.entry_map_at v.var_name t with
+        | Some m -> pr_term ppf m
+        | None ->
+            fprintf ppf "@[<2>((as const %a)@ %a)@]" pr_sort
+              (Type.mk_map (Expr.to_loc t) v.var_type (Expr.to_type t))
+              pr_term t
+      in
+      fprintf ppf "@[<2>((_ map %a)@ %a)@]" pr_smt_ident f
+        (Util.Print.pr_list_sep " " pr_arg)
+        args
   | Binder (b, vs, trgs, f, _) -> (
       let vs = List.map vs ~f:(fun v -> (QualIdent.from_ident v.var_name, v.var_type)) in
       match trgs with

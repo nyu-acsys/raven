@@ -176,7 +176,8 @@ let rec rewrite_compr_expr (expr : expr) : expr Rewriter.t =
   in
   match expr with
   | Binder (Compr, [ v ], trgs, inner_expr, expr_attr)
-    when ProgUtils.is_pointwise_body v.var_name inner_expr ->
+    when ProgUtils.is_pointwise_body v.var_name inner_expr
+         || ProgUtils.is_map_application v.var_name inner_expr ->
       (* Encoded with array map combinators instead, see [SmtLibAst.pr_term]. *)
       let+ inner_expr = rewrite_compr_expr inner_expr in
       Expr.Binder (Compr, [ v ], trgs, inner_expr, expr_attr)
