@@ -463,10 +463,16 @@ let reify (tbl : SymbolTbl.t) (qual_name : qual_ident) : Module.symbol =
     let* symbol = Rewriter.find_and_reify qual_name in
     match symbol with
     | Module.TypeDef typ ->
-        let+ type_def_expr =
-          Rewriter.Option.map typ.type_def_expr ~f:normalize_definition
-        in
-        Module.TypeDef { typ with type_def_expr }
+        let identity = SymbolTbl.identity ~preserve_abstract_owners:true qual_name tbl in
+        if QualIdent.equal identity qual_name then
+          let+ type_def_expr =
+            Rewriter.Option.map typ.type_def_expr ~f:normalize_definition
+          in
+          Module.TypeDef { typ with type_def_expr }
+        else
+          (* A transparent alias keeps its target's sort, including for data types. *)
+          Rewriter.return
+            (Module.TypeDef { typ with type_def_expr = Some (Type.mk_var identity) })
     | _ -> Rewriter.return symbol
   in
   let tbl1 = SymbolTbl.goto qual_name tbl in

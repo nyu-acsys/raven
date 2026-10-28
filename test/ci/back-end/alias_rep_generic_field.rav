@@ -1,0 +1,26 @@
+module ExclInt : Library.Excl = Library.Excl[Int]
+
+interface Argument {
+  module R : Library.ResourceAlgebra
+}
+
+module Generic[X: Argument] {
+  ghost field slot: X.R
+
+  lemma allocate() returns (ghost cell: Ref)
+    ensures own(cell.slot, X.R.id)
+  {
+    cell := new(slot: X.R.id);
+  }
+}
+
+module Concrete : Argument {
+  module R : ExclInt = ExclInt
+}
+
+module Applied : Generic = Generic[Concrete]
+
+lemma use() {
+  ghost var cell: Ref := Applied.allocate();
+  assert Concrete.R.excl(1) == Concrete.R.excl(1);
+}
