@@ -1,0 +1,8 @@
+field f: Int
+
+proc exhale_before_inhale(x: Ref, b: Bool)
+  requires own(x.f, 7, 0.5)
+{
+  exhale own(x.f, 7, 0.25) && b && own(x.f, 7, 0.25);
+  inhale own(x.f, 9, 0.25) && false && own(x.f, 9, 0.25);
+}

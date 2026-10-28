@@ -1,0 +1,8 @@
+pred counted(x: Ref) { true }
+
+proc duplicate_predicate(x: Ref)
+  requires counted(x)
+{
+  exhale counted(x) && counted(x);
+  inhale counted(x) && counted(x);
+}

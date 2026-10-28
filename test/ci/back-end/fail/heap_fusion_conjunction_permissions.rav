@@ -1,0 +1,8 @@
+field f: Int
+
+proc duplicate_alias(x: Ref, y: Ref)
+  requires x == y && own(x.f, 7, 1.0)
+{
+  exhale own(x.f, 7, 0.75) && own(y.f, 7, 0.75);
+  inhale own(y.f, 9, 0.75) && own(x.f, 9, 0.75) && false;
+}

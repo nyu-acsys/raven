@@ -1,0 +1,8 @@
+field f: Int
+
+proc overlapping_guards(x: Ref, b: Bool, c: Bool)
+  requires b && c && own(x.f, 7, 0.5)
+{
+  exhale (b ==> own(x.f, 7, 0.5)) && (c ==> own(x.f, 7, 0.5));
+  inhale (c ==> own(x.f, 7, 0.5)) && (b ==> own(x.f, 7, 0.5));
+}

@@ -46,3 +46,11 @@ proc heap_dependent(x: Ref)
   requires own(x.n, 3)
   ensures own(x.n, 4)
 { fpu(x, n, 4); }
+
+proc quantified_and_scalar(x: Ref)
+  requires own(x.f, 7, 0.5) && (forall y: Ref :: own(y.n, 3))
+  ensures own(x.f, 7, 0.5) && (forall y: Ref :: own(y.n, 3))
+{
+  exhale own(x.f, 7, 0.5) && (forall y: Ref :: own(y.n, 3));
+  inhale (forall y: Ref :: own(y.n, 3)) && own(x.f, 7, 0.5);
+}

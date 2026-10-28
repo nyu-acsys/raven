@@ -1,0 +1,8 @@
+pred valued(x: Ref; v: Int) { v == 7 }
+
+proc duplicate_valued_predicate(x: Ref)
+  requires valued(x, 7)
+{
+  exhale valued(x, 7) && valued(x, 7);
+  inhale valued(x, 9) && valued(x, 9);
+}
