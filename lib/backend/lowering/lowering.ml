@@ -1899,6 +1899,11 @@ let lower (m : Module.t) : (Module.t * CallGraph.Graph.t) Rewriter.t =
     Rewriter.Module.rewrite_callables ~f:HeapsExplicitTrnsl.rewrite_add_pred_utils m
   in
 
+  let* m =
+    Rewriter.Module.rec_rewrite_symbols ~f:HeapsExplicitTrnsl.rewrite_add_pred_alias_utils
+      m
+  in
+
   Logs.debug (fun m1 ->
       m1 "Lowering.lower: Starting rewrite_add_atomics_utils on module %a" Ident.pr
         m.mod_decl.mod_decl_name);
@@ -2020,6 +2025,5 @@ let lower_module ?(tbl = SymbolTbl.create ()) ?ext_hooks ?diagnostics (m : Modul
     in
     { m with mod_def }
   in
-  let m = without_resource_aliases m in
   let tbl, (m, lemma_calls) = Rewriter.eval ?ext_hooks ?diagnostics (lower m) tbl in
-  (tbl, m, lemma_calls)
+  (tbl, without_resource_aliases m, lemma_calls)

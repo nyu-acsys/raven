@@ -740,6 +740,40 @@ let rewrite_add_pred_utils (c : Callable.t) : Callable.t Rewriter.t =
       Rewriter.return c
   | _ -> Rewriter.return c
 
+let rewrite_add_pred_alias_utils (symbol : Module.symbol) : Module.symbol Rewriter.t =
+  let open Rewriter.Syntax in
+  match symbol with
+  | CallDef
+      {
+        call_decl =
+          {
+            call_decl_alias = Some target;
+            call_decl_kind = Pred | Invariant;
+            call_decl_name;
+            call_decl_loc;
+            _;
+          };
+        _;
+      } ->
+      (* The alias shares its target's heap and synthesized modules. *)
+      let* ra = ProgUtils.pred_get_ra_qual_iden target in
+      let* utils = ProgUtils.get_pred_utils_module target in
+      let alias name target =
+        Module.ModInst
+          (Module.mk_mod_binding ~name ~typ:target ~definition:(Module.Alias target)
+             ~loc:call_decl_loc ())
+      in
+      let* _ =
+        Rewriter.introduce_typecheck_symbol ~loc:call_decl_loc ~f:Typing.check_symbol
+          (alias (ProgUtils.pred_to_ra_mod_ident ~loc:call_decl_loc call_decl_name) ra)
+      in
+      let* _ =
+        Rewriter.introduce_typecheck_symbol ~loc:call_decl_loc ~f:Typing.check_symbol
+          (alias (ProgUtils.pred_utils_module_ident call_decl_name) utils)
+      in
+      Rewriter.return symbol
+  | _ -> Rewriter.return symbol
+
 let rewrite_add_atomics_utils (c : Callable.t) : Callable.t Rewriter.t =
   let open Rewriter.Syntax in
   match c.call_decl.call_decl_kind with

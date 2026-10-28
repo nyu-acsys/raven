@@ -1,0 +1,25 @@
+module Actual {
+  pred token(x: Int) { true }
+}
+
+interface Resource {
+  pred token(x: Int)
+}
+
+module View : Resource {
+  pred token(x: Int) = Actual.token
+}
+
+module Worker[X: Resource] {
+  pred wrapped(x: Int) { X.token(x) }
+}
+
+module Applied = Worker[View]
+
+lemma roundtrip(x: Int)
+  requires Applied.wrapped(x)
+  ensures Applied.wrapped(x)
+{
+  unfold Applied.wrapped(x);
+  fold Applied.wrapped(x);
+}
