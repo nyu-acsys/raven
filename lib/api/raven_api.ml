@@ -4,6 +4,7 @@
 open Base
 open Raven
 open Util
+module Ast = Raven.Ast
 module S = Ast.Surface
 
 let version = 1
@@ -480,8 +481,8 @@ module Diagnostic = struct
   let print = print_to_channel pr
   let to_string d = Stdlib.Format.asprintf "%a" pr d
 
-  (** The diagnostics of Raven's [errors]: each error with the related locations,
-      counterexamples and branches that follow it. *)
+  (** The diagnostics of Raven's [errors]: each error with its related locations,
+      counterexamples and branches. *)
   let of_errors (errors : Error.t list) : t list =
     let primary (kind, loc, message) =
       let severity, kind, code =
@@ -505,20 +506,33 @@ module Diagnostic = struct
       { d with related = { related_loc = loc; related_message = message } :: d.related }
     in
     let finish d = { d with related = List.rev d.related } in
-    let rec go acc current = function
+    let rec go acc current leading = function
       | [] ->
+          let current =
+            match (current, List.rev leading) with
+            | Some d, _ -> Some d
+            | None, [] -> None
+            | None, first :: rest ->
+                Some (List.fold rest ~init:(primary first) ~f:add_related)
+          in
           List.rev (Option.value_map current ~default:acc ~f:(fun d -> finish d :: acc))
-      | ((kind, _, _) as error) :: errors -> (
-          match ((kind : Error.error_kind), current) with
+      | ((kind, _, _) as error) :: errors ->
+          begin match ((kind : Error.error_kind), current) with
           | (RelatedLoc | Counterexample _ | Branch), Some d ->
-              go acc (Some (add_related d error)) errors
-          | _ ->
+              go acc (Some (add_related d error)) leading errors
+          | (RelatedLoc | Counterexample _ | Branch), None ->
+              go acc None (error :: leading) errors
+          | _, _ ->
               let acc =
                 Option.value_map current ~default:acc ~f:(fun d -> finish d :: acc)
               in
-              go acc (Some (primary error)) errors)
+              let current =
+                List.fold (List.rev leading) ~init:(primary error) ~f:add_related
+              in
+              go acc (Some current) [] errors
+          end
     in
-    go [] None errors
+    go [] None [] errors
 end
 
 type extension = Default | Eris
@@ -546,6 +560,49 @@ let config_of (options : options) : Driver.config =
     fingerprints = false;
     cache_dir = None;
   }
+
+module Library = struct
+  let compute_standard_library_unrestored () =
+    let diagnostics = Diagnostics.create ~collect_warnings:true () in
+    let includes = Driver.create_includes () in
+    let snapshots = Driver.create_library_snapshots () in
+    let config = { (config_of default_options) with typecheck_only = true } in
+    let run () =
+      Ast.Ident.restore ();
+      Driver.check_program ~library_snapshots:snapshots ~includes
+        ~extension_mode:(`Explicit Ext.ProphecyExt) ~diagnostics config
+        (Program.make ~loc:Loc.none [])
+    in
+    let errors =
+      match run () with
+      | () -> Diagnostics.report_errors diagnostics
+      | exception Error.Msg errors -> errors
+      | exception Driver.Finished _ -> Diagnostics.report_errors diagnostics
+      | exception
+          ((Sys_error _ | Failure _ | Invalid_argument _ | Assert_failure _) as exn) ->
+          [ (Internal, Loc.none, Exn.to_string exn) ]
+    in
+    if not (List.is_empty errors) then Error (Diagnostic.of_errors errors)
+    else
+      match Hashtbl.data snapshots with
+      | snapshot :: _ ->
+          begin match snapshot.Driver.lib_typed with
+          | library :: _ -> Ok library
+          | [] ->
+              Error (Diagnostic.of_errors [ (Internal, Loc.none, "No checked library") ])
+          end
+      | [] -> Error (Diagnostic.of_errors [ (Internal, Loc.none, "No checked library") ])
+
+  let compute_standard_library () =
+    let saved = Ast.Ident.save () in
+    Stdlib.Fun.protect
+      ~finally:(fun () -> Ast.Ident.restore ~saved ())
+      compute_standard_library_unrestored
+
+  let standard_library =
+    let checked = lazy (compute_standard_library ()) in
+    fun () -> Lazy.force checked
+end
 
 (* A top-level handler, as the executable's: the errors that end a run are returned as
    diagnostics, never raised. *)

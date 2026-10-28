@@ -71,6 +71,16 @@
  (libraries raven-ivl.api))
 
 (test
+ (name checked_library_api)
+ (modules checked_library_api)
+ (libraries raven-ivl.api))
+
+(test
+ (name diagnostic_grouping_api)
+ (modules diagnostic_grouping_api)
+ (libraries raven-ivl.api))
+
+(test
  (name source_printing)
  (modules source_printing)
  (libraries raven raven-ivl.api base))

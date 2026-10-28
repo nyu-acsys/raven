@@ -8,6 +8,9 @@ val version : int
 (** The version of this interface, raised with every change that is not backward
     compatible. *)
 
+module Ast = Raven.Ast
+(** The Raven syntax tree, exposed for inspecting checked library declarations. *)
+
 (** {1 Building programs} *)
 
 module Loc : sig
@@ -445,6 +448,13 @@ module Diagnostic : sig
 
   val to_string : t -> string
   (** The same diagnostic as [pr], rendered to a string. *)
+end
+
+(** The checked embedded standard library. *)
+module Library : sig
+  val standard_library : unit -> (Ast.Module.t, Diagnostic.t list) result
+  (** Type-checks the embedded library and returns its module tree. This does not
+      elaborate, lower, verify, or start an SMT solver. *)
 end
 
 type extension = Default | Eris

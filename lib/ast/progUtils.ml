@@ -1217,6 +1217,33 @@ let existing_module_for_rep_type ~(interface_qual_ident : qual_ident) ~(rep_iden
           else return None)
   | _ -> return None
 
+let non_rep_abstract_member ~(rep_ident : ident option) (symbol : AstDef.Module.symbol) :
+    (string * ident) option =
+  match AstDef.Symbol.free_status symbol with
+  | UserFree -> None
+  | NotFree | MachineFree ->
+      let required =
+        match symbol with
+        | TypeDef { type_def_name; type_def_expr = None; _ } ->
+            not
+              (Base.Option.value_map rep_ident ~default:false
+                 ~f:(Ident.equal type_def_name))
+        | ModInst { mod_inst_def = None; _ } -> true
+        | VarDef { var_decl = { var_const = true; _ }; var_init = None; _ } -> true
+        | CallDef
+            {
+              call_def = ProcDef { proc_body = None } | FuncDef { func_body = None };
+              call_decl = { call_decl_kind = Proc | Func | Pred | Invariant; _ };
+              _;
+            } ->
+            true
+        | ModDef _ | ModInst _ | TypeDef _ | ConstrDef _ | DestrDef _ | FieldDef _
+        | VarDef _ | CallDef _ ->
+            false
+      in
+      Base.Option.some_if required
+        (AstDef.Symbol.kind symbol, AstDef.Symbol.to_name symbol)
+
 (** Names (with their symbol kind, e.g. "value"/"function") of [interface_qual_ident]'s
     abstract members other than its rep type [rep_ident] -- the members a bare type
     argument can never supply. Empty for interfaces that consist of nothing but a rep type
@@ -1247,27 +1274,8 @@ let non_rep_abstract_members ~(interface_qual_ident : qual_ident) ~(rep_ident : 
   match Rewriter.Symbol.orig_symbol symbol with
   | AstDef.Module.ModDef iface ->
       Base.List.filter_map iface.mod_def ~f:(function
-        | AstDef.Module.SymbolDef symbol
-          when match AstDef.Symbol.free_status symbol with
-               | UserFree -> false
-               | NotFree | MachineFree -> true -> (
-            match symbol with
-            | TypeDef { type_def_name; type_def_expr = None; _ }
-              when not (Ident.equal type_def_name rep_ident) ->
-                Some (AstDef.Symbol.kind symbol, type_def_name)
-            | ModInst { mod_inst_name; mod_inst_def = None; _ } ->
-                Some (AstDef.Symbol.kind symbol, mod_inst_name)
-            | VarDef { var_decl = { var_const = true; var_name; _ }; var_init = None; _ }
-              ->
-                Some (AstDef.Symbol.kind symbol, var_name)
-            | CallDef
-                {
-                  call_def = ProcDef { proc_body = None } | FuncDef { func_body = None };
-                  call_decl = { call_decl_kind = Proc | Func | Pred | Invariant; _ };
-                  _;
-                } ->
-                Some (AstDef.Symbol.kind symbol, AstDef.Symbol.to_name symbol)
-            | _ -> None)
+        | AstDef.Module.SymbolDef symbol ->
+            non_rep_abstract_member ~rep_ident:(Some rep_ident) symbol
         | _ -> None)
   | _ -> []
 
