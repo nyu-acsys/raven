@@ -6,53 +6,53 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `match` statements, whose arms are blocks, as in `case ok(n) => { v := n; }`.
+- Field constraints, as in `field count: Int where nonneg`, which owning the field implies.
+- Map literals list entries and the value at every other key, as in `{1 := 5, else 4}`.
+- Loop invariants can be named like assertions: `invariant a: e`.
+- Physically atomic procedures use `atomic proc` with ordinary preconditions and postconditions.
 - Sealed aliases of unapplied functors preserve input parameters and hide result representations.
 - Explicit checked module views verify interface adaptation while preserving resource aliases and nominal argument checks.
 - Named functor applications share instances, while unit factories use `module F()` and `F()` for fresh instances.
 - `Seq.of_list` converts lists to sequences with constructor and length laws.
-- Physically atomic procedures use `atomic proc` with ordinary preconditions and postconditions.
-- Report all errors instead of only the first, up to `--max-errors` (default 20).
-- `--only NAME` verifies a single member, module or named assertion.
-- `--counterexamples` shows the values of variables and fields where a check fails.
-- Loop invariants can be named like assertions: `invariant a: e`.
-- Report the verification status of each member and module to editors.
-- Report to editors what each name refers to, for hovers and going to definitions.
-- Say when an assertion fails because the solver timed out.
-- `--cache-dir DIR` skips the checks of members verified before whose dependencies are unchanged.
-- `--server` answers requested runs in one process, type-checking the library only once.
-- Map literals list entries and the value at every other key, as in `{1 := 5, else 4}`.
-- The library `raven-ivl.api` lets other tools build, print, and verify programs.
-- `match` statements, whose arms are blocks, as in `case ok(n) => { v := n; }`.
-- Field constraints, as in `field count: Int where nonneg`, which owning the field implies.
 - A fold falls back to the existentials' values at the unfold of the same instance.
 - Iterated separating conjunctions may index locations injectively only within their guard.
+- Report all errors instead of only the first, up to `--max-errors` (default 20).
+- Say when an assertion fails because the solver timed out.
+- `--counterexamples` shows the values of variables and fields where a check fails.
+- `--only NAME` verifies a single member, module or named assertion.
+- `--cache-dir DIR` skips the checks of members verified before whose dependencies are unchanged.
+- `--server` answers requested runs in one process, type-checking the library only once.
+- Report the verification status of each member and module to editors.
+- Report to editors what each name refers to, for hovers and going to definitions.
+- The library `raven-ivl.api` lets other tools build, print, and verify programs.
 
 ### Changed
 
-- Default masks stop at opaque predicate boundaries, and `opens` clauses can request predicate footprints.
-- Reduce SSA lowering overhead by maintaining substitutions incrementally.
-- A query that Z3 does not answer in time no longer ends the run: Z3 is restarted and checking goes on.
-- Comprehensions applying a function to map entries at the bound index are encoded without quantifiers.
+- Set and sequence literals are written without pipes, as `{1, 2}` and `[1, 2]`; pipes are deprecated.
 - `Library.UnitRA` is renamed to `Library.Unit`.
 - Hide the library modules that only the verifier uses (`AtomicTokenRA`, `Prophecy`, `ErrorCreds`).
-- Set and sequence literals are written without pipes, as `{1, 2}` and `[1, 2]`; pipes are deprecated.
+- Default masks stop at opaque predicate boundaries, and `opens` clauses can request predicate footprints.
+- Comprehensions applying a function to map entries at the bound index are encoded without quantifiers.
+- Reduce SSA lowering overhead by maintaining substitutions incrementally.
+- A query that Z3 does not answer in time no longer ends the run: Z3 is restarted and checking goes on.
 
 ### Fixed
 
-- Ghost conditionals retain invariant mask credit only when both branches provide it.
-- Resolve invariant aliases in masks after functor instantiation.
+- Dividing `Int`s is integer division, also where a `Real` is expected, as in `1/2`; it was inconsistent, which could make proofs unsound.
 - Higher-order functor arguments must preserve input constraints and parameter-to-result mappings.
-- Atomic token types and bindings require a procedure with a logically atomic specification.
-- Discard stale destination values in bind assignments.
-- Infer dependent fold witnesses across conditional branches.
-- Infer data constructors from expected type aliases while preserving the selected module instance.
-- Verify recursive data types containing generic containers such as `List[T]`.
-- Match nested generic type applications across interface and implementation signatures.
 - Nested functors retain their parameters when their enclosing module is instantiated.
 - Keep generated instances with mixed local and global arguments inside the functor scopes they depend on.
-- Infer generic parameters inside nested type applications when resolving overloaded calls.
+- Data types and functor applications can be module arguments, as in `Library.Frac[Seq[Int]]`.
 - Implicitly instantiated sealed modules accept nested generic argument types from their public interfaces.
-- Printed tuple projections and multiline assignments retain parseable source syntax.
+- Match nested generic type applications across interface and implementation signatures.
+- Infer generic parameters inside nested type applications when resolving overloaded calls.
+- Infer data constructors from expected type aliases while preserving the selected module instance.
+- Verify recursive data types containing generic containers such as `List[T]`.
+- Resolve invariant aliases in masks after functor instantiation.
+- Ghost conditionals retain invariant mask credit only when both branches provide it.
+- An invariant still open at a call or a loop's next iteration is reported as a missing fold.
+- Atomic token types and bindings require a procedure with a logically atomic specification.
 - Procedures assigned to ghost variables retain their atomicity and abort-restoration checks.
 - Atomic update operations recognize repeated bindings and aliases of the same token.
 - Atomic update operations preserve tuple and unit values supplied as a single argument or result.
@@ -60,12 +60,12 @@ All notable changes to this project will be documented in this file.
 - Atomic calls inside an open atomic update now check that it stays abortable.
 - An atomic call and its abort check give up the same resources for its ordinary precondition.
 - Atomic calls in open invariants or updates check that repeated aborts restore the caller's resources.
-- An invariant still open at a call or a loop's next iteration is reported as a missing fold.
-- Locations in different files are ordered by file name, independently of memory layout.
-- Data types and functor applications can be module arguments, as in `Library.Frac[Seq[Int]]`.
+- Discard stale destination values in bind assignments.
 - A procedure's ghost result can be assigned to a ghost variable.
-- Dividing `Int`s is integer division, also where a `Real` is expected, as in `1/2`; it was inconsistent, which could make proofs unsound.
 - A destructor read in an assignment or a variable definition is found without importing its data type's module.
+- Infer dependent fold witnesses across conditional branches.
+- Printed tuple projections and multiline assignments retain parseable source syntax.
+- Locations in different files are ordered by file name, independently of memory layout.
 
 ## [1.5.0] - 2026-10-16
 
