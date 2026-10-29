@@ -54,6 +54,8 @@ invariant* is what makes that tractable: a fact about the counter that every thr
 restore after each atomic step, and that any of them may rely on:
 
 ```raven
+import Library.IntAtomics._
+
 field count: Int
 
 // A shared invariant: a fact about `c.count` that has to hold after every
@@ -68,21 +70,21 @@ inv evenCount(c: Ref) {
 proc bumpTwice(c: Ref)
   requires evenCount(c)
 {
-  unfold evenCount(c);
-  val _ := faa(c.count, 2);
-  fold evenCount(c);
+  unfold evenCount(c)
+  val _ := faa(c.count, 2)
+  fold evenCount(c)
 }
 
 proc client(c: Ref)
   requires evenCount(c)
 {
-  spawn bumpTwice(c);
-  spawn bumpTwice(c);
+  spawn bumpTwice(c)
+  spawn bumpTwice(c)
 
-  unfold evenCount(c);
-  val x := c.count;
-  assert x % 2 == 0;
-  fold evenCount(c);
+  unfold evenCount(c)
+  val x := c.count
+  assert x % 2 == 0
+  fold evenCount(c)
 }
 ```
 
