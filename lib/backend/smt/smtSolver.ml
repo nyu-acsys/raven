@@ -23,13 +23,25 @@ module SmtSession = struct
         (** Watched while waiting for an answer. *)
   }
 
-  type session = { mutable stack_height : int; solver_state : solver_state }
+  type session = {
+    mutable stack_height : int;
+    mutable solver_state : solver_state;
+    mutable trail : string list list;
+        (** The commands of each open scope, innermost first, each in reverse order. *)
+    restartable : bool;  (** Whether the session started its solver itself. *)
+    mutable timed_out : bool;
+        (** Whether the solver was replaced because the last query timed out. *)
+  }
+
   type read_error = Response_timeout | End_of_stream | Session_closed | Io_error of exn
 
-  let create_session ?pid ?log_out_chan ?cancellation ~response_timeout ~input ~output ()
-      =
+  let create_session ?pid ?log_out_chan ?cancellation ?(restartable = false)
+      ~response_timeout ~input ~output () =
     {
       stack_height = 0;
+      trail = [ [] ];
+      restartable;
+      timed_out = false;
       solver_state =
         {
           out_descr = output;
@@ -65,24 +77,25 @@ module SmtSession = struct
 
   let is_closed session = session.solver_state.closed
 
-  let stop_solver session =
-    let state = session.solver_state in
+  (** Ends the solver process of [state], and closes its log unless [keep_log]. *)
+  let stop_state ?(keep_log = false) state =
     if not state.closed then begin
       state.closed <- true;
       (* Closing stdin requests exit without risking another write to a broken pipe. *)
       best_effort (fun () -> Unix.close state.out_descr);
       best_effort (fun () -> Unix.close state.in_descr);
-      Option.iter state.log_out_chan ~f:Stdio.Out_channel.close_no_err;
+      if not keep_log then
+        Option.iter state.log_out_chan ~f:Stdio.Out_channel.close_no_err;
       Option.iter state.pid ~f:(fun pid -> best_effort (fun () -> reap_solver pid))
     end
 
-  let start_solver ?(logging = true) ?cancellation ?(response_timeout = Some 30.) () =
+  let stop_solver session = stop_state session.solver_state
+
+  (** A session with a new Z3 process, writing its log to [log_out_chan]. *)
+  let spawn ?log_out_chan ?cancellation ~response_timeout () =
     (* Broken solver pipes must raise write errors instead of terminating Raven. *)
     best_effort (fun () ->
         Stdlib.Sys.set_signal Stdlib.Sys.sigpipe Stdlib.Sys.Signal_ignore);
-    let log_out_chan =
-      if logging then Some (Stdio.Out_channel.create "log.smt2") else None
-    in
     let transferred = ref false in
     Stdlib.Fun.protect ~finally:(fun () ->
         if not !transferred then
@@ -108,13 +121,19 @@ module SmtSession = struct
     in
     pid := Some child;
     let session =
-      create_session ~pid:child ?log_out_chan ?cancellation ~response_timeout
-        ~input:stdout_read ~output:stdin_write ()
+      create_session ~pid:child ?log_out_chan ?cancellation ~restartable:true
+        ~response_timeout ~input:stdout_read ~output:stdin_write ()
     in
     transferred := true;
     session
 
-  let write_text session text =
+  let start_solver ?(logging = true) ?cancellation ?(response_timeout = Some 30.) () =
+    let log_out_chan =
+      if logging then Some (Stdio.Out_channel.create "log.smt2") else None
+    in
+    spawn ?log_out_chan ?cancellation ~response_timeout ()
+
+  let write_text ?(log = true) session text =
     let state = session.solver_state in
     if state.closed then
       Error.internal_error Loc.dummy "Cannot write to a closed SMT session";
@@ -122,7 +141,9 @@ module SmtSession = struct
       Error.internal_error Loc.dummy
         ("Failed to write SMT session output: " ^ Exn.to_string exn)
     in
-    Option.iter state.log_out_chan ~f:(fun out_chan ->
+    Option.iter
+      (if log then state.log_out_chan else None)
+      ~f:(fun out_chan ->
         match
           Result.try_with (fun () ->
               Stdio.Out_channel.output_string out_chan text;
@@ -152,7 +173,13 @@ module SmtSession = struct
     | Exit _ ->
         Error.internal_error Loc.dummy
           "Cannot write a solver control command directly; use session operations"
-    | _ -> write_command session cmd
+    | _ ->
+        let text = SmtLibAst.command_to_string cmd in
+        session.trail <-
+          (match session.trail with
+          | level :: levels -> (text :: level) :: levels
+          | [] -> [ [ text ] ]);
+        write_text session text
 
   let write_comment session cmnt = write_text session (SmtLibAst.comment_to_string cmnt)
 
@@ -229,14 +256,45 @@ module SmtSession = struct
     | Error (Io_error exn) ->
         Error.internal_error Loc.dummy ("Failed to read Z3 output: " ^ Exn.to_string exn)
 
+  (** Replaces the solver by a new process with the same scopes and commands, which the
+      log already has. *)
+  let restart session =
+    let state = session.solver_state in
+    let fresh =
+      spawn ?log_out_chan:state.log_out_chan ?cancellation:state.cancellation
+        ~response_timeout:state.response_timeout ()
+    in
+    stop_state ~keep_log:true state;
+    session.solver_state <- fresh.solver_state;
+    write_text session
+      (SmtLibAst.comment_to_string
+         "Z3 did not respond in time: a new process replays the commands above");
+    List.iteri (List.rev session.trail) ~f:(fun depth level ->
+        if depth > 0 then write_text ~log:false session (command_to_string (mk_push 1));
+        List.iter (List.rev level) ~f:(write_text ~log:false session))
+
+  (** Gives up on a solver that did not respond in time: its late answer would put the
+      session out of step. A solver Raven started is replaced, so that checking goes on;
+      otherwise the session is closed. *)
+  let abandon session =
+    if session.restartable then begin
+      Logs.info (fun m -> m "Z3 did not respond in time; restarting it");
+      restart session;
+      session.timed_out <- true
+    end
+    else begin
+      Logs.info (fun m -> m "Z3 did not respond in time; stopping it");
+      stop_solver session
+    end
+
   let check_sat session : sat_result =
+    session.timed_out <- false;
     write_command session (mk_check_sat ());
     match read_response session with
     | Error Response_timeout ->
         (* A query that runs past the timeout is unknown, whether or not Z3 has noticed
-           yet. Its late answer would put the session out of step, so it is closed. *)
-        Logs.info (fun m -> m "Z3 did not respond in time; stopping it");
-        stop_solver session;
+           yet. *)
+        abandon session;
         Unknown
     | response -> (
         match parse_sat_result (response_line response) with
@@ -250,12 +308,12 @@ module SmtSession = struct
 
   (** Why the last [check_sat] returned [Unknown]. *)
   let unknown_reason session : validity_result =
-    if session.solver_state.closed then Timeout
+    if session.solver_state.closed || session.timed_out then Timeout
     else begin
       write_command session (mk_get_info ":reason-unknown");
       match read_response session with
       | Error Response_timeout ->
-          stop_solver session;
+          abandon session;
           Timeout
       | response ->
           let reason = response_line response in
@@ -272,12 +330,14 @@ module SmtSession = struct
 
   let push session =
     write_command session (mk_push 1);
-    session.stack_height <- session.stack_height + 1
+    session.stack_height <- session.stack_height + 1;
+    session.trail <- [] :: session.trail
 
   let pop session =
     if session.stack_height <= 0 then Error.internal_error Loc.dummy "pop on empty stack";
     write_command session (mk_pop 1);
-    session.stack_height <- session.stack_height - 1
+    session.stack_height <- session.stack_height - 1;
+    session.trail <- List.tl_exn session.trail
 
   let with_scope session ~f =
     push session;
@@ -319,8 +379,7 @@ module SmtSession = struct
     write_command session (mk_get_value terms);
     match read_sexp_response session with
     | Error Response_timeout ->
-        (* As for [check_sat]: a late answer would put the session out of step. *)
-        stop_solver session;
+        abandon session;
         None
     | Error _ -> None
     | Ok text -> (

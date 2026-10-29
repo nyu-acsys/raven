@@ -5,7 +5,12 @@ let rec respond response reason =
   | None -> ()
   | Some line ->
       begin match String.strip line with
-      | "(check-sat)" -> Logs.app (fun m -> m "%s" response)
+      | "(check-sat)" -> (
+          (* With RAVEN_TEST_HANG, the first query of the first process gets no answer. *)
+          match Sys.getenv "RAVEN_TEST_HANG" with
+          | Some path when not (Stdlib.Sys.file_exists path) ->
+              Stdio.Out_channel.write_all path ~data:""
+          | _ -> Logs.app (fun m -> m "%s" response))
       | "(get-info :reason-unknown)" ->
           Logs.app (fun m -> m "(:reason-unknown \"%s\")" reason)
       | "(get-info :version)" -> Logs.app (fun m -> m "(:version \"stub\")")

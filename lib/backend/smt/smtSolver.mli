@@ -29,7 +29,9 @@ module SmtSession : sig
   (** The solver's version, as it reports it. *)
 
   val is_closed : session -> bool
-  (** Whether the session was stopped, e.g. after Z3 did not respond in time. *)
+  (** Whether the session was stopped. A session that started Z3 itself replaces it when
+      it does not respond in time, so that checking goes on; one given its descriptors is
+      stopped. *)
 
   val with_scope : session -> f:(unit -> 'a) -> 'a
   (** Restores the solver scope on return or exception. Cleanup preserves body errors. *)

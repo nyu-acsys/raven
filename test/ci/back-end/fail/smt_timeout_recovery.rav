@@ -1,0 +1,7 @@
+lemma first() {
+  assert first: true;
+}
+
+lemma second() {
+  assert second: true;
+}

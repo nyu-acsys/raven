@@ -31,6 +31,7 @@ All notable changes to this project will be documented in this file.
 
 - Default masks stop at opaque predicate boundaries, and `opens` clauses can request predicate footprints.
 - Reduce SSA lowering overhead by maintaining substitutions incrementally.
+- A query that Z3 does not answer in time no longer ends the run: Z3 is restarted and checking goes on.
 - Comprehensions applying a function to map entries at the bound index are encoded without quantifiers.
 - `Library.UnitRA` is renamed to `Library.Unit`.
 - Hide the library modules that only the verifier uses (`AtomicTokenRA`, `Prophecy`, `ErrorCreds`).
