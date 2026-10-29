@@ -28,7 +28,7 @@ RUN mkdir -p /home/opam/z3-stub \
  && opam pin add -y z3 /home/opam/z3-stub
 
 # Dependencies first, so this layer is reused when only the sources change.
-COPY --chown=opam:opam Raven.opam ./
+COPY --chown=opam:opam raven-ivl.opam ./
 RUN opam install . --deps-only -y
 
 COPY --chown=opam:opam . .
