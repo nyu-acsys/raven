@@ -471,8 +471,8 @@ let reify (tbl : SymbolTbl.t) (qual_name : qual_ident) : Module.symbol =
           Module.TypeDef { typ with type_def_expr }
         else
           (* A transparent alias keeps its target's sort, including for data types. *)
-          Rewriter.return
-            (Module.TypeDef { typ with type_def_expr = Some (Type.mk_var identity) })
+          let+ target_type = normalize_definition (Type.mk_var identity) in
+          Module.TypeDef { typ with type_def_expr = Some target_type }
     | _ -> Rewriter.return symbol
   in
   let tbl1 = SymbolTbl.goto qual_name tbl in

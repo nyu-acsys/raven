@@ -1,0 +1,32 @@
+interface Argument {
+  module R : Library.ResourceAlgebra
+}
+
+module Generic[X: Argument] {
+  ghost field slot: (Int, X.R.T)
+
+  lemma allocate() returns (ghost cell: Ref)
+    ensures own(cell.slot, (0, X.R.id))
+  {
+    cell := new(slot: (0, X.R.id));
+  }
+}
+
+module NatArgument : Argument {
+  module R : Library.Nat = Library.Nat
+}
+
+module Applied : Generic = Generic[NatArgument]
+
+module ExclInt : Library.Excl = Library.Excl[Int]
+
+module ExclArgument : Argument {
+  module R : ExclInt = ExclInt
+}
+
+module AppliedExcl : Generic = Generic[ExclArgument]
+
+lemma use() {
+  ghost var nat_cell: Ref := Applied.allocate();
+  ghost var excl_cell: Ref := AppliedExcl.allocate();
+}
