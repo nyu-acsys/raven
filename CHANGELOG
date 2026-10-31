@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- Programs printed through `raven-ivl.api` keep `free` on modules and values.
+
 ## [1.6.0] - 2026-10-29
 
 ### Added

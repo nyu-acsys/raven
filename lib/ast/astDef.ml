@@ -2127,7 +2127,8 @@ module Stmt = struct
       let pr_type ppf tp =
         if not (Type.is_any tp) then fprintf ppf "@ :@ %a" Type.pr tp
       in
-      fprintf ppf "%s%s @[<2>%a%a%a@]"
+      fprintf ppf "%s%s%s @[<2>%a%a%a@]"
+        (if is_free vdef.var_is_free then "free " else "")
         (if Type.is_ghost_var vdef.var_decl then "ghost " else "")
         (if Type.is_const_var vdef.var_decl then "val" else "var")
         Ident.pr vdef.var_decl.var_name pr_type
@@ -3812,7 +3813,8 @@ module Module = struct
       let mod_vs =
         List.map (formals md.mod_decl) ~f:(fun v -> (v.mod_inst_name, v.mod_inst_type))
       in
-      fprintf ppf "@[<2>%s@ %a%a%a@]@\n{@[<1>@\n%a@]@\n}"
+      fprintf ppf "@[<2>%s%s@ %a%a%a@]@\n{@[<1>@\n%a@]@\n}"
+        (if is_free md.mod_decl.mod_decl_status then "free " else "")
         (if md.mod_decl.mod_decl_is_interface then "interface" else "module")
         Ident.pr md.mod_decl.mod_decl_name
         (* formal parameters *)
