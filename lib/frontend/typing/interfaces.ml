@@ -302,6 +302,14 @@ let rec normalize_contract_expr seen expr =
     | Expr.Binder _ -> expr
   in
   match expr with
+  | Expr.App (ExprExt ext, args, attr) ->
+      let* args = Rewriter.List.map args ~f:(normalize_contract_expr seen) in
+      let* hooks = Rewriter.current_ext_hooks in
+      let* normalized = lift (hooks.normalize_contract_expr_ext ext args attr) in
+      begin match normalized with
+      | Some expr -> normalize_contract_expr seen expr
+      | None -> Rewriter.return (Expr.App (ExprExt ext, args, attr))
+      end
   | Expr.App (Var name, args, attr) when not (Set.mem seen name) ->
       let* args = Rewriter.List.map args ~f:(normalize_contract_expr seen) in
       let expr = Expr.App (Var name, args, attr) in
@@ -323,7 +331,13 @@ let rec normalize_contract_expr seen expr =
 
 let contract_exprs_equal ~sm left right =
   let open Rewriter.Syntax in
-  if Expr.alpha_equal ~sm left right then Rewriter.return true
+  let rec has_extension = function
+    | Expr.App (ExprExt _, _, _) -> true
+    | Expr.App (_, args, _) -> List.exists args ~f:has_extension
+    | Expr.Binder (_, _, _, body, _) -> has_extension body
+  in
+  if (not (has_extension left || has_extension right)) && Expr.alpha_equal ~sm left right
+  then Rewriter.return true
   else
     let seen = Set.empty (module QualIdent) in
     let+ left = normalize_contract_expr seen left

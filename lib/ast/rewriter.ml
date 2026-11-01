@@ -413,6 +413,8 @@ and ext_hooks = {
           to do nothing. *)
   check_contract_ext_group_compatible : Callable.call_decl list -> unit t;
   rewrite_type_ext : Type.type_ext -> type_expr list -> location -> type_expr t;
+  normalize_contract_expr_ext :
+    Expr.expr_ext -> expr list -> Expr.expr_attr -> expr option t;
   rewrite_expr_ext : Expr.expr_ext -> expr list -> Expr.expr_attr -> expr t;
   rewrite_basic_stmt_ext : Stmt.stmt_ext -> expr list -> location -> Stmt.t t;
       (** The [stmt_desc]-level sibling of [rewrite_basic_stmt_ext], for [Stmt.StmtExt].
@@ -544,6 +546,7 @@ let default_ext_hooks : ext_hooks =
       (fun _ _ _ ->
         Error.internal_error Loc.dummy
           "Rewriter.default_ext_hooks.rewrite_type_ext: no extension configured");
+    normalize_contract_expr_ext = (fun _ _ _ -> State.return None);
     rewrite_expr_ext =
       (fun _ _ _ ->
         Error.internal_error Loc.dummy

@@ -272,6 +272,10 @@ module type Ext = sig
   val rewrite_type_ext :
     Ast.Type.type_ext -> type_expr list -> location -> type_expr Rewriter.t
 
+  val normalize_contract_expr_ext :
+    Expr.expr_ext -> expr list -> Expr.expr_attr -> expr option Rewriter.t
+  (** Eliminates binding syntax for contract comparison without elaborating resources. *)
+
   val rewrite_expr_ext : Expr.expr_ext -> expr list -> Expr.expr_attr -> expr Rewriter.t
   val rewrite_basic_stmt_ext : Stmt.stmt_ext -> expr list -> location -> Stmt.t Rewriter.t
 
