@@ -1118,8 +1118,6 @@ module Expr = struct
     and pr_verbose ppf e =
       let open Stdlib.Format in
       match e with
-      | App (And, [], a) -> pr ppf (App (Bool false, [], a))
-      | App (Or, [], a) -> pr ppf (App (Bool true, [], a))
       | App (c, [], _) ->
           fprintf ppf "(%a \027[35m :%a \027[0m)" pr_constr c Type.pr (to_type e)
       | App (DataConstr id, es, _) | App (Var id, (_ :: _ as es), _) ->
@@ -1159,8 +1157,6 @@ module Expr = struct
     and pr_compact ppf e =
       let open Stdlib.Format in
       match e with
-      | App (And, [], a) -> pr ppf (App (Bool false, [], a))
-      | App (Or, [], a) -> pr ppf (App (Bool true, [], a))
       | App (Enumeration opener, [], _) ->
           let opening, closing = enumeration_delimiters opener in
           fprintf ppf "%s%s" opening closing
@@ -1344,7 +1340,25 @@ module Expr = struct
 
   (** Constructors *)
 
-  let mk_app ?(loc = Loc.dummy) ~typ c es = App (c, es, mk_attr loc typ)
+  let mk_connective ~loc ~conjunction = function
+    | [] -> App (Bool conjunction, [], mk_attr loc Type.bool)
+    | first :: rest ->
+        let operator = if conjunction then And else Or in
+        let expression =
+          List.fold rest ~init:first ~f:(fun left right ->
+              App
+                ( operator,
+                  [ left; right ],
+                  mk_attr loc (Type.join (to_type left) (to_type right)) ))
+        in
+        overwrite_loc expression loc
+
+  let mk_app ?(loc = Loc.dummy) ~typ c es =
+    match (c, es) with
+    | (And | Or), [ _; _ ] -> App (c, es, mk_attr loc typ)
+    | And, _ -> mk_connective ~loc ~conjunction:true es
+    | Or, _ -> mk_connective ~loc ~conjunction:false es
+    | _ -> App (c, es, mk_attr loc typ)
 
   let mk_var ~typ (qual_ident : qual_ident) =
     mk_app ~loc:(QualIdent.to_loc qual_ident) ~typ (Var qual_ident) []
@@ -1377,43 +1391,10 @@ module Expr = struct
 
   let mk_unit loc = mk_tuple ~loc []
 
-  (** Constructor for conjunction.*)
-  let mk_and ?(loc = Loc.dummy) = function
-    | [] -> mk_bool ~loc true
-    | [ e ] -> overwrite_loc e loc
-    | es ->
-        let t =
-          List.fold_left es ~init:(Type.mk_bool loc) ~f:(fun t e ->
-              Type.join t (to_type e))
-        in
-        App (And, es, mk_attr loc t)
+  (** Constructors keep conjunctions and disjunctions binary. *)
+  let mk_and ?(loc = Loc.dummy) es = mk_connective ~loc ~conjunction:true es
 
-  (* `mk_chained_and` is used in contexts where the generated expression is typechecked again.
-   * This is because the typechecker only expects `&&` to be used as a binary operator,
-   * for syntax reasons. Whereas, internally we allow `&&` as a k-ary operator,
-   * since SMTLIB supports it.
-   *)
-  let mk_chained_and ?(loc = Loc.dummy) = function
-    | [] -> mk_bool ~loc true
-    | [ e ] -> overwrite_loc e loc
-    | es ->
-        let t =
-          List.fold_left es ~init:(Type.mk_bool loc) ~f:(fun t e ->
-              Type.join t (to_type e))
-        in
-        List.fold es ~init:(mk_bool true) ~f:(fun acc e ->
-            App (And, [ acc; e ], mk_attr loc t))
-
-  (** Constructor for disjunction.*)
-  let mk_or ?(loc = Loc.dummy) = function
-    | [] -> mk_bool ~loc false
-    | [ e ] -> overwrite_loc e loc
-    | es ->
-        let t =
-          List.fold_left es ~init:(Type.mk_bool loc) ~f:(fun t e ->
-              Type.join t (to_type e))
-        in
-        App (Or, es, mk_attr loc t)
+  let mk_or ?(loc = Loc.dummy) es = mk_connective ~loc ~conjunction:false es
 
   let mk_not ?(loc = Loc.dummy) e =
     (* let t = to_type e in *)
@@ -1443,10 +1424,11 @@ module Expr = struct
         with
         | [] -> App (Bool true, [], a)
         | [ e ] -> e
-        | es -> App (And, es, a))
+        | es -> mk_and ~loc:a.expr_loc es)
     | App (Or, es, a) ->
         let es = List.map es ~f:drop_trivially_true in
-        if List.exists es ~f:is_true then App (Bool true, [], a) else App (Or, es, a)
+        if List.exists es ~f:is_true then App (Bool true, [], a)
+        else mk_or ~loc:a.expr_loc es
     | Binder ((Forall | Exists), _, _, body, a) when is_true (drop_trivially_true body) ->
         App (Bool true, [], a)
     | _ -> e

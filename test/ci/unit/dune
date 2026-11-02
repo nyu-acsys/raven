@@ -184,3 +184,8 @@
  (name namespace_origins)
  (modules namespace_origins)
  (libraries raven base))
+
+(test
+ (name binary_connectives)
+ (modules binary_connectives)
+ (libraries raven base))

@@ -153,8 +153,8 @@ let generate_injectivity_assertions ~loc (universal_quants : universal_quants)
      surrounding locals are bound only if they occur. *)
   let body =
     Expr.mk_impl
-      (Expr.mk_chained_and ((expr_eq :: conditions) @ renamed_conditions))
-      (Expr.mk_chained_and vars_eq_list)
+      (Expr.mk_and ((expr_eq :: conditions) @ renamed_conditions))
+      (Expr.mk_and vars_eq_list)
   in
   let occurring = Expr.symbols body in
   let env_local_var_decls =
@@ -453,7 +453,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants) (conds : co
                   ];
                 ]
               (Expr.mk_impl ~loc
-                 (Expr.mk_chained_and ~loc
+                 (Expr.mk_and ~loc
                     (List.map conds ~f:(fun e -> Expr.alpha_renaming e inv_renam_map)))
                  (Expr.mk_eq ~loc
                     (Expr.from_var_decl arg_var_decl)
@@ -485,7 +485,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants) (conds : co
         let rets = Expr.mk_tuple ~loc (List.map ret_var_decls ~f:Expr.from_var_decl) in
         let env_exprs = List.map env_local_var_decls ~f:Expr.from_var_decl in
         let guard =
-          Expr.mk_chained_and ~loc
+          Expr.mk_and ~loc
             (List.map conds ~f:(fun e -> Expr.alpha_renaming e ret_renam_map))
         in
         let none = Expr.mk_app ~loc ~typ:ret_type (Var none_fn_qual_ident) [] in
@@ -3384,7 +3384,11 @@ module TrnslExhale = struct
             Binder (b, var_decls, trgs, e, expr_attr)
         | App (constr, exprs, expr_attr) ->
             let exprs = List.map exprs ~f:(fun e -> elim_exists e subst_map) in
-            App (constr, exprs, expr_attr)
+            begin match constr with
+            | And -> Expr.mk_and ~loc:expr_attr.expr_loc exprs
+            | Or -> Expr.mk_or ~loc:expr_attr.expr_loc exprs
+            | _ -> App (constr, exprs, expr_attr)
+            end
       in
 
       elim_exists expr subst_map
