@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Parse callable bodies correctly after contracts containing `match` expressions.
 - Delay ordinary postconditions of logically atomic calls until surrounding invariants and atomic updates close.
 - Programs printed through `raven-ivl.api` keep `free` on modules and values.
 - Interface checks accept match contracts that differ only in bound names and reject different constructor cases.

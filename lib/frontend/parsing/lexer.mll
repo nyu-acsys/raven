@@ -37,7 +37,7 @@ let lexical_error lexbuf msg =
          empty) span of invariant clauses that follows it up to the loop's body: this is not a
          group, but it isn't a statement list either, since it isn't preceded by any body-opening
          keyword to classify a brace by -- the loop's body brace is only recognized as such when
-         it directly follows a complete-looking token (see [next_brace_kind] below), as opposed to
+         it directly follows a complete-looking token (see [next_brace_kinds] below), as opposed to
          a quantifier trigger nested inside an invariant's expression, which never is.
        - [Literal], for the braces of a set literal or comprehension, which open where an
          expression must follow (see [opens_literal]); their closing brace ends an expression.
@@ -55,10 +55,11 @@ let lexical_error lexbuf msg =
      is true; it also disambiguates a loop's body brace (preceded by such a token) from a trigger
      nested in an invariant (preceded by :: or a previous trigger's closing brace, neither of
      which qualifies).
-   - [next_brace_kind] classifies the next plain brace lexed, whenever that ends up being: [Group]
-     if the most recently seen relevant keyword was func/pred/inv or a data type's, [Module_list]
-     if it was a module's, [Stmt_list] if it was proc/lemma/axiom, and inferred from the current
-     scope otherwise (covering a nested block/loop body, and a trigger nested in a func body).
+   - [next_brace_kinds] classifies pending plain braces: [Group] for func/pred/inv or data,
+     [Module_list] for modules, and [Stmt_list] for proc/lemma/axiom. A match or data expression
+     temporarily overrides a pending callable body; [brace_kind_restorations] restores that
+     classification when the expression's brace closes. Otherwise the current scope determines
+     the kind (covering nested blocks and triggers).
    - [next_paren_is_loop_cond] records whether the next '(' lexed opens a while loop's condition
      (set right after seeing [WHILE], consumed by that very next '(').
    - [next_lt_opens_atomic_token]/[in_atomic_token_brackets] track the same way, for
@@ -78,7 +79,8 @@ type lex_state = {
   (* Expected closers keep adjacent grouping punctuation outside a literal. *)
   enumeration_closers : string list;
   last_token_can_end_stmt : bool;
-  next_brace_kind : scope_kind option;
+  next_brace_kinds : scope_kind list;
+  brace_kind_restorations : (int * scope_kind list) list;
   next_paren_is_loop_cond : bool;
   (* Same lookahead-free trick as [next_paren_is_loop_cond]/[Loop_header]: [AtomicToken<P>]
      (parser.mly's [ATOMICTOKEN LT qid = qual_ident GT]) is the only place '<'/'>' are a
@@ -91,12 +93,12 @@ type lex_state = {
   next_lt_opens_atomic_token : bool;
   in_atomic_token_brackets : bool;
   (* Set on [OPENS], consumed by the very next token: the braces of an empty `opens {}`
-     clause are a [Group], and must not claim the classification [next_brace_kind]
+     clause are a [Group], and must not claim the classification [next_brace_kinds]
      holds for the callable's body. *)
   next_brace_is_opens : bool;
   (* Set on the tokens a trigger's braces follow -- [COLONCOLON], [ENSURES], and the closing
      brace of a previous trigger -- and consumed by the next token. A trigger's braces are a
-     [Trigger] scope, and like those of `opens {}` leave [next_brace_kind] to the body. *)
+     [Trigger] scope, and like those of `opens {}` leave [next_brace_kinds] to the body. *)
   next_brace_is_trigger : bool;
   (* Set on a quantifier and consumed by its [COLONCOLON], which a trigger may follow,
      unlike the `::` of a comprehension or a list. *)
@@ -114,7 +116,8 @@ let initial_state =
   { scopes = [];
     enumeration_closers = [];
     last_token_can_end_stmt = false;
-    next_brace_kind = None;
+    next_brace_kinds = [];
+    brace_kind_restorations = [];
     next_paren_is_loop_cond = false;
     next_lt_opens_atomic_token = false;
     in_atomic_token_brackets = false;
@@ -176,9 +179,9 @@ let advance st (tok : Parser.token) =
              Stmt_list :: rest
          | scopes ->
              let kind =
-               match st.next_brace_kind with
-               | Some k -> k
-               | None ->
+               match st.next_brace_kinds with
+               | k :: _ -> k
+               | [] ->
                    (match scopes with
                     | (Group | Literal | Loop_header) :: _ -> Group
                     | _ -> Stmt_list)
@@ -187,27 +190,41 @@ let advance st (tok : Parser.token) =
     | RBRACE -> (match st.scopes with _ :: rest -> rest | [] -> [])
     | _ -> st.scopes
   in
-  let next_brace_kind =
+  let next_brace_kinds =
     match tok with
     (* [MATCH] for the same reason as [DATA]: a `match`'s arm list is a `case` list just
        like a variant list, whose own separators the grammar already tolerates without
-       help from insertion. Classifying it matters because [next_brace_kind] is sticky --
+       help from insertion. Classifying it matters because [next_brace_kinds] is sticky --
        inside a `proc`, the pending [Stmt_list] set by [PROC] would otherwise be claimed
        by the *match's* brace rather than the body's, turning each arm-ending newline
        into a semicolon and leaving a trailing one before the closing brace. *)
-    | FUNC _ | DATA -> Some Group
+    | FUNC _ -> [Group]
+    | DATA -> Group :: st.next_brace_kinds
     (* A `match` that starts a statement is a `match` statement, whose arms are blocks. *)
     | MATCH ->
         let starts_stmt =
           st.last_token_precedes_block
           && (match st.scopes with Stmt_list :: _ -> true | _ -> false)
         in
-        Some (if starts_stmt then Match_arms else Group)
-    | MODULE _ -> Some Module_list
-    | PROC | LEMMA | AXIOM -> Some Stmt_list
-    | LBRACE when st.next_brace_is_opens || st.next_brace_is_trigger -> st.next_brace_kind
-    | LBRACE -> None (* consumed; the next one is classified afresh *)
-    | _ -> st.next_brace_kind
+        (if starts_stmt then Match_arms else Group) :: st.next_brace_kinds
+    | MODULE _ -> [Module_list]
+    | PROC | LEMMA | AXIOM -> [Stmt_list]
+    | LBRACE when st.next_brace_is_opens || st.next_brace_is_trigger -> st.next_brace_kinds
+    | LBRACE -> [] (* suspended classifications resume at the closing brace *)
+    | RBRACE ->
+        (match st.brace_kind_restorations with
+         | (depth, kinds) :: _ when depth = List.length st.scopes -> kinds
+         | _ -> st.next_brace_kinds)
+    | _ -> st.next_brace_kinds
+  in
+  let brace_kind_restorations =
+    match tok, st.brace_kind_restorations with
+    | LBRACE, _ when not (st.next_brace_is_opens || st.next_brace_is_trigger) ->
+        (match st.next_brace_kinds with
+         | _ :: (_ :: _ as rest) -> (List.length scopes, rest) :: st.brace_kind_restorations
+         | _ -> st.brace_kind_restorations)
+    | RBRACE, (depth, _) :: rest when depth = List.length st.scopes -> rest
+    | _ -> st.brace_kind_restorations
   in
   let next_brace_is_opens = match tok with OPENS -> true | _ -> false in
   let next_brace_is_trigger =
@@ -262,7 +279,7 @@ let advance st (tok : Parser.token) =
     | GT when st.in_atomic_token_brackets -> true
     | _ -> st.last_token_is_is
   in
-  { scopes; enumeration_closers; last_token_can_end_stmt; next_brace_kind; next_paren_is_loop_cond;
+  { scopes; enumeration_closers; last_token_can_end_stmt; next_brace_kinds; brace_kind_restorations; next_paren_is_loop_cond;
     next_lt_opens_atomic_token; in_atomic_token_brackets; next_brace_is_opens;
     next_brace_is_trigger; in_quantifier_vars; last_token_precedes_block;
     last_token_is_return = (match tok with RETURN -> true | _ -> false);
