@@ -52,7 +52,7 @@
 		"modifiers": {
 			"patterns": [{
 				"name": "storage.modifier.raven",
-				"match": "\\b(auto|ghost|implicit|inline|rep)\\b"
+				"match": "\\b(auto|checked|ghost|implicit|inline|rep)\\b"
 			},
 		  {
 				"name": "invalid.illegal",
