@@ -1,3 +1,8 @@
+1 nov, 2026:
+- [ ] Audit extension-type identity: core type comparison and canonical type keys omit
+    extension payloads such as ProphId's one-shot flag; generated adapter reuse
+    currently skips extension types.
+
 26 oct, 2026:
 - [x] Resolve invariant aliases in required, granted, and explicit masks after
     generic module substitution, preserving argument prefixes and fresh identities.

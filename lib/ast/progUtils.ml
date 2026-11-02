@@ -1279,6 +1279,103 @@ let non_rep_abstract_members ~(interface_qual_ident : qual_ident) ~(rep_ident : 
         | _ -> None)
   | _ -> []
 
+(** Reuse a generated type adapter whose owner was rebased after its name was made. *)
+let inherited_rep_module ~interface_qual_ident ~rep_ident ~reference_scope tp =
+  let open Rewriter.Syntax in
+  let* table = Rewriter.get_table in
+  let rec contains_extension (AstDef.Type.App (head, args, _)) =
+    let nested =
+      match head with
+      | AstDef.Type.TypeExt _ -> true
+      | Data (_, variants) ->
+          Base.List.exists variants ~f:(fun variant ->
+              Base.List.exists variant.AstDef.Type.variant_args ~f:(fun argument ->
+                  contains_extension argument.AstDef.Type.var_type))
+      | _ -> false
+    in
+    nested || Base.List.exists args ~f:contains_extension
+  in
+  let canonical qi = SymbolTbl.identity ~preserve_abstract_owners:true qi table in
+  let rec parents qi =
+    if Base.List.is_empty (QualIdent.path qi) then []
+    else
+      let parent = QualIdent.pop qi in
+      parent :: parents parent
+  in
+  let scopes =
+    reference_scope
+    :: Base.List.concat_map (Set.to_list (AstDef.Type.symbols tp)) ~f:parents
+    |> Base.List.dedup_and_sort ~compare:QualIdent.compare
+  in
+  let matching_member scope requalify = function
+    | AstDef.Module.SymbolDef
+        (ModDef
+           { mod_decl = { mod_decl_name; mod_decl_rep = Some rep; _ } as decl; mod_def })
+      when Ident.equal rep rep_ident
+           && String.is_prefix (Ident.name mod_decl_name) ~prefix:tp_mod_ident_prefix
+           && AstDef.Module.is_structure decl
+           && Set.exists decl.mod_decl_interfaces ~f:(fun interface ->
+               QualIdent.equal
+                 (canonical (requalify interface))
+                 (canonical interface_qual_ident)) ->
+        let representation =
+          Base.List.find_map mod_def ~f:(function
+            | AstDef.Module.SymbolDef
+                (TypeDef { type_def_name; type_def_expr = Some representation; _ })
+              when Ident.equal type_def_name rep ->
+                Some representation
+            | _ -> None)
+        in
+        begin match representation with
+        | None -> return None
+        | Some representation ->
+            let* representation =
+              Rewriter.Type.rewrite_qual_idents ~f:requalify representation
+            in
+            let* representation = !Rewriter.expand_type_expr_ref representation in
+            if
+              contains_extension representation
+              || contains_extension tp
+              || not (AstDef.Type.equal representation tp)
+            then return None
+            else
+              let candidate = QualIdent.append scope mod_decl_name in
+              return
+                (match SymbolTbl.resolve_and_find ~read_only:true candidate table with
+                | Some (declared, target, _, _)
+                  when (not (SymbolTbl.is_poisoned declared table))
+                       && not (SymbolTbl.is_poisoned target table) ->
+                    Some candidate
+                | _ -> None)
+        end
+    | _ -> return None
+  in
+  Rewriter.List.fold_left scopes ~init:None ~f:(fun found scope ->
+      match found with
+      | Some _ -> return found
+      | None ->
+          begin match SymbolTbl.resolve_and_find ~read_only:true scope table with
+          | Some (declared, _, AstDef.Module.ModDef definition, subst) ->
+              let requalify = QualIdent.requalify (SymbolTbl.qid_subst subst) in
+              let registered =
+                if QualIdent.equal declared scope then
+                  let scoped = SymbolTbl.goto_scope scope table in
+                  SymbolTbl.get_scope_entries scoped.tbl_curr
+                  |> Hashtbl.keys
+                  |> Base.List.sort ~compare:Ident.compare
+                  |> Base.List.filter_map ~f:(fun name ->
+                      Base.Map.find table.tbl_symbols (QualIdent.append scope name)
+                      |> Base.Option.map ~f:(fun symbol -> AstDef.Module.SymbolDef symbol))
+                else []
+              in
+              Rewriter.List.fold_left (registered @ definition.mod_def) ~init:None
+                ~f:(fun found member ->
+                  match found with
+                  | Some _ -> return found
+                  | None -> matching_member scope requalify member)
+          | _ -> return None
+          end)
+
 (** Get the module wrapping [tp] as an implementation of [interface_qual_ident] (with rep
     type [rep_ident]): reuses an existing module already implementing
     [interface_qual_ident] if [tp] happens to be exactly its rep type (see
@@ -1301,8 +1398,14 @@ let get_or_intros_rep_module ~(loc : location)
           |> with_type_display ~rep:rep_ident tp)
       in
       let* resolve_result = Rewriter.resolve_opt canonical_qi in
-      match resolve_result with
-      | Some _ -> return canonical_qi
+      let* existing =
+        match resolve_result with
+        | Some _ -> return (Some canonical_qi)
+        | None ->
+            inherited_rep_module ~interface_qual_ident ~rep_ident ~reference_scope tp
+      in
+      match existing with
+      | Some existing -> return existing
       | None ->
           let* missing = non_rep_abstract_members ~interface_qual_ident ~rep_ident in
           let* () =

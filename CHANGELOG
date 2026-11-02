@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 - Programs printed through `raven-ivl.api` keep `free` on modules and values.
 - Interface checks accept match contracts that differ only in bound names and reject different constructor cases.
+- Inherited members retain callable header dependencies without cycles through callable bodies.
+- Inherited interfaces preserve container types and dependent functor-instance identities.
 
 ## [1.6.0] - 2026-10-29
 

@@ -653,7 +653,7 @@ let check_parents_disjoint ~loc parent_ancestors =
 
 (** The names that [symbol] mentions. A nested module's mentions of its own members are
     left out. *)
-let rec mentioned_names (symbol : Module.symbol) : Set.M(QualIdent).t =
+let rec mentioned_names ?(bodies = true) (symbol : Module.symbol) : Set.M(QualIdent).t =
   let empty = Set.empty (module QualIdent) in
   let arg_names acc = function
     | Module.ModArg qi -> Set.add acc qi
@@ -690,7 +690,7 @@ let rec mentioned_names (symbol : Module.symbol) : Set.M(QualIdent).t =
       in
       let acc = Option.fold call_decl.call_decl_alias ~init:acc ~f:Set.add in
       begin match call_def with
-      | FuncDef { func_body = Some e } -> Expr.symbols ~acc e
+      | FuncDef { func_body = Some e } when bodies -> Expr.symbols ~acc e
       | _ -> acc
       end
   | ModInst inst -> inst_names empty inst
@@ -708,7 +708,7 @@ let rec mentioned_names (symbol : Module.symbol) : Set.M(QualIdent).t =
       let acc = List.fold (Module.formals md.mod_decl) ~init:acc ~f:inst_names in
       let acc =
         List.fold md.mod_def ~init:acc ~f:(fun acc -> function
-          | Module.SymbolDef s -> Set.union acc (mentioned_names s)
+          | Module.SymbolDef s -> Set.union acc (mentioned_names ~bodies s)
           | Import _ -> acc)
       in
       Set.filter acc ~f:(fun qi ->
@@ -751,15 +751,28 @@ let order_members ~(mod_qual_ident : qual_ident) ~(fixed : Module.module_instr l
         | Import _ -> acc)
   in
   let deps i =
+    (* Callables are declared up front; their users need the headers' module
+       dependencies, without waiting for the callable bodies. *)
+    let rec add_dependency (seen, dependencies) qi =
+      match Option.bind (member_of ~mod_qual_ident qi) ~f:(Map.find index_of_name) with
+      | Some j when j <> i && not (Set.mem seen j) ->
+          let seen = Set.add seen j in
+          begin match members.(j) with
+          | Module.SymbolDef (CallDef _ as symbol) ->
+              Set.fold
+                (mentioned_names ~bodies:false symbol)
+                ~init:(seen, dependencies) ~f:add_dependency
+          | Module.SymbolDef _ | Import _ -> (seen, Set.add dependencies j)
+          end
+      | Some _ | None -> (seen, dependencies)
+    in
     let mentioned =
       match members.(i) with
       | Module.SymbolDef s ->
-          Set.fold (mentioned_names s) ~init:[] ~f:(fun acc qi ->
-              match
-                Option.bind (member_of ~mod_qual_ident qi) ~f:(Map.find index_of_name)
-              with
-              | Some j when j <> i -> j :: acc
-              | _ -> acc)
+          Set.fold (mentioned_names s)
+            ~init:(Set.empty (module Int), Set.empty (module Int))
+            ~f:add_dependency
+          |> snd |> Set.to_list
       | Import _ -> []
     in
     if i > 0 && i < num_fixed then (i - 1) :: mentioned else mentioned
