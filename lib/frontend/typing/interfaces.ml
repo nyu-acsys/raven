@@ -681,18 +681,26 @@ let rec mentioned_names ?(bodies = true) (symbol : Module.symbol) : Set.M(QualId
   | CallDef { call_decl; call_def } ->
       (* A procedure's body is left out: callables may be used before their definition. *)
       let acc =
-        List.fold (call_decl.call_decl_formals @ call_decl.call_decl_returns) ~init:empty
-          ~f:(fun acc var_decl -> Type.symbols ~acc var_decl.var_type)
-      in
-      let acc =
-        List.fold (call_decl.call_decl_precond @ call_decl.call_decl_postcond) ~init:acc
+        List.fold (call_decl.call_decl_precond @ call_decl.call_decl_postcond) ~init:empty
           ~f:(fun acc spec -> Expr.symbols ~acc spec.spec_form)
       in
-      let acc = Option.fold call_decl.call_decl_alias ~init:acc ~f:Set.add in
-      begin match call_def with
-      | FuncDef { func_body = Some e } when bodies -> Expr.symbols ~acc e
-      | _ -> acc
-      end
+      let acc =
+        match call_def with
+        | FuncDef { func_body = Some e } when bodies -> Expr.symbols ~acc e
+        | _ -> acc
+      in
+      let acc =
+        List.fold
+          (call_decl.call_decl_formals @ call_decl.call_decl_returns
+         @ call_decl.call_decl_locals)
+          ~init:acc
+          ~f:(fun acc var_decl -> Set.remove acc (QualIdent.from_ident var_decl.var_name))
+      in
+      let acc =
+        List.fold (call_decl.call_decl_formals @ call_decl.call_decl_returns) ~init:acc
+          ~f:(fun acc var_decl -> Type.symbols ~acc var_decl.var_type)
+      in
+      Option.fold call_decl.call_decl_alias ~init:acc ~f:Set.add
   | ModInst inst -> inst_names empty inst
   | ModDef md ->
       let own =
@@ -750,10 +758,42 @@ let order_members ~(mod_qual_ident : qual_ident) ~(fixed : Module.module_instr l
             | `Duplicate -> acc)
         | Import _ -> acc)
   in
+  (* Closed source modules expose exact names; other wildcard imports are conservative. *)
+  let import_may_export import qi =
+    match member_of ~mod_qual_ident qi with
+    | None -> false
+    | Some head when not import.Module.import_all ->
+        Ident.equal head (QualIdent.unqualify import.import_name)
+    | Some head ->
+        let imported =
+          Option.bind
+            (member_of ~mod_qual_ident import.import_name)
+            ~f:(Map.find index_of_name)
+        in
+        begin match Option.map imported ~f:(Array.get members) with
+        | Some (Module.SymbolDef (ModDef md))
+          when List.is_empty md.mod_decl.mod_decl_returns
+               && (not
+                     (List.exists md.mod_def ~f:(function
+                       | Module.Import _
+                       | SymbolDef
+                           (TypeDef { type_def_expr = Some (App (Data _, _, _)); _ }) ->
+                           true
+                       | SymbolDef _ -> false)))
+               && (QualIdent.equal import.import_name
+                     (QualIdent.from_ident md.mod_decl.mod_decl_name)
+                  || QualIdent.equal import.import_name
+                       (QualIdent.append mod_qual_ident md.mod_decl.mod_decl_name)) ->
+            List.exists md.mod_def ~f:(function
+              | Module.SymbolDef symbol -> Ident.equal head (Symbol.source_name symbol)
+              | Import _ -> false)
+        | Some _ | None -> true
+        end
+  in
   let deps i =
     (* Callables are declared up front; their users need the headers' module
        dependencies, without waiting for the callable bodies. *)
-    let rec add_dependency (seen, dependencies) qi =
+    let rec add_dependency ~imports ~before (seen, dependencies) qi =
       match Option.bind (member_of ~mod_qual_ident qi) ~f:(Map.find index_of_name) with
       | Some j when j <> i && not (Set.mem seen j) ->
           let seen = Set.add seen j in
@@ -761,17 +801,28 @@ let order_members ~(mod_qual_ident : qual_ident) ~(fixed : Module.module_instr l
           | Module.SymbolDef (CallDef _ as symbol) ->
               Set.fold
                 (mentioned_names ~bodies:false symbol)
-                ~init:(seen, dependencies) ~f:add_dependency
+                ~init:(seen, dependencies)
+                ~f:(add_dependency ~imports:true ~before:j)
           | Module.SymbolDef _ | Import _ -> (seen, Set.add dependencies j)
           end
-      | Some _ | None -> (seen, dependencies)
+      | Some _ -> (seen, dependencies)
+      | None when not imports -> (seen, dependencies)
+      | None ->
+          let dependencies =
+            Array.foldi members ~init:dependencies ~f:(fun j dependencies -> function
+              | Module.Import import when j < before && j < num_fixed ->
+                  if import_may_export import qi then Set.add dependencies j
+                  else dependencies
+              | Module.SymbolDef _ | Import _ -> dependencies)
+          in
+          (seen, dependencies)
     in
     let mentioned =
       match members.(i) with
       | Module.SymbolDef s ->
           Set.fold (mentioned_names s)
             ~init:(Set.empty (module Int), Set.empty (module Int))
-            ~f:add_dependency
+            ~f:(add_dependency ~imports:false ~before:i)
           |> snd |> Set.to_list
       | Import _ -> []
     in

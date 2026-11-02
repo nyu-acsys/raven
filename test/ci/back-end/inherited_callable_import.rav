@@ -1,0 +1,84 @@
+interface Spec {
+  type K
+}
+
+interface Node {
+  module S: Spec
+  import S._
+  pred node(x: K)
+  pred use(x: K) { node(x) }
+}
+
+interface Wildcard: Node {
+  module S: Spec { type K = Int }
+  import S._
+  pred node(x: K) { x >= 0 }
+}
+
+interface Named: Node {
+  module S: Spec { type K = Int }
+  import S.K
+  pred node(x: K) { x >= 0 }
+}
+
+module First: Wildcard {}
+module Second: Named {}
+
+lemma first()
+  ensures First.use(42)
+{
+  fold First.node(42);
+  fold First.use(42);
+}
+
+lemma second()
+  ensures Second.use(42)
+{
+  fold Second.node(42);
+  fold Second.use(42);
+}
+
+interface NestedSpec {
+  module Types: Spec
+}
+
+interface NestedNode {
+  module S: NestedSpec
+  pred node(x: S.Types.K)
+  pred use(x: S.Types.K) { node(x) }
+}
+
+interface Nested: NestedNode {
+  module S: NestedSpec { module Types: Spec { type K = Int } }
+  import S.Types
+  pred node(x: Types.K) { x >= 0 }
+}
+
+module Third: Nested {}
+
+lemma third()
+  ensures Third.use(42)
+{
+  fold Third.node(42);
+  fold Third.use(42);
+}
+
+interface WithDependency {
+  module S: Spec
+  module Y {
+    type T = WithDependency.S.K
+    pred marker(x: WithDependency.S.K) { WithDependency.node(x) }
+  }
+  pred node(x: S.K)
+  pred use(x: S.K) { node(x) }
+}
+
+interface UnrelatedImport: WithDependency {
+  module S: Spec { type K = Int }
+  import S._
+  module X { type T = Y.T }
+  import X._
+  pred node(x: K) { true }
+}
+
+module Fourth: UnrelatedImport {}
