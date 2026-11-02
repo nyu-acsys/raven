@@ -1,0 +1,16 @@
+field cell: Int
+inv pinned(x: Ref) { own(x.cell, 0, 1.0) }
+
+free proc logical(x: Ref)
+  ensures false
+  atomic requires own(x.cell, 0, 1.0)
+  atomic ensures own(x.cell, 0, 1.0)
+
+proc worker(x: Ref, b: Bool)
+  requires pinned(x) && !b
+{
+  unfold pinned(x);
+  if (b) { logical(x); }
+  fold pinned(x);
+  assert false;
+}

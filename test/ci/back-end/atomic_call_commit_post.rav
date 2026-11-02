@@ -1,0 +1,110 @@
+field cell: Int
+field reserve: Int
+inv pinned(x: Ref) { own(x.cell, 0, 1.0) }
+
+free proc preserve(x: Ref, n: Int, implicit ghost old: Int)
+  returns (r: Int)
+  requires own(x.reserve, old, 1.0)
+  ensures own(x.reserve, old, 1.0) && r == n
+  atomic requires own(x.cell, 0, 1.0)
+  atomic ensures own(x.cell, 0, 1.0)
+
+proc after_close(x: Ref)
+  requires pinned(x) && own(x.reserve, 7, 1.0)
+  ensures own(x.reserve, 7, 1.0)
+{
+  var arg: Int := 3;
+  var result: Int := 9;
+  unfold pinned(x);
+  result := preserve(x, arg);
+  arg := 4;
+  fold pinned(x);
+  assert result == 3;
+}
+
+proc nested(x: Ref)
+  requires pinned(x) && own(x.reserve, 7, 1.0)
+  ensures own(x.reserve, 7, 1.0)
+  atomic requires true
+  atomic ensures true
+{
+  ghost val phi := bindAU();
+  openAU(phi);
+  unfold pinned(x);
+  var result: Int := preserve(x, 3);
+  fold pinned(x);
+  result := 9;
+  commitAU(phi, ());
+  assert result == 9;
+}
+
+proc no_open_scope(x: Ref)
+  requires own(x.cell, 0, 1.0) && own(x.reserve, 7, 1.0)
+  ensures own(x.cell, 0, 1.0) && own(x.reserve, 7, 1.0)
+{
+  var result: Int := preserve(x, 3);
+  assert result == 3;
+}
+
+free proc ghost_preserve(x: Ref, implicit ghost old: Int) returns (ghost witness: Int)
+  requires own(x.reserve, old, 1.0)
+  ensures own(x.reserve, old, 1.0) && witness == old
+  atomic requires own(x.cell, 0, 1.0)
+  atomic ensures own(x.cell, 0, 1.0)
+
+proc ghost_return(x: Ref)
+  requires pinned(x) && own(x.reserve, 7, 1.0)
+  ensures own(x.reserve, 7, 1.0)
+{
+  unfold pinned(x);
+  ghost var witness: Int := ghost_preserve(x);
+  fold pinned(x);
+  assert witness == 7;
+}
+
+
+free proc pure_preserve(x: Ref) returns (r: Int)
+  ensures r == 3
+  atomic requires own(x.cell, 0, 1.0)
+  atomic ensures own(x.cell, 0, 1.0)
+
+proc branch(x: Ref, b: Bool)
+  requires pinned(x)
+{
+  var result: Int := 9;
+  unfold pinned(x);
+  if (b) {
+    result := pure_preserve(x);
+  }
+  fold pinned(x);
+  assert b ==> result == 3;
+  assert !b ==> result == 9;
+}
+
+proc trusted_block(x: Ref)
+  requires pinned(x) && own(x.reserve, 7, 1.0)
+  ensures own(x.reserve, 7, 1.0)
+{
+  unfold pinned(x);
+  atomic {
+    var result: Int := preserve(x, 3);
+    assert result == 3;
+  }
+  fold pinned(x);
+}
+
+proc loop_calls(x: Ref, count: Int)
+  requires pinned(x) && own(x.reserve, 7, 1.0)
+  ensures own(x.reserve, 7, 1.0)
+{
+  var i: Int := 0;
+  while (i < count)
+    invariant pinned(x) && own(x.reserve, 7, 1.0)
+  {
+    unfold pinned(x);
+    var result: Int := preserve(x, i);
+    fold pinned(x);
+    assert result == i;
+    i := i + 1;
+  }
+}
