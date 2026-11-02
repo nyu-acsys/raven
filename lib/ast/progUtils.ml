@@ -950,15 +950,10 @@ let classify_formal (formal : AstDef.Module.module_inst) : formal_solver option 
       Base.Option.map field_iface ~f:(fun (field, mod_members) ->
           ByField (interface_qi, field, mod_members))
 
-(** True iff every formal of [mod_decl] can be solved from a use site (see
-    [classify_formal]), making the functor eligible for implicit instantiation. *)
+(** True iff [mod_decl] is a named functor, whose members a use site can instantiate
+    implicitly; each call must determine its formals (see [classify_formal]). *)
 let is_generic_functor (mod_decl : AstDef.Module.module_decl) : bool t =
-  let open Rewriter.Syntax in
-  if not (AstDef.Module.is_named_functor mod_decl) then Rewriter.return false
-  else
-    Rewriter.List.for_all (AstDef.Module.formals mod_decl) ~f:(fun formal ->
-        let+ solver = classify_formal formal in
-        Base.Option.is_some solver)
+  Rewriter.return (AstDef.Module.is_named_functor mod_decl)
 
 (** Resolve [qi] and, if it names an uninstantiated generic functor (see
     [is_generic_functor]), return its fully qualified name together with its module

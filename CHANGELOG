@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- A call through a functor whose parameter no call determines names that parameter instead of reporting an unknown identifier.
 - Parse callable bodies correctly after contracts containing `match` expressions.
 - Delay ordinary postconditions of logically atomic calls until surrounding invariants and atomic updates close.
 - Programs printed through `raven-ivl.api` keep `free` on modules and values.

@@ -1,5 +1,5 @@
-// A formal constrained by an interface with no rep type at all is out of scope for
-// implicit instantiation -- this must fail with the ordinary "unknown identifier" error.
+// No call determines a formal constrained by an interface with neither a rep type nor a
+// single field, so a use of the functor's member asks for an explicit instantiation.
 
 interface K {
   func foo() returns (res: Int)

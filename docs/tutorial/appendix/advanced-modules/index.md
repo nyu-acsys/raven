@@ -6,15 +6,19 @@ The module chapter introduces the common forms. This appendix covers the additio
 rules, type identities, generative factories, and sealing forms that matter when building
 reusable libraries.
 
-## Eligibility and inference {#sec:module-inference-details}
+## Determining parameters {#sec:module-inference-details}
 
-Implicit instantiation is checked structurally. For type-based inference, each functor parameter
-must be constrained by an interface declaring a `rep type`; `Library.Type` and `Counter` both
-qualify. The basic `Box.mk` and `Box.get` example is in
+Implicit instantiation solves each functor parameter at each call. A call can determine a
+parameter in two ways: from types, if the parameter's interface declares a `rep type`, as
+`Library.Type` and `Counter` do, or from a location argument, if its interface declares a single
+field, as described below. A parameter whose interface has neither is never inferred, and a call
+through the functor's name reports `Cannot infer parameter S of F: its interface declares
+neither a rep type nor a single field`; instantiate such a functor explicitly. The basic
+`Box.mk` and `Box.get` example is in
 [`implicit_instantiation.rav`](../../modules/implicit_instantiation.rav).
 
-Eligibility does not guarantee that a particular call contains enough information. Inference
-can use argument types and, for functions, an expected result type. Consider a constructor
+A parameter that types can determine still needs enough information at a particular call.
+Inference can use argument types and, for functions, an expected result type. Consider a constructor
 function whose arguments do not mention the functor's type parameter:
 
 ```raven
@@ -55,8 +59,7 @@ A parameter can also be inferred from a location argument when its interface dec
 one field and no other abstract members apart from module members. The field comes from the
 location, and its value type determines those module members. This is the additional inference
 form used by generic atomic operations; type-based inference remains the usual case for
-collection libraries. If any parameter has neither a supported rep type nor this field-interface
-shape, write an explicit instantiation.
+collection libraries.
 
 ## Instance identity {#sec:module-instance-identity}
 

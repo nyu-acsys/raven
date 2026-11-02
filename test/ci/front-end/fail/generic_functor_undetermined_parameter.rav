@@ -1,0 +1,16 @@
+// A call determines the rep-typed formal T but not S, whose interface has neither a rep
+// type nor a single field, so it asks for an explicit instantiation.
+
+interface Seed {
+  val seed: Int
+}
+
+module Pair[T: Library.Type, S: Seed] {
+  rep type P = data { case pair(fst: T, snd: Int) }
+
+  func mk(a: T) returns (res: P) { pair(a, S.seed) }
+}
+
+proc p() {
+  var x := Pair.mk(3);
+}

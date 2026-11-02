@@ -166,9 +166,9 @@ proof already covers any `Counter`, and `PlainCounter` already comes with a proo
 
 Every functor use so far has needed an explicit instantiation, such as `module UsePlain =
 UseCounter[PlainCounter]`, before anything could be called through it. Raven can skip that step
-and infer the instantiation from the types at the call site. For this type-based inference,
-each functor parameter must be constrained by an interface declaring a `rep type`, as
-`Library.Type` and `Counter` are. The following code is
+and infer the instantiation from the types at the call site. A call determines a parameter whose
+interface declares a `rep type`, as `Library.Type` and `Counter` do, from the types of its
+arguments and result. The following code is
 [`implicit_instantiation.rav`](./implicit_instantiation.rav), a self-contained example:
 
 ```raven
@@ -204,7 +204,8 @@ ever having written down which instantiation of `Box` `b` belongs to.
 Applications of the same functor to the same module arguments share an instance, whether
 written explicitly or inferred. For example, `module IntBox = Box[Int]` names the same instance
 that `Box.mk(3)` uses, so their values have the same type. Aliases preserve that identity.
-When Raven cannot infer a parameter, write an explicit instantiation.
+When Raven cannot infer a parameter, for example one whose interface has no `rep type`, write
+an explicit instantiation.
 
 {{ref app:advanced-modules}} covers inference from expected result types, unresolved parameters,
 instance identity, generative factories, and the generic `default` value.
