@@ -246,6 +246,7 @@ module SetOrder[E: Type] : WellFoundedOrder {
     var s0: T := msize_step(s);
     assert forall z: E :: {z in s0} (z in s0) == (z in s && z != e0);
     if (e == e0) {
+      assert s0 == s';
     } else {
       var u: T := s0 -- {e};
       assert forall z: E :: {z in u} (z in u) == (z in s0 && z != e);

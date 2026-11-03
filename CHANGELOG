@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Stabilize verification of finite-set size under element removal.
 - Avoid exponential memory use when freezing namespace contracts with shared module dependencies.
 - Preserve explicit expression type annotations when requalifying and printing programs.
 - Keep generated adapters and prophecy modules for atomic token types within their generic procedure's scope.
