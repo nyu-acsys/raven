@@ -2014,6 +2014,9 @@ module Callable = struct
 end
 
 module NamespaceContract = struct
+  let rewrite_requalification ~transformations contract =
+    return (AstDef.NamespaceContract.requalify_contract transformations contract)
+
   let rewrite_qual_idents ~f contract =
     AstDef.NamespaceContract.map_state
       ~name:(fun name -> return (f name))
@@ -2206,8 +2209,8 @@ module Module = struct
     in
     { mod_inst with mod_inst_type; mod_inst_def; mod_inst_shared }
 
-  let rec rewrite_qual_idents_in_symbol ~(f : QualIdent.t -> QualIdent.t) :
-      Module.symbol -> (Module.symbol, 'a) t_ext =
+  let rec rewrite_qual_idents_in_symbol ?transformations ~(f : QualIdent.t -> QualIdent.t)
+      : Module.symbol -> (Module.symbol, 'a) t_ext =
     let open Syntax in
     let open Module in
     function
@@ -2275,20 +2278,26 @@ module Module = struct
 
         CallDef new_call_def
     | ModDef mod_def ->
-        let+ new_mod_def = rewrite_qual_idents ~f mod_def in
+        let+ new_mod_def = rewrite_qual_idents ?transformations ~f mod_def in
         ModDef new_mod_def
 
-  and rewrite_qual_idents ~f mdef : (Module.t, 'a) t_ext =
+  and rewrite_qual_idents ?transformations ~f mdef : (Module.t, 'a) t_ext =
     (* TODO: rewrite imports *)
     let open Syntax in
     let open Module in
-    let* mdef1 = rewrite_symbols ~f:(rewrite_qual_idents_in_symbol ~f) mdef in
+    let* mdef1 =
+      rewrite_symbols ~f:(rewrite_qual_idents_in_symbol ?transformations ~f) mdef
+    in
     let* formals =
       List.map (Module.formals mdef1.mod_decl) ~f:(rewrite_instance_qual_idents ~f)
     in
     let+ mod_decl_mask_contract =
       Option.map mdef1.mod_decl.mod_decl_mask_contract
-        ~f:(NamespaceContract.rewrite_qual_idents ~f)
+        ~f:
+          (match transformations with
+          | None -> NamespaceContract.rewrite_qual_idents ~f
+          | Some transformations ->
+              NamespaceContract.rewrite_requalification ~transformations)
     in
     let mod_decl_interfaces =
       Set.fold mdef1.mod_decl.mod_decl_interfaces
@@ -2375,6 +2384,8 @@ module Symbol = struct
         let _, symbol1 =
           eval
             (Module.rewrite_qual_idents_in_symbol
+               ~transformations:
+                 [ AstDef.NamespaceContract.Substitute (SymbolTbl.qid_subst subst) ]
                ~f:(subst |> SymbolTbl.qid_subst |> QualIdent.requalify)
                symbol0)
             tbl_scope

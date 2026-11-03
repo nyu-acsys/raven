@@ -3500,7 +3500,18 @@ module NamespaceContract = struct
     separation : separation_requirement list;
   }
 
-  type t = Module of module_summary | Functor of functor_summary
+  type requalification =
+    | Substitute of QualIdent.subst
+    | Except_below of QualIdent.t list * QualIdent.subst
+
+  type t =
+    | Module of module_summary
+    | Functor of functor_summary
+    | Requalified of {
+        transformations : requalification list;
+        is_instance : bool;
+        original : t;
+      }
 
   and module_summary = {
     namespaces : namespace_decl list;
@@ -3583,44 +3594,7 @@ module NamespaceContract = struct
       separation;
     }
 
-  let rec traverse_state ~name ~expr ~typ =
-    let open State.Syntax in
-    function
-    | Module summary ->
-        let* namespaces =
-          State.List.map summary.namespaces ~f:(map_state_namespace_decl ~name ~expr ~typ)
-        in
-        let* separation =
-          State.List.map summary.separation ~f:(map_state_separation ~name ~expr)
-        in
-        let* callables =
-          State.List.map summary.callables ~f:(fun (id, summary) ->
-              let+ summary = map_state_callable_summary ~name ~expr ~typ summary in
-              (id, summary))
-        in
-        let+ modules =
-          State.List.map summary.modules ~f:(fun (id, summary) ->
-              let+ summary = traverse_state ~name ~expr ~typ summary in
-              (id, summary))
-        in
-        Module { namespaces; separation; callables; modules }
-    | Functor summary ->
-        let* parameters =
-          State.List.map summary.parameters ~f:(fun (id, summary) ->
-              let+ summary = traverse_state ~name ~expr ~typ summary in
-              (id, summary))
-        in
-        let* separation =
-          State.List.map summary.separation ~f:(map_state_separation ~name ~expr)
-        in
-        let+ result = traverse_state ~name ~expr ~typ summary.result in
-        Functor { parameters; separation; result }
-
-  let map_state = traverse_state
   let lift f value state = (state, f value)
-
-  let map_mask ~name ~expr mask =
-    snd (map_state_mask ~name:(lift name) ~expr:(lift expr) mask ())
 
   let map_namespace_decl ~name ~expr ~typ declaration =
     snd
@@ -3634,6 +3608,109 @@ module NamespaceContract = struct
     snd
       (map_state_callable_summary ~name:(lift name) ~expr:(lift expr) ~typ:(lift typ)
          summary ())
+
+  let requalify transformations name =
+    List.fold transformations ~init:name ~f:(fun name -> function
+      | Substitute substitution -> QualIdent.requalify substitution name
+      | Except_below (roots, substitution) ->
+          if
+            List.exists roots ~f:(fun root ->
+                List.is_prefix (QualIdent.to_list name) ~prefix:(QualIdent.to_list root)
+                  ~equal:Ident.equal)
+          then name
+          else QualIdent.requalify substitution name)
+
+  let reference original =
+    Requalified { original; transformations = []; is_instance = true }
+
+  let rec is_instance = function
+    | Requalified { is_instance = true; _ } -> true
+    | Requalified { original; _ } -> is_instance original
+    | Module _ | Functor _ -> false
+
+  (** Materialize one layer; instance edges retain shared, original contracts. *)
+  let rec view = function
+    | Requalified { original; transformations = []; _ } -> view original
+    | Requalified { original; transformations; _ } ->
+        let name = requalify transformations in
+        let typ = Type.map_qual_idents ~f:name in
+        let expr = Expr.map_qual_idents ~f:name in
+        let deferred original =
+          Requalified { original; transformations; is_instance = false }
+        in
+        begin match view original with
+        | Module summary ->
+            Module
+              {
+                namespaces =
+                  List.map summary.namespaces ~f:(map_namespace_decl ~name ~expr ~typ);
+                separation = List.map summary.separation ~f:(map_separation ~name ~expr);
+                callables =
+                  List.map summary.callables ~f:(fun (id, summary) ->
+                      (id, map_callable_summary ~name ~expr ~typ summary));
+                modules =
+                  List.map summary.modules ~f:(fun (id, summary) ->
+                      (id, deferred summary));
+              }
+        | Functor summary ->
+            Functor
+              {
+                parameters =
+                  List.map summary.parameters ~f:(fun (id, summary) ->
+                      (id, deferred summary));
+                separation = List.map summary.separation ~f:(map_separation ~name ~expr);
+                result = deferred summary.result;
+              }
+        | Requalified _ -> assert false
+        end
+    | (Module _ | Functor _) as contract -> contract
+
+  let requalify_contract transformations original =
+    if List.is_empty transformations then original
+    else view (Requalified { original; transformations; is_instance = false })
+
+  let rec traverse_state ~name ~expr ~typ contract =
+    let open State.Syntax in
+    let+ rewritten =
+      match view contract with
+      | Module summary ->
+          let* namespaces =
+            State.List.map summary.namespaces
+              ~f:(map_state_namespace_decl ~name ~expr ~typ)
+          in
+          let* separation =
+            State.List.map summary.separation ~f:(map_state_separation ~name ~expr)
+          in
+          let* callables =
+            State.List.map summary.callables ~f:(fun (id, summary) ->
+                let+ summary = map_state_callable_summary ~name ~expr ~typ summary in
+                (id, summary))
+          in
+          let+ modules =
+            State.List.map summary.modules ~f:(fun (id, summary) ->
+                let+ summary = traverse_state ~name ~expr ~typ summary in
+                (id, summary))
+          in
+          Module { namespaces; separation; callables; modules }
+      | Functor summary ->
+          let* parameters =
+            State.List.map summary.parameters ~f:(fun (id, summary) ->
+                let+ summary = traverse_state ~name ~expr ~typ summary in
+                (id, summary))
+          in
+          let* separation =
+            State.List.map summary.separation ~f:(map_state_separation ~name ~expr)
+          in
+          let+ result = traverse_state ~name ~expr ~typ summary.result in
+          Functor { parameters; separation; result }
+      | Requalified _ -> assert false
+    in
+    if is_instance contract then reference rewritten else rewritten
+
+  let map_state = traverse_state
+
+  let map_mask ~name ~expr mask =
+    snd (map_state_mask ~name:(lift name) ~expr:(lift expr) mask ())
 
   let map ~name ~expr ~typ summary =
     snd (map_state ~name:(lift name) ~expr:(lift expr) ~typ:(lift typ) summary ())

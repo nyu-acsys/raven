@@ -224,6 +224,35 @@ let test_requalification () =
   | Some summary -> check_higher_order summary
   | None -> assert false
 
+let test_deferred_requalification () =
+  let source = higher_order_summary () in
+  let rewritten =
+    NamespaceContract.requalify_contract
+      [
+        NamespaceContract.Substitute
+          [ (qi [ "Source" ], QualIdent.to_list (qi [ "Target" ])) ];
+      ]
+      source
+  in
+  let materialized = NamespaceContract.map ~name:Fn.id ~expr:Fn.id ~typ:Fn.id rewritten in
+  check_higher_order materialized;
+  let parameter = qi [ "Source"; "G" ] in
+  let transformations =
+    [
+      NamespaceContract.Except_below
+        ([ parameter ], [ (qi [ "Source" ], QualIdent.to_list (qi [ "Target" ])) ]);
+      Substitute [ (parameter, QualIdent.to_list (qi [ "Argument" ])) ];
+    ]
+  in
+  assert (
+    QualIdent.equal
+      (NamespaceContract.requalify transformations (qi [ "Source"; "G"; "cell" ]))
+      (qi [ "Argument"; "cell" ]));
+  assert (
+    QualIdent.equal
+      (NamespaceContract.requalify transformations (qi [ "Source"; "cell" ]))
+      (qi [ "Target"; "cell" ]))
+
 let test_expression_annotation_traversals () =
   let map_type = Type.mk_map loc formal.var_type formal.var_type in
   let comprehension =
@@ -291,4 +320,5 @@ let () =
   test_unknown_namespace ();
   test_requalification ();
   test_guarded_grants ();
+  test_deferred_requalification ();
   test_expression_annotation_traversals ()

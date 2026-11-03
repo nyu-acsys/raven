@@ -25,13 +25,15 @@ let freeze source =
   let tbl, closed = Rewriter.eval (Closure.close collected) tbl in
   snd (Rewriter.eval (Closure.freeze closed collected.program) tbl)
 
-let summary = function
+let summary contract =
+  match NamespaceContract.view contract with
   | NamespaceContract.Module summary -> summary
   | Functor functor_ ->
-      begin match functor_.result with
+      begin match NamespaceContract.view functor_.result with
       | Module summary -> summary
-      | Functor _ -> assert false
+      | Functor _ | Requalified _ -> assert false
       end
+  | Requalified _ -> assert false
 
 let root program =
   Option.value_exn program.Module.mod_decl.mod_decl_mask_contract |> summary

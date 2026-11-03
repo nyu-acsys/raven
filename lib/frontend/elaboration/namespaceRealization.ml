@@ -22,15 +22,20 @@ let below root name =
   List.is_prefix (QualIdent.to_list name) ~prefix:(QualIdent.to_list root)
     ~equal:Ident.equal
 
-let map_contract rename = Rewriter.NamespaceContract.rewrite_qual_idents ~f:rename
+let map_contract transformations =
+  Rewriter.NamespaceContract.rewrite_requalification ~transformations
 
-let result = function
+let result contract =
+  match NamespaceContract.view contract with
   | NamespaceContract.Module _ as contract -> contract
   | Functor summary -> summary.result
+  | Requalified _ -> assert false
 
-let own_namespaces = function
+let own_namespaces contract =
+  match NamespaceContract.view contract with
   | NamespaceContract.Module summary -> summary.namespaces
   | Functor _ -> []
+  | Requalified _ -> assert false
 
 let requirements = NamespaceClosure.requirements
 
@@ -171,18 +176,23 @@ let effective_path ?(implementation = true) name =
 
 (** Structural shape/type compliance has already been checked by the nominal checker. *)
 let rec compatible ~declarations ~owner ~loc environment ~actual_path ~expected_path
-    ?(rename = Fn.id) ~established actual expected =
+    ?(transformations = []) ~established actual expected =
   let open Rewriter.Syntax in
+  let rename = NamespaceContract.requalify transformations in
   let* actual_path = effective_path actual_path in
-  match (actual, expected) with
+  match (NamespaceContract.view actual, NamespaceContract.view expected) with
   | NamespaceContract.Module actual, Module expected ->
-      let owner_rename name =
-        rename
-          (QualIdent.requalify [ (expected_path, QualIdent.to_list actual_path) ] name)
+      let owner_transformations =
+        NamespaceContract.Substitute [ (expected_path, QualIdent.to_list actual_path) ]
+        :: transformations
       in
-      let* expected = map_contract owner_rename (NamespaceContract.Module expected) in
+      let* expected =
+        map_contract owner_transformations (NamespaceContract.Module expected)
+      in
       let expected =
-        match expected with Module summary -> summary | Functor _ -> assert false
+        match expected with
+        | Module summary -> summary
+        | Functor _ | Requalified _ -> assert false
       in
       let* context = Entailment.create ~rename (declarations @ actual.namespaces) in
       let overrides =
@@ -262,7 +272,7 @@ let rec compatible ~declarations ~owner ~loc environment ~actual_path ~expected_
               compatible ~declarations ~owner ~loc environment
                 ~actual_path:(QualIdent.append actual_path name)
                 ~expected_path:(QualIdent.append actual_path name)
-                ~rename ~established:true provided promised)
+                ~transformations ~established:true provided promised)
   | Functor actual, Functor expected ->
       if List.length actual.parameters <> List.length expected.parameters then
         signature_error loc "functor parameter shapes differ";
@@ -272,24 +282,34 @@ let rec compatible ~declarations ~owner ~loc environment ~actual_path ~expected_
             ( QualIdent.append actual_path actual,
               QualIdent.to_list (QualIdent.append expected_path expected) ))
       in
-      let actual_rename name = rename (QualIdent.requalify actual_parameter_roots name) in
+      let actual_transformations =
+        NamespaceContract.Substitute actual_parameter_roots :: transformations
+      in
+      let actual_rename = NamespaceContract.requalify actual_transformations in
       let expected_roots =
         List.map expected.parameters ~f:(fun (name, _) ->
             QualIdent.append expected_path name)
       in
-      let expected_rename name =
-        if List.exists expected_roots ~f:(fun root -> below root name) then rename name
-        else
-          rename
-            (QualIdent.requalify [ (expected_path, QualIdent.to_list actual_path) ] name)
+      let expected_transformations =
+        NamespaceContract.Except_below
+          (expected_roots, [ (expected_path, QualIdent.to_list actual_path) ])
+        :: transformations
       in
-      let* actual = map_contract actual_rename (NamespaceContract.Functor actual) in
-      let* expected = map_contract expected_rename (NamespaceContract.Functor expected) in
+      let* actual =
+        map_contract actual_transformations (NamespaceContract.Functor actual)
+      in
+      let* expected =
+        map_contract expected_transformations (NamespaceContract.Functor expected)
+      in
       let actual =
-        match actual with Functor summary -> summary | Module _ -> assert false
+        match actual with
+        | Functor summary -> summary
+        | Module _ | Requalified _ -> assert false
       in
       let expected =
-        match expected with Functor summary -> summary | Module _ -> assert false
+        match expected with
+        | Functor summary -> summary
+        | Module _ | Requalified _ -> assert false
       in
       let* context =
         Entailment.create ~rename:actual_rename
@@ -303,7 +323,10 @@ let rec compatible ~declarations ~owner ~loc environment ~actual_path ~expected_
       in
       let inputs =
         List.concat_map expected.parameters ~f:(fun (_, contract) ->
-            match contract with Module summary -> summary.separation | Functor _ -> [])
+            match NamespaceContract.view contract with
+            | Module summary -> summary.separation
+            | Functor _ -> []
+            | Requalified _ -> assert false)
       in
       let environment =
         {
@@ -323,10 +346,11 @@ let rec compatible ~declarations ~owner ~loc environment ~actual_path ~expected_
           ~f:(fun ((_, demanded), (parameter, supplied)) ->
             let path = QualIdent.append expected_path parameter in
             compatible ~declarations ~owner ~loc environment ~actual_path:path
-              ~expected_path:path ~rename:actual_rename ~established:true supplied
-              demanded)
+              ~expected_path:path ~transformations:actual_transformations
+              ~established:true supplied demanded)
       in
-      let without_formal_members parameters = function
+      let without_formal_members parameters contract =
+        match NamespaceContract.view contract with
         | NamespaceContract.Module result ->
             Module
               {
@@ -336,11 +360,14 @@ let rec compatible ~declarations ~owner ~loc environment ~actual_path ~expected_
                       not (List.Assoc.mem parameters name ~equal:Ident.equal));
               }
         | Functor _ as result -> result
+        | Requalified _ -> assert false
       in
       compatible ~declarations ~owner ~loc environment ~actual_path
-        ~expected_path:actual_path ~rename:actual_rename ~established:true
+        ~expected_path:actual_path ~transformations:actual_transformations
+        ~established:true
         (without_formal_members actual.parameters actual.result)
         (without_formal_members expected.parameters expected.result)
+  | Requalified _, _ | _, Requalified _ -> assert false
   | Module _, Functor _ | Functor _, Module _ ->
       signature_error loc "module/functor shapes differ"
 
@@ -369,8 +396,9 @@ let validate_pass ~declarations program pending =
     Rewriter.in_scope_of
       (Module.unit_parameter_path owner)
       (let* contract =
-         Rewriter.NamespaceContract.rewrite_qual_idents
-           ~f:(QualIdent.requalify m.mod_decl.mod_decl_instance_subst)
+         Rewriter.NamespaceContract.rewrite_requalification
+           ~transformations:
+             [ NamespaceContract.Substitute m.mod_decl.mod_decl_instance_subst ]
            (Option.value_exn m.Module.mod_decl.mod_decl_mask_contract)
        in
        let here =
@@ -380,13 +408,15 @@ let validate_pass ~declarations program pending =
        in
        let* here =
          match contract with
+         | Requalified _ -> assert false
          | NamespaceContract.Module _ -> Rewriter.return here
          | Functor summary ->
              let assumptions =
                List.concat_map summary.parameters ~f:(fun (_, parameter) ->
-                   match parameter with
+                   match NamespaceContract.view parameter with
                    | Module summary -> summary.separation
-                   | Functor _ -> [])
+                   | Functor _ -> []
+                   | Requalified _ -> assert false)
              in
              Rewriter.return
                {
@@ -414,8 +444,9 @@ let validate_pass ~declarations program pending =
                  parent_symbol parent_contract
              in
              let* promised =
-               Rewriter.NamespaceContract.rewrite_qual_idents
-                 ~f:(QualIdent.requalify m.mod_decl.mod_decl_instance_subst)
+               Rewriter.NamespaceContract.rewrite_requalification
+                 ~transformations:
+                   [ NamespaceContract.Substitute m.mod_decl.mod_decl_instance_subst ]
                  promised
              in
              let* () =
@@ -458,6 +489,7 @@ let validate_pass ~declarations program pending =
           | Some (head, arguments) ->
               let* contract = snapshot_contract head in
               begin match contract with
+              | Requalified _ -> assert false
               | Module _ -> Rewriter.return ()
               | Functor functor_ ->
                   let bindings =
@@ -473,7 +505,9 @@ let validate_pass ~declarations program pending =
                             "application parameter metadata is missing"
                       | Some promised ->
                           let* promised =
-                            map_contract (QualIdent.requalify bindings) promised
+                            map_contract
+                              [ NamespaceContract.Substitute bindings ]
+                              promised
                           in
                           let* provided =
                             snapshot_contract ~implementation:true actual_path
@@ -490,10 +524,35 @@ let validate_pass ~declarations program pending =
               require_all ~context ~owner ~loc:binding.mod_inst_loc environment
                 summary.separation
           | Functor _ -> Rewriter.return ()
+          | Requalified _ -> assert false
         in
         let* expected = snapshot_contract binding.mod_inst_type in
         let* expected_owner =
           effective_path ~implementation:false binding.mod_inst_type
+        in
+        let* nominal =
+          let* implementation = effective_path name in
+          if QualIdent.equal implementation expected_owner then Rewriter.return true
+          else
+            let* table = Rewriter.get_table in
+            let expected =
+              SymbolTbl.resolve_and_find ~implementation:false ~read_only:true
+                binding.mod_inst_type
+                (SymbolTbl.goto binding.mod_inst_type table)
+            in
+            begin match
+              (SymbolTbl.application_origin binding.mod_inst_type table, expected)
+            with
+            | None, Some (_, original, _, _) when QualIdent.equal original expected_owner
+              ->
+                begin match SymbolTbl.application_origin name table with
+                | None -> Rewriter.return false
+                | Some (head, _) ->
+                    let+ head = effective_path head in
+                    QualIdent.equal head expected_owner
+                end
+            | _ -> Rewriter.return false
+            end
         in
         let expected =
           match (actual, expected) with
@@ -502,8 +561,10 @@ let validate_pass ~declarations program pending =
         in
         (* Sealed public resolution exposes the interface; retain the implementation edge. *)
         let provided, actual_path = (actual, name) in
-        compatible ~declarations ~owner ~loc:binding.mod_inst_loc environment ~actual_path
-          ~expected_path:expected_owner ~established:true provided expected
+        if nominal then Rewriter.return ()
+        else
+          compatible ~declarations ~owner ~loc:binding.mod_inst_loc environment
+            ~actual_path ~expected_path:expected_owner ~established:true provided expected
   in
   Rewriter.eval_with_user_state ~init:pending
     (let* () =

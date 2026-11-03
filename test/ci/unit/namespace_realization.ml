@@ -156,9 +156,9 @@ let comparator source expected =
   let tbl, frozen = Rewriter.eval (Closure.elaborate typed) tbl in
   let root = Option.value_exn frozen.Module.mod_decl.mod_decl_mask_contract in
   let members =
-    match root with
+    match NamespaceContract.view root with
     | NamespaceContract.Module summary -> summary.modules
-    | Functor _ -> assert false
+    | Functor _ | Requalified _ -> assert false
   in
   let path name = QualIdent.from_list [ Predefs.prog_ident; id name ] in
   let compare name =
@@ -201,6 +201,16 @@ let test_higher_order_application () =
       module Actual: Regions { inv i(x: Int) { true } inv j(x: Int) { true } }\n\
       module Higher[G: FunSig] { module Inside = G[Actual] }\n\
       module Instance = Higher[Good]")
+
+let test_higher_order_argument_obligations () =
+  let source =
+    regions ^ opening_functor
+    ^ "interface Promised[P: Regions] {\n\
+       lemma use(ghost x: Int) requires P.i(x) && P.j(x) }\n\
+       module Alias = F"
+  in
+  let compare = comparator source "Promised" in
+  expect_namespace_error (fun () -> compare "Alias")
 
 let test_callable_mask_variance () =
   let source =
@@ -317,6 +327,7 @@ let () =
     test_residual_application ();
     test_functor_requirements ();
     test_higher_order_application ();
+    test_higher_order_argument_obligations ();
     test_callable_mask_variance ();
     test_sealed_overload_selection ();
     test_aliases_in_grant_arguments ();
