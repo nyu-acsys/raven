@@ -1170,7 +1170,7 @@ let find_insertion_scope_for_symbols (symbols : (qual_ident, _) Set.t) :
 let type_symbols (tps : AstDef.type_expr list) : (qual_ident, _) Set.t =
   Base.List.fold tps
     ~init:(Set.empty (module QualIdent))
-    ~f:(fun acc tp -> Set.union acc (AstDef.Type.symbols tp))
+    ~f:(fun acc tp -> Set.union acc (AstDef.Type.scope_symbols tp))
 
 (** [find_insertion_scope_for_symbols] for a functor applied to bare types. *)
 let find_insertion_scope_for_types (tps : AstDef.type_expr list) :
@@ -1299,7 +1299,7 @@ let inherited_rep_module ~interface_qual_ident ~rep_ident ~reference_scope tp =
   in
   let scopes =
     reference_scope
-    :: Base.List.concat_map (Set.to_list (AstDef.Type.symbols tp)) ~f:parents
+    :: Base.List.concat_map (Set.to_list (AstDef.Type.scope_symbols tp)) ~f:parents
     |> Base.List.dedup_and_sort ~compare:QualIdent.compare
   in
   let matching_member scope requalify = function
@@ -1749,7 +1749,7 @@ and shared_body_instances ~(loc : location) ~(functor_qual_ident : qual_ident)
             in
             if
               AstDef.Type.equal substituted tp
-              || Set.exists (AstDef.Type.symbols substituted) ~f:is_local
+              || Set.exists (AstDef.Type.scope_symbols substituted) ~f:is_local
             then return (subst, shared)
             else
               let* substituted = !Rewriter.expand_type_expr_ref substituted in

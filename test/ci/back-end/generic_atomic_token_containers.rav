@@ -1,0 +1,43 @@
+module Family[A: Library.Type] {
+  type Token = AtomicToken<Family.identity>
+
+  module TokenValues: Library.Type {
+    rep type T = Token
+  }
+
+  ghost field saved: Option[Token]
+  inv held(q: Ref) {
+    exists remembered: Option[Token] :: own(q.saved, remembered)
+  }
+
+  proc identity(q: Ref, value: A.T) returns (result: A.T)
+    requires held(q)
+    ensures held(q)
+    atomic requires true
+    atomic ensures result == value
+  {
+    ghost val token: Token := bindAU()
+    atomic {
+      openAU(token, (q, value))
+      result := value
+      commitAU(token, (q, value), result)
+    }
+  }
+}
+
+module Integers = Family[Int]
+module Booleans = Family[Bool]
+
+module Client[A: Library.Type] {
+  module Local = Family[A]
+  ghost field saved: Option[Local.Token]
+
+  proc identity(q: Ref, value: A.T) returns (result: A.T)
+    requires Local.held(q)
+    ensures Local.held(q) && result == value
+  {
+    result := Local.identity(q, value)
+  }
+}
+
+module IntegerClient = Client[Int]

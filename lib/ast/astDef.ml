@@ -752,12 +752,13 @@ module Type = struct
         end
     | _ -> failwith "Expected Tuple type"
 
-  let symbols ?(acc = Set.empty (module QualIdent)) tp =
+  let symbols ?(atomic_procedures = false) ?(acc = Set.empty (module QualIdent)) tp =
     let rec symbols acc = function
       | App (c, ts, _) ->
           let acc =
             match c with
             | Var id -> Set.add acc id
+            | AtomicToken id when atomic_procedures -> Set.add acc id
             | Data (id, variant_decls) ->
                 let acc = Set.add acc id in
                 let var_args =
@@ -770,6 +771,9 @@ module Type = struct
           List.fold ~init:acc ~f:symbols ts
     in
     symbols acc tp
+
+  (** Scope dependencies include the procedure whose identity indexes an atomic token. *)
+  let scope_symbols ?acc tp = symbols ~atomic_procedures:true ?acc tp
 end
 
 type type_expr = Type.t [@@deriving compare]

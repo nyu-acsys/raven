@@ -657,7 +657,7 @@ let rec mentioned_names ?(bodies = true) (symbol : Module.symbol) : Set.M(QualId
   let empty = Set.empty (module QualIdent) in
   let arg_names acc = function
     | Module.ModArg qi -> Set.add acc qi
-    | Module.TypeArg tp -> Type.symbols ~acc tp
+    | Module.TypeArg tp -> Type.scope_symbols ~acc tp
   in
   let inst_names acc (inst : Module.module_inst) =
     let acc = Set.add acc inst.mod_inst_type in
@@ -671,12 +671,12 @@ let rec mentioned_names ?(bodies = true) (symbol : Module.symbol) : Set.M(QualId
   in
   match symbol with
   | TypeDef { type_def_expr; _ } ->
-      Option.fold type_def_expr ~init:empty ~f:(fun acc tp -> Type.symbols ~acc tp)
+      Option.fold type_def_expr ~init:empty ~f:(fun acc tp -> Type.scope_symbols ~acc tp)
   | FieldDef { field_type; field_alias; _ } ->
-      let acc = Type.symbols field_type in
+      let acc = Type.scope_symbols field_type in
       Option.fold field_alias ~init:acc ~f:Set.add
   | VarDef { var_decl; var_init; _ } ->
-      let acc = Type.symbols var_decl.var_type in
+      let acc = Type.scope_symbols var_decl.var_type in
       Option.fold var_init ~init:acc ~f:(fun acc e -> Expr.symbols ~acc e)
   | CallDef { call_decl; call_def } ->
       (* A procedure's body is left out: callables may be used before their definition. *)
@@ -698,7 +698,7 @@ let rec mentioned_names ?(bodies = true) (symbol : Module.symbol) : Set.M(QualId
       in
       let acc =
         List.fold (call_decl.call_decl_formals @ call_decl.call_decl_returns) ~init:acc
-          ~f:(fun acc var_decl -> Type.symbols ~acc var_decl.var_type)
+          ~f:(fun acc var_decl -> Type.scope_symbols ~acc var_decl.var_type)
       in
       Option.fold call_decl.call_decl_alias ~init:acc ~f:Set.add
   | ModInst inst -> inst_names empty inst

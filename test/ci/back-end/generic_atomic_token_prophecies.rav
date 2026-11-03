@@ -1,0 +1,54 @@
+module Family[A: Library.Type] {
+  proc identity(value: A.T) returns (result: A.T)
+    atomic requires true
+    atomic ensures result == value
+  {
+    ghost val token := bindAU()
+    atomic {
+      openAU(token, value)
+      result := value
+      commitAU(token, value, result)
+    }
+  }
+
+  proc predict(ghost token: AtomicToken<identity>) {
+    ghost var single: Proph[AtomicToken<identity>, 1]
+    ghost var predicted: AtomicToken<identity>
+    single, predicted := new Proph[AtomicToken<identity>, 1]
+    assert Proph.proph(single, predicted)
+    Proph.resolve(single, token)
+    assert predicted == token
+
+    ghost var multiple: Proph[AtomicToken<identity>]
+    ghost var predictions: List[AtomicToken<identity>]
+    multiple, predictions := new Proph[AtomicToken<identity>]
+    Proph.resolve(multiple, token)
+    assert predictions.hd == token
+    assert Proph.proph(multiple, predictions.tl)
+  }
+}
+
+module Integers = Family[Int]
+module Booleans = Family[Bool]
+
+module Client[A: Library.Type] {
+  module Local = Family[A]
+
+  proc predict(ghost token: AtomicToken<Local.identity>) {
+    ghost var single: Proph[AtomicToken<Local.identity>, 1]
+    ghost var predicted: AtomicToken<Local.identity>
+    single, predicted := new Proph[AtomicToken<Local.identity>, 1]
+    Proph.resolve(single, token)
+    assert predicted == token
+
+    ghost var multiple: Proph[AtomicToken<Local.identity>]
+    ghost var predictions: List[AtomicToken<Local.identity>]
+    multiple, predictions := new Proph[AtomicToken<Local.identity>]
+    Proph.resolve(multiple, token)
+    assert predictions.hd == token
+    assert Proph.proph(multiple, predictions.tl)
+    Local.predict(token)
+  }
+}
+
+module IntegerClient = Client[Int]

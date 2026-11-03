@@ -560,7 +560,7 @@ and infer_single_instantiation ~check_expr ~claimed_location ~loc ~qual_ident
           QualIdent.to_list (QualIdent.append functor_qual_ident formal_ident))
     in
     let mentions_field_formal tp =
-      Set.exists (Type.symbols tp) ~f:(fun qi ->
+      Set.exists (Type.scope_symbols tp) ~f:(fun qi ->
           let qi = QualIdent.to_list qi in
           List.exists field_formal_paths ~f:(fun prefix ->
               List.is_prefix qi ~prefix ~equal:Ident.equal))
