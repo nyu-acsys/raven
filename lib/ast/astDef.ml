@@ -209,7 +209,7 @@ module QualIdent = struct
   include Comparable.Make (T)
 
   (* Substitution maps for module instantiation *)
-  type subst = (t * Ident.t list) list
+  type subst = (t * Ident.t list) list [@@deriving compare]
 
   let to_loc qid = Ident.to_loc qid.qual_base
   let to_list qid = qid.qual_path @ [ qid.qual_base ]
@@ -3018,6 +3018,7 @@ module Callable = struct
   type mask = MaskSet.t
   (** Canonical unions of mask entries under known prefix subsumption. *)
 
+  let compare_mask = List.compare compare_mask_entry
   let mask_canon = MaskSet.canon
   let mask_equal = MaskSet.equal
   let mask_union = MaskSet.union
@@ -3471,24 +3472,27 @@ end
 (** Frozen namespace contracts *)
 
 module NamespaceContract = struct
-  type namespace_definition = Abstract | Defined of Callable.mask
+  type namespace_definition = Abstract | Defined of Callable.mask [@@deriving compare]
 
   type namespace_decl = {
     name : QualIdent.t;
     formals : Type.var_decl list;
     definition : namespace_definition;
   }
+  [@@deriving compare]
 
   type separation_requirement = {
     left : Callable.mask;
     right : Callable.mask;
     loc : Loc.t;
   }
+  [@@deriving compare]
 
   type guarded_grant = {
     grants : Callable.mask;
     conditions : separation_requirement list;
   }
+  [@@deriving compare]
 
   type callable_summary = {
     kind : Callable.call_kind;
@@ -3499,10 +3503,12 @@ module NamespaceContract = struct
     guarded_grants : guarded_grant list;
     separation : separation_requirement list;
   }
+  [@@deriving compare]
 
   type requalification =
     | Substitute of QualIdent.subst
     | Except_below of QualIdent.t list * QualIdent.subst
+  [@@deriving compare]
 
   type t =
     | Module of module_summary
@@ -3525,6 +3531,7 @@ module NamespaceContract = struct
     separation : separation_requirement list;
     result : t;
   }
+  [@@deriving compare]
 
   let empty = Module { namespaces = []; separation = []; callables = []; modules = [] }
 
