@@ -266,6 +266,59 @@ let verifies text =
 let () =
   let loc = R.Loc.none in
   let id name = R.Ident.make ~loc name in
+  let q ?(path = []) name = R.Name.make ~loc ~path name in
+  let var name = R.Expr.var ~loc (q name) in
+  let carrier = R.Type.named ~loc (q ~path:[ "E" ] "T") [] in
+  let phantom = R.Type.named ~loc (q "Phantom") [ carrier ] in
+  let parameter = [ (id "E", q ~path:[ "Library" ] "Type") ] in
+  let program annotated =
+    let element = R.Expr.call ~loc (q ~path:[ "Phantom" ] "published") [ var "cell" ] in
+    let element = if annotated then R.Expr.annotated element phantom else element in
+    R.Program.make ~loc
+      [
+        R.Member.module_ ~loc ~params:parameter (id "Phantom")
+          [
+            R.Member.type_ ~loc ~rep:true (id "T")
+              (Some
+                 (R.Type.data ~loc
+                    [
+                      R.Type.variant ~loc (id "published")
+                        [ (id "cell", R.Type.ref ~loc) ];
+                    ]));
+          ];
+        R.Member.module_ ~loc ~params:parameter (id "Sink")
+          [
+            R.Member.callable
+              (R.Callable.func ~loc
+                 ~formals:[ R.Var.make ~loc (id "items") (R.Type.fin_set ~loc phantom) ]
+                 ~returns:[ R.Var.make ~loc (id "result") (R.Type.bool ~loc) ]
+                 (id "take")
+                 (Some (R.Expr.bool ~loc true)));
+          ];
+        R.Member.module_ ~loc ~params:parameter (id "Client")
+          [
+            R.Member.callable
+              (R.Callable.proc ~loc ~kind:Lemma
+                 ~formals:[ R.Var.make ~loc ~ghost:true (id "cell") (R.Type.ref ~loc) ]
+                 (id "check")
+                 (Some
+                    [
+                      R.Stmt.assert_ ~loc
+                        (R.Spec.make
+                           (R.Expr.call ~loc (q ~path:[ "Sink" ] "take")
+                              [ R.Expr.set ~loc [ element ] ]));
+                    ]));
+          ];
+      ]
+  in
+  let annotated = R.Expr.annotated (R.Expr.int ~loc 7) (R.Type.int ~loc) in
+  assert (String.equal (R.Expr.to_string annotated) "(7: Int)");
+  assert (verifies (roundtrip (program true)));
+  assert (not (verifies (roundtrip (program false))))
+
+let () =
+  let loc = R.Loc.none in
+  let id name = R.Ident.make ~loc name in
   let name s = R.Name.make ~loc s in
   let var s = R.Expr.var ~loc (name s) in
   let program wrong =

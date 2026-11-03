@@ -772,6 +772,30 @@ module Type = struct
     in
     symbols acc tp
 
+  (** Rewrite names in types without consulting or changing the symbol table. *)
+  let rec map_qual_idents ~f (App (constr, arguments, attr)) =
+    let constr =
+      match constr with
+      | Var name -> Var (f name)
+      | AtomicToken name -> AtomicToken (f name)
+      | Data (name, variants) ->
+          let variants =
+            List.map variants ~f:(fun variant ->
+                {
+                  variant with
+                  variant_args =
+                    List.map variant.variant_args ~f:(fun declaration ->
+                        {
+                          declaration with
+                          var_type = map_qual_idents ~f declaration.var_type;
+                        });
+                })
+          in
+          Data (f name, variants)
+      | constr -> constr
+    in
+    App (constr, List.map arguments ~f:(map_qual_idents ~f), attr)
+
   (** Scope dependencies include the procedure whose identity indexes an atomic token. *)
   let scope_symbols ?acc tp = symbols ~atomic_procedures:true ?acc tp
 end
@@ -907,9 +931,9 @@ module Expr = struct
     expr_ext ->
     t list ->
     unit
+
   (** Prints the application of the extension constructor [expr_ext] to [args], with [pr]
       for its subexpressions. *)
-
   let default_pr_expr_ext : pr_expr_ext =
    fun ~names:_ ~pr ppf expr_ext args ->
     Stdlib.Format.fprintf ppf "%s(%a)"
@@ -1159,6 +1183,12 @@ module Expr = struct
             (b, vs, trgs, e1, to_type e)
             Type.pr (to_type e)
     and pr_compact ppf e =
+      match to_type_annot e with
+      | Some typ ->
+          Stdlib.Format.fprintf ppf "(%a: %a)" pr_compact (set_type_annot e None) Type.pr
+            typ
+      | None -> pr_compact_unannotated ppf e
+    and pr_compact_unannotated ppf e =
       let open Stdlib.Format in
       match e with
       | App (Enumeration opener, [], _) ->
@@ -1501,6 +1531,48 @@ module Expr = struct
           Binder (b, vars, trgs, sub e, expr_attr)
     in
     sub e
+
+  (** Rewrite names in both expressions and their type annotations. *)
+  let rec map_qual_idents ~f = function
+    | App (constr, arguments, attr) ->
+        let constr =
+          match constr with
+          | Var name -> Var (f name)
+          | DataConstr name -> DataConstr (f name)
+          | DataDestr name -> DataDestr (f name)
+          | DataTest name -> DataTest (f name)
+          | AUPred name -> AUPred (f name)
+          | AUPredCommit name -> AUPredCommit (f name)
+          | constr -> constr
+        in
+        App
+          ( constr,
+            List.map arguments ~f:(map_qual_idents ~f),
+            {
+              attr with
+              expr_type = Type.map_qual_idents ~f attr.expr_type;
+              expr_type_annot =
+                Option.map attr.expr_type_annot ~f:(Type.map_qual_idents ~f);
+            } )
+    | Binder (kind, variables, triggers, body, attr) ->
+        let variables =
+          List.map variables ~f:(fun variable ->
+              {
+                variable with
+                Type.var_type = Type.map_qual_idents ~f variable.Type.var_type;
+              })
+        in
+        Binder
+          ( kind,
+            variables,
+            List.map triggers ~f:(List.map ~f:(map_qual_idents ~f)),
+            map_qual_idents ~f body,
+            {
+              attr with
+              expr_type = Type.map_qual_idents ~f attr.expr_type;
+              expr_type_annot =
+                Option.map attr.expr_type_annot ~f:(Type.map_qual_idents ~f);
+            } )
 
   (** Substitutes all identifiers in expression [e] with other identifiers according to
       substitution map [subst_map]. ** This operation is not capture avoiding. *)
