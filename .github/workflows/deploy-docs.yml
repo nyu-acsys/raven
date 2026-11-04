@@ -38,7 +38,11 @@ jobs:
         working-directory: docs
         run: npm ci
 
-      # GITHUB_PAGES=true is what tells .vitepress/config.mts to prefix
+      - name: Test shared site infrastructure
+        working-directory: docs
+        run: npm test
+
+      # GITHUB_PAGES=true tells the shared site configuration to prefix
       # every root-relative URL with '/raven/', since Pages serves this
       # site from a subpath (nyu-acsys.github.io/raven/), not the domain
       # root.

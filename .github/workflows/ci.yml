@@ -14,6 +14,24 @@ env:
   Z3_VERSION: "5.1.0"
 
 jobs:
+  docs:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: docs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+        env:
+          GITHUB_PAGES: 'true'
+
   # The ocamlformat version must match the one in .ocamlformat.
   format:
     runs-on: ubuntu-latest
