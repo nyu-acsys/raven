@@ -70,6 +70,14 @@
  (modules api_verify)
  (libraries raven-ivl.api))
 
+(executable
+ (name progress_api)
+ (modules progress_api)
+ (libraries raven-ivl.api base logs logs.fmt fmt))
+
+(cram
+ (deps progress_api.exe))
+
 (test
  (name checked_library_api)
  (modules checked_library_api)
