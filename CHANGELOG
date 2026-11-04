@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file.
 - Inherited interfaces preserve container types and dependent functor-instance identities.
 - Functors may implement interfaces whose member types instantiate generic types at the interface's nested modules.
 - Applying a functor over an interface identifies generic types at the interface's nested types with their concrete instances.
+- A function call assigned to a variable is an ordinary assignment, so it may occur inside an open atomic update.
 
 ## [1.6.0] - 2026-10-29
 

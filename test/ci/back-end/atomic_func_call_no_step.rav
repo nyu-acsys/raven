@@ -1,0 +1,22 @@
+// Calls to funcs are pure and take no step inside an open atomic update.
+interface Conv {
+  func conv(x: Int) returns (y: Int)
+    ensures y >= x
+}
+
+module Counter[C: Conv] {
+  field value: Int
+
+  proc read(c: Ref, implicit ghost v: Int)
+    returns (r: Int)
+    atomic requires own(c.value, v)
+    atomic ensures own(c.value, v) && r >= v
+  {
+    ghost val phi := bindAU;
+    ghost var v0 : Int := openAU(phi);
+    var x : Int := c.value;
+    r := C.conv(x);
+    var y : Int := C.conv(r);
+    commitAU(phi, r);
+  }
+}

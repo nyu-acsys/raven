@@ -46,6 +46,7 @@ its declaration, for hovers and going to definitions in an editor.
   25:15 Seq -> Library.Seq (module, base_types.rav:384): module Seq
   25:34 n -> n (variable, lsp_references.rav:25): n: Int
   26:2 n -> n (variable, lsp_references.rav:25): n: Int
+  26:7 M -> M (module, lsp_references.rav:1): module M
   26:9 double -> M.double (function, lsp_references.rav:4): func double(x: Int) returns (y: Int)
   27:6 t -> t (variable, lsp_references.rav:27): t: Set[Int]
   30:7 F -> F (module, lsp_references.rav:30): module F
