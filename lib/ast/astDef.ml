@@ -2269,7 +2269,9 @@ module Stmt = struct
             (use_kind_to_string use_desc.use_kind)
             QualIdent.pr use_desc.use_name Expr.pr_list use_desc.use_args pr_witnesses
             use_desc.use_witnesses_or_binds
-      | Return e -> fprintf ppf "@[<2>return@ %a@]" Expr.pr e
+      (* No break after [return]: the lexer takes a [return] ending a line to have no
+         values. *)
+      | Return e -> fprintf ppf "@[<2>return %a@]" Expr.pr e
       | Call cstm -> (
           match cstm.call_lhs with
           | [] ->

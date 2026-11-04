@@ -22,6 +22,7 @@ All notable changes to this project will be documented in this file.
 - A function call assigned to a variable is an ordinary assignment, so it may occur inside an open atomic update.
 - Functors implementing an interface accept its signatures with generic types over its nested modules when it also instantiates them.
 - Types of a functor parameter's nested modules expand to their definitions in the functor's instances.
+- Printed programs keep a `return`'s values on its line, so that they parse.
 
 ## [1.6.0] - 2026-10-29
 
