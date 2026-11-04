@@ -384,6 +384,30 @@ let field_constraints_equal left right =
       QualIdent.equal left right
   | None, Some _ | Some _, None -> Rewriter.return false
 
+(** Whether [left] and [right] are the same type: after expansion, or else as the
+    applications that generated instances stand for, as instances wrapping equal types in
+    different adapters are different modules. *)
+let same_type left right =
+  let open Rewriter.Syntax in
+  let* left = TypeExpr.expand_type_expr left
+  and* right = TypeExpr.expand_type_expr right in
+  if Type.equal left right then Rewriter.return true
+  else
+    let* table = Rewriter.get_table in
+    let identity qi = SymbolTbl.identity ~preserve_abstract_owners:true qi table in
+    (* Module aliases are resolved; type definitions are not, as a named module's type
+       differs from the type it is defined as. *)
+    let rec resolve_aliases (Type.App (head, args, attr)) =
+      let head = match head with Type.Var qi -> Type.Var (identity qi) | head -> head in
+      Type.App (head, List.map args ~f:resolve_aliases, attr)
+    in
+    let virtual_type typ =
+      let+ typ = CallResolution.virtual_applications typ in
+      resolve_aliases typ
+    in
+    let+ left = virtual_type left and+ right = virtual_type right in
+    Type.equal left right
+
 (** A callable [call_def] implementing [orig_call_def]: the same signature and, unless
     inherited, the same contract. *)
 let check_implements_callable (call_def : Callable.t) (orig_call_def : Callable.t)
@@ -394,13 +418,14 @@ let check_implements_callable (call_def : Callable.t) (orig_call_def : Callable.
   let make_subst decls odecls sm =
     Rewriter.List.fold2 decls odecls ~init:sm
       ~f:(fun sm (var_decl : var_decl) (ovar_decl : var_decl) ->
-        let+ ovar_decl_var_type = TypeExpr.expand_type_expr ovar_decl.var_type
-        and+ var_decl_var_type = TypeExpr.expand_type_expr var_decl.var_type in
+        let* types_equal = same_type var_decl.var_type ovar_decl.var_type in
+        Rewriter.return
+        @@
         if
           Bool.(var_decl.var_const <> ovar_decl.var_const)
           || Bool.(var_decl.var_implicit <> ovar_decl.var_implicit)
           || Bool.(var_decl.var_ghost <> ovar_decl.var_ghost)
-          || Type.(var_decl_var_type <> ovar_decl_var_type)
+          || not types_equal
         then
           formal_parameter_mismatch_error loc var_decl.var_name (Symbol.kind symbol) ident
             ovar_decl.var_name ident interface_ident
