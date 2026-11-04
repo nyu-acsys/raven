@@ -1551,6 +1551,50 @@ let inherited_canonical_application table ~functor_qual_ident arg_module_qis =
             ~f:(matching_member scope requalify)
       | _ -> None)
 
+(** The canonical module wrapping the type that the type adapter [qi], a member of another
+    module, stands for; [qi] itself if it is no adapter or its type is unknown. *)
+let canonical_adapter ~(loc : location) (qi : qual_ident) : qual_ident t =
+  let open Rewriter.Syntax in
+  if
+    (not (QualIdent.is_qualified qi))
+    || not
+         (String.is_prefix
+            (Ident.name (QualIdent.unqualify qi))
+            ~prefix:tp_mod_ident_prefix)
+  then return qi
+  else
+    let* found = Rewriter.resolve_and_find_opt qi in
+    match found with
+    | None -> return qi
+    | Some found -> (
+        let* symbol = Rewriter.Symbol.reify (snd found) in
+        let adapter =
+          match symbol with
+          | AstDef.Module.ModDef
+              {
+                mod_decl =
+                  {
+                    mod_decl_returns = [ (interface_qual_ident, []) ];
+                    mod_decl_rep = Some rep;
+                    _;
+                  };
+                mod_def;
+              } ->
+              Base.List.find_map mod_def ~f:(function
+                | SymbolDef (TypeDef { type_def_name; type_def_expr = Some tp; _ })
+                  when Ident.equal type_def_name rep ->
+                    Some (interface_qual_ident, rep, tp)
+                | _ -> None)
+          | _ -> None
+        in
+        match adapter with
+        | None -> return qi
+        | Some (interface_qual_ident, rep_ident, tp) ->
+            let* tp = !Rewriter.expand_type_expr_ref tp in
+            let* insert_scope, reference_scope = find_insertion_scope_for_types [ tp ] in
+            get_or_intros_rep_module ~loc ~f:!Rewriter.check_symbol_ref ~insert_scope
+              ~reference_scope ~interface_qual_ident ~rep_ident tp)
+
 (** Get or create (and typecheck) the instantiation of [functor_qual_ident] at
     [arg_module_qis]. Generated instances are keyed by the functor and the argument
     modules, and placed beside the arguments, so that equal applications share one
@@ -1713,6 +1757,13 @@ and shared_body_instances ~(loc : location) ~(functor_qual_ident : qual_ident)
           || Base.List.exists substituted ~f:is_local
         then return (subst, shared)
         else
+          (* An adapter inherited from an argument, as one of an interface's members,
+             stands for the canonical one of its type. *)
+          let* substituted =
+            Rewriter.List.map2_exn args substituted ~f:(fun arg substituted ->
+                if QualIdent.equal arg substituted then return substituted
+                else canonical_adapter ~loc substituted)
+          in
           let+ inst =
             instantiate_functor_at_modules ~loc ~functor_qual_ident:substituted_head
               substituted

@@ -17,6 +17,8 @@ All notable changes to this project will be documented in this file.
 - Interface checks accept match contracts that differ only in bound names and reject different constructor cases.
 - Inherited members retain callable header dependencies without cycles through callable bodies.
 - Inherited interfaces preserve container types and dependent functor-instance identities.
+- Functors may implement interfaces whose member types instantiate generic types at the interface's nested modules.
+- Applying a functor over an interface identifies generic types at the interface's nested types with their concrete instances.
 
 ## [1.6.0] - 2026-10-29
 

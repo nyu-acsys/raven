@@ -125,6 +125,24 @@ let lookup ctx qi =
             path
       end
 
+(** Whether [typ] mentions a member of one of the module's defined instances, which are
+    checked only after the interfaces' members are matched. *)
+let mentions_unchecked_instance ctx typ =
+  let prefix = QualIdent.to_list ctx.mod_qual_ident in
+  Set.exists (Type.scope_symbols typ) ~f:(fun qi ->
+      let path = QualIdent.to_list qi in
+      let local =
+        if List.is_prefix path ~prefix ~equal:Ident.equal then
+          List.drop path (List.length prefix)
+        else path
+      in
+      match local with
+      | name :: _ :: _ -> (
+          match Map.find ctx.own_symbols name with
+          | Some (Module.ModInst { mod_inst_def = Some _; _ }) -> true
+          | _ -> false)
+      | _ -> false)
+
 let normalize ctx typ =
   let open Rewriter.Syntax in
   let+ normalized = CandidateTypes.normalize ~lookup:(lookup ctx) typ in
@@ -451,6 +469,11 @@ let match_instances ctx =
     ~f:(fun instances -> function
       | Module.SymbolDef (ModInst mi) ->
           let* application = inherited_application ctx instances mi in
+          let application =
+            Option.bind application ~f:(fun application ->
+                if mentions_unchecked_instance ctx application then None
+                else Some application)
+          in
           let* target =
             match application with
             | None -> inherited_module_instance ctx instances mi
