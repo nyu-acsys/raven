@@ -635,10 +635,10 @@ end
 
 (* A top-level handler, as the executable's: the errors that end a run are returned as
    diagnostics, never raised. *)
-let verify ?(options = default_options) ?(includes = []) ?on_progress
+let verify ?(options = default_options) ?(includes = []) ?cache_dir ?on_progress
     (program : Program.t) : result =
   let notify = on_progress in
-  let config = config_of options in
+  let config = { (config_of options) with cache_dir } in
   let diagnostics =
     Diagnostics.create ?max_errors:options.max_errors ~collect_warnings:true ()
   in

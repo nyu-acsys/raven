@@ -489,11 +489,13 @@ type result = { verified : bool; diagnostics : Diagnostic.t list }
 val verify :
   ?options:options ->
   ?includes:string list ->
+  ?cache_dir:string ->
   ?on_progress:(Progress.t -> unit) ->
   Program.t ->
   result
 (** Type-checks and verifies [program], together with Raven's library and the files
-    [includes], which are trusted as included files are. [on_progress] receives a [Typed]
-    snapshot after successful type checking, [Scheduled] once the remaining checks are
-    known, [Progress] after each procedure finishes, and [Final] with all recorded
+    [includes], which are trusted as included files are. [cache_dir] enables Raven's
+    persistent cache of successful verification fingerprints. [on_progress] receives a
+    [Typed] snapshot after successful type checking, [Scheduled] once the remaining checks
+    are known, [Progress] after each procedure finishes, and [Final] with all recorded
     outcomes and final diagnostics, including after an aborted run. *)
