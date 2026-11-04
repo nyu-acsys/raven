@@ -152,6 +152,19 @@ and expand_type_expr_visiting ~recursive (visiting : QualIdentSet.t) (tp_expr : 
           let* qual_ident_def =
             Rewriter.Symbol.reify_type_def (Type.to_loc tp_expr) symbol
           in
+          (* Found through an abstract view, as an instance's parameter typed by an
+             interface, a type may be defined by the module it resolves to. *)
+          let* qual_ident_def =
+            match qual_ident_def with
+            | None when not (QualIdent.equal qual_ident qual_iden) ->
+                let* found = Rewriter.resolve_and_find_opt qual_ident in
+                begin match found with
+                | Some (resolved, symbol) when QualIdent.equal resolved qual_ident ->
+                    Rewriter.Symbol.reify_type_def (Type.to_loc tp_expr) symbol
+                | Some _ | None -> Rewriter.return None
+                end
+            | _ -> Rewriter.return qual_ident_def
+          in
           match qual_ident_def with
           | None ->
               Rewriter.return

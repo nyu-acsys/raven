@@ -21,6 +21,7 @@ All notable changes to this project will be documented in this file.
 - Applying a functor over an interface identifies generic types at the interface's nested types with their concrete instances.
 - A function call assigned to a variable is an ordinary assignment, so it may occur inside an open atomic update.
 - Functors implementing an interface accept its signatures with generic types over its nested modules when it also instantiates them.
+- Types of a functor parameter's nested modules expand to their definitions in the functor's instances.
 
 ## [1.6.0] - 2026-10-29
 
