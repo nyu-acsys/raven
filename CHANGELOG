@@ -51,6 +51,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Each procedure is checked in a reset solver, unaffected by earlier checks; `--shared-solver` keeps one solver state.
 - Set and sequence literals are written without pipes, as `{1, 2}` and `[1, 2]`; pipes are deprecated.
 - `Library.UnitRA` is renamed to `Library.Unit`.
 - Hide the library modules that only the verifier uses (`AtomicTokenRA`, `Prophecy`, `ErrorCreds`).

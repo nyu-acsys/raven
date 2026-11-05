@@ -242,6 +242,7 @@ let config : Driver.config =
     prog_stats = false;
     smt_timeout = 10000;
     smt_diagnostics = false;
+    shared_solver = false;
     max_errors = None;
     log_level = None;
     strict = false;

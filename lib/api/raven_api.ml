@@ -581,6 +581,7 @@ let config_of (options : options) : Driver.config =
     prog_stats = false;
     smt_timeout = options.smt_timeout;
     smt_diagnostics = false;
+    shared_solver = false;
     max_errors = options.max_errors;
     log_level = None;
     strict = false;

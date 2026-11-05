@@ -79,6 +79,7 @@ let check_emission program =
       prog_stats = false;
       smt_timeout = R.default_options.smt_timeout;
       smt_diagnostics = false;
+      shared_solver = false;
       max_errors = None;
       log_level = None;
       strict = false;

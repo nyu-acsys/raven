@@ -256,8 +256,14 @@ module SmtSession = struct
     | Error (Io_error exn) ->
         Error.internal_error Loc.dummy ("Failed to read Z3 output: " ^ Exn.to_string exn)
 
-  (** Replaces the solver by a new process with the same scopes and commands, which the
-      log already has. *)
+  (** Sends the session's scopes and commands to its solver again, which the log already
+      has. *)
+  let replay session =
+    List.iteri (List.rev session.trail) ~f:(fun depth level ->
+        if depth > 0 then write_text ~log:false session (command_to_string (mk_push 1));
+        List.iter (List.rev level) ~f:(write_text ~log:false session))
+
+  (** Replaces the solver by a new process with the same scopes and commands. *)
   let restart session =
     let state = session.solver_state in
     let fresh =
@@ -269,9 +275,17 @@ module SmtSession = struct
     write_text session
       (SmtLibAst.comment_to_string
          "Z3 did not respond in time: a new process replays the commands above");
-    List.iteri (List.rev session.trail) ~f:(fun depth level ->
-        if depth > 0 then write_text ~log:false session (command_to_string (mk_push 1));
-        List.iter (List.rev level) ~f:(write_text ~log:false session))
+    replay session
+
+  (** Resets the solver and replays the session's scopes and commands, so that what the
+      checks before left in the solver's search state does not affect the checks after. *)
+  let renew session =
+    if not session.solver_state.closed then begin
+      write_text session
+        (SmtLibAst.comment_to_string "A reset solver replays the commands above");
+      write_text ~log:false session "(reset)\n";
+      replay session
+    end
 
   (** Gives up on a solver that did not respond in time: its late answer would put the
       session out of step. A solver Raven started is replaced, so that checking goes on;

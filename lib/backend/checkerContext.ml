@@ -17,6 +17,9 @@ type fingerprinting = {
 
 type context = {
   session : SmtSolver.session;
+  renew_solver : bool;
+      (** Whether each procedure is checked in a reset solver, unaffected by the checks
+          before. *)
   path_conditions : expr list;
   auto_dependencies : Dependencies.Graph.t;
   diagnostics : Diagnostics.t;  (** The run's, for the verification errors. *)
@@ -49,10 +52,11 @@ type context = {
 
 type 'a t = context -> context * 'a
 
-let create ?focus ?(counterexamples = false) ?fingerprinting ?cache ?on_scheduled
-    ?on_progress ~diagnostics session =
+let create ?focus ?(counterexamples = false) ?(renew_solver = true) ?fingerprinting ?cache
+    ?on_scheduled ?on_progress ~diagnostics session =
   {
     session;
+    renew_solver;
     path_conditions = [];
     auto_dependencies = Dependencies.Graph.empty;
     diagnostics;
@@ -72,6 +76,12 @@ let create ?focus ?(counterexamples = false) ?fingerprinting ?cache ?on_schedule
     arms = [];
     next_branch = 0;
   }
+
+(** Resets the solver for the next procedure, if each is checked in a reset solver. *)
+let renew_solver : unit t =
+ fun context ->
+  if context.renew_solver then Session.renew context.session;
+  (context, ())
 
 (** Forgets the conditionals of the procedure checked before. *)
 let start_procedure : unit t =

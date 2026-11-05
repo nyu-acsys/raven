@@ -71,6 +71,12 @@ let smt_diagnostics =
   let doc = "Let Z3 produce diagostic output." in
   Arg.(value & flag & info [ "smt-info" ] ~doc)
 
+let shared_solver =
+  let doc =
+    "Check all procedures in one solver state, rather than each in a reset solver."
+  in
+  Arg.(value & flag & info [ "shared-solver" ] ~doc)
+
 let typecheck_only =
   let doc = "Only type-check input program but do not verify it." in
   Arg.(value & flag & info [ "typeonly" ] ~doc)
@@ -320,9 +326,9 @@ let serve_library_sources ~lib_sources ~dump_library ~print_library_source =
   Option.is_some dumped || Option.is_some printed
 
 let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annotations
-    base_dir prog_stats smt_timeout smt_diagnostics max_errors only counterexamples
-    fingerprints cache_dir extension_mode_arg strict dump_library print_library_source
-    manifest server =
+    base_dir prog_stats smt_timeout smt_diagnostics shared_solver max_errors only
+    counterexamples fingerprints cache_dir extension_mode_arg strict dump_library
+    print_library_source manifest server =
   (* A server is started by [--server] alone, before the arguments are parsed. *)
   if server then `Error (true, "--server takes no other arguments")
   else if manifest then begin
@@ -343,6 +349,7 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annot
         base_dir;
         smt_timeout;
         smt_diagnostics;
+        shared_solver;
         max_errors;
         log_level = Logs.level ();
         strict;
@@ -454,9 +461,9 @@ let main_cmd =
       ret
         (const main $ setup_config $ input_file $ no_greeting $ no_library
        $ typecheck_only $ lsp_mode $ lsp_annotations $ base_dir $ prog_stats $ smt_timeout
-       $ smt_diagnostics $ max_errors $ only $ counterexamples $ fingerprints $ cache_dir
-       $ extension_mode $ strict $ dump_library $ print_library_source $ manifest $ server
-        ))
+       $ smt_diagnostics $ shared_solver $ max_errors $ only $ counterexamples
+       $ fingerprints $ cache_dir $ extension_mode $ strict $ dump_library
+       $ print_library_source $ manifest $ server))
 
 (** Writes all of [text] to [fd]. *)
 let write_all fd text =
