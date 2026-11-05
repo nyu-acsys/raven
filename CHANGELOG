@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Keep SMT declaration order stable when unused imports change.
 - Stabilize verification of finite-set size under element removal.
 - Avoid exponential memory use when freezing namespace contracts with shared module dependencies.
 - Preserve explicit expression type annotations when requalifying and printing programs.

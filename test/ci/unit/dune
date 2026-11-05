@@ -202,3 +202,8 @@
  (name return_printing)
  (modules return_printing)
  (libraries raven base))
+
+(test
+ (name dependency_pruning)
+ (modules dependency_pruning)
+ (libraries raven base))
