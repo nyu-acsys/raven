@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- The OCaml API accepts termination measures for logical functions.
+
 ### Fixed
 
 - Stabilize verification of finite-set size under element removal.

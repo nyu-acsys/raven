@@ -455,3 +455,49 @@ let () =
   let narrow = render 40 and wide = render 200 in
   assert (not (String.equal narrow wide));
   assert (String.equal (print (parse narrow)) (print (parse wide)))
+
+let () =
+  let loc = R.Loc.none in
+  let id name = R.Ident.make ~loc name in
+  let name text = R.Name.make ~loc text in
+  let var text = R.Expr.var ~loc (name text) in
+  let program decreasing =
+    let list = R.Type.named ~loc (name "List") [] in
+    let data =
+      R.Type.data ~loc
+        [
+          R.Type.variant ~loc (id "nil") [];
+          R.Type.variant ~loc (id "cons")
+            [ (id "head", R.Type.int ~loc); (id "tail", list) ];
+        ]
+    in
+    let recurse =
+      R.Expr.call ~loc (name "visit") [ var (if decreasing then "tail" else "values") ]
+    in
+    let body =
+      R.Expr.match_ ~loc (var "values")
+        [
+          (R.Expr.Case (id "nil", []), R.Expr.int ~loc 0);
+          (R.Expr.Case (id "cons", [ id "head"; id "tail" ]), recurse);
+        ]
+    in
+    let visit =
+      R.Callable.func ~loc
+        ~formals:[ R.Var.make ~loc (id "values") list ]
+        ~returns:[ R.Var.make ~loc (id "result") (R.Type.int ~loc) ]
+        ~decreases:[ var "values" ]
+        (id "visit") (Some body)
+    in
+    R.Program.make ~loc
+      [ R.Member.type_ ~loc (id "List") (Some data); R.Member.callable visit ]
+  in
+  let terminating = program true in
+  assert (R.verify terminating).verified;
+  assert (verifies (roundtrip terminating));
+  let nonterminating = program false in
+  let result = R.verify nonterminating in
+  assert (not result.verified);
+  assert (
+    List.exists result.diagnostics ~f:(fun diagnostic ->
+        Poly.equal diagnostic.R.Diagnostic.kind Verification));
+  assert (not (verifies (roundtrip nonterminating)))

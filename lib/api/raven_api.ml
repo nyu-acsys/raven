@@ -232,6 +232,13 @@ module Callable = struct
       opens_loc = loc;
     }
 
+  let decreases_clause = function
+    | [] -> []
+    | measures ->
+        [
+          Ext.DecreasesExtInstance.Decreases (List.map measures ~f:(fun e -> Spec.make e));
+        ]
+
   let proc ~loc ?(kind = Proc) ?(atomic = false) ?(auto = false) ?formals ?returns
       ?(requires = []) ?(ensures = []) ?opens ?(decreases = []) name body =
     let kind : S.Callable.proc_kind =
@@ -247,22 +254,14 @@ module Callable = struct
       S.Callable.decl ~loc ~kind:Func ?formals ?returns ~precond:requires
         ~postcond:ensures
         ?opens:(Option.map opens ~f:opens_clause)
-        ~contract_ext:
-          (match decreases with
-          | [] -> []
-          | measures ->
-              [
-                Ext.DecreasesExtInstance.Decreases
-                  (List.map measures ~f:(fun e -> Spec.make e));
-              ])
-        name
+        ~contract_ext:(decreases_clause decreases) name
     in
     S.Callable.proc ~atomic kind decl (Option.map body ~f:(S.Stmt.block_stmt ~loc))
 
   type func_kind = Func | Pred | Inv
 
   let func ~loc ?(kind = Func) ?(inline = false) ?formals ?returns ?(requires = [])
-      ?(ensures = []) name body =
+      ?(ensures = []) ?(decreases = []) name body =
     let kind : Ast.Callable.call_kind =
       match kind with
       | Func -> Func
@@ -274,7 +273,7 @@ module Callable = struct
     in
     let decl =
       S.Callable.decl ~loc ~kind ~is_inline:inline ?formals ?returns ~precond:requires
-        ~postcond:ensures name
+        ~postcond:ensures ~contract_ext:(decreases_clause decreases) name
     in
     S.Callable.func decl body
 

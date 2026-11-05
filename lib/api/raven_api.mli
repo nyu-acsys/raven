@@ -276,11 +276,13 @@ module Callable : sig
     ?returns:Var.t list ->
     ?requires:Spec.t list ->
     ?ensures:Spec.t list ->
+    ?decreases:Expr.t list ->
     Ident.t ->
     Expr.t option ->
     t
   (** The function, predicate or invariant [name] and its body; [inline] has its uses
-      replaced by its body. *)
+      replaced by its body; [decreases] is the measure that its recursive calls decrease.
+  *)
 
   type resource_kind = Predicate | Invariant
 
