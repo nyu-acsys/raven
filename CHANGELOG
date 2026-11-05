@@ -10,6 +10,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Report the original type error when a functor instance refers to an invalid datatype.
+- Preserve match bindings when expanding inline predicates.
 - Keep SMT declaration order stable when unused imports change.
 - Stabilize verification of finite-set size under element removal.
 - Avoid exponential memory use when freezing namespace contracts with shared module dependencies.

@@ -2518,8 +2518,10 @@ let resolve_and_find_opt ?(read_only = false) name :
   let* tbl = get_table in
 
   match SymbolTbl.resolve_and_find ~read_only name tbl with
-  | Some (_, qual_ident, _, _) when SymbolTbl.is_poisoned qual_ident tbl ->
-      (* A use of a member that failed to type-check, whose error is already reported. *)
+  | Some (alias_qual_ident, qual_ident, _, _)
+    when SymbolTbl.is_poisoned qual_ident tbl
+         || SymbolTbl.is_poisoned alias_qual_ident tbl ->
+      (* Neither an instance nor an alias can expose a member that failed to check. *)
       Error.fail_with []
   | Some (alias_qual_ident, qual_ident, symbol, subst) ->
       let* () =

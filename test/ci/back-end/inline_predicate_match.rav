@@ -1,0 +1,29 @@
+type Node = data { case nil; case next(node_value: Int, node_next: Ref) }
+type Edge = data { case edge(edge_first: Ref, edge_value: Int, edge_next: Ref) }
+
+inline pred entry(watched: Ref, linked: Bool, edges: FinSet[Edge])
+{
+  exists observed: Node ::
+    linked ? (match observed {
+      case nil => false
+      case next(value, next) => edge(watched, value, next) in edges
+    }) : observed == nil
+}
+
+proc consume_entry(watched: Ref, edges: FinSet[Edge])
+  requires entry(watched, true, edges)
+{
+}
+
+inline pred matches(node: Node, expected: Int)
+{
+  match node {
+    case nil => false
+    case next(value, _) => value == expected
+  }
+}
+
+proc caller_argument(value: Int)
+  ensures matches(next(value, null), value)
+{
+}

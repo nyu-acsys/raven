@@ -1,0 +1,16 @@
+interface Shape {
+  module Cell[A: Library.Type] {
+    rep type T = data {
+      case empty()
+      case present(value: Missing.T)
+    }
+  }
+}
+module Use[S: Shape] {
+  func is_empty(x: S.Cell[Int]) returns (r: Bool) {
+    match x {
+      case empty() => true
+      case present(value) => false
+    }
+  }
+}
