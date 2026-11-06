@@ -177,6 +177,8 @@ module DefaultExt = struct
   let rewrite_type_ext _ _ loc =
     Error.internal_error loc "unhandled type extension reached the rewrite phase"
 
+  let normalize_contract_expr_ext _ _ _ = Rewriter.return None
+
   let rewrite_expr_ext _ _ (expr_attr : Expr.expr_attr) =
     Error.internal_error expr_attr.expr_loc
       "unhandled expression extension reached the rewrite phase"

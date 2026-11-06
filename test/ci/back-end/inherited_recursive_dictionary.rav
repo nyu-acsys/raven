@@ -1,0 +1,119 @@
+interface Value {
+  rep type Carrier
+  func holds(value: Carrier) returns (result: Bool)
+}
+
+module ListValue[E: Value] : Value {
+  rep type Carrier = Library.List[E.Carrier]
+  func holds(values: Carrier) returns (result: Bool) {
+    match values {
+      case nil => true
+      case ::(head, tail) => E.holds(head) && holds(tail)
+    }
+  }
+}
+
+interface Shape {
+  module Data {
+    type T = data { case forest(number: Int, children: Library.List[T]) }
+  }
+  module ForestValue : Value {
+    rep type Carrier = Shape.Data.T
+    func holds(value: Carrier) returns (result: Bool) { Shape.valid(value) }
+  }
+  module Forests = ListValue[Shape.ForestValue]
+  func valid(value: Shape.Data.T) returns (result: Bool) {
+    match value {
+      case forest(number, children) => number >= 0 && Shape.Forests.holds(children)
+    }
+  }
+}
+
+module Fresh() : Shape {}
+module First = Fresh()
+module Second = Fresh()
+
+lemma first_root(value: First.Data.T)
+  requires First.valid(value)
+  ensures value.First.Data.number >= 0
+{}
+
+lemma second_root(value: Second.Data.T)
+  requires Second.valid(value)
+  ensures value.Second.Data.number >= 0
+{}
+
+interface HeaderShape {
+  module Data { type T = data { case item(value: Int) } }
+  func make(number: Int) returns (result: HeaderShape.Data.T) {
+    HeaderShape.Data.item(number)
+  }
+  module Reader {
+    func get(number: Int) returns (result: Bool) {
+      HeaderShape.make(number) == HeaderShape.make(number)
+    }
+  }
+}
+
+module HeaderFresh() : HeaderShape {}
+module HeaderInstance = HeaderFresh()
+lemma header_available()
+  ensures HeaderInstance.Reader.get(42)
+{}
+
+interface ListOperation {
+  rep type T
+  proc make() returns (result: Library.List[ListOperation.T])
+}
+
+module Forward[Parameter: ListOperation] {
+  proc make() returns (result: Library.List[Parameter.T]) {
+    result := Parameter.make();
+  }
+}
+
+module ScalarValue : Value {
+  rep type Carrier = Int
+  func holds(value: Carrier) returns (result: Bool) { value >= 0 }
+}
+module ScalarLists = ListValue[ScalarValue]
+free proc source_values() returns (result: Library.List[Int])
+  ensures ScalarLists.holds(result)
+interface NestedOperation {
+  module Element : Value
+  module Values = ListValue[NestedOperation.Element]
+  proc make() returns (result: Library.List[NestedOperation.Element.Carrier])
+    ensures NestedOperation.Values.holds(result)
+}
+module ConcreteOperation : NestedOperation {
+  module Element = ScalarValue
+  proc make() returns (result: Library.List[Int]) { result := source_values(); }
+}
+module NestedForward[Parameter: NestedOperation] {
+  module Values = ListValue[Parameter.Element]
+  proc make() returns (result: Library.List[Parameter.Element.Carrier])
+    ensures NestedForward.Values.holds(result)
+  {
+    result := Parameter.make();
+  }
+}
+module AppliedOperation = NestedForward[ConcreteOperation]
+proc concrete_client() returns (result: Library.List[Int])
+  ensures ScalarLists.holds(result)
+{
+  result := AppliedOperation.make();
+}
+
+interface OpaqueArgument {
+  module Element : Value
+  module Values = ListValue[OpaqueArgument.Element]
+}
+module OpaqueHolder : OpaqueArgument {
+  module Element :> Value = ScalarValue
+}
+proc opaque_client(values: Library.List[OpaqueHolder.Element.Carrier])
+  returns (result: OpaqueHolder.Values.Carrier)
+  ensures result == values
+{
+  result := values;
+}

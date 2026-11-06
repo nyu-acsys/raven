@@ -276,11 +276,13 @@ module Callable : sig
     ?returns:Var.t list ->
     ?requires:Spec.t list ->
     ?ensures:Spec.t list ->
+    ?decreases:Expr.t list ->
     Ident.t ->
     Expr.t option ->
     t
   (** The function, predicate or invariant [name] and its body; [inline] has its uses
-      replaced by its body. *)
+      replaced by its body; [decreases] is the measure that its recursive calls decrease.
+  *)
 
   type resource_kind = Predicate | Invariant
 
@@ -450,6 +452,22 @@ module Diagnostic : sig
   (** The same diagnostic as [pr], rendered to a string. *)
 end
 
+(** Snapshots reported while a program is checked. *)
+module Progress : sig
+  type phase = Typed | Scheduled | Progress | Final
+  type outcome = Cached | Verified | Pending | Timeout | Failed
+
+  type check = { name : string; kind : string; loc : Loc.t; outcome : outcome }
+  (** A backend procedure or named assertion, including generated proof obligations. Its
+      name and location identify it within the run. *)
+
+  type t = { phase : phase; checks : check list; diagnostics : Diagnostic.t list }
+  (** Pending checks followed by recorded outcomes. [Final] contains recorded outcomes;
+      callers retain checks left pending by the preceding snapshot if the run aborted. A
+      check may have several outcomes; its status is their worst, in the order [Cached],
+      [Verified], [Pending], [Timeout], [Failed]. *)
+end
+
 (** The checked embedded standard library. *)
 module Library : sig
   val standard_library : unit -> (Ast.Module.t, Diagnostic.t list) result
@@ -470,6 +488,16 @@ val default_options : options
 type result = { verified : bool; diagnostics : Diagnostic.t list }
 (** The result of verifying a program: whether it verified, and what Raven reported. *)
 
-val verify : ?options:options -> ?includes:string list -> Program.t -> result
+val verify :
+  ?options:options ->
+  ?includes:string list ->
+  ?cache_dir:string ->
+  ?on_progress:(Progress.t -> unit) ->
+  Program.t ->
+  result
 (** Type-checks and verifies [program], together with Raven's library and the files
-    [includes], which are trusted as included files are. *)
+    [includes], which are trusted as included files are. [cache_dir] enables Raven's
+    persistent cache of successful verification fingerprints. [on_progress] receives a
+    [Typed] snapshot after successful type checking, [Scheduled] once the remaining checks
+    are known, [Progress] after each procedure finishes, and [Final] with all recorded
+    outcomes and final diagnostics, including after an aborted run. *)

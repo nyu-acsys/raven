@@ -56,3 +56,22 @@ module BoxClient {
   module B = PlainBox[Int]
   lemma l() ensures B.get(B.mk(3)) == 3 { B.get_mk(3); }
 }
+
+interface ListHead {
+  proc head(xs: List[Int]) returns (r: Int)
+    ensures match xs { case nil => r == 0 case ::(x, tail) => r == x }
+}
+
+module InheritedListHead : ListHead {
+  proc head(values: List[Int]) returns (result: Int) {
+    result := match values { case nil => 0 case ::(item, rest) => item };
+  }
+}
+
+module ExplicitListHead : ListHead {
+  proc head(values: List[Int]) returns (result: Int)
+    ensures match values { case nil => result == 0 case ::(item, rest) => result == item }
+  {
+    result := match values { case nil => 0 case ::(item, rest) => item };
+  }
+}

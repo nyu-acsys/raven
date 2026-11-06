@@ -7,6 +7,11 @@ interface Resource {
 }
 
 module View : Resource {
+  lemma forward_alias(x: Int)
+    requires token(x)
+    ensures token(x)
+  { }
+
   pred token(x: Int) = Actual.token
 }
 
@@ -22,4 +27,28 @@ lemma roundtrip(x: Int)
 {
   unfold Applied.wrapped(x);
   fold Applied.wrapped(x);
+}
+
+module Generic[A: Library.Type] {
+  pred cell(x: Ref) returns (implicit ghost values: List[A]) {
+    values == List.nil
+  }
+
+  inv ready(x: Ref) { true }
+}
+
+module GenericView[A: Library.Type] {
+  module Instance : Generic = Generic[A]
+  pred cell(x: Ref) returns (implicit ghost values: List[A]) = Instance.cell
+  inv ready(x: Ref) = Instance.ready
+}
+
+module IntegerView = GenericView[Int]
+
+lemma generic_roundtrip(x: Ref, ghost values: List[Int])
+  requires IntegerView.cell(x, values)
+  ensures IntegerView.cell(x, values) && values == List.nil
+{
+  unfold IntegerView.cell(x, values);
+  fold IntegerView.cell(x, values);
 }

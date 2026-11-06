@@ -1,0 +1,46 @@
+interface Value {
+  rep type T
+}
+
+module LibraryStack[A: Value] {
+  free pred stack(x: Ref) returns (implicit ghost xs: List[A.T])
+
+  free proc pop(x: Ref, implicit ghost xs: List[A.T]) returns(r: Bool)
+    atomic requires stack(x, xs)
+    atomic ensures stack(x, List.nil)
+}
+
+module Native[A: Value] {
+ module N = LibraryStack[A]
+ pred stack(x: Ref) returns(implicit ghost xs: List[A.T]) { N.stack(x, List.nil) }
+ free proc pop(x: Ref, implicit ghost xs: List[A.T]) returns(r: Bool)
+ atomic requires stack(x,xs)
+ atomic ensures stack(x,List.nil)
+}
+
+interface API {
+  interface ResourceContract[A: Value] {
+    pred p(x: Ref) returns(implicit ghost xs: List[A.T])
+  }
+  module R: ResourceContract
+
+  interface OpContract[A: Value] {
+    module Resource = R[A]
+    proc pop(x: Ref, implicit ghost xs: List[A.T]) returns(r: Bool)
+      atomic requires Resource.p(x, xs)
+      atomic ensures Resource.p(x, List.nil)
+  }
+  module O: OpContract
+}
+
+module Actual: API {
+  module R[A: Value]: ResourceContract {
+    module N = Native[A]
+    pred p(x: Ref) returns(implicit ghost xs: List[A.T]) = N.stack
+  }
+  module O[A: Value]: OpContract {
+    free proc pop(x: Ref, implicit ghost xs: List[A.T]) returns(r: Bool)
+  }
+}
+module Client[X: API] {}
+module Applied = Client[Actual]

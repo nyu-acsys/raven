@@ -15,6 +15,9 @@ type config = {
   prog_stats : bool;
   smt_timeout : int;
   smt_diagnostics : bool;
+  shared_solver : bool;
+      (** Whether the procedures are checked in one solver state, rather than each in a
+          reset solver. *)
   max_errors : int option;  (** As given on the command line, if at all. *)
   log_level : Logs.level option;
   strict : bool;
@@ -653,7 +656,8 @@ let check_program ?on_typed ?on_scheduled ?on_progress ?library_snapshots ?cance
       let cache = Option.map config.cache_dir ~f:Backend.VerificationCache.load in
       let context =
         Backend.CheckerContext.create ?focus ~counterexamples:config.counterexamples
-          ?fingerprinting ?cache ?on_scheduled ?on_progress ~diagnostics solver_session
+          ~renew_solver:(not config.shared_solver) ?fingerprinting ?cache ?on_scheduled
+          ?on_progress ~diagnostics solver_session
       in
       let (_ : Backend.CheckerContext.context) = backend_check_cu tbl context processed in
       ()

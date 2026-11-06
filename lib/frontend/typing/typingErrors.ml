@@ -355,6 +355,14 @@ let type_argument_inference_error loc formal_ident functor_qual_ident =
          write an explicit instantiation, e.g. `module M_X = %{QualIdent#user}[...]`"
        formal_ident functor_qual_ident functor_qual_ident)
 
+let undetermined_parameter_error loc formal_ident functor_qual_ident =
+  Error.type_error loc
+    (Printf.sprintf
+       !"Cannot infer parameter %{Ident#user} of %{QualIdent#user}: its interface \
+         declares neither a rep type nor a single field, so no call determines it; write \
+         an explicit instantiation, e.g. `module M_X = %{QualIdent#user}[...]`"
+       formal_ident functor_qual_ident functor_qual_ident)
+
 let module_member_inference_error loc member interface_qi field_qi =
   Error.type_error loc
     (Printf.sprintf

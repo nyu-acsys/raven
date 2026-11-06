@@ -209,7 +209,7 @@ module QualIdent = struct
   include Comparable.Make (T)
 
   (* Substitution maps for module instantiation *)
-  type subst = (t * Ident.t list) list
+  type subst = (t * Ident.t list) list [@@deriving compare]
 
   let to_loc qid = Ident.to_loc qid.qual_base
   let to_list qid = qid.qual_path @ [ qid.qual_base ]
@@ -752,12 +752,13 @@ module Type = struct
         end
     | _ -> failwith "Expected Tuple type"
 
-  let symbols ?(acc = Set.empty (module QualIdent)) tp =
+  let symbols ?(atomic_procedures = false) ?(acc = Set.empty (module QualIdent)) tp =
     let rec symbols acc = function
       | App (c, ts, _) ->
           let acc =
             match c with
             | Var id -> Set.add acc id
+            | AtomicToken id when atomic_procedures -> Set.add acc id
             | Data (id, variant_decls) ->
                 let acc = Set.add acc id in
                 let var_args =
@@ -770,6 +771,33 @@ module Type = struct
           List.fold ~init:acc ~f:symbols ts
     in
     symbols acc tp
+
+  (** Rewrite names in types without consulting or changing the symbol table. *)
+  let rec map_qual_idents ~f (App (constr, arguments, attr)) =
+    let constr =
+      match constr with
+      | Var name -> Var (f name)
+      | AtomicToken name -> AtomicToken (f name)
+      | Data (name, variants) ->
+          let variants =
+            List.map variants ~f:(fun variant ->
+                {
+                  variant with
+                  variant_args =
+                    List.map variant.variant_args ~f:(fun declaration ->
+                        {
+                          declaration with
+                          var_type = map_qual_idents ~f declaration.var_type;
+                        });
+                })
+          in
+          Data (f name, variants)
+      | constr -> constr
+    in
+    App (constr, List.map arguments ~f:(map_qual_idents ~f), attr)
+
+  (** Scope dependencies include the procedure whose identity indexes an atomic token. *)
+  let scope_symbols ?acc tp = symbols ~atomic_procedures:true ?acc tp
 end
 
 type type_expr = Type.t [@@deriving compare]
@@ -903,9 +931,9 @@ module Expr = struct
     expr_ext ->
     t list ->
     unit
+
   (** Prints the application of the extension constructor [expr_ext] to [args], with [pr]
       for its subexpressions. *)
-
   let default_pr_expr_ext : pr_expr_ext =
    fun ~names:_ ~pr ppf expr_ext args ->
     Stdlib.Format.fprintf ppf "%s(%a)"
@@ -1118,8 +1146,6 @@ module Expr = struct
     and pr_verbose ppf e =
       let open Stdlib.Format in
       match e with
-      | App (And, [], a) -> pr ppf (App (Bool false, [], a))
-      | App (Or, [], a) -> pr ppf (App (Bool true, [], a))
       | App (c, [], _) ->
           fprintf ppf "(%a \027[35m :%a \027[0m)" pr_constr c Type.pr (to_type e)
       | App (DataConstr id, es, _) | App (Var id, (_ :: _ as es), _) ->
@@ -1157,10 +1183,14 @@ module Expr = struct
             (b, vs, trgs, e1, to_type e)
             Type.pr (to_type e)
     and pr_compact ppf e =
+      match to_type_annot e with
+      | Some typ ->
+          Stdlib.Format.fprintf ppf "(%a: %a)" pr_compact (set_type_annot e None) Type.pr
+            typ
+      | None -> pr_compact_unannotated ppf e
+    and pr_compact_unannotated ppf e =
       let open Stdlib.Format in
       match e with
-      | App (And, [], a) -> pr ppf (App (Bool false, [], a))
-      | App (Or, [], a) -> pr ppf (App (Bool true, [], a))
       | App (Enumeration opener, [], _) ->
           let opening, closing = enumeration_delimiters opener in
           fprintf ppf "%s%s" opening closing
@@ -1344,7 +1374,25 @@ module Expr = struct
 
   (** Constructors *)
 
-  let mk_app ?(loc = Loc.dummy) ~typ c es = App (c, es, mk_attr loc typ)
+  let mk_connective ~loc ~conjunction = function
+    | [] -> App (Bool conjunction, [], mk_attr loc Type.bool)
+    | first :: rest ->
+        let operator = if conjunction then And else Or in
+        let expression =
+          List.fold rest ~init:first ~f:(fun left right ->
+              App
+                ( operator,
+                  [ left; right ],
+                  mk_attr loc (Type.join (to_type left) (to_type right)) ))
+        in
+        overwrite_loc expression loc
+
+  let mk_app ?(loc = Loc.dummy) ~typ c es =
+    match (c, es) with
+    | (And | Or), [ _; _ ] -> App (c, es, mk_attr loc typ)
+    | And, _ -> mk_connective ~loc ~conjunction:true es
+    | Or, _ -> mk_connective ~loc ~conjunction:false es
+    | _ -> App (c, es, mk_attr loc typ)
 
   let mk_var ~typ (qual_ident : qual_ident) =
     mk_app ~loc:(QualIdent.to_loc qual_ident) ~typ (Var qual_ident) []
@@ -1377,43 +1425,10 @@ module Expr = struct
 
   let mk_unit loc = mk_tuple ~loc []
 
-  (** Constructor for conjunction.*)
-  let mk_and ?(loc = Loc.dummy) = function
-    | [] -> mk_bool ~loc true
-    | [ e ] -> overwrite_loc e loc
-    | es ->
-        let t =
-          List.fold_left es ~init:(Type.mk_bool loc) ~f:(fun t e ->
-              Type.join t (to_type e))
-        in
-        App (And, es, mk_attr loc t)
+  (** Constructors keep conjunctions and disjunctions binary. *)
+  let mk_and ?(loc = Loc.dummy) es = mk_connective ~loc ~conjunction:true es
 
-  (* `mk_chained_and` is used in contexts where the generated expression is typechecked again.
-   * This is because the typechecker only expects `&&` to be used as a binary operator,
-   * for syntax reasons. Whereas, internally we allow `&&` as a k-ary operator,
-   * since SMTLIB supports it.
-   *)
-  let mk_chained_and ?(loc = Loc.dummy) = function
-    | [] -> mk_bool ~loc true
-    | [ e ] -> overwrite_loc e loc
-    | es ->
-        let t =
-          List.fold_left es ~init:(Type.mk_bool loc) ~f:(fun t e ->
-              Type.join t (to_type e))
-        in
-        List.fold es ~init:(mk_bool true) ~f:(fun acc e ->
-            App (And, [ acc; e ], mk_attr loc t))
-
-  (** Constructor for disjunction.*)
-  let mk_or ?(loc = Loc.dummy) = function
-    | [] -> mk_bool ~loc false
-    | [ e ] -> overwrite_loc e loc
-    | es ->
-        let t =
-          List.fold_left es ~init:(Type.mk_bool loc) ~f:(fun t e ->
-              Type.join t (to_type e))
-        in
-        App (Or, es, mk_attr loc t)
+  let mk_or ?(loc = Loc.dummy) es = mk_connective ~loc ~conjunction:false es
 
   let mk_not ?(loc = Loc.dummy) e =
     (* let t = to_type e in *)
@@ -1443,10 +1458,11 @@ module Expr = struct
         with
         | [] -> App (Bool true, [], a)
         | [ e ] -> e
-        | es -> App (And, es, a))
+        | es -> mk_and ~loc:a.expr_loc es)
     | App (Or, es, a) ->
         let es = List.map es ~f:drop_trivially_true in
-        if List.exists es ~f:is_true then App (Bool true, [], a) else App (Or, es, a)
+        if List.exists es ~f:is_true then App (Bool true, [], a)
+        else mk_or ~loc:a.expr_loc es
     | Binder ((Forall | Exists), _, _, body, a) when is_true (drop_trivially_true body) ->
         App (Bool true, [], a)
     | _ -> e
@@ -1515,6 +1531,48 @@ module Expr = struct
           Binder (b, vars, trgs, sub e, expr_attr)
     in
     sub e
+
+  (** Rewrite names in both expressions and their type annotations. *)
+  let rec map_qual_idents ~f = function
+    | App (constr, arguments, attr) ->
+        let constr =
+          match constr with
+          | Var name -> Var (f name)
+          | DataConstr name -> DataConstr (f name)
+          | DataDestr name -> DataDestr (f name)
+          | DataTest name -> DataTest (f name)
+          | AUPred name -> AUPred (f name)
+          | AUPredCommit name -> AUPredCommit (f name)
+          | constr -> constr
+        in
+        App
+          ( constr,
+            List.map arguments ~f:(map_qual_idents ~f),
+            {
+              attr with
+              expr_type = Type.map_qual_idents ~f attr.expr_type;
+              expr_type_annot =
+                Option.map attr.expr_type_annot ~f:(Type.map_qual_idents ~f);
+            } )
+    | Binder (kind, variables, triggers, body, attr) ->
+        let variables =
+          List.map variables ~f:(fun variable ->
+              {
+                variable with
+                Type.var_type = Type.map_qual_idents ~f variable.Type.var_type;
+              })
+        in
+        Binder
+          ( kind,
+            variables,
+            List.map triggers ~f:(List.map ~f:(map_qual_idents ~f)),
+            map_qual_idents ~f body,
+            {
+              attr with
+              expr_type = Type.map_qual_idents ~f attr.expr_type;
+              expr_type_annot =
+                Option.map attr.expr_type_annot ~f:(Type.map_qual_idents ~f);
+            } )
 
   (** Substitutes all identifiers in expression [e] with other identifiers according to
       substitution map [subst_map]. ** This operation is not capture avoiding. *)
@@ -2127,7 +2185,8 @@ module Stmt = struct
       let pr_type ppf tp =
         if not (Type.is_any tp) then fprintf ppf "@ :@ %a" Type.pr tp
       in
-      fprintf ppf "%s%s @[<2>%a%a%a@]"
+      fprintf ppf "%s%s%s @[<2>%a%a%a@]"
+        (if is_free vdef.var_is_free then "free " else "")
         (if Type.is_ghost_var vdef.var_decl then "ghost " else "")
         (if Type.is_const_var vdef.var_decl then "val" else "var")
         Ident.pr vdef.var_decl.var_name pr_type
@@ -2210,7 +2269,9 @@ module Stmt = struct
             (use_kind_to_string use_desc.use_kind)
             QualIdent.pr use_desc.use_name Expr.pr_list use_desc.use_args pr_witnesses
             use_desc.use_witnesses_or_binds
-      | Return e -> fprintf ppf "@[<2>return@ %a@]" Expr.pr e
+      (* No break after [return]: the lexer takes a [return] ending a line to have no
+         values. *)
+      | Return e -> fprintf ppf "@[<2>return %a@]" Expr.pr e
       | Call cstm -> (
           match cstm.call_lhs with
           | [] ->
@@ -2959,6 +3020,7 @@ module Callable = struct
   type mask = MaskSet.t
   (** Canonical unions of mask entries under known prefix subsumption. *)
 
+  let compare_mask = List.compare compare_mask_entry
   let mask_canon = MaskSet.canon
   let mask_equal = MaskSet.equal
   let mask_union = MaskSet.union
@@ -3412,24 +3474,27 @@ end
 (** Frozen namespace contracts *)
 
 module NamespaceContract = struct
-  type namespace_definition = Abstract | Defined of Callable.mask
+  type namespace_definition = Abstract | Defined of Callable.mask [@@deriving compare]
 
   type namespace_decl = {
     name : QualIdent.t;
     formals : Type.var_decl list;
     definition : namespace_definition;
   }
+  [@@deriving compare]
 
   type separation_requirement = {
     left : Callable.mask;
     right : Callable.mask;
     loc : Loc.t;
   }
+  [@@deriving compare]
 
   type guarded_grant = {
     grants : Callable.mask;
     conditions : separation_requirement list;
   }
+  [@@deriving compare]
 
   type callable_summary = {
     kind : Callable.call_kind;
@@ -3440,8 +3505,21 @@ module NamespaceContract = struct
     guarded_grants : guarded_grant list;
     separation : separation_requirement list;
   }
+  [@@deriving compare]
 
-  type t = Module of module_summary | Functor of functor_summary
+  type requalification =
+    | Substitute of QualIdent.subst
+    | Except_below of QualIdent.t list * QualIdent.subst
+  [@@deriving compare]
+
+  type t =
+    | Module of module_summary
+    | Functor of functor_summary
+    | Requalified of {
+        transformations : requalification list;
+        is_instance : bool;
+        original : t;
+      }
 
   and module_summary = {
     namespaces : namespace_decl list;
@@ -3455,6 +3533,7 @@ module NamespaceContract = struct
     separation : separation_requirement list;
     result : t;
   }
+  [@@deriving compare]
 
   let empty = Module { namespaces = []; separation = []; callables = []; modules = [] }
 
@@ -3524,44 +3603,7 @@ module NamespaceContract = struct
       separation;
     }
 
-  let rec traverse_state ~name ~expr ~typ =
-    let open State.Syntax in
-    function
-    | Module summary ->
-        let* namespaces =
-          State.List.map summary.namespaces ~f:(map_state_namespace_decl ~name ~expr ~typ)
-        in
-        let* separation =
-          State.List.map summary.separation ~f:(map_state_separation ~name ~expr)
-        in
-        let* callables =
-          State.List.map summary.callables ~f:(fun (id, summary) ->
-              let+ summary = map_state_callable_summary ~name ~expr ~typ summary in
-              (id, summary))
-        in
-        let+ modules =
-          State.List.map summary.modules ~f:(fun (id, summary) ->
-              let+ summary = traverse_state ~name ~expr ~typ summary in
-              (id, summary))
-        in
-        Module { namespaces; separation; callables; modules }
-    | Functor summary ->
-        let* parameters =
-          State.List.map summary.parameters ~f:(fun (id, summary) ->
-              let+ summary = traverse_state ~name ~expr ~typ summary in
-              (id, summary))
-        in
-        let* separation =
-          State.List.map summary.separation ~f:(map_state_separation ~name ~expr)
-        in
-        let+ result = traverse_state ~name ~expr ~typ summary.result in
-        Functor { parameters; separation; result }
-
-  let map_state = traverse_state
   let lift f value state = (state, f value)
-
-  let map_mask ~name ~expr mask =
-    snd (map_state_mask ~name:(lift name) ~expr:(lift expr) mask ())
 
   let map_namespace_decl ~name ~expr ~typ declaration =
     snd
@@ -3575,6 +3617,109 @@ module NamespaceContract = struct
     snd
       (map_state_callable_summary ~name:(lift name) ~expr:(lift expr) ~typ:(lift typ)
          summary ())
+
+  let requalify transformations name =
+    List.fold transformations ~init:name ~f:(fun name -> function
+      | Substitute substitution -> QualIdent.requalify substitution name
+      | Except_below (roots, substitution) ->
+          if
+            List.exists roots ~f:(fun root ->
+                List.is_prefix (QualIdent.to_list name) ~prefix:(QualIdent.to_list root)
+                  ~equal:Ident.equal)
+          then name
+          else QualIdent.requalify substitution name)
+
+  let reference original =
+    Requalified { original; transformations = []; is_instance = true }
+
+  let rec is_instance = function
+    | Requalified { is_instance = true; _ } -> true
+    | Requalified { original; _ } -> is_instance original
+    | Module _ | Functor _ -> false
+
+  (** Materialize one layer; instance edges retain shared, original contracts. *)
+  let rec view = function
+    | Requalified { original; transformations = []; _ } -> view original
+    | Requalified { original; transformations; _ } ->
+        let name = requalify transformations in
+        let typ = Type.map_qual_idents ~f:name in
+        let expr = Expr.map_qual_idents ~f:name in
+        let deferred original =
+          Requalified { original; transformations; is_instance = false }
+        in
+        begin match view original with
+        | Module summary ->
+            Module
+              {
+                namespaces =
+                  List.map summary.namespaces ~f:(map_namespace_decl ~name ~expr ~typ);
+                separation = List.map summary.separation ~f:(map_separation ~name ~expr);
+                callables =
+                  List.map summary.callables ~f:(fun (id, summary) ->
+                      (id, map_callable_summary ~name ~expr ~typ summary));
+                modules =
+                  List.map summary.modules ~f:(fun (id, summary) ->
+                      (id, deferred summary));
+              }
+        | Functor summary ->
+            Functor
+              {
+                parameters =
+                  List.map summary.parameters ~f:(fun (id, summary) ->
+                      (id, deferred summary));
+                separation = List.map summary.separation ~f:(map_separation ~name ~expr);
+                result = deferred summary.result;
+              }
+        | Requalified _ -> assert false
+        end
+    | (Module _ | Functor _) as contract -> contract
+
+  let requalify_contract transformations original =
+    if List.is_empty transformations then original
+    else view (Requalified { original; transformations; is_instance = false })
+
+  let rec traverse_state ~name ~expr ~typ contract =
+    let open State.Syntax in
+    let+ rewritten =
+      match view contract with
+      | Module summary ->
+          let* namespaces =
+            State.List.map summary.namespaces
+              ~f:(map_state_namespace_decl ~name ~expr ~typ)
+          in
+          let* separation =
+            State.List.map summary.separation ~f:(map_state_separation ~name ~expr)
+          in
+          let* callables =
+            State.List.map summary.callables ~f:(fun (id, summary) ->
+                let+ summary = map_state_callable_summary ~name ~expr ~typ summary in
+                (id, summary))
+          in
+          let+ modules =
+            State.List.map summary.modules ~f:(fun (id, summary) ->
+                let+ summary = traverse_state ~name ~expr ~typ summary in
+                (id, summary))
+          in
+          Module { namespaces; separation; callables; modules }
+      | Functor summary ->
+          let* parameters =
+            State.List.map summary.parameters ~f:(fun (id, summary) ->
+                let+ summary = traverse_state ~name ~expr ~typ summary in
+                (id, summary))
+          in
+          let* separation =
+            State.List.map summary.separation ~f:(map_state_separation ~name ~expr)
+          in
+          let+ result = traverse_state ~name ~expr ~typ summary.result in
+          Functor { parameters; separation; result }
+      | Requalified _ -> assert false
+    in
+    if is_instance contract then reference rewritten else rewritten
+
+  let map_state = traverse_state
+
+  let map_mask ~name ~expr mask =
+    snd (map_state_mask ~name:(lift name) ~expr:(lift expr) mask ())
 
   let map ~name ~expr ~typ summary =
     snd (map_state ~name:(lift name) ~expr:(lift expr) ~typ:(lift typ) summary ())
@@ -3812,7 +3957,8 @@ module Module = struct
       let mod_vs =
         List.map (formals md.mod_decl) ~f:(fun v -> (v.mod_inst_name, v.mod_inst_type))
       in
-      fprintf ppf "@[<2>%s@ %a%a%a@]@\n{@[<1>@\n%a@]@\n}"
+      fprintf ppf "@[<2>%s%s@ %a%a%a@]@\n{@[<1>@\n%a@]@\n}"
+        (if is_free md.mod_decl.mod_decl_status then "free " else "")
         (if md.mod_decl.mod_decl_is_interface then "interface" else "module")
         Ident.pr md.mod_decl.mod_decl_name
         (* formal parameters *)

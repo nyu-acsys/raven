@@ -594,6 +594,14 @@ module MatchExt (Cont : Ext) = struct
             Rewriter.return (build (List.zip_exn arms bodies)))
     | _ -> Cont.rewrite_expr_ext expr_ext expr_list expr_attr
 
+  let normalize_contract_expr_ext expr_ext expr_list expr_attr =
+    let open Rewriter.Syntax in
+    match expr_ext with
+    | MatchExpr _ | Is _ ->
+        let+ expr = rewrite_expr_ext expr_ext expr_list expr_attr in
+        Some expr
+    | _ -> Cont.normalize_contract_expr_ext expr_ext expr_list expr_attr
+
   (* --------------------- *)
   (* --- DO NOT MODIFY --- *)
   let lib_sources = Option.to_list lib_source @ Cont.lib_sources

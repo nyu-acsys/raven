@@ -1,0 +1,117 @@
+interface Value {
+  rep type T
+}
+
+module Native[A: Value] {
+  free pred stack(x: Ref) returns (implicit ghost xs: List[A.T])
+
+  free proc pop(x: Ref, implicit ghost xs: List[A.T]) returns(r: Bool)
+    atomic requires stack(x, xs)
+    atomic ensures stack(x, List.nil)
+}
+
+interface API {
+  interface ResourceContract[A: Value] {
+    pred p(x: Ref) returns(implicit ghost xs: List[A.T])
+  }
+  module R: ResourceContract
+
+  interface OpContract[A: Value] {
+    module Resource = R[A]
+    proc pop(x: Ref, implicit ghost xs: List[A.T]) returns(r: Bool)
+      atomic requires Resource.p(x, xs)
+      atomic ensures Resource.p(x, List.nil)
+  }
+  module O: OpContract
+}
+
+module Actual: API {
+  module R[A: Value]: ResourceContract {
+    module N = Native[A]
+    pred p(x: Ref) returns(implicit ghost xs: List[A.T]) = N.stack
+  }
+  module O[A: Value]: OpContract {
+    free proc pop(x: Ref, implicit ghost xs: List[A.T]) returns(r: Bool)
+  }
+}
+module Client[X: API] {}
+module Applied = Client[Actual]
+
+interface WrappedValue {
+  rep type T
+}
+
+module ImportedStack[A: WrappedValue] {
+  free pred stack(x: Ref) returns (implicit ghost xs: List[A.T])
+
+  free proc pop(x: Ref, implicit ghost xs: List[A.T]) returns(r: Bool)
+    atomic requires stack(x, xs)
+    atomic ensures stack(x, List.nil)
+}
+
+module WrappedNative[A: WrappedValue] {
+ module N = ImportedStack[A]
+ pred stack(x: Ref) returns(implicit ghost xs: List[A.T]) { N.stack(x, xs) }
+ lemma roundtrip(x: Ref, ghost xs: List[A.T])
+   requires N.stack(x, xs)
+   ensures N.stack(x, xs)
+ {
+   fold stack(x, xs);
+   unfold stack(x, xs);
+ }
+
+ free proc pop(x: Ref, implicit ghost xs: List[A.T]) returns(r: Bool)
+ atomic requires stack(x,xs)
+ atomic ensures stack(x,List.nil)
+}
+
+interface WrappedAPI {
+  interface ResourceContract[A: WrappedValue] {
+    pred p(x: Ref) returns(implicit ghost xs: List[A.T])
+  }
+  module R: ResourceContract
+
+  interface OpContract[A: WrappedValue] {
+    module Resource = R[A]
+    proc pop(x: Ref, implicit ghost xs: List[A.T]) returns(r: Bool)
+      atomic requires Resource.p(x, xs)
+      atomic ensures Resource.p(x, List.nil)
+  }
+  module O: OpContract
+}
+
+module WrappedActual: WrappedAPI {
+  module R[A: WrappedValue]: ResourceContract {
+    module N = WrappedNative[A]
+    pred p(x: Ref) returns(implicit ghost xs: List[A.T]) = N.stack
+  }
+  module O[A: WrappedValue]: OpContract {
+    free proc pop(x: Ref, implicit ghost xs: List[A.T]) returns(r: Bool)
+  }
+}
+module WrappedClient[X: WrappedAPI] {}
+module WrappedApplied = WrappedClient[WrappedActual]
+
+module Cycles {
+  pred direct(x: Ref) { direct(x) }
+  pred left(x: Ref) { right(x) }
+  pred right(x: Ref) { left(x) }
+}
+interface CyclicResource {
+  pred token(x: Ref)
+  proc use(x: Ref)
+    requires token(x)
+    ensures token(x)
+}
+module CyclicView : CyclicResource {
+  pred token(x: Ref) = Cycles.left
+  free proc use(x: Ref)
+}
+module CyclicConsumer[X: CyclicResource] {}
+module CyclicApplication = CyclicConsumer[CyclicView]
+
+module DirectView : CyclicResource {
+  pred token(x: Ref) = Cycles.direct
+  free proc use(x: Ref)
+}
+module DirectApplication = CyclicConsumer[DirectView]

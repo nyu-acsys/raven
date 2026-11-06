@@ -1,0 +1,29 @@
+module Identity[T: Library.Type] {
+  func id(value: T.T) returns (result: T.T)
+    ensures result == value
+    ensures value == result
+    ensures result == value || result != value
+  {
+    value
+  }
+}
+
+module Twice[T: Library.Type] {
+  module I = Identity[T]
+
+  func twice(value: T.T) returns (result: T.T)
+    ensures result == value
+    ensures I.id(value) == result
+    ensures I.id(result) == value
+  {
+    I.id(I.id(value))
+  }
+}
+
+module Integers = Twice[Int]
+
+proc client(value: Int) returns (result: Int)
+  ensures result == value
+{
+  result := Integers.twice(value);
+}

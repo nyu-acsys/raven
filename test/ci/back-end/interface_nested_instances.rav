@@ -1,0 +1,93 @@
+// Interface members typed over the interface's own module members, implemented by
+// functors and used through a functor over the interface.
+interface Val {
+  rep type Carrier
+  func holds(v: Carrier) returns (r: Bool)
+}
+
+module IntVal : Val {
+  rep type Carrier = Int
+  func holds(v: Carrier) returns (r: Bool) { true }
+}
+
+module Id[E: Val] : Val {
+  rep type Carrier = E.Carrier
+  func holds(v: Carrier) returns (r: Bool) { E.holds(v) }
+}
+
+module OptVal[E: Val] : Val {
+  rep type Carrier = Option[E.Carrier]
+  func holds(v: Carrier) returns (r: Bool) { true }
+}
+
+interface Wit {
+  module A0 : Val
+  module A1 : Val
+  func conv(x: Option[A0.Carrier]) returns (y: A1.Carrier)
+}
+
+// A0 aliases the parameter.
+module AliasWit[A: Val] : Wit {
+  module A0 : Val = A
+  module A1 : Val = OptVal[A]
+  func conv(x: Option[A0.Carrier]) returns (y: A1.Carrier) { x }
+}
+
+// A0 applies a functor.
+module AppWit[A: Val] : Wit {
+  module A0 : Val = Id[A]
+  module A1 : Val = OptVal[A]
+  func conv(x: Option[A0.Carrier]) returns (y: A1.Carrier) { x }
+}
+
+module IntWit : Wit {
+  module A0 : Val = IntVal
+  module A1 : Val = IntVal
+  func conv(x: Option[A0.Carrier]) returns (y: A1.Carrier) { x == Option.none ? 0 : x.value }
+}
+
+// List[W.A0.Carrier] reuses the interface's module for A0.Carrier.
+module Lists[W: Wit] {
+  proc first(xs: List[W.A0.Carrier]) returns (y: W.A1.Carrier)
+    ensures y == W.conv(xs == List.nil ? Option.none : Option.some(xs.hd))
+  {
+    y := W.conv(xs == List.nil ? Option.none : Option.some(xs.hd));
+  }
+}
+
+module Client[A: Val] {
+  module W : AliasWit = AliasWit[A]
+  module L : Lists = Lists[W]
+
+  proc use(x: Option[A.Carrier]) returns (y: Option[A.Carrier])
+    ensures y == x
+  {
+    y := W.conv(x);
+  }
+
+  proc first(xs: List[A.Carrier]) returns (y: Option[A.Carrier])
+    ensures xs == List.nil ==> y == Option.none
+  {
+    y := L.first(xs);
+  }
+}
+
+module AppClient[A: Val] {
+  module W : AppWit = AppWit[A]
+
+  proc use(x: Option[A.Carrier]) returns (y: Option[A.Carrier])
+    ensures y == x
+  {
+    y := W.conv(x);
+  }
+}
+
+module IntClient {
+  module L : Lists = Lists[IntWit]
+
+  proc first(xs: List[Int]) returns (y: Int)
+    ensures xs == List.nil ==> y == 0
+  {
+    y := L.first(xs);
+  }
+}

@@ -560,7 +560,7 @@ and infer_single_instantiation ~check_expr ~claimed_location ~loc ~qual_ident
           QualIdent.to_list (QualIdent.append functor_qual_ident formal_ident))
     in
     let mentions_field_formal tp =
-      Set.exists (Type.symbols tp) ~f:(fun qi ->
+      Set.exists (Type.scope_symbols tp) ~f:(fun qi ->
           let qi = QualIdent.to_list qi in
           List.exists field_formal_paths ~f:(fun prefix ->
               List.is_prefix qi ~prefix ~equal:Ident.equal))
@@ -672,8 +672,19 @@ and try_resolve_implicit_instantiation ~(check_expr : expr -> type_expr -> expr 
                   then
                     field_argument_without_location_error loc formal_ident
                       functor_qual_ident
-                  else type_argument_inference_error loc formal_ident functor_qual_ident))
-      )
+                  else
+                    let* solver =
+                      match
+                        List.find (Module.formals m.mod_decl) ~f:(fun formal ->
+                            Ident.equal formal.mod_inst_name formal_ident)
+                      with
+                      | Some formal -> lift (ProgUtils.classify_formal formal)
+                      | None -> Rewriter.return None
+                    in
+                    if Option.is_none solver then
+                      undetermined_parameter_error loc formal_ident functor_qual_ident
+                    else type_argument_inference_error loc formal_ident functor_qual_ident
+              )))
 
 (** [ProgUtils.instantiate_type_functor] for a functor with at least one field-typed
     formal: each formal's argument module comes either from wrapping its solved type (as

@@ -54,25 +54,30 @@ let imported_summaries () =
   let open Rewriter.Syntax in
   let+ table = Rewriter.get_table in
   let rec gather owner contract (namespaces, callables) =
-    match contract with
-    | NamespaceContract.Module summary ->
-        let namespaces =
-          List.fold summary.namespaces ~init:namespaces ~f:(fun namespaces declaration ->
-              Map.update namespaces declaration.NamespaceContract.name ~f:(function
-                | None -> declaration
-                | Some previous -> merge_imported_namespace previous declaration))
-        in
-        let callables =
-          List.fold summary.callables ~init:callables ~f:(fun callables (name, summary) ->
-              Map.set callables ~key:(QualIdent.append owner name) ~data:summary)
-        in
-        List.fold summary.modules ~init:(namespaces, callables)
-          ~f:(fun state (name, contract) ->
-            gather (QualIdent.append owner name) contract state)
-    | Functor summary ->
-        let state = gather owner summary.result (namespaces, callables) in
-        List.fold summary.parameters ~init:state ~f:(fun state (name, contract) ->
-            gather (QualIdent.append owner name) contract state)
+    if NamespaceContract.is_instance contract then (namespaces, callables)
+    else
+      match NamespaceContract.view contract with
+      | NamespaceContract.Module summary ->
+          let namespaces =
+            List.fold summary.namespaces ~init:namespaces
+              ~f:(fun namespaces declaration ->
+                Map.update namespaces declaration.NamespaceContract.name ~f:(function
+                  | None -> declaration
+                  | Some previous -> merge_imported_namespace previous declaration))
+          in
+          let callables =
+            List.fold summary.callables ~init:callables
+              ~f:(fun callables (name, summary) ->
+                Map.set callables ~key:(QualIdent.append owner name) ~data:summary)
+          in
+          List.fold summary.modules ~init:(namespaces, callables)
+            ~f:(fun state (name, contract) ->
+              gather (QualIdent.append owner name) contract state)
+      | Functor summary ->
+          let state = gather owner summary.result (namespaces, callables) in
+          List.fold summary.parameters ~init:state ~f:(fun state (name, contract) ->
+              gather (QualIdent.append owner name) contract state)
+      | Requalified _ -> assert false
   in
   Map.fold table.tbl_symbols
     ~init:(Map.empty (module QualIdent), Map.empty (module QualIdent))
@@ -157,17 +162,21 @@ let close collected =
   in
   fixed_point initial
 
-let requirements = function
+let requirements contract =
+  match NamespaceContract.view contract with
   | NamespaceContract.Module summary -> summary.separation
   | Functor summary -> summary.separation
+  | Requalified _ -> assert false
 
-let add_requirements separation = function
+let add_requirements separation contract =
+  match NamespaceContract.view contract with
   | NamespaceContract.Module summary ->
       NamespaceContract.Module
         { summary with separation = Requirements.union separation summary.separation }
   | Functor summary ->
       Functor
         { summary with separation = Requirements.union separation summary.separation }
+  | Requalified _ -> assert false
 
 (** Reify a header, consuming only parameters bound by this application. *)
 let reify_module_contract ?(retain_parameter_members = true)
@@ -176,8 +185,9 @@ let reify_module_contract ?(retain_parameter_members = true)
   match symbol with
   | Module.ModDef m ->
       let+ rewritten =
-        Rewriter.NamespaceContract.rewrite_qual_idents
-          ~f:(QualIdent.requalify (Rewriter.Symbol.subst resolved))
+        Rewriter.NamespaceContract.rewrite_requalification
+          ~transformations:
+            [ NamespaceContract.Substitute (Rewriter.Symbol.subst resolved) ]
           contract
       in
       begin match rewritten with
@@ -186,7 +196,7 @@ let reify_module_contract ?(retain_parameter_members = true)
           let result =
             if retain_parameter_members then summary.result
             else
-              match summary.result with
+              match NamespaceContract.view summary.result with
               | NamespaceContract.Module result ->
                   Module
                     {
@@ -197,6 +207,7 @@ let reify_module_contract ?(retain_parameter_members = true)
                               (List.Assoc.mem summary.parameters name ~equal:Ident.equal));
                     }
               | Functor _ as result -> result
+              | Requalified _ -> assert false
           in
           let parameters =
             List.filter summary.parameters ~f:(fun (parameter, _) ->
@@ -214,6 +225,7 @@ let reify_module_contract ?(retain_parameter_members = true)
           in
           if consumed then add_requirements summary.separation result
           else Functor { summary with parameters; result }
+      | Requalified _ -> assert false
       end
   | _ ->
       Error.internal_error (QualIdent.to_loc original)
@@ -302,7 +314,9 @@ let freeze ?(refresh = false) ?(requirements = Map.empty (module QualIdent)) dra
           match definition with
           | Module.SymbolDef (CallDef call) ->
               let name = QualIdent.append owner call.call_decl.call_decl_name in
-              let* summary = NamespaceInference.find_callable draft name in
+              let* summary =
+                NamespaceInference.find_callable ~normalize:false draft name
+              in
               let summary =
                 match summary with
                 | Some summary -> summary
@@ -327,7 +341,10 @@ let freeze ?(refresh = false) ?(requirements = Map.empty (module QualIdent)) dra
                   (child.mod_decl.mod_decl_name, contract) :: modules )
           | Module.SymbolDef (ModInst instance) ->
               let+ contract = lookup (QualIdent.from_ident instance.mod_inst_name) in
-              (namespaces, callables, (instance.mod_inst_name, contract) :: modules)
+              ( namespaces,
+                callables,
+                (instance.mod_inst_name, NamespaceContract.reference contract) :: modules
+              )
           | SymbolDef (TypeDef _ | FieldDef _ | VarDef _ | ConstrDef _ | DestrDef _)
           | Import _ ->
               Rewriter.return (namespaces, callables, modules))
@@ -345,21 +362,25 @@ let freeze ?(refresh = false) ?(requirements = Map.empty (module QualIdent)) dra
                   && child.mod_decl.mod_decl_is_interface
               | _ -> false)
           in
-          match contract with
+          match NamespaceContract.view contract with
           | NamespaceContract.Module summary when not interface ->
               Requirements.union separation summary.separation
-          | Module _ | Functor _ -> separation)
+          | Module _ | Functor _ -> separation
+          | Requalified _ -> assert false)
     in
     let separation =
       Requirements.union separation
         (Option.value (Map.find requirements owner) ~default:[])
     in
-    let definitions =
-      List.map definitions ~f:(function
+    let* definitions =
+      Rewriter.List.map definitions ~f:(function
         | Module.SymbolDef (CallDef call) ->
             let summary =
               List.Assoc.find_exn callables call.call_decl.call_decl_name
                 ~equal:Ident.equal
+            in
+            let+ requires =
+              NamespaceInference.normalize_required draft summary.requires
             in
             Module.SymbolDef
               (CallDef
@@ -368,11 +389,11 @@ let freeze ?(refresh = false) ?(requirements = Map.empty (module QualIdent)) dra
                    call_decl =
                      {
                        call.call_decl with
-                       call_decl_needs_mask = Some summary.requires;
+                       call_decl_needs_mask = Some requires;
                        call_decl_grants_mask = Some summary.grants;
                      };
                  })
-        | definition -> definition)
+        | definition -> Rewriter.return definition)
     in
     let modules = List.rev modules in
     let parameter_members =

@@ -22,15 +22,20 @@ let below root name =
   List.is_prefix (QualIdent.to_list name) ~prefix:(QualIdent.to_list root)
     ~equal:Ident.equal
 
-let map_contract rename = Rewriter.NamespaceContract.rewrite_qual_idents ~f:rename
+let map_contract transformations =
+  Rewriter.NamespaceContract.rewrite_requalification ~transformations
 
-let result = function
+let result contract =
+  match NamespaceContract.view contract with
   | NamespaceContract.Module _ as contract -> contract
   | Functor summary -> summary.result
+  | Requalified _ -> assert false
 
-let own_namespaces = function
+let own_namespaces contract =
+  match NamespaceContract.view contract with
   | NamespaceContract.Module summary -> summary.namespaces
   | Functor _ -> []
+  | Requalified _ -> assert false
 
 let requirements = NamespaceClosure.requirements
 
@@ -133,8 +138,8 @@ let grants_cover ?(rename = Fn.id) context ~assumptions provided promised =
   let open Rewriter.Syntax in
   let check assumptions required =
     let* available = Entailment.available_grants ~rename context ~assumptions provided in
-    let* available = Entailment.canonical_mask ~rename available in
-    let+ required = Entailment.canonical_mask ~rename required in
+    let* available = Entailment.normalize_predicates ~rename context available in
+    let+ required = Entailment.normalize_predicates ~rename context required in
     Entailment.covered ~by:available required
   in
   let* unconditional = check assumptions promised.NamespaceContract.grants in
@@ -169,20 +174,73 @@ let effective_path ?(implementation = true) name =
   | Some (original, _, _, substitution) ->
       QualIdent.requalify (SymbolTbl.qid_subst substitution) original
 
+type check = {
+  check_owner : QualIdent.t;
+  check_roots : QualIdent.t list;
+  check_universals : QualIdent.t list;
+  check_assumptions : NamespaceContract.separation_requirement list;
+  check_actual_path : QualIdent.t;
+  check_expected_path : QualIdent.t;
+  check_transformations : NamespaceContract.requalification list;
+  check_established : bool;
+  check_actual : NamespaceContract.t;
+  check_expected : NamespaceContract.t;
+}
+[@@deriving compare]
+(** The inputs of a compatibility check. Its outcome depends only on them and the
+    entailment declarations, as module contracts are not read from the symbol table. *)
+
+type checked = check list QualIdentHashtbl.t
+(** Checks that passed, by their actual paths. A passed check need not be repeated: it
+    adds its requirements to the pending ones, which only grow. *)
+
 (** Structural shape/type compliance has already been checked by the nominal checker. *)
-let rec compatible ~declarations ~owner ~loc environment ~actual_path ~expected_path
-    ?(rename = Fn.id) ~established actual expected =
+let rec compatible ?(checked : checked = Hashtbl.create (module QualIdent)) ~declarations
+    ~owner ~loc environment ~actual_path ~expected_path ?(transformations = [])
+    ~established actual expected =
   let open Rewriter.Syntax in
+  let check =
+    {
+      check_owner = owner;
+      check_roots = Set.to_list environment.roots;
+      check_universals = Set.to_list environment.universals;
+      check_assumptions = environment.assumptions;
+      check_actual_path = actual_path;
+      check_expected_path = expected_path;
+      check_transformations = transformations;
+      check_established = established;
+      check_actual = actual;
+      check_expected = expected;
+    }
+  in
+  let passed = Option.value (Hashtbl.find checked actual_path) ~default:[] in
+  if List.mem passed check ~equal:(fun left right -> compare_check left right = 0) then
+    Rewriter.return ()
+  else
+    let+ () =
+      compatible_unchecked ~checked ~declarations ~owner ~loc environment ~actual_path
+        ~expected_path ~transformations ~established actual expected
+    in
+    Hashtbl.add_multi checked ~key:actual_path ~data:check
+
+and compatible_unchecked ~checked ~declarations ~owner ~loc environment ~actual_path
+    ~expected_path ~transformations ~established actual expected =
+  let open Rewriter.Syntax in
+  let rename = NamespaceContract.requalify transformations in
   let* actual_path = effective_path actual_path in
-  match (actual, expected) with
+  match (NamespaceContract.view actual, NamespaceContract.view expected) with
   | NamespaceContract.Module actual, Module expected ->
-      let owner_rename name =
-        rename
-          (QualIdent.requalify [ (expected_path, QualIdent.to_list actual_path) ] name)
+      let owner_transformations =
+        NamespaceContract.Substitute [ (expected_path, QualIdent.to_list actual_path) ]
+        :: transformations
       in
-      let* expected = map_contract owner_rename (NamespaceContract.Module expected) in
+      let* expected =
+        map_contract owner_transformations (NamespaceContract.Module expected)
+      in
       let expected =
-        match expected with Module summary -> summary | Functor _ -> assert false
+        match expected with
+        | Module summary -> summary
+        | Functor _ | Requalified _ -> assert false
       in
       let* context = Entailment.create ~rename (declarations @ actual.namespaces) in
       let overrides =
@@ -259,10 +317,10 @@ let rec compatible ~declarations ~owner ~loc environment ~actual_path ~expected_
           match List.Assoc.find actual.modules name ~equal:Ident.equal with
           | None -> signature_error loc "a nested module summary is missing"
           | Some provided ->
-              compatible ~declarations ~owner ~loc environment
+              compatible ~checked ~declarations ~owner ~loc environment
                 ~actual_path:(QualIdent.append actual_path name)
                 ~expected_path:(QualIdent.append actual_path name)
-                ~rename ~established:true provided promised)
+                ~transformations ~established:true provided promised)
   | Functor actual, Functor expected ->
       if List.length actual.parameters <> List.length expected.parameters then
         signature_error loc "functor parameter shapes differ";
@@ -272,24 +330,34 @@ let rec compatible ~declarations ~owner ~loc environment ~actual_path ~expected_
             ( QualIdent.append actual_path actual,
               QualIdent.to_list (QualIdent.append expected_path expected) ))
       in
-      let actual_rename name = rename (QualIdent.requalify actual_parameter_roots name) in
+      let actual_transformations =
+        NamespaceContract.Substitute actual_parameter_roots :: transformations
+      in
+      let actual_rename = NamespaceContract.requalify actual_transformations in
       let expected_roots =
         List.map expected.parameters ~f:(fun (name, _) ->
             QualIdent.append expected_path name)
       in
-      let expected_rename name =
-        if List.exists expected_roots ~f:(fun root -> below root name) then rename name
-        else
-          rename
-            (QualIdent.requalify [ (expected_path, QualIdent.to_list actual_path) ] name)
+      let expected_transformations =
+        NamespaceContract.Except_below
+          (expected_roots, [ (expected_path, QualIdent.to_list actual_path) ])
+        :: transformations
       in
-      let* actual = map_contract actual_rename (NamespaceContract.Functor actual) in
-      let* expected = map_contract expected_rename (NamespaceContract.Functor expected) in
+      let* actual =
+        map_contract actual_transformations (NamespaceContract.Functor actual)
+      in
+      let* expected =
+        map_contract expected_transformations (NamespaceContract.Functor expected)
+      in
       let actual =
-        match actual with Functor summary -> summary | Module _ -> assert false
+        match actual with
+        | Functor summary -> summary
+        | Module _ | Requalified _ -> assert false
       in
       let expected =
-        match expected with Functor summary -> summary | Module _ -> assert false
+        match expected with
+        | Functor summary -> summary
+        | Module _ | Requalified _ -> assert false
       in
       let* context =
         Entailment.create ~rename:actual_rename
@@ -303,7 +371,10 @@ let rec compatible ~declarations ~owner ~loc environment ~actual_path ~expected_
       in
       let inputs =
         List.concat_map expected.parameters ~f:(fun (_, contract) ->
-            match contract with Module summary -> summary.separation | Functor _ -> [])
+            match NamespaceContract.view contract with
+            | Module summary -> summary.separation
+            | Functor _ -> []
+            | Requalified _ -> assert false)
       in
       let environment =
         {
@@ -322,11 +393,12 @@ let rec compatible ~declarations ~owner ~loc environment ~actual_path ~expected_
         Rewriter.List.iter (List.zip_exn actual.parameters expected.parameters)
           ~f:(fun ((_, demanded), (parameter, supplied)) ->
             let path = QualIdent.append expected_path parameter in
-            compatible ~declarations ~owner ~loc environment ~actual_path:path
-              ~expected_path:path ~rename:actual_rename ~established:true supplied
-              demanded)
+            compatible ~checked ~declarations ~owner ~loc environment ~actual_path:path
+              ~expected_path:path ~transformations:actual_transformations
+              ~established:true supplied demanded)
       in
-      let without_formal_members parameters = function
+      let without_formal_members parameters contract =
+        match NamespaceContract.view contract with
         | NamespaceContract.Module result ->
             Module
               {
@@ -336,11 +408,14 @@ let rec compatible ~declarations ~owner ~loc environment ~actual_path ~expected_
                       not (List.Assoc.mem parameters name ~equal:Ident.equal));
               }
         | Functor _ as result -> result
+        | Requalified _ -> assert false
       in
-      compatible ~declarations ~owner ~loc environment ~actual_path
-        ~expected_path:actual_path ~rename:actual_rename ~established:true
+      compatible ~checked ~declarations ~owner ~loc environment ~actual_path
+        ~expected_path:actual_path ~transformations:actual_transformations
+        ~established:true
         (without_formal_members actual.parameters actual.result)
         (without_formal_members expected.parameters expected.result)
+  | Requalified _, _ | _, Requalified _ -> assert false
   | Module _, Functor _ | Functor _, Module _ ->
       signature_error loc "module/functor shapes differ"
 
@@ -362,15 +437,16 @@ let snapshot_contract ?(implementation = false) name =
           (original, symbol, substitution)
           (NamespaceClosure.declared_contract name symbol)
 
-let validate_pass ~declarations program pending =
+let validate_pass ~checked ~declarations program pending =
   let open Rewriter.Syntax in
   let* context = Entailment.create declarations in
   let rec walk environment owner (m : Module.t) =
     Rewriter.in_scope_of
       (Module.unit_parameter_path owner)
       (let* contract =
-         Rewriter.NamespaceContract.rewrite_qual_idents
-           ~f:(QualIdent.requalify m.mod_decl.mod_decl_instance_subst)
+         Rewriter.NamespaceContract.rewrite_requalification
+           ~transformations:
+             [ NamespaceContract.Substitute m.mod_decl.mod_decl_instance_subst ]
            (Option.value_exn m.Module.mod_decl.mod_decl_mask_contract)
        in
        let here =
@@ -380,13 +456,15 @@ let validate_pass ~declarations program pending =
        in
        let* here =
          match contract with
+         | Requalified _ -> assert false
          | NamespaceContract.Module _ -> Rewriter.return here
          | Functor summary ->
              let assumptions =
                List.concat_map summary.parameters ~f:(fun (_, parameter) ->
-                   match parameter with
+                   match NamespaceContract.view parameter with
                    | Module summary -> summary.separation
-                   | Functor _ -> [])
+                   | Functor _ -> []
+                   | Requalified _ -> assert false)
              in
              Rewriter.return
                {
@@ -414,8 +492,9 @@ let validate_pass ~declarations program pending =
                  parent_symbol parent_contract
              in
              let* promised =
-               Rewriter.NamespaceContract.rewrite_qual_idents
-                 ~f:(QualIdent.requalify m.mod_decl.mod_decl_instance_subst)
+               Rewriter.NamespaceContract.rewrite_requalification
+                 ~transformations:
+                   [ NamespaceContract.Substitute m.mod_decl.mod_decl_instance_subst ]
                  promised
              in
              let* () =
@@ -433,8 +512,8 @@ let validate_pass ~declarations program pending =
                  }
                else here
              in
-             compatible ~declarations ~owner ~loc:m.mod_decl.mod_decl_loc comparison
-               ~actual_path:owner ~expected_path:owner
+             compatible ~checked ~declarations ~owner ~loc:m.mod_decl.mod_decl_loc
+               comparison ~actual_path:owner ~expected_path:owner
                ~established:(not (Module.is_functor m.mod_decl))
                (result contract) (result promised))
        in
@@ -458,6 +537,7 @@ let validate_pass ~declarations program pending =
           | Some (head, arguments) ->
               let* contract = snapshot_contract head in
               begin match contract with
+              | Requalified _ -> assert false
               | Module _ -> Rewriter.return ()
               | Functor functor_ ->
                   let bindings =
@@ -473,14 +553,16 @@ let validate_pass ~declarations program pending =
                             "application parameter metadata is missing"
                       | Some promised ->
                           let* promised =
-                            map_contract (QualIdent.requalify bindings) promised
+                            map_contract
+                              [ NamespaceContract.Substitute bindings ]
+                              promised
                           in
                           let* provided =
                             snapshot_contract ~implementation:true actual_path
                           in
-                          compatible ~declarations ~owner ~loc:binding.mod_inst_loc
-                            environment ~actual_path ~expected_path:actual_path
-                            ~established:true provided promised)
+                          compatible ~checked ~declarations ~owner
+                            ~loc:binding.mod_inst_loc environment ~actual_path
+                            ~expected_path:actual_path ~established:true provided promised)
               end
         in
         let* actual = snapshot_contract ~implementation:true name in
@@ -490,10 +572,35 @@ let validate_pass ~declarations program pending =
               require_all ~context ~owner ~loc:binding.mod_inst_loc environment
                 summary.separation
           | Functor _ -> Rewriter.return ()
+          | Requalified _ -> assert false
         in
         let* expected = snapshot_contract binding.mod_inst_type in
         let* expected_owner =
           effective_path ~implementation:false binding.mod_inst_type
+        in
+        let* nominal =
+          let* implementation = effective_path name in
+          if QualIdent.equal implementation expected_owner then Rewriter.return true
+          else
+            let* table = Rewriter.get_table in
+            let expected =
+              SymbolTbl.resolve_and_find ~implementation:false ~read_only:true
+                binding.mod_inst_type
+                (SymbolTbl.goto binding.mod_inst_type table)
+            in
+            begin match
+              (SymbolTbl.application_origin binding.mod_inst_type table, expected)
+            with
+            | None, Some (_, original, _, _) when QualIdent.equal original expected_owner
+              ->
+                begin match SymbolTbl.application_origin name table with
+                | None -> Rewriter.return false
+                | Some (head, _) ->
+                    let+ head = effective_path head in
+                    QualIdent.equal head expected_owner
+                end
+            | _ -> Rewriter.return false
+            end
         in
         let expected =
           match (actual, expected) with
@@ -502,8 +609,10 @@ let validate_pass ~declarations program pending =
         in
         (* Sealed public resolution exposes the interface; retain the implementation edge. *)
         let provided, actual_path = (actual, name) in
-        compatible ~declarations ~owner ~loc:binding.mod_inst_loc environment ~actual_path
-          ~expected_path:expected_owner ~established:true provided expected
+        if nominal then Rewriter.return ()
+        else
+          compatible ~checked ~declarations ~owner ~loc:binding.mod_inst_loc environment
+            ~actual_path ~expected_path:expected_owner ~established:true provided expected
   in
   Rewriter.eval_with_user_state ~init:pending
     (let* () =
@@ -516,16 +625,23 @@ let validate_pass ~declarations program pending =
 (** Validate conditional headers and close newly exposed realization requirements. *)
 let validate ~draft program =
   let open Rewriter.Syntax in
-  let rec fixed_point pending program =
+  let checked = Hashtbl.create (module QualIdent) in
+  let rec fixed_point previous pending program =
     let* namespaces, _ = NamespaceClosure.imported_summaries () in
     let declarations = Map.data namespaces in
-    let* next = validate_pass ~declarations program pending in
+    if
+      not
+        (List.equal
+           (fun left right -> NamespaceContract.compare_namespace_decl left right = 0)
+           previous declarations)
+    then Hashtbl.clear checked;
+    let* next = validate_pass ~checked ~declarations program pending in
     let equal = Map.equal Requirements.equal pending next in
     if equal then Rewriter.return program
     else
       let* program =
         NamespaceClosure.freeze ~refresh:true ~requirements:next draft program
       in
-      fixed_point next program
+      fixed_point declarations next program
   in
-  fixed_point (Map.empty (module QualIdent)) program
+  fixed_point [] (Map.empty (module QualIdent)) program

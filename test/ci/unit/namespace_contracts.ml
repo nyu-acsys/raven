@@ -100,6 +100,7 @@ let returned = Type.mk_var_decl ~loc (id "result") (named_type (source "T"))
 
 let argument =
   Expr.mk_app ~typ:formal.var_type (Var (source "value")) [ Expr.from_var_decl formal ]
+  |> fun expression -> Expr.set_type_annot expression (Some formal.var_type)
 
 let higher_order_summary () =
   let open NamespaceContract in
@@ -169,6 +170,13 @@ let check_higher_order = function
                   [ Expr.from_var_decl transformed ]
               in
               let expected_mask = [ dependencies [ "Target"; "P" ] [ expected ] ] in
+              begin match callable.requires with
+              | [ (_, [ argument ]) ] ->
+                  assert (
+                    Option.equal Type.equal (Expr.to_type_annot argument)
+                      (Some (named_type (target "T"))))
+              | _ -> assert false
+              end;
               assert (same_mask callable.requires expected_mask);
               assert (same_mask callable.grants expected_mask);
               begin match callable.guarded_grants with
@@ -216,6 +224,61 @@ let test_requalification () =
   | Some summary -> check_higher_order summary
   | None -> assert false
 
+let test_deferred_requalification () =
+  let source = higher_order_summary () in
+  let rewritten =
+    NamespaceContract.requalify_contract
+      [
+        NamespaceContract.Substitute
+          [ (qi [ "Source" ], QualIdent.to_list (qi [ "Target" ])) ];
+      ]
+      source
+  in
+  let materialized = NamespaceContract.map ~name:Fn.id ~expr:Fn.id ~typ:Fn.id rewritten in
+  check_higher_order materialized;
+  let parameter = qi [ "Source"; "G" ] in
+  let transformations =
+    [
+      NamespaceContract.Except_below
+        ([ parameter ], [ (qi [ "Source" ], QualIdent.to_list (qi [ "Target" ])) ]);
+      Substitute [ (parameter, QualIdent.to_list (qi [ "Argument" ])) ];
+    ]
+  in
+  assert (
+    QualIdent.equal
+      (NamespaceContract.requalify transformations (qi [ "Source"; "G"; "cell" ]))
+      (qi [ "Argument"; "cell" ]));
+  assert (
+    QualIdent.equal
+      (NamespaceContract.requalify transformations (qi [ "Source"; "cell" ]))
+      (qi [ "Target"; "cell" ]))
+
+let test_expression_annotation_traversals () =
+  let map_type = Type.mk_map loc formal.var_type formal.var_type in
+  let comprehension =
+    Expr.mk_binder ~loc ~typ:map_type Compr [ formal ] argument |> fun expression ->
+    Expr.set_type_annot expression (Some map_type)
+  in
+  List.iter [ argument; comprehension ] ~f:(fun expression ->
+      let _, renamed =
+        Rewriter.eval ~update:false
+          (Rewriter.Expr.rewrite_qual_idents ~f:rename expression)
+          (SymbolTbl.create ())
+      in
+      let _, retyped =
+        Rewriter.eval ~update:false
+          (Rewriter.Expr.rewrite_types
+             ~f:(fun typ -> Rewriter.return (Type.map_qual_idents ~f:rename typ))
+             expression)
+          (SymbolTbl.create ())
+      in
+      let expected = Type.map_qual_idents ~f:rename (Expr.to_type expression) in
+      List.iter
+        [ Expr.map_qual_idents ~f:rename expression; renamed; retyped ]
+        ~f:(fun expression ->
+          assert (Type.equal (Expr.to_type expression) expected);
+          assert (Option.equal Type.equal (Expr.to_type_annot expression) (Some expected))))
+
 let test_guarded_grants () =
   let open NamespaceContract in
   let plain = [ own [ "P" ] [] ] in
@@ -256,4 +319,6 @@ let () =
   test_collapsing_substitution ();
   test_unknown_namespace ();
   test_requalification ();
-  test_guarded_grants ()
+  test_guarded_grants ();
+  test_deferred_requalification ();
+  test_expression_annotation_traversals ()

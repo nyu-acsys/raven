@@ -709,6 +709,8 @@ and check_assign (assign_desc : Stmt.assign_desc) (call_decl : Callable.call_dec
                   | Some (Symbol (qual_ident, symbol, _)) -> (
                       let+ symbol = Rewriter.Symbol.reify symbol in
                       match symbol with
+                      (* A func is pure: its call is an expression. *)
+                      | CallDef { call_decl = { call_decl_kind = Func; _ }; _ } -> None
                       | CallDef call_def -> Some (symbol, qual_ident, original_args)
                       | _ -> None))
               | _ -> Rewriter.return None

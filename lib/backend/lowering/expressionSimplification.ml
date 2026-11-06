@@ -46,7 +46,7 @@ let rec simplify (expr : expr) : expr Rewriter.t =
           Rewriter.List.map (List.zip_exn args1 args2) ~f:(fun (left, right) ->
               simplify (Expr.mk_eq ~loc left right))
         in
-        simplify (Expr.mk_chained_and ~loc equalities)
+        simplify (Expr.mk_and ~loc equalities)
   | App (Eq, [ App (Int left, [], _); App (Int right, [], _) ], _) ->
       bool (Int64.equal left right)
   | App (Eq, [ App (Bool left, [], _); App (Bool right, [], _) ], _) ->
@@ -74,7 +74,11 @@ and simplify_connective operator attr args =
     match args with
     | [] -> Rewriter.return (Expr.mk_bool ~loc:attr.Expr.expr_loc identity)
     | [ arg ] -> Rewriter.return arg
-    | _ -> Rewriter.return (Expr.App (operator, args, attr))
+    | _ ->
+        let constructor =
+          match operator with Expr.And -> Expr.mk_and | _ -> Expr.mk_or
+        in
+        Rewriter.return (constructor ~loc:attr.Expr.expr_loc args)
 
 let rewrite_callable (callable : Callable.t) =
   let open Rewriter.Syntax in

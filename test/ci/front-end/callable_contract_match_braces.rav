@@ -1,0 +1,43 @@
+type Choice = data {
+  case absent
+  case present(value: Int)
+}
+
+func identity(value: Int) returns (result: Int) {
+  value
+}
+
+func choose(choice: Choice, fallback: Int) returns (result: Int)
+  ensures (match choice {
+    case absent => result == fallback
+    case present(value) => (match choice {
+      case absent => false
+      case present(other) => result == fallback
+    })
+  })
+{
+  identity(fallback)
+}
+
+proc copy(choice: Choice, value: Int) returns (result: Int)
+  requires (match choice {
+    case absent => true
+    case present(other) => true
+  })
+  ensures (match choice {
+    case absent => result == value
+    case present(other) => result == value
+  })
+{
+  var temporary: Int := value
+  result := temporary
+}
+
+atomic proc atomic_copy(choice: Choice, value: Int) returns (result: Int)
+  ensures (match choice {
+    case absent => result == value
+    case present(other) => result == value
+  })
+{
+  result := value
+}

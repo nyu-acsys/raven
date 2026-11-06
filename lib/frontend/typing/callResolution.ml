@@ -861,6 +861,18 @@ let resolve_generic_winner ~loc ~args ~expected ~contextual arguments generic ta
     match instance with
     | Some instance -> Rewriter.return instance
     | None ->
+        (* A formal that no rep type or field determines needs an explicit instance. *)
+        let* solvers =
+          Rewriter.List.map (Module.formals generic.module_.mod_decl) ~f:(fun formal ->
+              let+ solver = lift (ProgUtils.classify_formal formal) in
+              Option.some_if (Option.is_none solver) formal.mod_inst_name)
+        in
+        let undetermined = List.find_map solvers ~f:Fn.id in
+        let* () =
+          match undetermined with
+          | Some formal -> undetermined_parameter_error loc formal generic.functor_name
+          | None -> Rewriter.return ()
+        in
         let bindings =
           List.map generic.signature.formal_reps ~f:(fun (qi, formal, _) ->
               (formal, List.Assoc.find_exn bindings qi ~equal:QualIdent.equal))

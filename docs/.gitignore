@@ -2,13 +2,12 @@ node_modules/
 .vitepress/dist/
 .vitepress/cache/
 
-# Mirrored by scripts/sync-rav.mjs (predev/prebuild) from the .rav files
+# Mirrored by project-docs from the .rav files
 # already tracked under tutorial/**; regenerated, not source. They live under
 # public/ so that the links in the prose (e.g. ./hit_counter_pure.rav) resolve
 # to something the site actually serves.
 public/**/*.rav
 
-# Built by scripts/build-section-registry.mjs (predev/prebuild) from the
-# `{#sec:...}` headings under tutorial/**; regenerated, not source -- see
-# section-refs.mts for what reads it.
+# Generated section registry and source-download ownership metadata.
 .vitepress/section-registry.json
+.vitepress/examples-manifest.json

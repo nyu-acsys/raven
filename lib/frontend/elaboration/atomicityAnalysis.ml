@@ -82,6 +82,10 @@ type atomicity_check = {
   (* More than one after branches that each opened. *)
   openings : opening list;
   claims : claim list;
+  (* Ordinary posts cannot justify closure at the callee's linearization point.
+     A flag is released only after every surrounding AU/invariant is closed. *)
+  pending_ordinary_posts : (Ident.t * Stmt.t) list;
+  ordinary_post_flags : Ident.t list;
   (* Every marker assigned so far. *)
   markers : Ident.t list;
   mask : Callable.mask;
@@ -1008,6 +1012,130 @@ let abort_check ~loc (call_decl : Callable.call_decl) (call_desc : Stmt.call_des
       { call_desc with call_args; call_precond_given = true },
       state )
 
+(* Like [abort_check], emit this obligation using ordinary ghost-code primitives.
+   Only the atomic post may justify enclosing AU/invariant closure. The ordinary
+   post is exposed afterwards, using the same input and return values. *)
+let defer_ordinary_call_post ~loc (decl : Callable.call_decl) (call : Stmt.call_desc)
+    (state : atomicity_check) :
+    (Stmt.t list * atomicity_check, atomicity_check) Rewriter.t_ext =
+  let open Rewriter.Syntax in
+  if
+    Poly.(decl.call_decl_kind <> Proc)
+    || state.in_atomic_block
+    || (List.is_empty state.au_opened && List.is_empty state.invs_opened)
+    || not (List.exists decl.call_decl_postcond ~f:(fun spec -> not spec.spec_atomic))
+  then Rewriter.return ([ { Stmt.stmt_desc = Basic (Call call); stmt_loc = loc } ], state)
+  else
+    (* A trusted atomic block is itself one physical step, including its calls.
+       Other scoped calls must not expose an ordinary post at that step. *)
+    let fresh_var (formal : Type.var_decl) name ghost =
+      let var =
+        { formal with var_name = Ident.fresh loc name; var_ghost = ghost; var_loc = loc }
+      in
+      let+ () =
+        Rewriter.introduce_symbol
+          (Module.VarDef { var_decl = var; var_init = None; var_is_free = NotFree })
+      in
+      var
+    in
+    let omitted = List.drop decl.call_decl_formals (List.length call.call_args) in
+    let* omitted_vars =
+      Rewriter.List.map omitted ~f:(fun formal ->
+          fresh_var formal formal.var_name.ident_name true)
+    in
+    let args = call.call_args @ List.map omitted_vars ~f:Expr.from_var_decl in
+    let* returns =
+      Rewriter.List.map decl.call_decl_returns ~f:(fun formal ->
+          fresh_var formal (formal.var_name.ident_name ^ "$ret") formal.var_ghost)
+    in
+    let renaming =
+      List.fold2_exn
+        (decl.call_decl_formals @ decl.call_decl_returns)
+        (args @ List.map returns ~f:Expr.from_var_decl)
+        ~init:(Map.empty (module QualIdent))
+        ~f:(fun map formal value ->
+          Map.set map ~key:(QualIdent.from_ident formal.var_name) ~data:value)
+    in
+    let* callee = Rewriter.resolve call.call_name in
+    let bind =
+      if List.is_empty omitted_vars then []
+      else
+        [
+          Stmt.mk_bind ~loc
+            (List.map omitted_vars ~f:(fun var -> QualIdent.from_ident var.var_name))
+            (Stmt.mk_spec
+               (Expr.mk_and
+                  (List.map decl.call_decl_precond ~f:(fun spec ->
+                       Expr.alpha_renaming spec.spec_form renaming))));
+        ]
+    in
+    let* saved =
+      Rewriter.List.map decl.call_decl_formals ~f:(fun formal ->
+          fresh_var formal (formal.var_name.ident_name ^ "$post_arg") true)
+    in
+    let captures =
+      List.map2_exn saved args ~f:(fun var value ->
+          Stmt.mk_assign ~loc ~is_init:true [ QualIdent.from_ident var.var_name ] value)
+    in
+    let saved_renaming =
+      List.fold2_exn decl.call_decl_formals saved ~init:renaming ~f:(fun map formal var ->
+          Map.set map
+            ~key:(QualIdent.from_ident formal.var_name)
+            ~data:(Expr.from_var_decl var))
+    in
+    let exhales =
+      if call.call_precond_given then []
+      else
+        List.mapi decl.call_decl_precond ~f:(fun i spec ->
+            Stmt.mk_exhale_expr ~loc ?name:spec.spec_name ~spec_error:spec.spec_error
+              ~spec_source:(callee, i)
+              (Expr.alpha_renaming spec.spec_form renaming))
+    in
+    let posts atomic =
+      List.filter_mapi decl.call_decl_postcond ~f:(fun i spec ->
+          if Bool.equal spec.spec_atomic atomic then
+            Some
+              (Stmt.mk_inhale_expr ~loc
+                 ~spec_source:(callee, List.length decl.call_decl_precond + i)
+                 (Expr.alpha_renaming spec.spec_form saved_renaming))
+          else None)
+    in
+    let* flag, _ = fresh_updated_flag ~loc "$ordinary_post_pending" in
+    let flag_id =
+      match flag with
+      | App (Var qi, [], _) -> QualIdent.unqualify qi
+      | _ -> Error.internal_error loc "expected an ordinary-post flag"
+    in
+    let flag_qi = QualIdent.from_ident flag_id in
+    let release =
+      Stmt.mk_cond ~loc (Some flag)
+        (Stmt.mk_block_stmt ~loc
+           (posts false @ [ Stmt.mk_assign ~loc [ flag_qi ] (Expr.mk_bool ~loc false) ]))
+        (Stmt.mk_block_stmt ~loc [])
+    in
+    let assign =
+      if List.is_empty call.call_lhs then []
+      else
+        [
+          Stmt.mk_assign ~loc ~is_init:call.call_is_init call.call_lhs
+            (Expr.mk_tuple
+               (List.take returns (List.length call.call_lhs)
+               |> List.map ~f:Expr.from_var_decl));
+        ]
+    in
+    let havoc_returns =
+      List.map returns ~f:(fun var ->
+          Stmt.mk_havoc ~loc ~is_init:true (QualIdent.from_ident var.var_name))
+    in
+    Rewriter.return
+      ( bind @ captures @ exhales @ havoc_returns @ posts true @ assign
+        @ [ Stmt.mk_assign ~loc [ flag_qi ] (Expr.mk_bool ~loc true) ],
+        {
+          state with
+          pending_ordinary_posts = state.pending_ordinary_posts @ [ (flag_id, release) ];
+          ordinary_post_flags = flag_id :: state.ordinary_post_flags;
+        } )
+
 (* Returns the extra assert statements (reentrancy guard + membership proof)
    the caller must splice in immediately before the [Unfold] statement,
    together with the updated state. *)
@@ -1322,10 +1450,21 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
       else mark_ghost_update ~loc atomicity_state
     in
     let* () = Rewriter.set_user_state atomicity_state in
-    let+ stmt = rewrite_au_cmnd stmt in
-    match update_flag_stmts with
+    let* stmt = rewrite_au_cmnd stmt in
+    let* state = Rewriter.current_user_state in
+    let release =
+      if List.is_empty state.au_opened && List.is_empty state.invs_opened then
+        state.pending_ordinary_posts
+      else []
+    in
+    let+ () =
+      if List.is_empty release then Rewriter.return ()
+      else Rewriter.set_user_state { state with pending_ordinary_posts = [] }
+    in
+    let release_stmts = List.map release ~f:snd in
+    match update_flag_stmts @ release_stmts with
     | [] -> stmt
-    | _ :: _ -> Stmt.mk_block_stmt ~loc (stmt :: update_flag_stmts)
+    | suffix -> Stmt.mk_block_stmt ~loc (stmt :: suffix)
   and rewrite_au_cmnd (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext =
     let* is_ghost_scope = Rewriter.is_ghost_scope in
     let* curr_callable_name = Rewriter.current_scope_id in
@@ -1713,12 +1852,14 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
           let* abort_stmts, call_desc, atomicity_state =
             abort_check ~loc call_decl call_desc atomicity_state
           in
-          let stmt = { stmt with stmt_desc = Basic (Call call_desc) } in
+          let* call_stmts, atomicity_state =
+            defer_ordinary_call_post ~loc call_decl call_desc atomicity_state
+          in
           let atomicity_state = take_atomic_step ~loc atomicity_state in
           let* _ = Rewriter.set_user_state atomicity_state in
           Rewriter.return
             (Stmt.mk_block_stmt ~loc
-               (availability_asserts @ reentrancy_asserts @ abort_stmts @ [ stmt ]))
+               (availability_asserts @ reentrancy_asserts @ abort_stmts @ call_stmts))
         else
           let atomicity_state, flag_stmts =
             (if Callable.is_atomic call_decl && not call_decl.call_decl_physical_atomic
@@ -2345,6 +2486,15 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
               markers =
                 List.dedup_and_sort ~compare:Ident.compare
                   (then_atomicity_state.markers @ else_atomicity_state.markers);
+              pending_ordinary_posts =
+                List.dedup_and_sort
+                  ~compare:(fun (left, _) (right, _) -> Ident.compare left right)
+                  (then_atomicity_state.pending_ordinary_posts
+                 @ else_atomicity_state.pending_ordinary_posts);
+              ordinary_post_flags =
+                List.dedup_and_sort ~compare:Ident.compare
+                  (then_atomicity_state.ordinary_post_flags
+                 @ else_atomicity_state.ordinary_post_flags);
             }
           in
           let* _ = Rewriter.set_user_state else_atomicity_state in
@@ -2463,6 +2613,8 @@ let analyze ?namespace_draft (c : Callable.t) : (namespace_analysis, 'a) Rewrite
         atomic_step_taken = false;
         openings = [];
         claims = [];
+        pending_ordinary_posts = [];
+        ordinary_post_flags = [];
         markers = [];
         in_atomic_block = false;
         mask;
@@ -2473,6 +2625,27 @@ let analyze ?namespace_draft (c : Callable.t) : (namespace_analysis, 'a) Rewrite
     (let* callable = Rewriter.Callable.rewrite_stmts ~f:rewrite_au_cmnds c in
      let* (state : atomicity_check) = Rewriter.current_user_state in
      let+ callable = Rewriter.Callable.rewrite_stmts ~f:(place_claims state) callable in
+     let callable =
+       match callable.call_def with
+       | ProcDef { proc_body = Some body }
+         when not (List.is_empty state.ordinary_post_flags) ->
+           let init =
+             List.map state.ordinary_post_flags ~f:(fun flag ->
+                 Stmt.mk_assign ~loc:body.stmt_loc ~is_init:true
+                   [ QualIdent.from_ident flag ]
+                   (Expr.mk_bool ~loc:body.stmt_loc false))
+           in
+           {
+             callable with
+             call_def =
+               ProcDef
+                 {
+                   proc_body =
+                     Some (Stmt.mk_block_stmt ~loc:body.stmt_loc (init @ [ body ]));
+                 };
+           }
+       | _ -> callable
+     in
      { callable; separation = state.separation; callees = state.callees })
 
 let rewrite_atomicity_analysis c =

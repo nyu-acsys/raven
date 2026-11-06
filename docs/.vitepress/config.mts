@@ -1,20 +1,12 @@
-import { defineConfig } from 'vitepress'
-import { existsSync, readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { installSectionRefs } from './section-refs.mts'
+import { defineProjectSite, siteBase } from '@nyu-acsys/docs-kit/config'
+import { sectionItems } from '@nyu-acsys/docs-kit/sections'
+import project from './project.mjs'
 
-// The same registry that drives in-page numbering and {{ref}} (see
-// section-refs.mts) also drives the sidebar's numbered entries below, so a
-// section's number and anchor can never drift out of sync between the two --
-// the failure mode that kept recurring by hand before this existed. Only the
-// *label* stays hand-picked: a heading's full title is sometimes too long or
-// too markdown-heavy (backticks, parentheses) for a nav item, so
-// `SIDEBAR_LABELS` supplies the short running head instead; `numberedItems`
-// throws if a numbered section is missing one, so an added section can't
-// silently end up with no sidebar entry.
-const sectionRegistryPath = fileURLToPath(new URL('./section-registry.json', import.meta.url))
-const { sections, pagesOrder, pages } = JSON.parse(readFileSync(sectionRegistryPath, 'utf-8'))
+const registry = project.sections.buildRegistry()
+const { pages } = registry
+const base = siteBase(project)
 
+// Numbering comes from project.mjs; short navigation labels remain site-specific.
 const SIDEBAR_LABELS: Record<string, string> = {
   'sec:install': 'Install',
   'sec:first-rav-file': "Your first .rav file",
@@ -143,13 +135,7 @@ const APPENDIX_LABELS: Record<string, string> = {
 }
 
 function numberedItems(pageKey: string) {
-  const ids: string[] = pagesOrder[pageKey] ?? []
-  return ids.map((id) => {
-    const section = sections[id]
-    const label = SIDEBAR_LABELS[id]
-    if (!label) throw new Error(`No SIDEBAR_LABELS entry for ${id} (${pageKey}) -- add one in config.mts`)
-    return { text: `${section.number}. ${label}`, link: `${pageKey}#${section.anchor}` }
-  })
+  return sectionItems(registry, pageKey, SIDEBAR_LABELS)
 }
 
 function appendixItems() {
@@ -167,92 +153,13 @@ function appendixItems() {
     })
 }
 
-// Without this, VitePress treats any relative link ending in an extension it
-// doesn't recognize as an internal page link and rewrites it by appending
-// `.html` -- e.g. `./hit_counter_pure.rav` becomes `./hit_counter_pure.rav.html`,
-// a 404, since no such file exists. `.rav` is a real source file, not a page;
-// this tells VitePress's link-rewriting to leave it (and anything else with
-// this extension) alone.
-//
-// Set in *two* places, redundantly, on purpose: `package.json`'s scripts set
-// this as a real shell env var (`VITE_EXTRA_EXTENSIONS=rav vitepress ...`),
-// which is what actually matters for `vitepress dev` -- the extension list
-// is a lazily-initialized, process-lifetime-cached value, computed on first
-// use, so a mutation here can lose the race against whatever markdown gets
-// rendered first during dev-server startup. Setting it before the process
-// even starts avoids that race entirely. The assignment here is a fallback,
-// for the (currently theoretical) case of someone invoking `vitepress`
-// directly rather than through the npm scripts -- harmless either way, and
-// `.env` files don't help here, since they aren't auto-loaded into the
-// Node-side build process the way they are for client code.
-process.env.VITE_EXTRA_EXTENSIONS = 'rav'
-
-// Vendored from raven-lang/syntaxes/raven.tmLanguage.json (the same grammar
-// that drives syntax highlighting in the VS Code extension) so that code
-// blocks in the tutorial render identically to what a reader sees in their
-// own editor. If the VS Code extension's grammar changes, re-copy it here --
-// there's no automated sync yet.
-const ravenGrammarPath = fileURLToPath(
-  new URL('./raven.tmLanguage.json', import.meta.url)
-)
-const ravenGrammar = JSON.parse(readFileSync(ravenGrammarPath, 'utf-8'))
-ravenGrammar.aliases = ['raven']
-
-// GitHub Pages serves this site from https://nyu-acsys.github.io/raven/ --
-// a subpath, not the domain root -- so every root-relative URL needs a
-// '/raven/' prefix there. Locally (`npm run dev`/`preview`), there's no
-// subpath, so base stays '/'. The deploy workflow (.github/workflows/
-// deploy-docs.yml) sets GITHUB_PAGES=true for the production build only.
-const base = process.env.GITHUB_PAGES ? '/raven/' : '/'
-
-export default defineConfig({
-  // The site root is `docs/` itself: `index.md` is the project landing page and the
-  // tutorial lives under `tutorial/`, so it is served at /tutorial/ rather than at the
-  // root. Everything else in this directory is build machinery rather than content.
-  srcExclude: ['node_modules/**', 'scripts/**', 'ext/**'],
+export default defineProjectSite(project, {
+  srcExclude: ['ext/**'],
   title: 'Raven',
   description:
     'An intermediate verification language and SMT-based deductive verifier for concurrent programs.',
-  base,
-
   head: [
     ['link', { rel: 'icon', type: 'image/png', href: `${base}favicon.png` }]
-  ],
-
-  markdown: {
-    languages: [ravenGrammar],
-    config: (md) => installSectionRefs(md, { base })
-  },
-
-  // `.rav` files are real source, linked directly from the prose (e.g.
-  // `./hit_counter_pure.rav`) so a reader can open the exact code being
-  // discussed -- but they aren't VitePress pages, so the dead-link checker
-  // doesn't know about them. `scripts/sync-rav.mjs` (run via `predev`/
-  // `prebuild`) mirrors every `.rav` file into `public/` at the same
-  // relative path, which is what actually makes these links resolve when
-  // clicked; this just tells the checker they're expected.
-  //
-  // The second entry works around a real bug in VitePress 1.6.4's own dead-link
-  // checker (independent of the vite/esbuild overrides above -- reproduced with
-  // vite reverted to the version VitePress declares support for): for a
-  // `base`-prefixed link (a directory-style link such as `[Part 3](../modules/)`,
-  // or one `{{ref ...}}` renders), the rendered href (e.g.
-  // `/raven/tutorial/modules/`, with `index` appended) has only its leading `/`
-  // stripped before being checked against `pages`, which are `base`-agnostic
-  // -- so the `base` segment (`raven`) is still in there, `pages` never
-  // contains it, and every such link is misreported as dead, but only on a
-  // `base: '/raven/'` build (`GITHUB_PAGES=true`), which local `npm run build`
-  // doesn't exercise. Re-verifies the link itself (strips `base` back to a real
-  // page under `tutorial/`) rather than ignoring anything of this shape, so a
-  // genuinely dead link still fails the build. Worth removing on the next
-  // VitePress upgrade, once fixed upstream.
-  ignoreDeadLinks: [
-    /\.rav$/,
-    (url: string) => {
-      if (base === '/' || !url.startsWith(base)) return false
-      const page = url.slice(base.length).replace(/[?#].*$/, '')
-      return existsSync(fileURLToPath(new URL(`../${page}.md`, import.meta.url)))
-    }
   ],
 
   themeConfig: {

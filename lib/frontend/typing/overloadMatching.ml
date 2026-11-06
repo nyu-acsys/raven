@@ -125,6 +125,24 @@ let lookup ctx qi =
             path
       end
 
+(** Whether [typ] mentions a member of one of the module's defined instances, which are
+    checked only after the interfaces' members are matched. *)
+let mentions_unchecked_instance ctx typ =
+  let prefix = QualIdent.to_list ctx.mod_qual_ident in
+  Set.exists (Type.scope_symbols typ) ~f:(fun qi ->
+      let path = QualIdent.to_list qi in
+      let local =
+        if List.is_prefix path ~prefix ~equal:Ident.equal then
+          List.drop path (List.length prefix)
+        else path
+      in
+      match local with
+      | name :: _ :: _ -> (
+          match Map.find ctx.own_symbols name with
+          | Some (Module.ModInst { mod_inst_def = Some _; _ }) -> true
+          | _ -> false)
+      | _ -> false)
+
 let normalize ctx typ =
   let open Rewriter.Syntax in
   let+ normalized = CandidateTypes.normalize ~lookup:(lookup ctx) typ in
@@ -372,6 +390,76 @@ let match_functions ~(m : Module.t) ~parent_ident ctx mod_def parent_mod_def
           end
       | _ -> Rewriter.return (matches, remapping))
 
+(** Follow concrete overrides without changing the identity of named module arguments. *)
+let inherited_module_instance ctx instances (instance : Module.module_inst) =
+  let open Rewriter.Syntax in
+  let rec local_alias instructions path =
+    match path with
+    | [] -> None
+    | name :: rest ->
+        List.find_map instructions ~f:(function
+          | Module.SymbolDef
+              (ModInst
+                 {
+                   mod_inst_name;
+                   mod_inst_def = Some (Alias target);
+                   mod_inst_is_sealed = false;
+                   mod_inst_is_checked = false;
+                   mod_inst_is_interface = false;
+                   _;
+                 })
+            when Ident.equal name mod_inst_name ->
+              Some (QualIdent.from_list (QualIdent.to_list target @ rest))
+          | Module.SymbolDef (ModDef definition)
+            when Ident.equal name definition.mod_decl.mod_decl_name
+                 && (not definition.mod_decl.mod_decl_is_sealed)
+                 && Option.is_none definition.mod_decl.mod_decl_sealed_target
+                 && (not definition.mod_decl.mod_decl_is_interface)
+                 && Module.is_structure definition.mod_decl ->
+              local_alias definition.mod_def rest
+          | _ -> None)
+  in
+  let argument qi =
+    let qi = rename_instance instances qi in
+    let prefix = QualIdent.to_list ctx.mod_qual_ident in
+    let path = QualIdent.to_list qi in
+    let path =
+      if List.is_prefix path ~prefix ~equal:Ident.equal then
+        List.drop path (List.length prefix)
+      else if QualIdent.is_local qi then path
+      else []
+    in
+    let target = Option.value (local_alias ctx.own_instrs path) ~default:qi in
+    let* resolved = Rewriter.resolve_opt target in
+    let+ table = Rewriter.get_table in
+    Option.value_map resolved ~default:qi ~f:(fun target ->
+        SymbolTbl.identity ~preserve_abstract_owners:true target table)
+  in
+  match instance.mod_inst_def with
+  | Some (CanonicalApply (head, args))
+    when (not instance.mod_inst_is_sealed)
+         && String.is_prefix
+              (Ident.name instance.mod_inst_name)
+              ~prefix:ProgUtils.inst_mod_ident_prefix ->
+      let written =
+        List.map args ~f:(function Module.ModArg qi -> Some qi | TypeArg _ -> None)
+        |> Option.all
+      in
+      begin match written with
+      | None -> Rewriter.return None
+      | Some written ->
+          let* arguments = Rewriter.List.map written ~f:argument in
+          if List.equal QualIdent.equal written arguments then Rewriter.return None
+          else
+            let+ target =
+              lift
+                (ProgUtils.instantiate_functor_at_modules ~loc:instance.mod_inst_loc
+                   ~functor_qual_ident:head arguments)
+            in
+            Some target
+      end
+  | _ -> Rewriter.return None
+
 (** Maps the instances that the interface created implicitly to the module's instances of
     the same functor applications. *)
 let match_instances ctx =
@@ -381,20 +469,28 @@ let match_instances ctx =
     ~f:(fun instances -> function
       | Module.SymbolDef (ModInst mi) ->
           let* application = inherited_application ctx instances mi in
-          begin match application with
-          | None -> Rewriter.return instances
-          | Some application ->
-              let+ prepared =
-                prepare_type ctx (Set.empty (module QualIdent)) application
-              in
-              begin match prepared with
-              | Type.App (Var target, [], _) ->
-                  Map.set instances
-                    ~key:(QualIdent.append ctx.mod_qual_ident mi.mod_inst_name)
-                    ~data:(QualIdent.pop target)
-              | _ -> instances
-              end
-          end
+          let application =
+            Option.bind application ~f:(fun application ->
+                if mentions_unchecked_instance ctx application then None
+                else Some application)
+          in
+          let* target =
+            match application with
+            | None -> inherited_module_instance ctx instances mi
+            | Some application ->
+                let+ prepared =
+                  prepare_type ctx (Set.empty (module QualIdent)) application
+                in
+                begin match prepared with
+                | Type.App (Var target, [], _) -> Some (QualIdent.pop target)
+                | _ -> None
+                end
+          in
+          Rewriter.return
+            (Option.value_map target ~default:instances ~f:(fun target ->
+                 Map.set instances
+                   ~key:(QualIdent.append ctx.mod_qual_ident mi.mod_inst_name)
+                   ~data:target))
       | _ -> Rewriter.return instances)
 
 (** The member [instr] of the interface with its names rewritten by [f]. *)
@@ -429,8 +525,41 @@ let match_overloads ~(m : Module.t) ~(mod_qual_ident : qual_ident)
   in
   let ctx = { mod_qual_ident; own_instrs; own_symbols; parent_instrs = parent_mod_def } in
   let* instances = match_instances ctx in
+  (* Inherited paths and rewritten signatures must denote the same canonical instance. *)
   let* parent_mod_def =
-    Rewriter.List.map parent_mod_def ~f:(rewrite_member ~f:(rename_instance instances))
+    Rewriter.List.map parent_mod_def ~f:(fun instruction ->
+        let instruction =
+          match instruction with
+          | Module.SymbolDef
+              (ModInst
+                 ({
+                    mod_inst_def = Some (CanonicalApply (head, _));
+                    mod_inst_is_sealed = false;
+                    _;
+                  } as instance))
+            when String.is_prefix
+                   (Ident.name instance.mod_inst_name)
+                   ~prefix:ProgUtils.inst_mod_ident_prefix ->
+              let source = QualIdent.append mod_qual_ident instance.mod_inst_name in
+              begin match Map.find instances source with
+              | Some target when not (QualIdent.equal source target) ->
+                  let mod_inst_type =
+                    if QualIdent.equal instance.mod_inst_type head then target
+                    else instance.mod_inst_type
+                  in
+                  Module.SymbolDef
+                    (ModInst
+                       {
+                         instance with
+                         mod_inst_type;
+                         mod_inst_def = Some (Module.Alias target);
+                         mod_inst_shared = [];
+                       })
+              | Some _ | None -> instruction
+              end
+          | _ -> instruction
+        in
+        rewrite_member ~f:(rename_instance instances) instruction)
   in
   let ctx = { ctx with parent_instrs = parent_mod_def } in
   let* own_signatures = own_signatures ctx mod_def parent_mod_def in

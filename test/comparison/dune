@@ -1,6 +1,6 @@
 (cram
  (deps
-  %{project_root}/bin/raven.exe
+  %{bin:raven}
   %{project_root}/lib/library/resource_algebra.rav
   ; Include the concurrent directory
   (source_tree %{project_root}/test/concurrent)

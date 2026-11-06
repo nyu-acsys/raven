@@ -242,6 +242,7 @@ let config : Driver.config =
     prog_stats = false;
     smt_timeout = 10000;
     smt_diagnostics = false;
+    shared_solver = false;
     max_errors = None;
     log_level = None;
     strict = false;
@@ -262,6 +263,59 @@ let verifies text =
   | exception Util.Error.Msg errors ->
       assert (not (List.is_empty errors));
       false
+
+let () =
+  let loc = R.Loc.none in
+  let id name = R.Ident.make ~loc name in
+  let q ?(path = []) name = R.Name.make ~loc ~path name in
+  let var name = R.Expr.var ~loc (q name) in
+  let carrier = R.Type.named ~loc (q ~path:[ "E" ] "T") [] in
+  let phantom = R.Type.named ~loc (q "Phantom") [ carrier ] in
+  let parameter = [ (id "E", q ~path:[ "Library" ] "Type") ] in
+  let program annotated =
+    let element = R.Expr.call ~loc (q ~path:[ "Phantom" ] "published") [ var "cell" ] in
+    let element = if annotated then R.Expr.annotated element phantom else element in
+    R.Program.make ~loc
+      [
+        R.Member.module_ ~loc ~params:parameter (id "Phantom")
+          [
+            R.Member.type_ ~loc ~rep:true (id "T")
+              (Some
+                 (R.Type.data ~loc
+                    [
+                      R.Type.variant ~loc (id "published")
+                        [ (id "cell", R.Type.ref ~loc) ];
+                    ]));
+          ];
+        R.Member.module_ ~loc ~params:parameter (id "Sink")
+          [
+            R.Member.callable
+              (R.Callable.func ~loc
+                 ~formals:[ R.Var.make ~loc (id "items") (R.Type.fin_set ~loc phantom) ]
+                 ~returns:[ R.Var.make ~loc (id "result") (R.Type.bool ~loc) ]
+                 (id "take")
+                 (Some (R.Expr.bool ~loc true)));
+          ];
+        R.Member.module_ ~loc ~params:parameter (id "Client")
+          [
+            R.Member.callable
+              (R.Callable.proc ~loc ~kind:Lemma
+                 ~formals:[ R.Var.make ~loc ~ghost:true (id "cell") (R.Type.ref ~loc) ]
+                 (id "check")
+                 (Some
+                    [
+                      R.Stmt.assert_ ~loc
+                        (R.Spec.make
+                           (R.Expr.call ~loc (q ~path:[ "Sink" ] "take")
+                              [ R.Expr.set ~loc [ element ] ]));
+                    ]));
+          ];
+      ]
+  in
+  let annotated = R.Expr.annotated (R.Expr.int ~loc 7) (R.Type.int ~loc) in
+  assert (String.equal (R.Expr.to_string annotated) "(7: Int)");
+  assert (verifies (roundtrip (program true)));
+  assert (not (verifies (roundtrip (program false))))
 
 let () =
   let loc = R.Loc.none in
@@ -401,3 +455,49 @@ let () =
   let narrow = render 40 and wide = render 200 in
   assert (not (String.equal narrow wide));
   assert (String.equal (print (parse narrow)) (print (parse wide)))
+
+let () =
+  let loc = R.Loc.none in
+  let id name = R.Ident.make ~loc name in
+  let name text = R.Name.make ~loc text in
+  let var text = R.Expr.var ~loc (name text) in
+  let program decreasing =
+    let list = R.Type.named ~loc (name "List") [] in
+    let data =
+      R.Type.data ~loc
+        [
+          R.Type.variant ~loc (id "nil") [];
+          R.Type.variant ~loc (id "cons")
+            [ (id "head", R.Type.int ~loc); (id "tail", list) ];
+        ]
+    in
+    let recurse =
+      R.Expr.call ~loc (name "visit") [ var (if decreasing then "tail" else "values") ]
+    in
+    let body =
+      R.Expr.match_ ~loc (var "values")
+        [
+          (R.Expr.Case (id "nil", []), R.Expr.int ~loc 0);
+          (R.Expr.Case (id "cons", [ id "head"; id "tail" ]), recurse);
+        ]
+    in
+    let visit =
+      R.Callable.func ~loc
+        ~formals:[ R.Var.make ~loc (id "values") list ]
+        ~returns:[ R.Var.make ~loc (id "result") (R.Type.int ~loc) ]
+        ~decreases:[ var "values" ]
+        (id "visit") (Some body)
+    in
+    R.Program.make ~loc
+      [ R.Member.type_ ~loc (id "List") (Some data); R.Member.callable visit ]
+  in
+  let terminating = program true in
+  assert (R.verify terminating).verified;
+  assert (verifies (roundtrip terminating));
+  let nonterminating = program false in
+  let result = R.verify nonterminating in
+  assert (not result.verified);
+  assert (
+    List.exists result.diagnostics ~f:(fun diagnostic ->
+        Poly.equal diagnostic.R.Diagnostic.kind Verification));
+  assert (not (verifies (roundtrip nonterminating)))

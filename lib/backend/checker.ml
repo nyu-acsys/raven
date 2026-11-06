@@ -223,6 +223,7 @@ let rec check_stmt ~proc curr_callable (stmt : Stmt.t) : unit t =
 let check_procedure fully_qual_name (callable : Ast.Callable.t) stmt proc : unit t =
   let open State.Syntax in
   let call_decl = callable.call_decl in
+  let* () = renew_solver in
   with_scope
   @@
   let* () = start_procedure in

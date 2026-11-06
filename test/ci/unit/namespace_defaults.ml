@@ -33,9 +33,10 @@ let validate source =
   let tbl, frozen = Rewriter.eval (Closure.freeze draft collected.program) tbl in
   snd (Rewriter.eval (Realization.validate ~draft frozen) tbl)
 
-let module_summary = function
+let module_summary contract =
+  match NamespaceContract.view contract with
   | NamespaceContract.Module summary -> summary
-  | Functor _ -> assert false
+  | Functor _ | Requalified _ -> assert false
 
 let contract program =
   Option.value_exn program.Module.mod_decl.mod_decl_mask_contract |> module_summary
@@ -140,9 +141,9 @@ let test_parameter_substitution () =
   let _, frozen = Rewriter.eval (Closure.freeze draft collected.program) tbl in
   let root = contract frozen in
   let functor_result =
-    match member root "F" with
+    match NamespaceContract.view (member root "F") with
     | NamespaceContract.Functor summary -> module_summary summary.result
-    | Module _ -> assert false
+    | Module _ | Requalified _ -> assert false
   in
   let x = argument functor_result "use" in
   assert_mask (callable functor_result "use").requires [ own [ "F"; "P"; "i" ] [ x ] ];

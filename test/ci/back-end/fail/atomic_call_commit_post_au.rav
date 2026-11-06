@@ -1,0 +1,30 @@
+field cell: Int
+
+proc inner(x: Ref)
+  ensures false
+  atomic requires own(x.cell, 0, 1.0)
+  atomic ensures own(x.cell, 1, 1.0)
+{
+  ghost val phi := bindAU();
+  atomic {
+    openAU(phi);
+    x.cell := 1;
+    commitAU(phi, ());
+  }
+  while (true) invariant true {}
+}
+
+inv untouched(x: Ref) { true }
+
+proc outer(x: Ref)
+  requires untouched(x)
+  atomic requires own(x.cell, 0, 1.0)
+  atomic ensures false
+{
+  ghost val phi := bindAU();
+  openAU(phi);
+  unfold untouched(x);
+  inner(x);
+  fold untouched(x);
+  commitAU(phi, ());
+}

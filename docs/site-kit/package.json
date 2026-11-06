@@ -1,0 +1,26 @@
+{
+  "name": "@nyu-acsys/docs-kit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "Shared VitePress infrastructure for ACSys verification projects.",
+  "exports": {
+    "./config": "./src/config.mjs",
+    "./sections": "./src/sections.mjs",
+    "./examples": "./src/examples.mjs",
+    "./prepare": "./src/prepare.mjs",
+    "./theme": "./src/theme.mjs",
+    "./theme.css": "./src/theme.css"
+  },
+  "bin": {
+    "project-docs": "./bin/project-docs.mjs"
+  },
+  "files": ["src", "bin", "README.md", "LICENSE"],
+  "peerDependencies": {
+    "vitepress": "^1.6.4"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

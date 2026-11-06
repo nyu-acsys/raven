@@ -302,6 +302,14 @@ let rec normalize_contract_expr seen expr =
     | Expr.Binder _ -> expr
   in
   match expr with
+  | Expr.App (ExprExt ext, args, attr) ->
+      let* args = Rewriter.List.map args ~f:(normalize_contract_expr seen) in
+      let* hooks = Rewriter.current_ext_hooks in
+      let* normalized = lift (hooks.normalize_contract_expr_ext ext args attr) in
+      begin match normalized with
+      | Some expr -> normalize_contract_expr seen expr
+      | None -> Rewriter.return (Expr.App (ExprExt ext, args, attr))
+      end
   | Expr.App (Var name, args, attr) when not (Set.mem seen name) ->
       let* args = Rewriter.List.map args ~f:(normalize_contract_expr seen) in
       let expr = Expr.App (Var name, args, attr) in
@@ -323,7 +331,13 @@ let rec normalize_contract_expr seen expr =
 
 let contract_exprs_equal ~sm left right =
   let open Rewriter.Syntax in
-  if Expr.alpha_equal ~sm left right then Rewriter.return true
+  let rec has_extension = function
+    | Expr.App (ExprExt _, _, _) -> true
+    | Expr.App (_, args, _) -> List.exists args ~f:has_extension
+    | Expr.Binder (_, _, _, body, _) -> has_extension body
+  in
+  if (not (has_extension left || has_extension right)) && Expr.alpha_equal ~sm left right
+  then Rewriter.return true
   else
     let seen = Set.empty (module QualIdent) in
     let+ left = normalize_contract_expr seen left
@@ -370,6 +384,30 @@ let field_constraints_equal left right =
       QualIdent.equal left right
   | None, Some _ | Some _, None -> Rewriter.return false
 
+(** Whether [left] and [right] are the same type: after expansion, or else as the
+    applications that generated instances stand for, as instances wrapping equal types in
+    different adapters are different modules. *)
+let same_type left right =
+  let open Rewriter.Syntax in
+  let* left = TypeExpr.expand_type_expr left
+  and* right = TypeExpr.expand_type_expr right in
+  if Type.equal left right then Rewriter.return true
+  else
+    let* table = Rewriter.get_table in
+    let identity qi = SymbolTbl.identity ~preserve_abstract_owners:true qi table in
+    (* Module aliases are resolved; type definitions are not, as a named module's type
+       differs from the type it is defined as. *)
+    let rec resolve_aliases (Type.App (head, args, attr)) =
+      let head = match head with Type.Var qi -> Type.Var (identity qi) | head -> head in
+      Type.App (head, List.map args ~f:resolve_aliases, attr)
+    in
+    let virtual_type typ =
+      let+ typ = CallResolution.virtual_applications typ in
+      resolve_aliases typ
+    in
+    let+ left = virtual_type left and+ right = virtual_type right in
+    Type.equal left right
+
 (** A callable [call_def] implementing [orig_call_def]: the same signature and, unless
     inherited, the same contract. *)
 let check_implements_callable (call_def : Callable.t) (orig_call_def : Callable.t)
@@ -380,13 +418,14 @@ let check_implements_callable (call_def : Callable.t) (orig_call_def : Callable.
   let make_subst decls odecls sm =
     Rewriter.List.fold2 decls odecls ~init:sm
       ~f:(fun sm (var_decl : var_decl) (ovar_decl : var_decl) ->
-        let+ ovar_decl_var_type = TypeExpr.expand_type_expr ovar_decl.var_type
-        and+ var_decl_var_type = TypeExpr.expand_type_expr var_decl.var_type in
+        let* types_equal = same_type var_decl.var_type ovar_decl.var_type in
+        Rewriter.return
+        @@
         if
           Bool.(var_decl.var_const <> ovar_decl.var_const)
           || Bool.(var_decl.var_implicit <> ovar_decl.var_implicit)
           || Bool.(var_decl.var_ghost <> ovar_decl.var_ghost)
-          || Type.(var_decl_var_type <> ovar_decl_var_type)
+          || not types_equal
         then
           formal_parameter_mismatch_error loc var_decl.var_name (Symbol.kind symbol) ident
             ovar_decl.var_name ident interface_ident
@@ -639,11 +678,11 @@ let check_parents_disjoint ~loc parent_ancestors =
 
 (** The names that [symbol] mentions. A nested module's mentions of its own members are
     left out. *)
-let rec mentioned_names (symbol : Module.symbol) : Set.M(QualIdent).t =
+let rec mentioned_names ?(bodies = true) (symbol : Module.symbol) : Set.M(QualIdent).t =
   let empty = Set.empty (module QualIdent) in
   let arg_names acc = function
     | Module.ModArg qi -> Set.add acc qi
-    | Module.TypeArg tp -> Type.symbols ~acc tp
+    | Module.TypeArg tp -> Type.scope_symbols ~acc tp
   in
   let inst_names acc (inst : Module.module_inst) =
     let acc = Set.add acc inst.mod_inst_type in
@@ -657,28 +696,36 @@ let rec mentioned_names (symbol : Module.symbol) : Set.M(QualIdent).t =
   in
   match symbol with
   | TypeDef { type_def_expr; _ } ->
-      Option.fold type_def_expr ~init:empty ~f:(fun acc tp -> Type.symbols ~acc tp)
+      Option.fold type_def_expr ~init:empty ~f:(fun acc tp -> Type.scope_symbols ~acc tp)
   | FieldDef { field_type; field_alias; _ } ->
-      let acc = Type.symbols field_type in
+      let acc = Type.scope_symbols field_type in
       Option.fold field_alias ~init:acc ~f:Set.add
   | VarDef { var_decl; var_init; _ } ->
-      let acc = Type.symbols var_decl.var_type in
+      let acc = Type.scope_symbols var_decl.var_type in
       Option.fold var_init ~init:acc ~f:(fun acc e -> Expr.symbols ~acc e)
   | CallDef { call_decl; call_def } ->
       (* A procedure's body is left out: callables may be used before their definition. *)
       let acc =
-        List.fold (call_decl.call_decl_formals @ call_decl.call_decl_returns) ~init:empty
-          ~f:(fun acc var_decl -> Type.symbols ~acc var_decl.var_type)
-      in
-      let acc =
-        List.fold (call_decl.call_decl_precond @ call_decl.call_decl_postcond) ~init:acc
+        List.fold (call_decl.call_decl_precond @ call_decl.call_decl_postcond) ~init:empty
           ~f:(fun acc spec -> Expr.symbols ~acc spec.spec_form)
       in
-      let acc = Option.fold call_decl.call_decl_alias ~init:acc ~f:Set.add in
-      begin match call_def with
-      | FuncDef { func_body = Some e } -> Expr.symbols ~acc e
-      | _ -> acc
-      end
+      let acc =
+        match call_def with
+        | FuncDef { func_body = Some e } when bodies -> Expr.symbols ~acc e
+        | _ -> acc
+      in
+      let acc =
+        List.fold
+          (call_decl.call_decl_formals @ call_decl.call_decl_returns
+         @ call_decl.call_decl_locals)
+          ~init:acc
+          ~f:(fun acc var_decl -> Set.remove acc (QualIdent.from_ident var_decl.var_name))
+      in
+      let acc =
+        List.fold (call_decl.call_decl_formals @ call_decl.call_decl_returns) ~init:acc
+          ~f:(fun acc var_decl -> Type.scope_symbols ~acc var_decl.var_type)
+      in
+      Option.fold call_decl.call_decl_alias ~init:acc ~f:Set.add
   | ModInst inst -> inst_names empty inst
   | ModDef md ->
       let own =
@@ -694,7 +741,7 @@ let rec mentioned_names (symbol : Module.symbol) : Set.M(QualIdent).t =
       let acc = List.fold (Module.formals md.mod_decl) ~init:acc ~f:inst_names in
       let acc =
         List.fold md.mod_def ~init:acc ~f:(fun acc -> function
-          | Module.SymbolDef s -> Set.union acc (mentioned_names s)
+          | Module.SymbolDef s -> Set.union acc (mentioned_names ~bodies s)
           | Import _ -> acc)
       in
       Set.filter acc ~f:(fun qi ->
@@ -736,16 +783,72 @@ let order_members ~(mod_qual_ident : qual_ident) ~(fixed : Module.module_instr l
             | `Duplicate -> acc)
         | Import _ -> acc)
   in
+  (* Closed source modules expose exact names; other wildcard imports are conservative. *)
+  let import_may_export import qi =
+    match member_of ~mod_qual_ident qi with
+    | None -> false
+    | Some head when not import.Module.import_all ->
+        Ident.equal head (QualIdent.unqualify import.import_name)
+    | Some head ->
+        let imported =
+          Option.bind
+            (member_of ~mod_qual_ident import.import_name)
+            ~f:(Map.find index_of_name)
+        in
+        begin match Option.map imported ~f:(Array.get members) with
+        | Some (Module.SymbolDef (ModDef md))
+          when List.is_empty md.mod_decl.mod_decl_returns
+               && (not
+                     (List.exists md.mod_def ~f:(function
+                       | Module.Import _
+                       | SymbolDef
+                           (TypeDef { type_def_expr = Some (App (Data _, _, _)); _ }) ->
+                           true
+                       | SymbolDef _ -> false)))
+               && (QualIdent.equal import.import_name
+                     (QualIdent.from_ident md.mod_decl.mod_decl_name)
+                  || QualIdent.equal import.import_name
+                       (QualIdent.append mod_qual_ident md.mod_decl.mod_decl_name)) ->
+            List.exists md.mod_def ~f:(function
+              | Module.SymbolDef symbol -> Ident.equal head (Symbol.source_name symbol)
+              | Import _ -> false)
+        | Some _ | None -> true
+        end
+  in
   let deps i =
+    (* Callables are declared up front; their users need the headers' module
+       dependencies, without waiting for the callable bodies. *)
+    let rec add_dependency ~imports ~before (seen, dependencies) qi =
+      match Option.bind (member_of ~mod_qual_ident qi) ~f:(Map.find index_of_name) with
+      | Some j when j <> i && not (Set.mem seen j) ->
+          let seen = Set.add seen j in
+          begin match members.(j) with
+          | Module.SymbolDef (CallDef _ as symbol) ->
+              Set.fold
+                (mentioned_names ~bodies:false symbol)
+                ~init:(seen, dependencies)
+                ~f:(add_dependency ~imports:true ~before:j)
+          | Module.SymbolDef _ | Import _ -> (seen, Set.add dependencies j)
+          end
+      | Some _ -> (seen, dependencies)
+      | None when not imports -> (seen, dependencies)
+      | None ->
+          let dependencies =
+            Array.foldi members ~init:dependencies ~f:(fun j dependencies -> function
+              | Module.Import import when j < before && j < num_fixed ->
+                  if import_may_export import qi then Set.add dependencies j
+                  else dependencies
+              | Module.SymbolDef _ | Import _ -> dependencies)
+          in
+          (seen, dependencies)
+    in
     let mentioned =
       match members.(i) with
       | Module.SymbolDef s ->
-          Set.fold (mentioned_names s) ~init:[] ~f:(fun acc qi ->
-              match
-                Option.bind (member_of ~mod_qual_ident qi) ~f:(Map.find index_of_name)
-              with
-              | Some j when j <> i -> j :: acc
-              | _ -> acc)
+          Set.fold (mentioned_names s)
+            ~init:(Set.empty (module Int), Set.empty (module Int))
+            ~f:(add_dependency ~imports:false ~before:i)
+          |> snd |> Set.to_list
       | Import _ -> []
     in
     if i > 0 && i < num_fixed then (i - 1) :: mentioned else mentioned

@@ -413,6 +413,8 @@ and ext_hooks = {
           to do nothing. *)
   check_contract_ext_group_compatible : Callable.call_decl list -> unit t;
   rewrite_type_ext : Type.type_ext -> type_expr list -> location -> type_expr t;
+  normalize_contract_expr_ext :
+    Expr.expr_ext -> expr list -> Expr.expr_attr -> expr option t;
   rewrite_expr_ext : Expr.expr_ext -> expr list -> Expr.expr_attr -> expr t;
   rewrite_basic_stmt_ext : Stmt.stmt_ext -> expr list -> location -> Stmt.t t;
       (** The [stmt_desc]-level sibling of [rewrite_basic_stmt_ext], for [Stmt.StmtExt].
@@ -544,6 +546,7 @@ let default_ext_hooks : ext_hooks =
       (fun _ _ _ ->
         Error.internal_error Loc.dummy
           "Rewriter.default_ext_hooks.rewrite_type_ext: no extension configured");
+    normalize_contract_expr_ext = (fun _ _ _ -> State.return None);
     rewrite_expr_ext =
       (fun _ _ _ ->
         Error.internal_error Loc.dummy
@@ -1413,25 +1416,8 @@ module Type = struct
         let* acc = f typ init in
         List.fold_left tp_list ~f:(fun acc typ -> fold ~f ~init:acc typ) ~init:acc
 
-  let rec rewrite_qual_idents ~f (tp_expr : Type.t) : (Type.t, 'a) t_ext =
-    let open Syntax in
-    match tp_expr with
-    | App (Var id, [], tp_attr) -> return (Type.App (Var (f id), [], tp_attr))
-    | App (AtomicToken qual_id, [], tp_attr) ->
-        return (Type.App (AtomicToken (f qual_id), [], tp_attr))
-    | App (Data (qual_id, variant_decls_list), [], tp_attr) ->
-        let qual_id = f qual_id in
-        let* variant_decls_list =
-          List.map variant_decls_list ~f:(fun variant_decl ->
-              let+ var_decls_list =
-                List.map variant_decl.variant_args ~f:(fun var_decl ->
-                    VarDecl.rewrite_types ~f:(rewrite_qual_idents ~f) var_decl)
-              in
-
-              { variant_decl with variant_args = var_decls_list })
-        in
-        return (Type.App (Data (qual_id, variant_decls_list), [], tp_attr))
-    | _ -> descend ~f:(rewrite_qual_idents ~f) tp_expr
+  let rewrite_qual_idents ~f (tp_expr : Type.t) : (Type.t, 'a) t_ext =
+    return (AstDef.Type.map_qual_idents ~f tp_expr)
 end
 
 module Expr = struct
@@ -1462,17 +1448,21 @@ module Expr = struct
           | _ -> return constr
         in
         let+ expr_list = List.map expr_list ~f:(rewrite_types ~f)
-        and+ expr_type = f expr_attr.expr_type in
-        let expr_attr = { expr_attr with expr_type } in
+        and+ expr_type = f expr_attr.expr_type
+        and+ expr_type_annot = Option.map expr_attr.expr_type_annot ~f in
+        let expr_attr = { expr_attr with expr_type; expr_type_annot } in
         Expr.App (constr, expr_list, expr_attr)
     | Binder (b, var_decls, trgs, inner_expr, expr_attr) ->
         let* var_decls = List.map var_decls ~f:(VarDecl.rewrite_types ~f) in
         let+ _ = add_locals var_decls
+        and+ expr_type = f expr_attr.expr_type
+        and+ expr_type_annot = Option.map expr_attr.expr_type_annot ~f
         and+ inner_expr = rewrite_types ~f inner_expr
         and+ trgs =
           List.map trgs ~f:(fun exprs -> List.map exprs ~f:(rewrite_types ~f))
         in
-        Expr.Binder (b, var_decls, trgs, inner_expr, expr_attr)
+        Expr.Binder
+          (b, var_decls, trgs, inner_expr, { expr_attr with expr_type; expr_type_annot })
 
   (** [rewrite_qual_idents], but with [f] in the monad, so it can consult the symbol
       table. Type positions are left alone: only the constructor names are rewritten,
@@ -1518,8 +1508,11 @@ module Expr = struct
     match expr with
     | App (constr, expr_list, expr_attr) ->
         let+ expr_list = List.map expr_list ~f:(rewrite_qual_idents ~f)
-        and+ expr_type = Type.rewrite_qual_idents ~f expr_attr.expr_type in
-        let expr_attr = { expr_attr with expr_type } in
+        and+ expr_type = Type.rewrite_qual_idents ~f expr_attr.expr_type
+        and+ expr_type_annot =
+          Option.map expr_attr.expr_type_annot ~f:(Type.rewrite_qual_idents ~f)
+        in
+        let expr_attr = { expr_attr with expr_type; expr_type_annot } in
         let constr =
           match constr with
           | Var qual_ident -> Expr.Var (f qual_ident)
@@ -1537,12 +1530,15 @@ module Expr = struct
         in
         let+ _ = add_locals var_decls
         and+ expr_type = Type.rewrite_qual_idents ~f expr_attr.expr_type
+        and+ expr_type_annot =
+          Option.map expr_attr.expr_type_annot ~f:(Type.rewrite_qual_idents ~f)
         and+ inner_expr = rewrite_qual_idents ~f inner_expr
         and+ trgs =
           List.map trgs ~f:(fun exprs -> List.map exprs ~f:(rewrite_qual_idents ~f))
         in
 
-        Expr.Binder (b, var_decls, trgs, inner_expr, { expr_attr with expr_type })
+        Expr.Binder
+          (b, var_decls, trgs, inner_expr, { expr_attr with expr_type; expr_type_annot })
 end
 
 module Stmt = struct
@@ -2018,6 +2014,9 @@ module Callable = struct
 end
 
 module NamespaceContract = struct
+  let rewrite_requalification ~transformations contract =
+    return (AstDef.NamespaceContract.requalify_contract transformations contract)
+
   let rewrite_qual_idents ~f contract =
     AstDef.NamespaceContract.map_state
       ~name:(fun name -> return (f name))
@@ -2210,8 +2209,8 @@ module Module = struct
     in
     { mod_inst with mod_inst_type; mod_inst_def; mod_inst_shared }
 
-  let rec rewrite_qual_idents_in_symbol ~(f : QualIdent.t -> QualIdent.t) :
-      Module.symbol -> (Module.symbol, 'a) t_ext =
+  let rec rewrite_qual_idents_in_symbol ?transformations ~(f : QualIdent.t -> QualIdent.t)
+      : Module.symbol -> (Module.symbol, 'a) t_ext =
     let open Syntax in
     let open Module in
     function
@@ -2279,20 +2278,26 @@ module Module = struct
 
         CallDef new_call_def
     | ModDef mod_def ->
-        let+ new_mod_def = rewrite_qual_idents ~f mod_def in
+        let+ new_mod_def = rewrite_qual_idents ?transformations ~f mod_def in
         ModDef new_mod_def
 
-  and rewrite_qual_idents ~f mdef : (Module.t, 'a) t_ext =
+  and rewrite_qual_idents ?transformations ~f mdef : (Module.t, 'a) t_ext =
     (* TODO: rewrite imports *)
     let open Syntax in
     let open Module in
-    let* mdef1 = rewrite_symbols ~f:(rewrite_qual_idents_in_symbol ~f) mdef in
+    let* mdef1 =
+      rewrite_symbols ~f:(rewrite_qual_idents_in_symbol ?transformations ~f) mdef
+    in
     let* formals =
       List.map (Module.formals mdef1.mod_decl) ~f:(rewrite_instance_qual_idents ~f)
     in
     let+ mod_decl_mask_contract =
       Option.map mdef1.mod_decl.mod_decl_mask_contract
-        ~f:(NamespaceContract.rewrite_qual_idents ~f)
+        ~f:
+          (match transformations with
+          | None -> NamespaceContract.rewrite_qual_idents ~f
+          | Some transformations ->
+              NamespaceContract.rewrite_requalification ~transformations)
     in
     let mod_decl_interfaces =
       Set.fold mdef1.mod_decl.mod_decl_interfaces
@@ -2379,6 +2384,8 @@ module Symbol = struct
         let _, symbol1 =
           eval
             (Module.rewrite_qual_idents_in_symbol
+               ~transformations:
+                 [ AstDef.NamespaceContract.Substitute (SymbolTbl.qid_subst subst) ]
                ~f:(subst |> SymbolTbl.qid_subst |> QualIdent.requalify)
                symbol0)
             tbl_scope
@@ -2511,8 +2518,10 @@ let resolve_and_find_opt ?(read_only = false) name :
   let* tbl = get_table in
 
   match SymbolTbl.resolve_and_find ~read_only name tbl with
-  | Some (_, qual_ident, _, _) when SymbolTbl.is_poisoned qual_ident tbl ->
-      (* A use of a member that failed to type-check, whose error is already reported. *)
+  | Some (alias_qual_ident, qual_ident, _, _)
+    when SymbolTbl.is_poisoned qual_ident tbl
+         || SymbolTbl.is_poisoned alias_qual_ident tbl ->
+      (* Neither an instance nor an alias can expose a member that failed to check. *)
       Error.fail_with []
   | Some (alias_qual_ident, qual_ident, symbol, subst) ->
       let* () =

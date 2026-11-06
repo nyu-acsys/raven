@@ -232,6 +232,13 @@ module Callable = struct
       opens_loc = loc;
     }
 
+  let decreases_clause = function
+    | [] -> []
+    | measures ->
+        [
+          Ext.DecreasesExtInstance.Decreases (List.map measures ~f:(fun e -> Spec.make e));
+        ]
+
   let proc ~loc ?(kind = Proc) ?(atomic = false) ?(auto = false) ?formals ?returns
       ?(requires = []) ?(ensures = []) ?opens ?(decreases = []) name body =
     let kind : S.Callable.proc_kind =
@@ -247,22 +254,14 @@ module Callable = struct
       S.Callable.decl ~loc ~kind:Func ?formals ?returns ~precond:requires
         ~postcond:ensures
         ?opens:(Option.map opens ~f:opens_clause)
-        ~contract_ext:
-          (match decreases with
-          | [] -> []
-          | measures ->
-              [
-                Ext.DecreasesExtInstance.Decreases
-                  (List.map measures ~f:(fun e -> Spec.make e));
-              ])
-        name
+        ~contract_ext:(decreases_clause decreases) name
     in
     S.Callable.proc ~atomic kind decl (Option.map body ~f:(S.Stmt.block_stmt ~loc))
 
   type func_kind = Func | Pred | Inv
 
   let func ~loc ?(kind = Func) ?(inline = false) ?formals ?returns ?(requires = [])
-      ?(ensures = []) name body =
+      ?(ensures = []) ?(decreases = []) name body =
     let kind : Ast.Callable.call_kind =
       match kind with
       | Func -> Func
@@ -274,7 +273,7 @@ module Callable = struct
     in
     let decl =
       S.Callable.decl ~loc ~kind ~is_inline:inline ?formals ?returns ~precond:requires
-        ~postcond:ensures name
+        ~postcond:ensures ~contract_ext:(decreases_clause decreases) name
     in
     S.Callable.func decl body
 
@@ -535,6 +534,35 @@ module Diagnostic = struct
     go [] None [] errors
 end
 
+module Progress = struct
+  type phase = Typed | Scheduled | Progress | Final
+
+  type outcome = Diagnostics.MemberStatus.outcome =
+    | Cached
+    | Verified
+    | Pending
+    | Timeout
+    | Failed
+
+  type check = { name : string; kind : string; loc : Loc.t; outcome : outcome }
+  type t = { phase : phase; checks : check list; diagnostics : Diagnostic.t list }
+
+  let snapshot phase pending (diagnostics : Diagnostics.t) =
+    let check ((proc : Diagnostics.MemberStatus.procedure), outcome) =
+      { name = proc.proc_name; kind = proc.proc_kind; loc = proc.proc_loc; outcome }
+    in
+    {
+      phase;
+      checks =
+        List.map
+          (List.map pending ~f:(fun proc -> (proc, Pending)) @ diagnostics.results)
+          ~f:check;
+      diagnostics =
+        Diagnostic.of_errors
+          (Diagnostics.warnings diagnostics @ Diagnostics.report_errors diagnostics);
+    }
+end
+
 type extension = Default | Eris
 type options = { extension : extension; smt_timeout : int; max_errors : int option }
 
@@ -552,6 +580,7 @@ let config_of (options : options) : Driver.config =
     prog_stats = false;
     smt_timeout = options.smt_timeout;
     smt_diagnostics = false;
+    shared_solver = false;
     max_errors = options.max_errors;
     log_level = None;
     strict = false;
@@ -606,8 +635,10 @@ end
 
 (* A top-level handler, as the executable's: the errors that end a run are returned as
    diagnostics, never raised. *)
-let verify ?(options = default_options) ?(includes = []) (program : Program.t) : result =
-  let config = config_of options in
+let verify ?(options = default_options) ?(includes = []) ?cache_dir ?on_progress
+    (program : Program.t) : result =
+  let notify = on_progress in
+  let config = { (config_of options) with cache_dir } in
   let diagnostics =
     Diagnostics.create ?max_errors:options.max_errors ~collect_warnings:true ()
   in
@@ -615,13 +646,21 @@ let verify ?(options = default_options) ?(includes = []) (program : Program.t) :
   let extension =
     match options.extension with Default -> Ext.ProphecyExt | Eris -> Ext.ErisExt
   in
+  let report phase pending = Progress.snapshot phase pending diagnostics in
+  let on_typed = Option.map on_progress ~f:(fun send () -> send (report Typed [])) in
+  let on_scheduled =
+    Option.map on_progress ~f:(fun send pending -> send (report Scheduled pending))
+  in
+  let on_progress =
+    Option.map on_progress ~f:(fun send pending -> send (report Progress pending))
+  in
   let run () =
     Ast.Ident.restore ();
     let included =
       Driver.parse_program ~free:true ~includes:include_sites ~diagnostics config includes
     in
-    Driver.check_program ~includes:include_sites ~extension_mode:(`Explicit extension)
-      ~diagnostics config
+    Driver.check_program ?on_typed ?on_scheduled ?on_progress ~includes:include_sites
+      ~extension_mode:(`Explicit extension) ~diagnostics config
       (Ast.merge_prog included program)
   in
   let errors =
@@ -640,7 +679,12 @@ let verify ?(options = default_options) ?(includes = []) (program : Program.t) :
       ->
         [ (Internal, Loc.none, Exn.to_string exn) ]
   in
-  {
-    verified = List.is_empty errors;
-    diagnostics = Diagnostic.of_errors (Diagnostics.warnings diagnostics @ errors);
-  }
+  let result =
+    {
+      verified = List.is_empty errors;
+      diagnostics = Diagnostic.of_errors (Diagnostics.warnings diagnostics @ errors);
+    }
+  in
+  Option.iter notify ~f:(fun send ->
+      send { (report Final []) with diagnostics = result.diagnostics });
+  result

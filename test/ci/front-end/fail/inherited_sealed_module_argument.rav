@@ -1,0 +1,21 @@
+interface Value {
+  rep type Carrier
+  func holds(value: Carrier) returns (result: Bool)
+}
+module Scalar : Value {
+  rep type Carrier = Int
+  func holds(value: Carrier) returns (result: Bool) { true }
+}
+module Lists[Element: Value] {
+  rep type Carrier = Library.List[Element.Carrier]
+}
+interface Argument {
+  module Element : Value
+  module Values = Lists[Argument.Element]
+}
+module Hidden : Argument {
+  module Element :> Value = Scalar
+  proc reveal(values: Library.List[Int]) returns (result: Hidden.Values.Carrier) {
+    result := values;
+  }
+}

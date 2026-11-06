@@ -72,6 +72,32 @@ let rewrite_callable_error_msg (call : Callable.t) : Callable.t Rewriter.t =
   in
   Callable.{ call_decl; call_def }
 
+(* Eliminate extension binders before substituting the caller's arguments. *)
+let rec normalize_inline_pred_body (expr : expr) =
+  let open Rewriter.Syntax in
+  let* normalized =
+    match expr with
+    | App (ExprExt ext, args, attr) ->
+        let* hooks = Rewriter.current_ext_hooks in
+        hooks.normalize_contract_expr_ext ext args attr
+    | _ -> Rewriter.return None
+  in
+  match normalized with
+  | Some expr -> normalize_inline_pred_body expr
+  | None ->
+      begin match expr with
+      | App (constr, args, attr) ->
+          let+ args = Rewriter.List.map args ~f:normalize_inline_pred_body in
+          Expr.App (constr, args, attr)
+      | Binder (binder, vars, triggers, body, attr) ->
+          let+ body = normalize_inline_pred_body body
+          and+ triggers =
+            Rewriter.List.map triggers
+              ~f:(Rewriter.List.map ~f:normalize_inline_pred_body)
+          in
+          Expr.Binder (binder, vars, triggers, body, attr)
+      end
+
 (* Replaces each application of an inline predicate by its body. [seen] holds the inline
    predicates being expanded, so that one met again is recursive. *)
 let rec rewrite_inline_preds_expr seen (expr : expr) : expr Rewriter.t =
@@ -136,6 +162,7 @@ let rec rewrite_inline_preds_expr seen (expr : expr) : expr Rewriter.t =
                   ~data:arg_expr)
           in
 
+          let* body = normalize_inline_pred_body body in
           let new_body =
             Expr.mk_binder ~loc ~typ:(Expr.to_type expr) Exists new_dropped_args
               (Expr.alpha_renaming body new_renaming_map)

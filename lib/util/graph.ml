@@ -61,6 +61,12 @@ module Make (V : Vertex) = struct
   let targets (vs, es) : VertexSet.t =
     Map.fold es ~f:(fun ~key ~data -> Set.union data) ~init:empty_vertex_set
 
+  (** The subgraph induced by [kept], including only edges between retained vertices. *)
+  let restrict (vs, es) kept =
+    ( Set.inter (Set.union vs (targets (vs, es))) kept,
+      Map.filter_mapi es ~f:(fun ~key ~data ->
+          Option.some_if (Set.mem kept key) (Set.inter data kept)) )
+
   (** The vertices reachable from [roots], including [roots] themselves. *)
   let reachable g (roots : VertexSet.t) : VertexSet.t =
     let rec go seen = function

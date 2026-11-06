@@ -6,6 +6,7 @@ open NamespaceContract
 type t = {
   namespaces : namespace_decl Map.M(QualIdent).t;
   equations : NamespaceEquations.t;
+  callables : callable_summary Map.M(QualIdent).t;
 }
 
 let rec prefixes name =
@@ -51,7 +52,7 @@ let canonical_mask ?(rename = Fn.id) mask =
   let* table = Rewriter.get_table in
   (* Argument aliases share values without identifying abstract module owners. *)
   let canonical_argument name =
-    let name = rename name in
+    let name = project_instances table (rename name) in
     if QualIdent.is_qualified name then
       SymbolTbl.identity ~preserve_abstract_owners:true name table
     else name
@@ -83,7 +84,7 @@ let align_body source target body =
   List.map body ~f:(fun (head, args) ->
       (head, List.map args ~f:(fun arg -> Expr.alpha_renaming arg renaming)))
 
-let create ?(rename = Fn.id) ?(overrides = []) declarations =
+let create ?(rename = Fn.id) ?(overrides = []) ?(callables = []) declarations =
   let open Rewriter.Syntax in
   let canonical declaration =
     Rewriter.in_scope_of declaration.name
@@ -176,11 +177,104 @@ let create ?(rename = Fn.id) ?(overrides = []) declarations =
         | Defined _ -> Map.set map ~key:declaration.name ~data:declaration)
   in
   Rewriter.return
-    { namespaces; equations = NamespaceEquations.solve (Map.data namespaces) }
+    {
+      namespaces;
+      equations = NamespaceEquations.solve (Map.data namespaces);
+      callables = Map.of_alist_exn (module QualIdent) callables;
+    }
+
+(** Resource identity comes from raw predicate contracts, not body upper bounds. *)
+let normalize_predicates ?(rename = Fn.id) state mask =
+  let open Rewriter.Syntax in
+  let* table = Rewriter.get_table in
+  let frozen original =
+    match Map.find state.callables original with
+    | Some summary -> Some summary
+    | None ->
+        Option.bind
+          (Map.find table.tbl_symbols (QualIdent.pop original))
+          ~f:(function
+            | Module.ModDef
+                { mod_decl = { mod_decl_mask_contract = Some contract; _ }; _ } ->
+                let rec result contract =
+                  match NamespaceContract.view contract with
+                  | Module summary -> Some summary
+                  | Functor summary -> result summary.result
+                  | Requalified _ -> assert false
+                in
+                Option.bind (result contract) ~f:(fun summary ->
+                    List.Assoc.find summary.callables
+                      (QualIdent.unqualify original)
+                      ~equal:Ident.equal)
+            | _ -> None)
+  in
+  let summary name =
+    match
+      SymbolTbl.resolve_and_find ~implementation:true ~read_only:true name
+        (SymbolTbl.goto name table)
+    with
+    | Some (original, _, _, substitution) ->
+        Option.map (frozen original) ~f:(fun summary ->
+            let requalify = QualIdent.requalify (SymbolTbl.qid_subst substitution) in
+            NamespaceContract.map_callable_summary ~name:requalify
+              ~expr:(Expr.map_qual_idents ~f:requalify)
+              ~typ:(Type.map_qual_idents ~f:requalify)
+              summary)
+    | None -> None
+  in
+  let matching_variables binders arguments =
+    match List.zip binders arguments with
+    | Unequal_lengths -> false
+    | Ok pairs ->
+        List.for_all pairs ~f:(fun (binder, argument) ->
+            match argument with
+            | Expr.App (Expr.Var variable, [], _) ->
+                QualIdent.equal variable (QualIdent.from_ident binder.Type.var_name)
+            | _ -> false)
+  in
+  let symbolic_resource (summary : callable_summary) =
+    match (summary.kind, summary.requires, summary.grants, summary.guarded_grants) with
+    | ( Callable.Pred,
+        [ (Callable.MaskHead.Dependencies needed, inputs) ],
+        [ (Callable.MaskHead.Dependencies granted, values) ],
+        [] ) ->
+        QualIdent.equal needed granted
+        && matching_variables summary.formals inputs
+        && matching_variables (summary.formals @ summary.returns) values
+    | _ -> false
+  in
+  let rec resolve seen original ((head, args) as entry) =
+    match head with
+    | Callable.MaskHead.Invariant _ -> Rewriter.return [ entry ]
+    | Dependencies name when Set.mem seen name -> Rewriter.return [ original ]
+    | Dependencies name ->
+        begin match summary name with
+        | Some ({ formals; returns; grants; _ } as contract)
+          when symbolic_resource contract ->
+            let* next =
+              canonical_mask ~rename
+                (NamespaceEquations.instantiate (formals @ returns) args grants)
+            in
+            if Callable.mask_equal [ entry ] next then Rewriter.return next
+            else
+              let+ next =
+                Rewriter.List.map next ~f:(resolve (Set.add seen name) original)
+              in
+              Callable.mask_canon (List.concat next)
+        | Some _ | None -> Rewriter.return [ entry ]
+        end
+  in
+  let* mask = canonical_mask ~rename mask in
+  let+ masks =
+    Rewriter.List.map mask ~f:(fun entry ->
+        resolve (Set.empty (module QualIdent)) entry entry)
+  in
+  Callable.mask_canon (List.concat masks)
 
 let normalize_mask ?(rename = Fn.id) state mask =
-  NamespaceEquations.normalize_required ~resolve:(canonical_mask ~rename) state.equations
-    mask
+  NamespaceEquations.normalize_required
+    ~resolve:(normalize_predicates ~rename state)
+    state.equations mask
 
 let covered ~by mask =
   List.for_all mask ~f:(fun entry ->
@@ -299,8 +393,8 @@ let rec entails ?(rename = Fn.id) state ~assumptions requirement =
   let open Rewriter.Syntax in
   let original_requirement = requirement in
   let canonical requirement =
-    let* left = canonical_mask ~rename requirement.left in
-    let+ right = canonical_mask ~rename requirement.right in
+    let* left = normalize_predicates ~rename state requirement.left in
+    let+ right = normalize_predicates ~rename state requirement.right in
     { requirement with left; right }
   in
   let* assumptions = Rewriter.List.map assumptions ~f:canonical in

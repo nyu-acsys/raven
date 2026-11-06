@@ -48,3 +48,9 @@ proc get(s: S)
    }
  }
 verified: true
+
+free module Trusted
+{
+  free val zero : Int := 0
+}
+verified: true

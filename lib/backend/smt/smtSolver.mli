@@ -36,6 +36,10 @@ module SmtSession : sig
   val with_scope : session -> f:(unit -> 'a) -> 'a
   (** Restores the solver scope on return or exception. Cleanup preserves body errors. *)
 
+  val renew : session -> unit
+  (** Resets the solver and replays the session's scopes and commands, so that what the
+      checks before left in the solver's search state does not affect the checks after. *)
+
   module ForTesting : sig
     type read_error =
       | Response_timeout

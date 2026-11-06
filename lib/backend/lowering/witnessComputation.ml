@@ -55,11 +55,8 @@ let rec requantify ~loc (vds : var_decl list) (expr : expr) : expr =
         List.partition_tf vds ~f:(fun vd -> List.count args ~f:(fun a -> occurs a vd) > 1)
       in
       here shared
-        (App
-           ( And,
-             List.map args ~f:(fun a ->
-                 requantify ~loc (List.filter rest ~f:(occurs a)) a),
-             attr ))
+        (Expr.mk_and ~loc:attr.expr_loc
+           (List.map args ~f:(fun a -> requantify ~loc (List.filter rest ~f:(occurs a)) a)))
   | _, App (Impl, [ c; b ], attr) ->
       let shared, rest = List.partition_tf vds ~f:(occurs c) in
       here shared (App (Impl, [ c; requantify ~loc rest b ], attr))
@@ -159,10 +156,7 @@ let generate_skolem_function (universal_quants : universal_quants) (var_decl : v
      func this is not just equivalent but identical to what used to be assumed: see
      the `FuncDef { func_body = None }` case in [Checker.check_callable], which turns
      a separate precond/postcond pair into exactly `pre(args) ==> post(args, f(args))`. *)
-  (* [mk_chained_and], not [mk_and]: this feeds into a postcondition that gets
-     type-checked again below (via [generate_skolem_functions]'s call into
-     [Typing.check_symbol]), and the type-checker only accepts `&&` as binary. *)
-  let precond_conj = Expr.mk_chained_and preconds in
+  let precond_conj = Expr.mk_and preconds in
   let postconds =
     List.map postconds ~f:(fun postcond ->
         Stmt.mk_spec (Expr.mk_impl precond_conj postcond))
@@ -365,7 +359,7 @@ let resolve_dependencies (vars : var_decl list) (outer_conds : conditions)
                         let default = snd (List.last_exn choices) in
                         List.fold_right choices ~init:default
                           ~f:(fun (guard, value) rest ->
-                            Expr.mk_ite (Expr.mk_chained_and guard) value rest)
+                            Expr.mk_ite (Expr.mk_and guard) value rest)
                       in
                       let required =
                         if
@@ -375,8 +369,7 @@ let resolve_dependencies (vars : var_decl list) (outer_conds : conditions)
                         else
                           [
                             Expr.mk_or
-                              (List.map choices ~f:(fun (guard, _) ->
-                                   Expr.mk_chained_and guard));
+                              (List.map choices ~f:(fun (guard, _) -> Expr.mk_and guard));
                           ]
                       in
                       let substitution =
@@ -445,7 +438,9 @@ and elim_a ?(fallbacks = []) (universal_quants : universal_quants) (conds : cond
         let e_list, wtns_specs, notes = List.unzip3 e_wtns_specs_list in
 
         Rewriter.return
-          (Expr.App (And, e_list, expr_attr), List.concat wtns_specs, List.concat notes)
+          ( Expr.mk_and ~loc:expr_attr.expr_loc e_list,
+            List.concat wtns_specs,
+            List.concat notes )
     | Binder (Forall, var_decls, trgs, e, expr_attr) ->
         let universal_quants =
           let new_quants =
@@ -576,7 +571,7 @@ and elim_a1 ?(fallbacks = []) (univ_vars : universal_quants) (univ_conds : condi
                     (* Keep the fallback only where no primary witness applies. *)
                     let uncovered =
                       List.map choices ~f:(fun (conds, _) ->
-                          Expr.mk_not ~loc (Expr.mk_chained_and ~loc conds))
+                          Expr.mk_not ~loc (Expr.mk_and ~loc conds))
                     in
                     choices
                     @ List.map data ~f:(fun (conds, witness) ->
@@ -607,7 +602,7 @@ and elim_a1 ?(fallbacks = []) (univ_vars : universal_quants) (univ_conds : condi
               | Some choices ->
                   let uncovered =
                     List.map choices ~f:(fun (conds, _) ->
-                        Expr.mk_not ~loc (Expr.mk_chained_and ~loc conds))
+                        Expr.mk_not ~loc (Expr.mk_and ~loc conds))
                   in
                   choices @ [ (uncovered, value) ]))
       in
@@ -794,7 +789,7 @@ and elim_a1 ?(fallbacks = []) (univ_vars : universal_quants) (univ_conds : condi
               | Some witness_arg_exprs ->
                   let postconds =
                     List.map witness_arg_exprs ~f:(fun (optn_arg, conds, e) ->
-                        Expr.mk_impl (Expr.mk_chained_and conds)
+                        Expr.mk_impl (Expr.mk_and conds)
                           (Expr.mk_eq (Expr.from_var_decl var_decl)
                              (Expr.from_var_decl optn_arg)))
                   in
@@ -809,7 +804,7 @@ and elim_a1 ?(fallbacks = []) (univ_vars : universal_quants) (univ_conds : condi
                                   if index_outer >= index_inner then accum
                                   else
                                     Expr.mk_impl
-                                      (Expr.mk_chained_and (conds1 @ conds2))
+                                      (Expr.mk_and (conds1 @ conds2))
                                       (Expr.mk_eq
                                          (Expr.from_var_decl optn_arg1)
                                          (Expr.from_var_decl optn_arg2))
@@ -1517,6 +1512,10 @@ let rewrite_one ~follows_assert ~rewrite_stmt (stmt : Stmt.t) : Stmt.t Rewriter.
                   | vds -> Binder (Exists, vds, trgs, e, attr)
                 end
               | Binder (b, vds, trgs, e, attr) -> Binder (b, vds, trgs, substitute e, attr)
+              | App (And, es, attr) ->
+                  Expr.mk_and ~loc:attr.expr_loc (List.map es ~f:substitute)
+              | App (Or, es, attr) ->
+                  Expr.mk_or ~loc:attr.expr_loc (List.map es ~f:substitute)
               | App (c, es, attr) -> App (c, List.map es ~f:substitute, attr)
             in
             substitute exhale_expr

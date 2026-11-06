@@ -75,6 +75,69 @@ let test_concrete_resource_expansion () =
   assert (has_mask_entry use.grants (own [ "leaf" ] [ x ]));
   assert (has_mask_entry use.grants (dependency [ "leaf" ] [ x ]))
 
+let test_forwarding_namespaces () =
+  let symbols, draft =
+    parse
+      "free pred target(x: Int) returns (implicit ghost y: Int)\n\
+       pred wrapper(x: Int) returns (implicit ghost y: Int) { target(x, y) }\n\
+       pred shifted(x: Int) returns (implicit ghost y: Int) { target(x + 1, y) }\n\
+       pred changed_output(x: Int) returns (implicit ghost y: Int) { target(x, 0) }\n\
+       pred different_partition(x: Int, ghost y: Int) { target(x, y) }\n\
+       pred different_mode(ghost x: Int) returns (implicit ghost y: Int) { target(x, y) }\n\
+       pred direct(x: Int) { direct(x) }\n\
+       inv leaf_invariant(x: Int) { true }\n\
+       pred invariant_wrapper(x: Int) { leaf_invariant(x) }"
+  in
+  let check name target =
+    let summary = callable draft [ name ] in
+    assert (
+      Callable.mask_equal summary.requires
+        [ dependency [ target ] (List.map summary.formals ~f:Expr.from_var_decl) ]);
+    assert (
+      Callable.mask_equal summary.grants
+        [
+          dependency [ target ]
+            (List.map (summary.formals @ summary.returns) ~f:Expr.from_var_decl);
+        ])
+  in
+  check "wrapper" "target";
+  List.iter
+    [
+      "target";
+      "shifted";
+      "changed_output";
+      "different_partition";
+      "different_mode";
+      "direct";
+      "invariant_wrapper";
+    ] ~f:(fun name -> check name name);
+  let target = callable draft [ "target" ] in
+  let region =
+    [ dependency [ "target" ] (List.map target.formals ~f:Expr.from_var_decl) ]
+  in
+  let other =
+    dependency [ "shifted" ]
+      (List.map (target.formals @ target.returns) ~f:Expr.from_var_decl)
+  in
+  List.iter
+    [
+      { target with grants = [] };
+      { target with grants = target.grants @ [ other ] };
+      { target with grants = [ other ] };
+    ]
+    ~f:(fun malformed ->
+      let query =
+        let open Rewriter.Syntax in
+        let* context =
+          Frontend.NamespaceEntailment.create
+            ~callables:[ (qi [ "target" ], malformed) ]
+            (Map.data draft.namespaces)
+        in
+        Frontend.NamespaceEntailment.normalize_predicates context region
+      in
+      let _, normalized = Rewriter.eval query symbols in
+      assert (Callable.mask_equal normalized region))
+
 let test_opaque_formal_namespace () =
   let symbols, draft =
     parse
@@ -231,6 +294,7 @@ let test_atomic_implicit_and_resource_outputs () =
 let () =
   match
     test_concrete_resource_expansion ();
+    test_forwarding_namespaces ();
     test_opaque_formal_namespace ();
     test_alias_does_not_create_identity ();
     test_instantiated_equation_alias ();

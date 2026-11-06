@@ -240,6 +240,15 @@ let analyze (tbl : SymbolTbl.t) (mdefs : Module.t list) (lemma_calls : Graph.t)
       Graph.empty_vertex_set root_auto_g1
   in
   Logs.debug (fun m -> m "Graph: %a" (Graph.pr QualIdent.pr) g);
+  (* Prune before ordering: unreachable imports must not affect the order of retained
+     declarations through edges into their shared dependencies. *)
+  let combined = Graph.union g full_g in
+  let needed = Graph.reachable combined obligations in
+  Logs.debug (fun m ->
+      m "Dependencies.analyze: %d obligations, %d of %d symbols needed"
+        (Set.length obligations) (Set.length needed)
+        (Set.length (Graph.vertices combined)));
+  let g = Graph.restrict g needed and full_g = Graph.restrict full_g needed in
   let rank, _ =
     List.fold_left (Graph.topsort g)
       ~init:(Map.empty (module QualIdent), 0)
@@ -248,15 +257,6 @@ let analyze (tbl : SymbolTbl.t) (mdefs : Module.t list) (lemma_calls : Graph.t)
             (Map.set rank ~key:v ~data:c, c + 1)))
   in
   let scs = Graph.topsort (Graph.union g full_g) in
-  (* Symbols that no proof obligation depends on would only be declared and assumed in
-     scopes where nothing is checked, so they are dropped. An SCC is either entirely
-     reachable or not at all. *)
-  let needed = Graph.reachable (Graph.union g full_g) obligations in
-  let scs = List.filter scs ~f:(List.exists ~f:(Set.mem needed)) in
-  Logs.debug (fun m ->
-      m "Dependencies.analyze: %d obligations, %d of %d symbols needed"
-        (Set.length obligations) (Set.length needed)
-        (Set.length (Graph.vertices (Graph.union g full_g))));
   let symbols =
     List.map scs
       ~f:

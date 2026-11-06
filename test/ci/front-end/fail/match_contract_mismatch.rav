@@ -1,0 +1,10 @@
+interface ListHead {
+  proc head(xs: List[Int]) returns (r: Int)
+    ensures match xs { case nil => r == 0 case ::(x, tail) => r == x }
+}
+
+module WrongHead : ListHead {
+  proc head(values: List[Int]) returns (result: Int)
+    ensures match values { case nil => result == 1 case ::(item, rest) => result == item }
+  { result := 1; }
+}

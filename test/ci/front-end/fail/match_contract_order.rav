@@ -1,0 +1,12 @@
+type Choice = data { case first case second }
+
+interface Select {
+  proc select(choice: Choice) returns (r: Int)
+    ensures match choice { case first => r == 0 case second => r == 1 }
+}
+
+module WrongSelect : Select {
+  proc select(choice: Choice) returns (r: Int)
+    ensures match choice { case second => r == 0 case first => r == 1 }
+  { r := 0; }
+}

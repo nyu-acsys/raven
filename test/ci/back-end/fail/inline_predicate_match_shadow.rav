@@ -1,0 +1,31 @@
+type Node = data { case nil; case next(node_value: Bool) }
+
+inline pred value^1() { false }
+
+inline pred entry(node: Node)
+{
+  match node {
+    case nil => false
+    case next(value) => value
+  }
+}
+
+proc global_shadow()
+  requires entry(next(true))
+  ensures false
+{
+}
+
+inline pred matches(node: Node, expected: Bool)
+{
+  match node {
+    case nil => false
+    case next(value) => value == expected
+  }
+}
+
+proc caller_capture(value: Bool)
+  requires !value
+  ensures matches(next(true), value)
+{
+}

@@ -950,15 +950,10 @@ let classify_formal (formal : AstDef.Module.module_inst) : formal_solver option 
       Base.Option.map field_iface ~f:(fun (field, mod_members) ->
           ByField (interface_qi, field, mod_members))
 
-(** True iff every formal of [mod_decl] can be solved from a use site (see
-    [classify_formal]), making the functor eligible for implicit instantiation. *)
+(** True iff [mod_decl] is a named functor, whose members a use site can instantiate
+    implicitly; each call must determine its formals (see [classify_formal]). *)
 let is_generic_functor (mod_decl : AstDef.Module.module_decl) : bool t =
-  let open Rewriter.Syntax in
-  if not (AstDef.Module.is_named_functor mod_decl) then Rewriter.return false
-  else
-    Rewriter.List.for_all (AstDef.Module.formals mod_decl) ~f:(fun formal ->
-        let+ solver = classify_formal formal in
-        Base.Option.is_some solver)
+  Rewriter.return (AstDef.Module.is_named_functor mod_decl)
 
 (** Resolve [qi] and, if it names an uninstantiated generic functor (see
     [is_generic_functor]), return its fully qualified name together with its module
@@ -1175,7 +1170,7 @@ let find_insertion_scope_for_symbols (symbols : (qual_ident, _) Set.t) :
 let type_symbols (tps : AstDef.type_expr list) : (qual_ident, _) Set.t =
   Base.List.fold tps
     ~init:(Set.empty (module QualIdent))
-    ~f:(fun acc tp -> Set.union acc (AstDef.Type.symbols tp))
+    ~f:(fun acc tp -> Set.union acc (AstDef.Type.scope_symbols tp))
 
 (** [find_insertion_scope_for_symbols] for a functor applied to bare types. *)
 let find_insertion_scope_for_types (tps : AstDef.type_expr list) :
@@ -1279,6 +1274,103 @@ let non_rep_abstract_members ~(interface_qual_ident : qual_ident) ~(rep_ident : 
         | _ -> None)
   | _ -> []
 
+(** Reuse a generated type adapter whose owner was rebased after its name was made. *)
+let inherited_rep_module ~interface_qual_ident ~rep_ident ~reference_scope tp =
+  let open Rewriter.Syntax in
+  let* table = Rewriter.get_table in
+  let rec contains_extension (AstDef.Type.App (head, args, _)) =
+    let nested =
+      match head with
+      | AstDef.Type.TypeExt _ -> true
+      | Data (_, variants) ->
+          Base.List.exists variants ~f:(fun variant ->
+              Base.List.exists variant.AstDef.Type.variant_args ~f:(fun argument ->
+                  contains_extension argument.AstDef.Type.var_type))
+      | _ -> false
+    in
+    nested || Base.List.exists args ~f:contains_extension
+  in
+  let canonical qi = SymbolTbl.identity ~preserve_abstract_owners:true qi table in
+  let rec parents qi =
+    if Base.List.is_empty (QualIdent.path qi) then []
+    else
+      let parent = QualIdent.pop qi in
+      parent :: parents parent
+  in
+  let scopes =
+    reference_scope
+    :: Base.List.concat_map (Set.to_list (AstDef.Type.scope_symbols tp)) ~f:parents
+    |> Base.List.dedup_and_sort ~compare:QualIdent.compare
+  in
+  let matching_member scope requalify = function
+    | AstDef.Module.SymbolDef
+        (ModDef
+           { mod_decl = { mod_decl_name; mod_decl_rep = Some rep; _ } as decl; mod_def })
+      when Ident.equal rep rep_ident
+           && String.is_prefix (Ident.name mod_decl_name) ~prefix:tp_mod_ident_prefix
+           && AstDef.Module.is_structure decl
+           && Set.exists decl.mod_decl_interfaces ~f:(fun interface ->
+               QualIdent.equal
+                 (canonical (requalify interface))
+                 (canonical interface_qual_ident)) ->
+        let representation =
+          Base.List.find_map mod_def ~f:(function
+            | AstDef.Module.SymbolDef
+                (TypeDef { type_def_name; type_def_expr = Some representation; _ })
+              when Ident.equal type_def_name rep ->
+                Some representation
+            | _ -> None)
+        in
+        begin match representation with
+        | None -> return None
+        | Some representation ->
+            let* representation =
+              Rewriter.Type.rewrite_qual_idents ~f:requalify representation
+            in
+            let* representation = !Rewriter.expand_type_expr_ref representation in
+            if
+              contains_extension representation
+              || contains_extension tp
+              || not (AstDef.Type.equal representation tp)
+            then return None
+            else
+              let candidate = QualIdent.append scope mod_decl_name in
+              return
+                (match SymbolTbl.resolve_and_find ~read_only:true candidate table with
+                | Some (declared, target, _, _)
+                  when (not (SymbolTbl.is_poisoned declared table))
+                       && not (SymbolTbl.is_poisoned target table) ->
+                    Some candidate
+                | _ -> None)
+        end
+    | _ -> return None
+  in
+  Rewriter.List.fold_left scopes ~init:None ~f:(fun found scope ->
+      match found with
+      | Some _ -> return found
+      | None ->
+          begin match SymbolTbl.resolve_and_find ~read_only:true scope table with
+          | Some (declared, _, AstDef.Module.ModDef definition, subst) ->
+              let requalify = QualIdent.requalify (SymbolTbl.qid_subst subst) in
+              let registered =
+                if QualIdent.equal declared scope then
+                  let scoped = SymbolTbl.goto_scope scope table in
+                  SymbolTbl.get_scope_entries scoped.tbl_curr
+                  |> Hashtbl.keys
+                  |> Base.List.sort ~compare:Ident.compare
+                  |> Base.List.filter_map ~f:(fun name ->
+                      Base.Map.find table.tbl_symbols (QualIdent.append scope name)
+                      |> Base.Option.map ~f:(fun symbol -> AstDef.Module.SymbolDef symbol))
+                else []
+              in
+              Rewriter.List.fold_left (registered @ definition.mod_def) ~init:None
+                ~f:(fun found member ->
+                  match found with
+                  | Some _ -> return found
+                  | None -> matching_member scope requalify member)
+          | _ -> return None
+          end)
+
 (** Get the module wrapping [tp] as an implementation of [interface_qual_ident] (with rep
     type [rep_ident]): reuses an existing module already implementing
     [interface_qual_ident] if [tp] happens to be exactly its rep type (see
@@ -1301,8 +1393,14 @@ let get_or_intros_rep_module ~(loc : location)
           |> with_type_display ~rep:rep_ident tp)
       in
       let* resolve_result = Rewriter.resolve_opt canonical_qi in
-      match resolve_result with
-      | Some _ -> return canonical_qi
+      let* existing =
+        match resolve_result with
+        | Some _ -> return (Some canonical_qi)
+        | None ->
+            inherited_rep_module ~interface_qual_ident ~rep_ident ~reference_scope tp
+      in
+      match existing with
+      | Some existing -> return existing
       | None ->
           let* missing = non_rep_abstract_members ~interface_qual_ident ~rep_ident in
           let* () =
@@ -1452,6 +1550,50 @@ let inherited_canonical_application table ~functor_qual_ident arg_module_qis =
           Base.List.find_map (registered @ md.mod_def)
             ~f:(matching_member scope requalify)
       | _ -> None)
+
+(** The canonical module wrapping the type that the type adapter [qi], a member of another
+    module, stands for; [qi] itself if it is no adapter or its type is unknown. *)
+let canonical_adapter ~(loc : location) (qi : qual_ident) : qual_ident t =
+  let open Rewriter.Syntax in
+  if
+    (not (QualIdent.is_qualified qi))
+    || not
+         (String.is_prefix
+            (Ident.name (QualIdent.unqualify qi))
+            ~prefix:tp_mod_ident_prefix)
+  then return qi
+  else
+    let* found = Rewriter.resolve_and_find_opt qi in
+    match found with
+    | None -> return qi
+    | Some found -> (
+        let* symbol = Rewriter.Symbol.reify (snd found) in
+        let adapter =
+          match symbol with
+          | AstDef.Module.ModDef
+              {
+                mod_decl =
+                  {
+                    mod_decl_returns = [ (interface_qual_ident, []) ];
+                    mod_decl_rep = Some rep;
+                    _;
+                  };
+                mod_def;
+              } ->
+              Base.List.find_map mod_def ~f:(function
+                | SymbolDef (TypeDef { type_def_name; type_def_expr = Some tp; _ })
+                  when Ident.equal type_def_name rep ->
+                    Some (interface_qual_ident, rep, tp)
+                | _ -> None)
+          | _ -> None
+        in
+        match adapter with
+        | None -> return qi
+        | Some (interface_qual_ident, rep_ident, tp) ->
+            let* tp = !Rewriter.expand_type_expr_ref tp in
+            let* insert_scope, reference_scope = find_insertion_scope_for_types [ tp ] in
+            get_or_intros_rep_module ~loc ~f:!Rewriter.check_symbol_ref ~insert_scope
+              ~reference_scope ~interface_qual_ident ~rep_ident tp)
 
 (** Get or create (and typecheck) the instantiation of [functor_qual_ident] at
     [arg_module_qis]. Generated instances are keyed by the functor and the argument
@@ -1615,6 +1757,13 @@ and shared_body_instances ~(loc : location) ~(functor_qual_ident : qual_ident)
           || Base.List.exists substituted ~f:is_local
         then return (subst, shared)
         else
+          (* An adapter inherited from an argument, as one of an interface's members,
+             stands for the canonical one of its type. *)
+          let* substituted =
+            Rewriter.List.map2_exn args substituted ~f:(fun arg substituted ->
+                if QualIdent.equal arg substituted then return substituted
+                else canonical_adapter ~loc substituted)
+          in
           let+ inst =
             instantiate_functor_at_modules ~loc ~functor_qual_ident:substituted_head
               substituted
@@ -1651,7 +1800,7 @@ and shared_body_instances ~(loc : location) ~(functor_qual_ident : qual_ident)
             in
             if
               AstDef.Type.equal substituted tp
-              || Set.exists (AstDef.Type.symbols substituted) ~f:is_local
+              || Set.exists (AstDef.Type.scope_symbols substituted) ~f:is_local
             then return (subst, shared)
             else
               let* substituted = !Rewriter.expand_type_expr_ref substituted in

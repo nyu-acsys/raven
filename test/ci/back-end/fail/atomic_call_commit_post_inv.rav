@@ -1,0 +1,25 @@
+field cell: Int
+
+proc inner(x: Ref)
+  ensures false
+  atomic requires own(x.cell, 0, 1.0)
+  atomic ensures own(x.cell, 1, 1.0)
+{
+  ghost val phi := bindAU();
+  atomic {
+    openAU(phi);
+    x.cell := 1;
+    commitAU(phi, ());
+  }
+  while (true) invariant true {}
+}
+
+inv pinned(x: Ref) { own(x.cell, 0, 1.0) }
+
+proc worker(x: Ref)
+  requires pinned(x)
+{
+  unfold pinned(x);
+  inner(x);
+  fold pinned(x);
+}

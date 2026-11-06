@@ -1,0 +1,6 @@
+module A : Library.Type { rep type T = Int }
+module B : Library.Type { rep type T = Int }
+
+proc different(values: Library.List[A]) returns (result: Library.List[B]) {
+  result := values;
+}

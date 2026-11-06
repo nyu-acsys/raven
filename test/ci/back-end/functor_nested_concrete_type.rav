@@ -1,0 +1,12 @@
+// A functor over an interface with a nested module, applied to an implementation whose
+// nested module is a concrete one: the carrier is its type.
+interface Val { rep type Carrier }
+module IntVal : Val { rep type Carrier = Int }
+interface Wit { module A0 : Val }
+module W1[P0: Val] : Wit { module A0 : Val = P0 }
+module F[W: Wit] {
+  proc p(x: W.A0.Carrier) returns (y: W.A0.Carrier) { y := x; }
+}
+module OW : W1 = W1[IntVal]
+module FF : F = F[OW]
+proc q(x: Int) returns (y: Int) { y := FF.p(x); }

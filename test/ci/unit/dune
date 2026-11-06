@@ -70,6 +70,14 @@
  (modules api_verify)
  (libraries raven-ivl.api))
 
+(executable
+ (name progress_api)
+ (modules progress_api)
+ (libraries raven-ivl.api base logs logs.fmt fmt))
+
+(cram
+ (deps progress_api.exe))
+
 (test
  (name checked_library_api)
  (modules checked_library_api)
@@ -183,4 +191,19 @@
 (test
  (name namespace_origins)
  (modules namespace_origins)
+ (libraries raven base))
+
+(test
+ (name binary_connectives)
+ (modules binary_connectives)
+ (libraries raven base))
+
+(test
+ (name return_printing)
+ (modules return_printing)
+ (libraries raven base))
+
+(test
+ (name dependency_pruning)
+ (modules dependency_pruning)
  (libraries raven base))

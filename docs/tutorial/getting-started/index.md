@@ -125,7 +125,7 @@ Verifier** to check for a compatible update. From the command line, use `raven -
 
 ## Debugging Corner: reading what the editor tells you
 
-There are two habits worth building now, because every later part's "Debugging Corner" relies
+There are three habits worth building now, because every later part's "Debugging Corner" relies
 on them.
 
 1. **A failed check is often *two* linked messages, not one.** Try this:
@@ -148,11 +148,22 @@ on them.
    `&&`-joined conjuncts, the related location is usually the only thing that tells you which
    conjunct is the problem.
 
-2. **What Raven does *not* tell you.** It never explains *why* something is false, only *that*
-   it couldn't prove it. There's no counterexample trace and no "x was 5 when this failed." As
-   you'll see starting in Part 2, it also won't tell you *where* a resource went if a proof
-   runs out of permission partway through. Dealing with both requires a technique on your part
-   rather than a message to read. We introduce those techniques as they become relevant.
+2. **Read the counterexample values.** When Raven can produce a counterexample, the extension
+   shows values such as `x = 5` as inline hints at the failing check. Hover over the hint to
+   see all the reported values. Hovering over a variable or one of its fields in the same
+   procedure can also show its value at the failure, together with the failure's line number;
+   this is not necessarily its value at the place where you're hovering. At conditionals,
+   arrow hints show which branch the path to a failing check takes and where that check is.
+
+   A hint beginning with **"possibly"** is a *possible counterexample*: the solver could not
+   decide the check, and the displayed values may contradict quantified facts. Treat these
+   values as clues, rather than a confirmed failing execution. Counterexample displays require
+   a recent extension and a Raven verifier supporting LSP protocol 4 or later.
+
+3. **Know the limits of the display.** A counterexample helps explain a failed check, but it
+   does not track where every resource went. As you'll see starting in Part 2, running out of
+   permission partway through a proof still calls for tracing how resources move through
+   contracts and proof steps. We introduce those techniques as they become relevant.
 
 Finally, if you're not sure the squiggles you're looking at are current, re-run "Raven: Verify
 File" after an edit. The extension re-verifies automatically on save, but there's no harm in

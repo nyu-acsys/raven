@@ -86,10 +86,25 @@ let matching =
   in
   Program.make ~loc:l [ Member.type_ ~loc:l (ident "S") (Some data); Member.callable get ]
 
+(* free module Trusted { free val zero: Int := 0 }, printed trusted as it is built. *)
+let trusted =
+  let l = line 6 in
+  Program.make ~loc:l
+    [
+      Member.free
+        (Member.module_ ~loc:l (ident "Trusted")
+           [
+             Member.value ~loc:l ~typ:(Type.int ~loc:l) (ident "zero")
+               (Some (Expr.int ~loc:l 0));
+           ]);
+    ]
+
 let () =
   Printf.printf "raven-ivl.api version %d\n\n" version;
   report (program ~result:1);
   print_newline ();
   report (program ~result:2);
   print_newline ();
-  report matching
+  report matching;
+  print_newline ();
+  report trusted

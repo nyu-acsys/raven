@@ -27,9 +27,10 @@ let has_separation requirements left right =
       (matches requirement.NamespaceContract.left left && matches requirement.right right)
       || (matches requirement.left right && matches requirement.right left))
 
-let module_summary = function
+let module_summary contract =
+  match NamespaceContract.view contract with
   | NamespaceContract.Module summary -> summary
-  | Functor _ -> assert false
+  | Functor _ | Requalified _ -> assert false
 
 let child summary name =
   List.Assoc.find_exn summary.NamespaceContract.modules (id name) ~equal:Ident.equal
@@ -67,8 +68,8 @@ let test_cycle_and_freeze () =
   let _, frozen = Rewriter.eval (Closure.freeze closed collected.program) tbl in
   let root = module_summary (contract frozen) in
   assert (List.is_empty root.separation);
-  match child root "F" with
-  | Module _ -> assert false
+  match NamespaceContract.view (child root "F") with
+  | Module _ | Requalified _ -> assert false
   | Functor summary ->
       assert (List.length summary.parameters = 1);
       let parameter = module_summary (snd (List.hd_exn summary.parameters)) in
@@ -119,8 +120,8 @@ let test_nested_and_unit_signatures () =
   let inner = module_summary (child (module_summary (child root "Outer")) "Inner") in
   assert (List.length inner.namespaces = 1);
   ignore (call inner "use" : NamespaceContract.callable_summary);
-  match child root "Factory" with
-  | Module _ -> assert false
+  match NamespaceContract.view (child root "Factory") with
+  | Module _ | Requalified _ -> assert false
   | Functor summary ->
       assert (List.is_empty summary.parameters);
       ignore
@@ -248,8 +249,8 @@ let test_module_binding_signatures () =
   let created = module_summary (child root "Created") in
   assert (List.length created.namespaces = 1);
   ignore (call created "make" : NamespaceContract.callable_summary);
-  match child root "FactoryAlias" with
-  | NamespaceContract.Module _ -> assert false
+  match NamespaceContract.view (child root "FactoryAlias") with
+  | NamespaceContract.Module _ | Requalified _ -> assert false
   | Functor summary ->
       assert (List.is_empty summary.parameters);
       ignore
@@ -348,8 +349,8 @@ let test_forward_header_dependency () =
   let _, tbl, typed = parse "module F[P: S] {} interface S {}" in
   let _, frozen = Rewriter.eval (Closure.elaborate typed) tbl in
   let root = module_summary (contract frozen) in
-  match child root "F" with
-  | Module _ -> assert false
+  match NamespaceContract.view (child root "F") with
+  | Module _ | Requalified _ -> assert false
   | Functor summary -> assert (List.length summary.parameters = 1)
 
 let test_formal_nested_member () =
@@ -363,13 +364,63 @@ let test_formal_nested_member () =
   let tbl, frozen = Rewriter.eval (Closure.freeze draft collected.program) tbl in
   let root = module_summary (contract frozen) in
   let result =
-    match child root "Make" with
-    | Module _ -> assert false
+    match NamespaceContract.view (child root "Make") with
+    | Module _ | Requalified _ -> assert false
     | Functor summary -> module_summary summary.result
   in
   let element = module_summary (child result "E") in
   assert (List.length element.namespaces = 1);
   ignore (Rewriter.eval (Frontend.NamespaceRealization.validate ~draft frozen) tbl)
+
+let shared_instance_diamond_size level =
+  let layers =
+    List.init (level + 1) ~f:(fun index ->
+        if index = 0 then "module Layer0[P: Regions] { inv cell() { P.cell() } }"
+        else
+          Printf.sprintf
+            "module Layer%d[P: Regions] { module Left = Layer%d[P] module Right = \
+             Layer%d[P] }"
+            index (index - 1) (index - 1))
+  in
+  let source =
+    String.concat ~sep:"\n"
+      ([ "interface Regions { inv cell() }" ]
+      @ layers
+      @ [
+          "module Actual: Regions { inv cell() { true } }";
+          Printf.sprintf "module Instance = Layer%d[Actual]" level;
+        ])
+  in
+  let _, tbl, typed = parse source in
+  let _, frozen = Rewriter.eval (Closure.elaborate typed) tbl in
+  let rec visit seen contract =
+    if List.mem seen contract ~equal:phys_equal then seen
+    else begin
+      assert (List.length seen < 10000);
+      let seen = contract :: seen in
+      match contract with
+      | NamespaceContract.Module summary ->
+          List.fold summary.modules ~init:seen ~f:(fun seen (_, contract) ->
+              visit seen contract)
+      | Functor summary ->
+          let seen =
+            List.fold summary.parameters ~init:seen ~f:(fun seen (_, contract) ->
+                visit seen contract)
+          in
+          visit seen summary.result
+      | Requalified { original; _ } -> visit seen original
+    end
+  in
+  let summary = contract frozen in
+  let size = List.length (visit [] summary) in
+  assert (NamespaceContract.is_instance (child (module_summary summary) "Instance"));
+  size
+
+let test_shared_instance_diamond () =
+  let smaller = shared_instance_diamond_size 8 in
+  let larger = shared_instance_diamond_size 12 in
+  (* A tree duplicates sixteen times over four additional diamond layers. *)
+  assert (larger < 3 * smaller)
 
 let test_pipeline () =
   let ext_hooks = Ext.to_ext_hooks (Ext.module_map Ext.DefaultExt) in
@@ -393,6 +444,7 @@ let () =
     test_module_binding_signatures ();
     test_forward_header_dependency ();
     test_formal_nested_member ();
+    test_shared_instance_diamond ();
     test_pipeline ();
     test_conditional_interface_requirements ();
     test_realization_preserves_bodies ();

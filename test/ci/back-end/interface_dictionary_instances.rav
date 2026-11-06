@@ -1,0 +1,94 @@
+// An interface whose members are typed by its own dictionary instances and generic
+// types over its nested modules, implemented by functors that alias those modules.
+interface Val {
+  rep type Carrier
+  func unrestricted() returns (r: Bool)
+  func holds(value: Carrier) returns (r: Bool)
+    ensures unrestricted() ==> r
+}
+
+module OptVal[E: Val] : Val {
+  rep type Carrier = Option[E.Carrier]
+  func unrestricted() returns (r: Bool) { E.unrestricted() }
+  func holds(value: Carrier) returns (r: Bool) { unrestricted() ? true : value == Option.none || E.holds(value.value) }
+}
+
+module UnitVal : Val {
+  rep type Carrier = ()
+  func unrestricted() returns (r: Bool) { true }
+  func holds(value: Carrier) returns (r: Bool) { true }
+}
+
+module Tag {
+  type T = data { case option; case value; case unit }
+}
+
+interface Witness {
+  module A0 : Val
+  module A1 : Val
+  val tag: Tag.T
+  module Index_option_A1 : Val = OptVal[A0]
+  module Index_value_A1 : Val = A0
+  module Index_unit_A1 : Val = UnitVal
+  func option_to_A1(x: Index_option_A1.Carrier) returns (y: A1.Carrier)
+    ensures tag == Tag.option && Index_option_A1.holds(x) ==> A1.holds(y)
+  func value_to_A1(x: Index_value_A1.Carrier) returns (y: A1.Carrier)
+    ensures tag == Tag.value && Index_value_A1.holds(x) ==> A1.holds(y)
+  func unit_to_A1(x: Index_unit_A1.Carrier) returns (y: A1.Carrier)
+    ensures tag == Tag.unit && Index_unit_A1.holds(x) ==> A1.holds(y)
+}
+
+module OptionWitness[P0: Val] : Witness {
+  module A0 : Val = P0
+  module A1 : Val = OptVal[P0]
+  val tag: Tag.T = Tag.option
+  free val any_A1: A1.Carrier
+  func option_to_A1(x: Index_option_A1.Carrier) returns (y: A1.Carrier) { x }
+  func value_to_A1(x: Index_value_A1.Carrier) returns (y: A1.Carrier) { any_A1 }
+  func unit_to_A1(x: Index_unit_A1.Carrier) returns (y: A1.Carrier) { any_A1 }
+}
+
+module ValueWitness[P0: Val] : Witness {
+  module A0 : Val = P0
+  module A1 : Val = P0
+  val tag: Tag.T = Tag.value
+  free val any_A1: A1.Carrier
+  func option_to_A1(x: Index_option_A1.Carrier) returns (y: A1.Carrier) { any_A1 }
+  func value_to_A1(x: Index_value_A1.Carrier) returns (y: A1.Carrier) { x }
+  func unit_to_A1(x: Index_unit_A1.Carrier) returns (y: A1.Carrier) { any_A1 }
+}
+
+module UnitWitness[P0: Val] : Witness {
+  module A0 : Val = P0
+  module A1 : Val = UnitVal
+  val tag: Tag.T = Tag.unit
+  free val any_A1: A1.Carrier
+  func option_to_A1(x: Index_option_A1.Carrier) returns (y: A1.Carrier) { any_A1 }
+  func value_to_A1(x: Index_value_A1.Carrier) returns (y: A1.Carrier) { any_A1 }
+  func unit_to_A1(x: Index_unit_A1.Carrier) returns (y: A1.Carrier) { x }
+}
+
+module Get[W: Witness] {
+  proc get(v: W.A0.Carrier, empty: Bool) returns (r: W.A1.Carrier)
+    requires W.A0.holds(v) && (empty ==> W.tag == Tag.option)
+    ensures W.A1.holds(r)
+  {
+    if (W.tag == Tag.option) {
+      r := W.option_to_A1(empty ? Option.none : Option.some(v));
+    } else if (W.tag == Tag.value) {
+      r := W.value_to_A1(v);
+    } else {
+      r := W.unit_to_A1(());
+    }
+  }
+}
+
+module Client[A: Val] {
+  module OW : OptionWitness = OptionWitness[A]
+  module G : Get = Get[OW]
+  proc use(v: A.Carrier) returns (r: Option[A.Carrier])
+    requires A.holds(v)
+  {
+    r := G.get(v, true);
+  }
+}
