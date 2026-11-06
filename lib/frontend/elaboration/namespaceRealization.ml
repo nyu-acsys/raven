@@ -138,8 +138,8 @@ let grants_cover ?(rename = Fn.id) context ~assumptions provided promised =
   let open Rewriter.Syntax in
   let check assumptions required =
     let* available = Entailment.available_grants ~rename context ~assumptions provided in
-    let* available = Entailment.canonical_mask ~rename available in
-    let+ required = Entailment.canonical_mask ~rename required in
+    let* available = Entailment.normalize_predicates ~rename context available in
+    let+ required = Entailment.normalize_predicates ~rename context required in
     Entailment.covered ~by:available required
   in
   let* unconditional = check assumptions promised.NamespaceContract.grants in

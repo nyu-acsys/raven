@@ -540,17 +540,29 @@ let rec check ?(pretyped = false) (m : Module.t) : Module.t t =
               (List.length interface_formals))
   in
 
-  (* Defined instances and field aliases are declared when checked, once their targets
-     are known. *)
-  let* _ =
-    Rewriter.List.iter merged_symbols ~f:(function
+  (* Instances and unresolved manifest aliases wait until their targets are checked. *)
+  let* declared_aliases =
+    Rewriter.List.fold_left merged_symbols ~init:[] ~f:(fun aliases -> function
       | Module.SymbolDef
           (ModInst { mod_inst_def = Some _; _ } | FieldDef { field_alias = Some _; _ })
       | Module.Import _ ->
-          Rewriter.return ()
+          Rewriter.return aliases
+      | Module.SymbolDef
+          (CallDef ({ call_decl = { call_decl_alias = Some target; _ }; _ } as call) as
+           symbol) ->
+          let* known = Rewriter.resolve_and_find_opt target in
+          begin match known with
+          | None -> Rewriter.return aliases
+          | Some _ ->
+              let+ () = lift (Rewriter.declare_symbol symbol) in
+              call :: aliases
+          end
       | Module.SymbolDef symbol ->
-          if Set.mem header_names (Symbol.to_name symbol) then Rewriter.return ()
-          else lift (Rewriter.declare_symbol symbol))
+          let+ () =
+            if Set.mem header_names (Symbol.to_name symbol) then Rewriter.return ()
+            else lift (Rewriter.declare_symbol symbol)
+          in
+          aliases)
   in
 
   (* The parameter and return types of overloaded functions are checked before the members
@@ -602,7 +614,7 @@ let rec check ?(pretyped = false) (m : Module.t) : Module.t t =
           | Module.Import _ -> None
         in
         Rewriter.recover ?poison ~fallback:None
-          (let+ instr = check_instr ~pretyped m instr in
+          (let+ instr = check_instr ~pretyped ~declared_aliases m instr in
            Some instr))
   in
   let mod_def = List.filter_opt mod_def in
@@ -644,7 +656,7 @@ let rec check ?(pretyped = false) (m : Module.t) : Module.t t =
   Rewriter.return Module.{ mod_decl; mod_def }
 
 (** Checks the member [instr] of [m]. *)
-and check_instr ~pretyped (m : Module.t) (instr : Module.module_instr) :
+and check_instr ~pretyped ~declared_aliases (m : Module.t) (instr : Module.module_instr) :
     Module.module_instr t =
   let open Rewriter.Syntax in
   match instr with
@@ -679,7 +691,7 @@ and check_instr ~pretyped (m : Module.t) (instr : Module.module_instr) :
             (Rewriter.introduce_typecheck_symbol' ~loc:binding.mod_inst_loc
                (Module.ModDef adapter))
       in
-      check_instr ~pretyped m
+      check_instr ~pretyped ~declared_aliases m
         (Module.SymbolDef
            (ModInst
               {
@@ -722,7 +734,7 @@ and check_instr ~pretyped (m : Module.t) (instr : Module.module_instr) :
           let* schema =
             SealedFunctors.introduce ~loc:binding.mod_inst_loc ~check_schema schema
           in
-          check_definition ~pretyped m
+          check_definition ~pretyped ~declared_aliases m
             (Module.SymbolDef
                (ModInst
                   {
@@ -731,12 +743,12 @@ and check_instr ~pretyped (m : Module.t) (instr : Module.module_instr) :
                     mod_inst_type = schema;
                     mod_inst_def = Some (Module.Alias schema);
                   }))
-      | _ -> check_definition ~pretyped m instr
+      | _ -> check_definition ~pretyped ~declared_aliases m instr
       end
-  | _ -> check_definition ~pretyped m instr
+  | _ -> check_definition ~pretyped ~declared_aliases m instr
 
-and check_definition ~pretyped (m : Module.t) (instr : Module.module_instr) :
-    Module.module_instr t =
+and check_definition ~pretyped ~declared_aliases (m : Module.t)
+    (instr : Module.module_instr) : Module.module_instr t =
   let open Rewriter.Syntax in
   match instr with
   | Module.SymbolDef symbol ->
@@ -755,7 +767,16 @@ and check_definition ~pretyped (m : Module.t) (instr : Module.module_instr) :
         | ConstrDef _ | DestrDef _ ->
             Rewriter.return symbol
             (* These should not occur directly in a module definition *)
-        | CallDef call_def -> CallableTyping.check call_def
+        | CallDef call_def ->
+            let* symbol = CallableTyping.check call_def in
+            let+ () =
+              match call_def.call_decl.call_decl_alias with
+              | None -> Rewriter.return ()
+              | Some _ when List.mem declared_aliases call_def ~equal:phys_equal ->
+                  Rewriter.return ()
+              | Some _ -> lift (Rewriter.declare_symbol symbol)
+            in
+            symbol
         | ModDef mod_def ->
             let* _ = Rewriter.enter_module mod_def
             and* mod_def = check ~pretyped mod_def in

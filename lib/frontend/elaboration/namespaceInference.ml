@@ -15,6 +15,7 @@ let callable draft name = Map.find draft.callables name
 type callable_seed = {
   kind : Callable.call_kind;
   origin : NamespaceOrigins.t option;
+  forwarding : NamespaceOrigins.t option;
   formals : Type.var_decl list;
   returns : Type.var_decl list;
   required : Callable.mask;
@@ -144,6 +145,44 @@ let collect symbol =
               (None, inferred, granted, opens)
           | Func -> Rewriter.return (None, [], [], None)
         in
+        let same_modes =
+          List.equal (fun left right ->
+              Bool.equal left.Type.var_ghost right.Type.var_ghost
+              && Bool.equal left.var_implicit right.var_implicit)
+        in
+        let* forwarding =
+          match (decl.call_decl_kind, call.call_def) with
+          | Pred, FuncDef { func_body = Some (Expr.App (Expr.Var target, args, _)) }
+            when match
+                   List.zip args (decl.call_decl_formals @ decl.call_decl_returns)
+                 with
+                 | Unequal_lengths -> false
+                 | Ok pairs ->
+                     List.for_all pairs ~f:(fun (argument, formal) ->
+                         match argument with
+                         | Expr.App (Expr.Var variable, [], _) ->
+                             QualIdent.equal variable
+                               (QualIdent.from_ident formal.Type.var_name)
+                         | _ -> false) ->
+              let* target, symbol = Rewriter.resolve_and_find target in
+              begin match Rewriter.Symbol.orig_symbol symbol with
+              | Module.CallDef
+                  { call_decl = { call_decl_kind = Pred; _ } as target_decl; _ }
+                when same_modes target_decl.call_decl_formals decl.call_decl_formals
+                     && same_modes target_decl.call_decl_returns decl.call_decl_returns ->
+                  Rewriter.return
+                    (if QualIdent.equal target name then None
+                     else
+                       Some
+                         NamespaceOrigins.
+                           {
+                             name = Rewriter.Symbol.orig_qid symbol;
+                             substitution = Rewriter.Symbol.subst symbol;
+                           })
+              | _ -> Rewriter.return None
+              end
+          | _ -> Rewriter.return None
+        in
         let* _ = Rewriter.exit_callable call in
         let* state = Rewriter.current_user_state in
         let namespaces =
@@ -157,6 +196,7 @@ let collect symbol =
           {
             kind = decl.call_decl_kind;
             origin;
+            forwarding;
             formals = decl.call_decl_formals;
             returns = decl.call_decl_returns;
             required = Option.value opens ~default:inferred;
@@ -242,16 +282,26 @@ let summarize equations seed =
             match head with
             | Callable.MaskHead.Invariant _ -> true
             | Dependencies _ -> false)
-    | (Func | Pred | Invariant), _ | (Proc | Lemma), Some _ -> expanded
+    | Pred, _ -> seed.inferred
+    | (Func | Invariant), _ | (Proc | Lemma), Some _ -> expanded
   in
   let inferred = NamespaceEquations.expand_required equations seed.inferred in
   let omitted =
     List.filter inferred ~f:(fun entry ->
         not (List.exists requires ~f:(fun permitted -> covers permitted entry)))
   in
+  let granted =
+    match seed.kind with
+    | Callable.Pred ->
+        List.map seed.inferred ~f:(fun (head, _) ->
+            (head, List.map (seed.formals @ seed.returns) ~f:Expr.from_var_decl))
+    | _ -> seed.granted
+  in
   let grants, guarded_grants =
-    List.partition_tf seed.granted ~f:(fun grant ->
-        List.exists requires ~f:(fun entry -> covers entry grant) || List.is_empty omitted)
+    List.partition_tf granted ~f:(fun grant ->
+        Poly.(seed.kind = Callable.Pred)
+        || List.exists requires ~f:(fun entry -> covers entry grant)
+        || List.is_empty omitted)
   in
   let guarded_grants =
     List.map guarded_grants ~f:(fun ((head, _) as grant) ->
@@ -312,6 +362,42 @@ let inherit_summary seed origin summary =
   in
   Rewriter.return { summary with formals = seed.formals; returns = seed.returns }
 
+(** Predicate contracts retain symbolic resource identities; bodies supply only needs
+    bounds. *)
+let freeze_predicates ~equations ~seeds imported =
+  let open Rewriter.Syntax in
+  let rec cyclic seen name =
+    if Set.mem seen name then true
+    else
+      match Map.find seeds name with
+      | Some { forwarding = Some origin; _ } -> cyclic (Set.add seen name) origin.name
+      | Some { forwarding = None; _ } | None -> false
+  in
+  let rec freeze completed name =
+    match Map.find completed name with
+    | Some summary -> Rewriter.return (completed, summary)
+    | None ->
+        let seed = Map.find_exn seeds name in
+        let* completed, summary =
+          match seed.forwarding with
+          | Some origin when not (cyclic (Set.empty (module QualIdent)) name) ->
+              let* completed, parent = freeze completed origin.name in
+              let+ summary =
+                Rewriter.in_scope_of name (inherit_summary seed origin parent)
+              in
+              (completed, summary)
+          | Some _ | None -> Rewriter.return (completed, summarize equations seed)
+        in
+        Rewriter.return (Map.set completed ~key:name ~data:summary, summary)
+  in
+  Rewriter.List.fold_left (Map.to_alist seeds) ~init:imported
+    ~f:(fun completed (name, seed) ->
+      match seed.kind with
+      | Callable.Pred ->
+          let+ completed, _ = freeze completed name in
+          completed
+      | _ -> Rewriter.return completed)
+
 (** Resolve declaration budgets before substituting their implementation resources. *)
 let freeze_budgets ~equations ~seeds imported =
   let open Rewriter.Syntax in
@@ -343,7 +429,12 @@ let freeze_budgets ~equations ~seeds imported =
         in
         Rewriter.return (Map.set completed ~key:name ~data:summary, summary)
   in
-  let imported = Map.filter_keys imported ~f:(fun name -> not (Map.mem seeds name)) in
+  let imported =
+    Map.filter_keys imported ~f:(fun name ->
+        match Map.find seeds name with
+        | Some { kind = Callable.Pred; _ } | None -> true
+        | Some _ -> false)
+  in
   Rewriter.List.fold_left (Map.keys seeds) ~init:imported ~f:(fun completed name ->
       let+ completed, _ = freeze (Set.empty (module QualIdent)) completed name in
       completed)
@@ -368,19 +459,48 @@ let infer ?(namespaces = []) ?(callables = []) program =
   in
   let* namespaces = complete_namespaces state in
   let equations = NamespaceEquations.solve (Map.data namespaces) in
-  let* callables =
-    freeze_budgets ~equations ~seeds:state.seeds
-      (Map.of_alist_exn (module QualIdent) callables)
+  let imported =
+    Map.of_alist_exn (module QualIdent) callables
+    |> Map.filter_keys ~f:(fun name -> not (Map.mem state.seeds name))
   in
-  let+ entailment = NamespaceEntailment.create (Map.data namespaces) in
+  let* predicates = freeze_predicates ~equations ~seeds:state.seeds imported in
+  let* resource_context =
+    NamespaceEntailment.create ~callables:(Map.to_alist predicates) (Map.data namespaces)
+  in
+  let* seeds =
+    Rewriter.List.map (Map.to_alist state.seeds) ~f:(fun (name, seed) ->
+        match seed.kind with
+        | Callable.Pred -> Rewriter.return (name, seed)
+        | _ ->
+            let* required =
+              NamespaceEntailment.normalize_predicates resource_context seed.required
+            in
+            let* inferred =
+              NamespaceEntailment.normalize_predicates resource_context seed.inferred
+            in
+            let+ granted =
+              NamespaceEntailment.normalize_predicates resource_context seed.granted
+            in
+            (name, { seed with required; inferred; granted }))
+  in
+  let* callables =
+    freeze_budgets ~equations
+      ~seeds:(Map.of_alist_exn (module QualIdent) seeds)
+      predicates
+  in
+  let+ entailment =
+    NamespaceEntailment.create ~callables:(Map.to_alist callables) (Map.data namespaces)
+  in
   { namespaces; equations; entailment; callables }
 
 (* Imported equations can expose aliases only after expansion. *)
 let normalize_required draft mask =
-  NamespaceEquations.normalize_required ~resolve:Masks.resolve_mask draft.equations mask
+  NamespaceEquations.normalize_required
+    ~resolve:(NamespaceEntailment.normalize_predicates draft.entailment)
+    draft.equations mask
 
 (** Reify only summary metadata; callable bodies are never needed at a call site. *)
-let find_callable draft name =
+let find_callable ?(normalize = true) draft name =
   let open Rewriter.Syntax in
   let* _, symbol = Rewriter.resolve_and_find name in
   let original = Rewriter.Symbol.orig_qid symbol in
@@ -395,7 +515,10 @@ let find_callable draft name =
           ~typ:(Rewriter.Type.rewrite_qual_idents ~f:requalify)
           summary
       in
-      let* requires = normalize_required draft summary.requires in
+      let* requires =
+        if normalize then normalize_required draft summary.requires
+        else Rewriter.return summary.requires
+      in
       let* grants = Masks.resolve_mask summary.grants in
       let* separation =
         Rewriter.List.map summary.separation ~f:(fun requirement ->

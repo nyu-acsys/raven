@@ -314,7 +314,9 @@ let freeze ?(refresh = false) ?(requirements = Map.empty (module QualIdent)) dra
           match definition with
           | Module.SymbolDef (CallDef call) ->
               let name = QualIdent.append owner call.call_decl.call_decl_name in
-              let* summary = NamespaceInference.find_callable draft name in
+              let* summary =
+                NamespaceInference.find_callable ~normalize:false draft name
+              in
               let summary =
                 match summary with
                 | Some summary -> summary
@@ -370,12 +372,15 @@ let freeze ?(refresh = false) ?(requirements = Map.empty (module QualIdent)) dra
       Requirements.union separation
         (Option.value (Map.find requirements owner) ~default:[])
     in
-    let definitions =
-      List.map definitions ~f:(function
+    let* definitions =
+      Rewriter.List.map definitions ~f:(function
         | Module.SymbolDef (CallDef call) ->
             let summary =
               List.Assoc.find_exn callables call.call_decl.call_decl_name
                 ~equal:Ident.equal
+            in
+            let+ requires =
+              NamespaceInference.normalize_required draft summary.requires
             in
             Module.SymbolDef
               (CallDef
@@ -384,11 +389,11 @@ let freeze ?(refresh = false) ?(requirements = Map.empty (module QualIdent)) dra
                    call_decl =
                      {
                        call.call_decl with
-                       call_decl_needs_mask = Some summary.requires;
+                       call_decl_needs_mask = Some requires;
                        call_decl_grants_mask = Some summary.grants;
                      };
                  })
-        | definition -> definition)
+        | definition -> Rewriter.return definition)
     in
     let modules = List.rev modules in
     let parameter_members =
