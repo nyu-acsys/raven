@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [1.6.1] - 2026-11-06
 
 ### Added
 
@@ -10,26 +10,26 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Inherited interfaces preserve container types and dependent functor-instance identities.
+- Types of a functor parameter's nested modules expand to their definitions in the functor's instances.
+- Functors may implement interfaces whose member types instantiate generic types at the interface's nested modules.
+- Functors implementing an interface accept its signatures with generic types over its nested modules when it also instantiates them.
+- Applying a functor over an interface identifies generic types at the interface's nested types with their concrete instances.
+- Inherited members retain callable header dependencies without cycles through callable bodies.
+- Interface checks accept match contracts that differ only in bound names and reject different constructor cases.
+- A call through a functor whose parameter no call determines names that parameter instead of reporting an unknown identifier.
 - Report the original type error when a functor instance refers to an invalid datatype.
+- Keep generated adapters and prophecy modules for atomic token types within their generic procedure's scope.
+- Delay ordinary postconditions of logically atomic calls until surrounding invariants and atomic updates close.
+- A function call assigned to a variable is an ordinary assignment, so it may occur inside an open atomic update.
+- Parse callable bodies correctly after contracts containing `match` expressions.
 - Preserve match bindings when expanding inline predicates.
+- Preserve explicit expression type annotations when requalifying and printing programs.
+- Programs printed through `raven-ivl.api` keep `free` on modules and values.
+- Printed programs keep a `return`'s values on its line, so that they parse.
+- Avoid exponential memory use when freezing namespace contracts with shared module dependencies.
 - Keep SMT declaration order stable when unused imports change.
 - Stabilize verification of finite-set size under element removal.
-- Avoid exponential memory use when freezing namespace contracts with shared module dependencies.
-- Preserve explicit expression type annotations when requalifying and printing programs.
-- Keep generated adapters and prophecy modules for atomic token types within their generic procedure's scope.
-- A call through a functor whose parameter no call determines names that parameter instead of reporting an unknown identifier.
-- Parse callable bodies correctly after contracts containing `match` expressions.
-- Delay ordinary postconditions of logically atomic calls until surrounding invariants and atomic updates close.
-- Programs printed through `raven-ivl.api` keep `free` on modules and values.
-- Interface checks accept match contracts that differ only in bound names and reject different constructor cases.
-- Inherited members retain callable header dependencies without cycles through callable bodies.
-- Inherited interfaces preserve container types and dependent functor-instance identities.
-- Functors may implement interfaces whose member types instantiate generic types at the interface's nested modules.
-- Applying a functor over an interface identifies generic types at the interface's nested types with their concrete instances.
-- A function call assigned to a variable is an ordinary assignment, so it may occur inside an open atomic update.
-- Functors implementing an interface accept its signatures with generic types over its nested modules when it also instantiates them.
-- Types of a functor parameter's nested modules expand to their definitions in the functor's instances.
-- Printed programs keep a `return`'s values on its line, so that they parse.
 
 ## [1.6.0] - 2026-10-29
 
