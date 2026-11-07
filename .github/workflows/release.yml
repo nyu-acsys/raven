@@ -20,7 +20,7 @@ jobs:
             artifact: raven-linux-arm64
           - os: macos-15-intel
             artifact: raven-darwin-x64
-          - os: macos-14
+          - os: macos-latest
             artifact: raven-darwin-arm64
           - os: windows-latest
             artifact: raven-win32-x64
