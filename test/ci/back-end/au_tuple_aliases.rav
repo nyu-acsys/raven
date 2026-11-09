@@ -1,0 +1,27 @@
+proc tuple_alias_commit()
+  atomic requires true
+  atomic ensures true
+{
+  ghost var first := bindAU();
+  ghost var wrapped := (first, 0);
+  ghost var copied := wrapped;
+  ghost var second := bindAU();
+  openAU(copied#0);
+  commitAU((second, 1)#0, ());
+}
+
+proc nested_tuple_alias(choice: Bool)
+  atomic requires true
+  atomic ensures true
+{
+  ghost var first := bindAU();
+  ghost var wrapped := ((first, 0), true);
+  if (choice) {
+    ghost var second := bindAU();
+    wrapped := ((second, 1), true);
+  } else {
+    wrapped := ((first, 2), false);
+  }
+  openAU((wrapped#0)#0);
+  commitAU(first, ());
+}

@@ -1,0 +1,53 @@
+proc operation(input: Int, implicit ghost witness: Int) returns (result: Int)
+  atomic requires witness == input
+  atomic ensures result == witness
+{
+  ghost var token := bindAU();
+  ghost var opened: Int := openAU(token, input);
+  commitAU(token, input, opened);
+  return input;
+}
+
+lemma wrong_argument(token: AtomicToken<operation>)
+  requires au<operation>(token, 7)
+{
+  ghost var argument := 7;
+  ghost var witness: Int := openAU(token, argument);
+  argument := 8;
+  commitAU(token, argument, 7);
+}
+
+lemma wrong_witness(token: AtomicToken<operation>)
+  requires au<operation>(token, 7)
+{
+  ghost var witness: Int := openAU(token, 7);
+  witness := 8;
+  commitAU(token, 7, witness);
+}
+
+lemma wrong_abort(token: AtomicToken<operation>)
+  requires au<operation>(token, 7)
+{
+  ghost var witness: Int := openAU(token, 7);
+  abortAU(token, 8);
+}
+
+lemma overwritten_source(token: AtomicToken<operation>, other: AtomicToken<operation>)
+  requires au<operation>(token, 7)
+{
+  ghost var current := token;
+  ghost var witness: Int := openAU(current, 7);
+  current := other;
+  commitAU(current, 7, 7);
+}
+
+lemma branch_token(choice: Bool, left: AtomicToken<operation>, right: AtomicToken<operation>)
+  requires choice ? au<operation>(left, 7) : au<operation>(right, 7)
+{
+  if (choice) {
+    ghost var first: Int := openAU(left, 7);
+  } else {
+    ghost var second: Int := openAU(right, 7);
+  }
+  commitAU(right, 7, 7);
+}

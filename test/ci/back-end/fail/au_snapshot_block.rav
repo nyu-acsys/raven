@@ -1,0 +1,14 @@
+proc replace_opening(choice: Bool)
+  atomic requires true
+  atomic ensures true
+{
+  ghost var token := bindAU();
+  openAU(token);
+  atomic {
+    if (choice) {
+      abortAU(token);
+      openAU(token);
+    }
+  }
+  commitAU(token, ());
+}

@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- Check atomic-update token and argument identity with proof obligations, including aliases established by contracts.
+
+### Fixed
+
+- Refresh implicit witnesses returned by opening an atomic update, including when assigning to existing ghost variables.
+
 ## [1.6.1] - 2026-11-06
 
 ### Added

@@ -111,6 +111,13 @@ manipulated by four ghost statements:
   leading there. A return without a preceding `commitAU` is rejected, just like an unfolded
   invariant that's never folded back.
 
+Raven records the token and explicit arguments at `openAU`, and the implicit
+witnesses it returns. Closing the update must use the same token and explicit
+argument values; Raven generates equality obligations for the SMT solver, so
+aliases established by assignments or lemma contracts work too. Reassigning the
+source variables does not change the recorded values or the contract to restore.
+At most one atomic update may be open at a time.
+
 ## Threading a token through a retry loop directly {#sec:token-direct}
 
 `acquire`'s retry loop is where things get interesting. Drawing a ticket via `cas` can fail
@@ -286,8 +293,12 @@ the call. Otherwise Raven reports at the call which part of this may fail if the
 ## Debugging Corner
 
 The atomicity-analysis messages from Part 4 reappear here almost verbatim, now guarding
-`bindAU`/`openAU`/`abortAU`/`commitAU` instead of `fold`/`unfold`. They are `Atomic token %s is
-already open`, `Cannot commitAU: atomic token %s is not open` (and likewise for `abortAU`), and,
+`bindAU`/`openAU`/`abortAU`/`commitAU` instead of `fold`/`unfold`. Opening a second update
+before closing the first is rejected. `Cannot commitAU: atomic token %s is not open`
+(and likewise for `abortAU`) means there is no open update for that procedure. If
+an update is open but its token or explicit arguments are not provably equal to
+those supplied at closing, Raven reports `The token or arguments of commitAU may
+differ from the open atomic update` and points back to the opening. Finally,
 when a path reaches the end of the body with the token still open, `Missing commitAU or abortAU
 for open atomic update phi`. The last one is reported at the closing brace with the `openAU` that
 opened the token as a Related Location, exactly like Part 4's never-folded invariant. The main

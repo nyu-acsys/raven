@@ -1,0 +1,11 @@
+proc tuple_alias_overwrite()
+  atomic requires true
+  atomic ensures true
+{
+  ghost var first := bindAU();
+  ghost var external: AtomicToken<tuple_alias_overwrite>;
+  ghost var wrapped := (first, 0);
+  openAU(first);
+  wrapped := (external, 1);
+  commitAU(wrapped#0, ());
+}

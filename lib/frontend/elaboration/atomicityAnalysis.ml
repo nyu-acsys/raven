@@ -7,6 +7,11 @@ open Util
 type au_token = {
   token : Expr.t;
   source_token : Expr.t;
+  (* Inputs are frozen before openAU binds its implicit witnesses. *)
+  au_input_snapshot : Expr.t;
+  au_implicit_snapshot : Expr.t;
+  (* Opening identities from all paths, for atomic-block boundary checks. *)
+  au_origins : IdentSet.t;
   callable : QualIdent.t;
   callable_args : expr list;
   implicit_bound_vars : expr list;
@@ -72,7 +77,6 @@ type claim = {
 
 type atomicity_check = {
   au_opened : au_token list;
-  au_bindings : IdentSet.t; (* Locals known to hold this call's token. *)
   invs_opened : invs list;
   (* Predicate instances unfolded since an update or instance was opened, most recent
      first, without those folded or whose arguments were reassigned since. If a call
@@ -192,11 +196,11 @@ let list_remove_first (lst : 'a list) ~(f : 'a -> bool) : 'a list =
   let rec go = function [] -> [] | x :: xs -> if f x then xs else x :: go xs in
   go lst
 
+let same_au_contract (au1 : au_token) (au2 : au_token) : bool =
+  QualIdent.equal au1.callable au2.callable
+
 let same_open_au (au1 : au_token) (au2 : au_token) : bool =
-  Expr.alpha_equal au1.token au2.token
-  && QualIdent.equal au1.callable au2.callable
-  && List.equal Expr.alpha_equal au1.callable_args au2.callable_args
-  && List.equal Expr.alpha_equal au1.implicit_bound_vars au2.implicit_bound_vars
+  same_au_contract au1 au2 && Set.equal au1.au_origins au2.au_origins
 
 (* Multiset equality of open instances; closes match by identity, so order is
    irrelevant. [Expr.compare] is stricter than [alpha_equal] only on bound
@@ -234,16 +238,19 @@ let snapshot_sync_stmts ~loc ~(from : invs list) ~(into : invs list) : Stmt.t li
       List.filter_opt
         [ snapshot; copy ~src:src.inv_updated_flag ~dst:dst.inv_updated_flag ])
 
-(* As [snapshot_sync_stmts], for the update flag of the open atomic update. *)
-let au_flag_sync_stmts ~loc ~(from : au_token list) ~(into : au_token list) : Stmt.t list
-    =
-  List.filter_map (List.zip_exn from into) ~f:(fun (src, dst) ->
-      if Expr.alpha_equal src.au_updated_flag dst.au_updated_flag then None
-      else
-        Some
-          (Stmt.mk_assign ~loc ~is_init:true
-             [ Expr.to_qual_ident dst.au_updated_flag ]
-             src.au_updated_flag))
+(* Synchronize the open AU's frozen inputs, witnesses and update flag. *)
+let au_snapshot_sync_stmts ~loc ~(from : au_token list) ~(into : au_token list) :
+    Stmt.t list =
+  List.concat_map (List.zip_exn from into) ~f:(fun (src, dst) ->
+      List.filter_map
+        [
+          (src.au_input_snapshot, dst.au_input_snapshot);
+          (src.au_implicit_snapshot, dst.au_implicit_snapshot);
+          (src.au_updated_flag, dst.au_updated_flag);
+        ]
+        ~f:(fun (src, dst) ->
+          if Expr.alpha_equal src dst then None
+          else Some (Stmt.mk_assign ~loc ~is_init:true [ Expr.to_qual_ident dst ] src)))
 
 (* A tracked mask entry's argument expressions are plain references to
    whatever program variables were in scope when the entry was established
@@ -538,7 +545,11 @@ let join_ghost_updates ~(from : invs list) (into : invs list) : invs list =
 (* As [join_ghost_updates], for the open atomic update. *)
 let join_au_updates ~(from : au_token list) (into : au_token list) : au_token list =
   List.map2_exn from into ~f:(fun src dst ->
-      { dst with au_updated = dst.au_updated || src.au_updated })
+      {
+        dst with
+        au_updated = dst.au_updated || src.au_updated;
+        au_origins = Set.union src.au_origins dst.au_origins;
+      })
 
 (* A fresh ghost flag recording ghost updates, with its initialization to false. *)
 let fresh_updated_flag ~loc (name : string) : (Expr.t * Stmt.t, 'a) Rewriter.t_ext =
@@ -600,6 +611,7 @@ let vars_written ~ext_hooks (stmt : Stmt.t) : Ident.t list =
   | Basic (Call call_desc) -> locals call_desc.call_lhs
   | Basic (Use { use_kind = Unfold; use_witnesses_or_binds; _ }) ->
       List.map use_witnesses_or_binds ~f:fst
+  | Basic (AUAction { auaction_kind = BindAU target }) -> locals [ target ]
   | Basic (AUAction { auaction_kind = OpenAU opened }) ->
       List.concat_map opened.lhs ~f:(fun expr -> Set.to_list (Expr.local_vars expr))
   | Basic (BasicStmtExt (stmt_ext, args)) ->
@@ -1353,74 +1365,44 @@ let close_inv ~(inv_name : QualIdent.t) ~(inv_args : Expr.t list)
         }
       else { atomicity_state with invs_opened; mask }
 
-let open_au ~loc ~source_token
-    (token, callable, callable_args, implicit_bound_vars, au_updated_flag) atomicity_state
-    : atomicity_check =
-  if List.exists atomicity_state.au_opened ~f:(fun au -> Expr.alpha_equal au.token token)
-  then
-    Error.verification_error ~code:Error.Atomic_update loc
-      (Printf.sprintf
-         !"Atomic token %{String} is already open"
-         (Expr.to_source_string source_token))
-  else if not (List.is_empty atomicity_state.au_opened) then
-    (* At most one atomic update may be open at a time. A once-open AU's own
-       [α] is licensed by a genuine mask-shrink (or, for a proc's own token,
-       by its caller's external obligation); a second, simultaneously-open AU
-       has no such license of its own and would let openAU mint an
-       independent, unconstrained copy of whatever its atomic precondition
-       says -- e.g. two coexisting full shares of the same exclusive
-       resource. Closing the current AU first (commitAU/abortAU) and only
-       then opening the next is always sufficient: view shifts are purely
-       logical, so nothing can interleave between the close and the next
-       open, and the next open still has to honestly justify its own atomic
-       precondition against whatever is actually held at that point. *)
-    Error.verification_error ~code:Error.Atomic_update loc
+let open_au (au : au_token) atomicity_state : atomicity_check =
+  if not (List.is_empty atomicity_state.au_opened) then
+    (* A second AU would grant another precondition without an independent
+       mask-shrink. Close the current update before opening another. *)
+    Error.verification_error ~code:Error.Atomic_update au.au_loc
       (Printf.sprintf
          !"Cannot open atomic token %{String} while another atomic update is still open; \
            commit or abort it first"
-         (Expr.to_source_string source_token))
-  else
+         (Expr.to_source_string au.source_token))
+  else { atomicity_state with au_opened = [ au ] }
+
+let close_au atomicity_state : atomicity_check =
+  if List.is_empty atomicity_state.invs_opened then
     {
       atomicity_state with
-      au_opened =
-        {
-          token;
-          source_token;
-          callable;
-          callable_args;
-          implicit_bound_vars;
-          au_loc = loc;
-          au_updated = false;
-          au_updated_flag;
-        }
-        :: atomicity_state.au_opened;
+      au_opened = [];
+      atomic_step_taken = false;
+      preds_unfolded = [];
+      openings = [];
     }
+  else { atomicity_state with au_opened = [] }
 
-let close_au ~loc token atomicity_state : atomicity_check =
-  if
-    not
-      (List.exists atomicity_state.au_opened ~f:(fun au ->
-           Expr.alpha_equal au.token token))
-  then
-    Error.verification_error ~code:Error.Atomic_update loc
-      (Printf.sprintf
-         !"Atomic token %{String} is not open (nothing to close)"
-         (Expr.to_source_string token))
-  else
-    let au_opened =
-      List.filter atomicity_state.au_opened ~f:(fun au ->
-          not (Expr.alpha_equal au.token token))
-    in
-
-    if List.is_empty au_opened && List.is_empty atomicity_state.invs_opened then
-      {
-        atomicity_state with
-        au_opened;
-        atomic_step_taken = false;
-        preds_unfolded = [];
-        openings = [];
-      }
-    else { atomicity_state with au_opened }
+let freeze_au_values ~loc ~name values =
+  let open Rewriter.Syntax in
+  let value = Expr.mk_tuple ~loc values in
+  match values with
+  | [] -> Rewriter.return (value, [])
+  | _ :: _ ->
+      let decl =
+        Type.mk_var_decl ~ghost:true ~loc (Ident.fresh loc name) (Expr.to_type value)
+      in
+      let+ () =
+        Rewriter.introduce_symbol
+          (Module.VarDef { var_decl = decl; var_init = None; var_is_free = NotFree })
+      in
+      let snapshot = Expr.from_var_decl decl in
+      ( snapshot,
+        [ Stmt.mk_assign ~loc ~is_init:true [ Expr.to_qual_ident snapshot ] value ] )
 
 (* Whether [stmt] cannot take a resource that closing an open invariant needs, nor
    replace one by a weaker one. A call is classified where it is checked. *)
@@ -1515,35 +1497,6 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
       drop_stale_idents ~idents:(List.map qis ~f:QualIdent.unqualify) state
     in
 
-    let prior_au_bindings = atomicity_state.au_bindings in
-    let* atomicity_state =
-      let written =
-        match stmt.stmt_desc with
-        | Basic (AUAction { auaction_kind = OpenAU opened }) ->
-            List.concat_map opened.lhs ~f:(fun expr -> Set.to_list (Expr.local_vars expr))
-        | Basic (VarDef _ | AUAction _) -> []
-        | Basic _ -> Stmt.stmt_local_vars_modified stmt
-        | Block _ | Cond _ | Loop _ | StmtExt _ -> []
-      in
-      let assigned = Set.of_list (module Ident) written in
-      let* () =
-        if
-          List.exists atomicity_state.au_opened ~f:(fun au ->
-              not (Set.is_empty (Set.inter (Expr.local_vars au.token) assigned)))
-        then
-          Error.verification_error ~code:Error.Atomic_update loc
-            "An open atomic token cannot be reassigned before commitAU or abortAU"
-        else Rewriter.return ()
-      in
-      let state =
-        {
-          atomicity_state with
-          au_bindings = Set.diff atomicity_state.au_bindings assigned;
-        }
-      in
-      let* () = Rewriter.set_user_state state in
-      Rewriter.return state
-    in
     let* atomicity_state =
       let* ext_hooks = Rewriter.current_ext_hooks in
       match vars_written ~ext_hooks stmt with
@@ -1560,24 +1513,6 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
           in
           let+ () = Rewriter.set_user_state state in
           state
-    in
-
-    let normalize_token state token =
-      match token with
-      | App (Var qi, [], _) when Set.mem state.au_bindings (QualIdent.unqualify qi) ->
-          let name =
-            QualIdent.from_ident
-              (ProgUtils.callable_au_token_ident ~loc
-                 (QualIdent.unqualify curr_callable_name))
-          in
-          let* symbol = Rewriter.find name in
-          begin match Rewriter.Symbol.orig_symbol symbol with
-          | VarDef _ ->
-              let+ token = Rewriter.Symbol.reify_var_decl symbol in
-              Expr.from_var_decl token
-          | _ -> Error.internal_error loc "expected an atomic token variable"
-          end
-      | _ -> Rewriter.return token
     in
 
     match stmt.stmt_desc with
@@ -1599,17 +1534,6 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
           Rewriter.return stmt
     | Basic (Assign assign_desc) ->
         let atomicity_state = drop_stale ~qis:assign_desc.assign_lhs atomicity_state in
-        let atomicity_state =
-          match (assign_desc.assign_lhs, assign_desc.assign_rhs) with
-          | [ lhs ], App (Var rhs, [], _)
-            when Set.mem prior_au_bindings (QualIdent.unqualify rhs) ->
-              {
-                atomicity_state with
-                au_bindings =
-                  Set.add atomicity_state.au_bindings (QualIdent.unqualify lhs);
-              }
-          | _ -> atomicity_state
-        in
         let* _ = Rewriter.set_user_state atomicity_state in
         Rewriter.return stmt
     | Basic (Bind bind_desc) ->
@@ -2122,16 +2046,10 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
     | Basic (AUAction auaction_desc) -> (
         match auaction_desc.auaction_kind with
         | BindAU qual_iden ->
-            let loc = Stmt.to_loc stmt in
             let* () =
-              if
-                List.exists atomicity_state.au_opened ~f:(fun au ->
-                    Set.mem (Expr.local_vars au.token) (QualIdent.unqualify qual_iden))
-              then
-                Error.verification_error ~code:Error.Atomic_update loc
-                  "An open atomic token cannot be rebound before commitAU or abortAU"
-              else Rewriter.return ()
+              Rewriter.set_user_state (drop_stale ~qis:[ qual_iden ] atomicity_state)
             in
+            let loc = Stmt.to_loc stmt in
             let* au_token_var_decl =
               let name =
                 QualIdent.from_ident
@@ -2147,18 +2065,24 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
             let assign_stmt =
               Stmt.mk_assign ~loc [ qual_iden ] (Expr.from_var_decl au_token_var_decl)
             in
-            let* () =
-              Rewriter.set_user_state
-                {
-                  atomicity_state with
-                  au_bindings =
-                    Set.add atomicity_state.au_bindings (QualIdent.unqualify qual_iden);
-                }
-            in
             Rewriter.return assign_stmt
         | OpenAU open_au_desc ->
+            let atomicity_state =
+              drop_stale
+                ~qis:(List.map open_au_desc.lhs ~f:Expr.to_qual_ident)
+                atomicity_state
+            in
             let* callable, concrete_args, implicit_args =
               callable_info open_au_desc.proc_qi
+            in
+            let* input_snapshot, input_init =
+              freeze_au_values ~loc ~name:"$au_inputs"
+                (open_au_desc.token :: open_au_desc.proc_args)
+            in
+            let token = Expr.mk_tuple_lookup ~loc input_snapshot 0 in
+            let proc_args =
+              List.mapi open_au_desc.proc_args ~f:(fun i _ ->
+                  Expr.mk_tuple_lookup ~loc input_snapshot (i + 1))
             in
             let exhale_stmt =
               let error =
@@ -2171,7 +2095,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
                 ~spec_error:[ Stmt.mk_const_spec_error error ]
                 ~loc
                 (Expr.mk_app ~loc ~typ:Type.perm (AUPred open_au_desc.proc_qi)
-                   [ open_au_desc.token; Expr.mk_tuple open_au_desc.proc_args ])
+                   [ token; Expr.mk_tuple proc_args ])
             in
 
             let* () =
@@ -2187,7 +2111,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
             let alpha_renaming_map =
               List.fold2_exn
                 (concrete_args @ implicit_args)
-                (open_au_desc.proc_args @ open_au_desc.lhs)
+                (proc_args @ open_au_desc.lhs)
                 ~init:(Map.empty (module QualIdent))
                 ~f:(fun acc_map implicit_arg bound_var ->
                   Map.add_exn acc_map
@@ -2195,6 +2119,10 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
                     ~data:bound_var)
             in
 
+            let witness_havocs =
+              List.map open_au_desc.lhs ~f:(fun value ->
+                  Stmt.mk_havoc ~loc (Expr.to_qual_ident value))
+            in
             let inhale_stmts =
               List.filter_map callable.call_decl_precond ~f:(fun spec ->
                   if not spec.spec_atomic then None
@@ -2214,51 +2142,81 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
                        Set.to_list (Expr.local_vars expr)))
                 atomicity_state
             in
-            let* tracked_token =
-              normalize_token
-                { atomicity_state with au_bindings = prior_au_bindings }
-                open_au_desc.token
+            let* implicit_snapshot, implicit_init =
+              freeze_au_values ~loc ~name:"$au_implicit" open_au_desc.lhs
             in
             let atomicity_state =
-              open_au ~loc ~source_token:open_au_desc.token
-                ( tracked_token,
-                  open_au_desc.proc_qi,
-                  open_au_desc.proc_args,
-                  open_au_desc.lhs,
-                  flag )
+              open_au
+                {
+                  token;
+                  source_token = open_au_desc.token;
+                  au_input_snapshot = input_snapshot;
+                  au_implicit_snapshot = implicit_snapshot;
+                  au_origins = Expr.local_vars input_snapshot;
+                  callable = open_au_desc.proc_qi;
+                  callable_args = proc_args;
+                  implicit_bound_vars =
+                    (match open_au_desc.lhs with
+                    | [ _ ] -> [ implicit_snapshot ]
+                    | values ->
+                        List.mapi values ~f:(fun i _ ->
+                            Expr.mk_tuple_lookup ~loc implicit_snapshot i));
+                  au_loc = loc;
+                  au_updated = false;
+                  au_updated_flag = flag;
+                }
                 atomicity_state
             in
             let* _ = Rewriter.set_user_state atomicity_state in
 
             let new_stmt =
               Stmt.mk_block_stmt ~loc
-                (marker_stmts @ (exhale_stmt :: inhale_stmts) @ [ flag_init ])
+                (marker_stmts @ input_init @ [ exhale_stmt ] @ witness_havocs
+               @ inhale_stmts @ implicit_init @ [ flag_init ])
             in
 
             Rewriter.return new_stmt
         | AbortAU _ | CommitAU _ ->
-            let token =
-              begin match auaction_desc.auaction_kind with
-              | AbortAU au_desc -> au_desc.token
-              | CommitAU au_desc -> au_desc.token
+            let token, proc_args =
+              match auaction_desc.auaction_kind with
+              | AbortAU au_desc -> (au_desc.token, au_desc.proc_args)
+              | CommitAU au_desc -> (au_desc.token, au_desc.proc_args)
               | _ -> assert false
-              end
             in
-            let* tracked_token = normalize_token atomicity_state token in
-            let opened_au_token =
-              List.find atomicity_state.au_opened ~f:(fun au_token ->
-                  Expr.alpha_equal au_token.token tracked_token)
+            let* callable =
+              match Expr.to_type token with
+              | Type.App (AtomicToken callable, [], _) -> Rewriter.resolve callable
+              | _ -> Error.internal_error loc "expected an atomic token"
             in
-
             let opened_au_token =
-              match opened_au_token with
-              | None ->
+              match atomicity_state.au_opened with
+              | [ opened ] when QualIdent.equal opened.callable callable -> opened
+              | _ ->
                   Error.verification_error ~code:Error.Atomic_update stmt.stmt_loc
                     (Printf.sprintf
                        !"Cannot %{String}: atomic token %{String} is not open"
                        (auaction_kind_to_string auaction_desc.auaction_kind)
                        (Expr.to_source_string token))
-              | Some opened_au_token -> opened_au_token
+            in
+            let identity_check =
+              let operation = auaction_kind_to_string auaction_desc.auaction_kind in
+              let spec_error =
+                [
+                  Stmt.mk_const_spec_error
+                    ( Error.Verification Error.Atomic_update,
+                      loc,
+                      "The token or arguments of " ^ operation
+                      ^ " may differ from the open atomic update" );
+                  Stmt.mk_const_spec_error
+                    ( Error.RelatedLoc,
+                      opened_au_token.au_loc,
+                      "This atomic update was opened here" );
+                ]
+              in
+              Stmt.mk_assert_expr ~loc ~spec_error
+                (Expr.mk_eq ~loc
+                   (Expr.mk_tuple ~loc (token :: proc_args))
+                   opened_au_token.au_input_snapshot)
             in
 
             let* callable_decl =
@@ -2314,7 +2272,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
                          ])
                   in
 
-                  let atomicity_state = close_au ~loc tracked_token atomicity_state in
+                  let atomicity_state = close_au atomicity_state in
 
                   (exhale_stmts, inhale_stmt, atomicity_state)
               | CommitAU commit_au_desc ->
@@ -2361,13 +2319,15 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
                          ])
                   in
 
-                  let atomicity_state = close_au ~loc tracked_token atomicity_state in
+                  let atomicity_state = close_au atomicity_state in
 
                   (exhale_stmts, inhale_stmt, atomicity_state)
               | _ -> assert false
             in
 
-            let new_stmt = Stmt.mk_block_stmt ~loc (exhale_stmts @ [ inhale_stmt ]) in
+            let new_stmt =
+              Stmt.mk_block_stmt ~loc ((identity_check :: exhale_stmts) @ [ inhale_stmt ])
+            in
 
             let* _ = Rewriter.set_user_state atomicity_state in
 
@@ -2450,7 +2410,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
 
         let if_else_atomicity_states_equal =
           same_open_invs then_atomicity_state.invs_opened else_atomicity_state.invs_opened
-          && List.equal same_open_au then_atomicity_state.au_opened
+          && List.equal same_au_contract then_atomicity_state.au_opened
                else_atomicity_state.au_opened
         in
 
@@ -2466,9 +2426,6 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
                   else_atomicity_state.separation;
               callees =
                 Set.union then_atomicity_state.callees else_atomicity_state.callees;
-              au_bindings =
-                Set.inter then_atomicity_state.au_bindings
-                  else_atomicity_state.au_bindings;
               invs_opened =
                 join_ghost_updates ~from:then_atomicity_state.invs_opened
                   else_atomicity_state.invs_opened;
@@ -2502,7 +2459,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
             match
               snapshot_sync_stmts ~loc ~from:then_atomicity_state.invs_opened
                 ~into:else_atomicity_state.invs_opened
-              @ au_flag_sync_stmts ~loc ~from:then_atomicity_state.au_opened
+              @ au_snapshot_sync_stmts ~loc ~from:then_atomicity_state.au_opened
                   ~into:else_atomicity_state.au_opened
             with
             | [] -> then_stmt
@@ -2542,19 +2499,6 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
     | Loop _ when Option.is_some atomicity_state.namespace_draft ->
         Error.internal_error loc
           "Namespace atomicity analysis requires loops to be desugared first"
-    | Loop _ ->
-        let written = Set.of_list (module Ident) (Stmt.stmt_local_vars_modified stmt) in
-        let bindings = Set.diff atomicity_state.au_bindings written in
-        let* () =
-          Rewriter.set_user_state { atomicity_state with au_bindings = bindings }
-        in
-        let* stmt = Rewriter.Stmt.descend stmt ~f:rewrite_au_cmnds in
-        let* state = Rewriter.current_user_state in
-        let* () =
-          Rewriter.set_user_state
-            { state with au_bindings = Set.inter bindings state.au_bindings }
-        in
-        Rewriter.return stmt
     | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_au_cmnds
   in
 
@@ -2607,7 +2551,6 @@ let analyze ?namespace_draft (c : Callable.t) : (namespace_analysis, 'a) Rewrite
     ~init:
       {
         au_opened = [];
-        au_bindings = Set.empty (module Ident);
         invs_opened = [];
         preds_unfolded = [];
         atomic_step_taken = false;
