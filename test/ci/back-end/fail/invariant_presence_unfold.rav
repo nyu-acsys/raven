@@ -1,0 +1,9 @@
+field value: Int
+inv stored(x: Ref) { own(x.value, 1, 1.0) }
+
+proc missing(x: Ref)
+  opens stored(x)
+{
+  unfold stored(x);
+  fold stored(x);
+}

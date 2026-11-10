@@ -1,0 +1,6 @@
+inv marker(x: Ref) { true }
+
+proc missing(x: Ref)
+{
+  exhale marker(x);
+}

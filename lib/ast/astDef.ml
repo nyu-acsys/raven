@@ -4463,8 +4463,8 @@ module Predefs = struct
   let lowering_heap_utils_mod_qual_ident =
     QualIdent.from_list [ lowering_ident; Ident.make Loc.dummy "HeapUtils" 0 ]
 
-  let lowering_unit_inv_ra_mod_qual_ident =
-    QualIdent.from_list [ lowering_ident; Ident.make Loc.dummy "UnitInvRA" 0 ]
+  let lowering_unit_agree_mod_qual_ident =
+    QualIdent.from_list [ lowering_ident; Ident.make Loc.dummy "UnitAgree" 0 ]
 
   let lowering_frac_heap_utils_mod_qual_ident =
     QualIdent.from_list [ lowering_ident; Ident.make Loc.dummy "FracHeapUtils" 0 ]

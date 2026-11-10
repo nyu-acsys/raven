@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Preserve invariant presence when no output parameters are declared, preventing proofs from fabricating unestablished invariant facts.
 - Refresh implicit witnesses returned by opening an atomic update, including when assigning to existing ghost variables.
 
 ## [1.6.1] - 2026-11-06

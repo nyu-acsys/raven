@@ -1,0 +1,7 @@
+inv marker(x: Ref) { true }
+
+proc missing_member(x: Ref, y: Ref)
+  requires marker(x) && x != y
+{
+  exhale forall z: Ref :: z in {x, y} ==> marker(z);
+}

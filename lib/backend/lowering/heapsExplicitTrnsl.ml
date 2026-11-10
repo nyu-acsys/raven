@@ -44,28 +44,18 @@ let unsupported_expr_error (expr : Expr.t) : 'a =
   Error.error (Expr.to_loc expr)
     ("Unsupported expression under inhale/exhale: " ^ Expr.to_source_string expr)
 
-(* The chunk value stored in a predicate/invariant's heap for one occurrence.
-
-   For an `inv` with no return (out) args, rewrite_add_pred_utils backs PredHeapRA$P
-   with `UnitInvRA` instead of Agree, so there's no RA-level constructor to apply
-   here: the chunk is just the (empty) out-args tuple itself. Unfolding an `inv` never consumes it (Agree's frame
-   doesn't decrement), so this changes nothing observable.
-
-   For a `pred` with no return args, rewrite_add_pred_utils backs PredHeapRA$P with
-   `Library.Nat` instead of CountAgree[()] -- same reasoning, minus the data
-   constructor, but a `pred` *is* consumed by unfolding, so the count itself has to
-   stay real: it's what makes folding a pred once and then unfolding it twice a
-   genuine error rather than silently accepted. The chunk is just the literal `1`
-   (one more fold), with no DataConstr wrapping since Nat's `T` is already `Int`.
-
-   A `pred`/`inv` with return args always goes through CountAgree/Agree, wrapping the
-   out-args in the RA's data constructor as before. *)
+(* UnitAgree uses a nullary presence chunk for invariants without output values.
+   Ordinary predicates still count folds, including when their output tuple is empty. *)
 let mk_pred_new_chunk ~loc (call_decl_kind : Callable.call_kind)
     (heap_elem_type : type_expr) (pred_ra_constr : qual_ident) (out_args : expr list) :
     expr =
   match call_decl_kind with
   | Invariant when List.is_empty out_args ->
-      Expr.set_type (Expr.mk_tuple ~loc out_args) heap_elem_type
+      let constructor =
+        QualIdent.append Predefs.lowering_unit_agree_mod_qual_ident
+          Predefs.lib_agree_constr_ident
+      in
+      Expr.mk_app ~loc ~typ:heap_elem_type (Expr.DataConstr constructor) []
   | Pred when List.is_empty out_args -> Expr.set_type (Expr.mk_int ~loc 1) heap_elem_type
   | Pred ->
       Expr.mk_app ~loc ~typ:heap_elem_type (Expr.DataConstr pred_ra_constr)
@@ -649,16 +639,13 @@ let rewrite_add_pred_utils (c : Callable.t) : Callable.t Rewriter.t =
           Poly.(c.call_decl.call_decl_kind = Invariant)
           && List.is_empty c.call_decl.call_decl_returns
         then
-          (* An `inv` with no return args owns only the fact that it holds, so there is
-             nothing for two copies to disagree on: `UnitInvRA` rather than Agree,
-             whose datatype rep costs case splits in the backend. Not sound for `pred`:
-             see mk_pred_new_chunk. *)
+          (* Preserve invariant presence without a generic unit payload. *)
           let unit_pred_ra =
             Module.ModInst
               (Module.mk_mod_inst
                  ~name:(ProgUtils.pred_to_ra_mod_ident ~loc c.call_decl.call_decl_name)
-                 ~typ:Predefs.lowering_unit_inv_ra_mod_qual_ident
-                 ~def:(Predefs.lowering_unit_inv_ra_mod_qual_ident, [])
+                 ~typ:Predefs.lowering_unit_agree_mod_qual_ident
+                 ~def:(Predefs.lowering_unit_agree_mod_qual_ident, [])
                  ~loc ())
           in
           Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.check_symbol unit_pred_ra
@@ -1631,13 +1618,7 @@ module ScalarResource = struct
     amount_first : bool;
   }
 
-  type encoding =
-    | Generic
-    | Lattice
-    | Counted of counted
-    | Counter
-    | Persistent of expr
-    | Unit
+  type encoding = Generic | Lattice | Counted of counted | Counter | Persistent of expr
 
   type t = {
     encoding : encoding;
@@ -1777,7 +1758,6 @@ module ScalarResource = struct
             let* ra = ProgUtils.pred_get_ra_qual_iden name in
             let* encoding =
               match (c.call_decl.call_decl_kind, outs) with
-              | Invariant, [] -> Rewriter.return Unit
               | Invariant, _ ->
                   Rewriter.return
                     (Persistent
@@ -1839,7 +1819,6 @@ module ScalarResource = struct
     | Generic | Lattice ->
         (* Abstract lattice proofs need the frameCompInv trigger. *)
         apply ~loc r.compare [ entry; r.chunk ]
-    | Unit -> Expr.mk_bool ~loc true
     | Persistent _ -> Expr.mk_eq ~loc entry r.chunk
     | Counter ->
         Expr.mk_and ~loc
@@ -1862,7 +1841,7 @@ module ScalarResource = struct
     match r.encoding with
     | Generic ->
         Expr.mk_app ~loc ~typ:(Expr.to_type entry) (Var r.frame) [ entry; r.chunk ]
-    | Lattice | Persistent _ | Unit -> entry
+    | Lattice | Persistent _ -> entry
     | Counter -> arithmetic ~loc Minus entry r.chunk
     | Counted c ->
         let value, amount = projections ~loc c entry in
@@ -1876,7 +1855,6 @@ module ScalarResource = struct
     | Generic | Lattice ->
         ( Expr.mk_bool ~loc true,
           Expr.mk_app ~loc ~typ:(Expr.to_type entry) (Var r.comp) [ entry; r.chunk ] )
-    | Unit -> (Expr.mk_bool ~loc true, entry)
     | Persistent empty ->
         ( Expr.mk_or ~loc [ Expr.mk_eq ~loc entry empty; Expr.mk_eq ~loc entry r.chunk ],
           r.chunk )
@@ -1958,12 +1936,12 @@ module ScalarResource = struct
   let translate ?cmnt ?(spec_error = []) ?spec_source ~loc kind conds expr r =
     match r.encoding with
     | Generic -> translate_generic ?cmnt ~spec_error ?spec_source ~loc kind conds expr r
-    | Lattice | Counted _ | Counter | Persistent _ | Unit ->
+    | Lattice | Counted _ | Counter | Persistent _ ->
         let guard = Expr.mk_and ~loc conds in
         let entry = Expr.mk_maplookup ~loc r.heap r.key in
         let updates chunk =
           match (r.encoding, kind) with
-          | Unit, _ | (Lattice | Persistent _), Exhale -> []
+          | (Lattice | Persistent _), Exhale -> []
           | _ -> [ assign_entry ~loc r guard chunk ]
         in
         let statements =
@@ -2008,9 +1986,7 @@ module ScalarResource = struct
     let lookup = Expr.mk_maplookup ~loc r.heap r.key in
     let condition, composed = composition ~loc r lookup in
     let intermediate =
-      match r.encoding with
-      | Unit -> r.heap
-      | _ -> Expr.mk_ite ~loc guard (Expr.mk_mapupdate ~loc r.heap r.key composed) r.heap
+      Expr.mk_ite ~loc guard (Expr.mk_mapupdate ~loc r.heap r.key composed) r.heap
     in
     let assumptions =
       [
@@ -2025,7 +2001,7 @@ module ScalarResource = struct
     (* weak_frameCompInv discharges consumption after a valid composition. *)
     let updates =
       match r.encoding with
-      | Counted _ | Counter | Unit -> []
+      | Counted _ | Counter -> []
       | Generic when r.cancellative -> []
       | Generic | Lattice | Persistent _ ->
           [ assign_entry ~loc r guard (remainder ~loc r composed) ]
@@ -2103,7 +2079,7 @@ module ScalarResource = struct
                 ]
               in
               match (r.encoding, s.encoding) with
-              | Persistent _, Persistent _ | Unit, Unit -> assumptions
+              | Persistent _, Persistent _ -> assumptions
               | _ -> assumptions @ [ assign_entry ~loc r guard_in chunk ]
           in
           let assume_stmt =

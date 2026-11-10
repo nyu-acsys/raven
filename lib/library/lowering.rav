@@ -137,26 +137,30 @@ module FracHeapUtils[RA: Library.ResourceAlgebra] {
     ensures forall l: Ref :: {ret[l]} ret[l] == RA.frame(h[l], s[l])
 }
 
-// The resource algebra of an invariant without return values: a single element. It does
-// not implement ResourceAlgebra, whose lemmas would only add axioms about constants.
-module UnitInvRA {
-  rep type T = ()
-
-  ghost val id: T = ()
-
-  func valid(x: T) returns (ret: Bool) {
-    true
+// Agreement without payload, retaining distinct absent and present chunks.
+module UnitAgree : Library.LatticeResourceAlgebra {
+  rep type T = data {
+    case agree_null
+    case agree
+    case agree_top
   }
 
-  func comp(x1: T, x2: T) returns (ret: T) {
-    ()
+  val id: T = agree_null
+
+  func valid(n: T) returns (ret: Bool) {
+    n != agree_top
   }
 
-  func frame(x1: T, x2: T) returns (ret: T) {
-    ()
+  func comp(a: T, b: T) returns (ret: T) {
+    a == id ? b :
+      (b == id ? a : (a == b ? a : agree_top))
   }
 
-  func fpuAllowed(x1: T, x2: T) returns (ret: Bool) {
-    true
+  func frame(a: T, b: T) returns (ret: T) {
+    b == agree_null ? a : (a == b ? a : agree_top)
+  }
+
+  func fpuAllowed(a: T, b: T) returns (ret: Bool) {
+    false
   }
 }
