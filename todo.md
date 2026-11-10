@@ -1,3 +1,8 @@
+10 nov, 2026:
+- [ ] Handle explicit quantifier triggers that become invalid after expanding inline
+    functions: conditionals and Boolean connectives are rejected as SMT patterns,
+    and an inline wrapper can erase a quantified variable from a multi-pattern.
+
 1 nov, 2026:
 - [ ] Audit extension-type identity: core type comparison and canonical type keys omit
     extension payloads such as ProphId's one-shot flag; generated adapter reuse

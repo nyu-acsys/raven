@@ -163,4 +163,17 @@ module UnitAgree : Library.LatticeResourceAlgebra {
   func fpuAllowed(a: T, b: T) returns (ret: Bool) {
     false
   }
+
+  // The laws are checked without adding automatic axioms to client queries.
+  lemma idValid() {}
+  lemma compCommute() {}
+  lemma compAssoc() {}
+  lemma compId() {}
+  lemma compValid() {}
+  lemma frameId() {}
+  lemma compFrameInv() {}
+  lemma fpuValid() {}
+  lemma frameCompInv() {}
+  lemma frameCompInv0() {}
+  lemma frame_comp_inv() {}
 }
