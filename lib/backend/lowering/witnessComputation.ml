@@ -1321,7 +1321,11 @@ and core_witness_comp ?(ra_hint : qual_ident option = None) ?(fraction_fallback 
                          (QualIdent.append ra_name (Ident.make Loc.dummy "frag" 0)))
                       [ concrete_expr ]
                   in
-                  core_witness_comp exists
+                  (* The fragment's type can be the representation of [M], not [M]. *)
+                  core_witness_comp
+                    ~ra_hint:
+                      (Some (QualIdent.append ra_name (Ident.make Loc.dummy "M" 0)))
+                    exists
                     (Expr.mk_ite is_fragment (project "f_proj1") (project "af_proj2"))
                     fragment false
               | _ -> Rewriter.return (Map.empty (module Ident))
