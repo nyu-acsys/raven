@@ -1,0 +1,55 @@
+module Entry : Library.Type { rep type T = Int }
+module Entries : Library.SetRA = Library.SetRA[Entry]
+module Journal : Library.Auth = Library.Auth[Entries]
+module Fractional : Library.Frac = Library.Frac[Journal]
+ghost field journal: Journal
+ghost field nested: Fractional
+field expected: Int
+
+lemma equality_first(cell: Ref)
+  requires own(cell.journal, Journal.frag(Entries.set({1, 2})))
+  ensures exists chosen: Int :: chosen == 2 &&
+    own(cell.journal, Journal.frag(Entries.set({chosen})))
+{}
+
+lemma equality_last(cell: Ref)
+  requires own(cell.journal, Journal.frag(Entries.set({1, 2})))
+  ensures exists chosen: Int ::
+    own(cell.journal, Journal.frag(Entries.set({chosen}))) && 2 == chosen
+{}
+
+lemma guarded_equality(cell: Ref, enabled: Bool)
+  requires own(cell.journal, Journal.frag(Entries.set({1, 2})))
+  ensures exists chosen: Int :: (enabled ==> chosen == 2) &&
+    own(cell.journal, Journal.frag(Entries.set({chosen})))
+{}
+
+lemma determined_field(cell: Ref)
+  requires own(cell.expected, 2) && own(cell.journal, Journal.frag(Entries.set({1, 2})))
+  ensures exists chosen: Int :: own(cell.expected, chosen) &&
+    own(cell.journal, Journal.frag(Entries.set({chosen})))
+{}
+
+lemma equality_dependency(cell: Ref)
+  requires own(cell.expected, 2) && own(cell.journal, Journal.frag(Entries.set({1, 2})))
+  ensures exists chosen: Int, bound: Int :: chosen == bound &&
+    own(cell.expected, bound) && own(cell.journal, Journal.frag(Entries.set({chosen})))
+{}
+
+lemma nested_fraction(cell: Ref)
+  requires own(cell.nested, Fractional.frac_chunk(Journal.frag(Entries.set({2})), 1.0))
+  ensures exists chosen: Int, q: Real :: q == 0.5 &&
+    own(cell.nested, Fractional.frac_chunk(Journal.frag(Entries.set({chosen})), q))
+{}
+
+pred wrapped(cell: Ref, ghosts: (Int, Int)) {
+  exists chosen: Int :: chosen == ghosts#0 &&
+    own(cell.journal, Journal.frag(Entries.set({chosen})))
+}
+
+lemma fold_wrapped(cell: Ref)
+  requires own(cell.journal, Journal.frag(Entries.set({1, 2})))
+  ensures wrapped(cell, (2, 0))
+{
+  fold wrapped(cell, (2, 0));
+}

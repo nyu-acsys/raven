@@ -583,14 +583,14 @@ and elim_a1 ?(fallbacks = []) (univ_vars : universal_quants) (univ_conds : condi
         List.map var_decls ~f:(fun vd -> (vd, ident_to_skolem_fn_ident ~loc vd.var_name))
       in
 
-      let compute_raw ?(fraction_fallback = false) (vars : var_decl list) =
+      let compute_raw ?(resource_fallback = false) (vars : var_decl list) =
         let init_map =
           List.fold vars
             ~init:(Map.empty (module Ident))
             ~f:(fun map var_decl -> Map.add_exn map ~key:var_decl.var_name ~data:[])
         in
 
-        elim_a0 ~fraction_fallback univ_vars vars (univ_conds, []) e init_map
+        elim_a0 ~resource_fallback univ_vars vars (univ_conds, []) e init_map
       in
 
       (* Sanitizing witnesses:
@@ -620,9 +620,8 @@ and elim_a1 ?(fallbacks = []) (univ_vars : universal_quants) (univ_conds : condi
         resolve_dependencies var_decls univ_conds (sanitize raw_witnesses)
       in
 
-      (* An `own` fraction need not equal the available permission. Use that
-         permission as a fallback where primary candidates leave it undetermined;
-         see [core_witness_comp]'s `Frac` case. *)
+      (* Set-member choices and available permissions are guesses, unlike exact
+         values. Use them only where primary candidates leave a witness undetermined. *)
       let* witnesses =
         let unsolved =
           List.filter var_decls ~f:(fun var_decl ->
@@ -633,7 +632,7 @@ and elim_a1 ?(fallbacks = []) (univ_vars : universal_quants) (univ_conds : condi
         in
         if List.is_empty unsolved then Rewriter.return witnesses
         else
-          let+ raw_fallback = compute_raw ~fraction_fallback:true unsolved in
+          let+ raw_fallback = compute_raw ~resource_fallback:true unsolved in
           Map.fold (sanitize raw_fallback) ~init:witnesses ~f:(fun ~key ~data acc ->
               Map.update acc key ~f:(function
                 | None -> data
@@ -1041,12 +1040,12 @@ and elim_a1 ?(fallbacks = []) (univ_vars : universal_quants) (univ_conds : condi
       (* No existentials found *)
       Rewriter.return (expr, [], [])
 
-and elim_a0 ?(fraction_fallback = false) (univ_vars : universal_quants)
+and elim_a0 ?(resource_fallback = false) (univ_vars : universal_quants)
     (exist_vars : var_decl list) ((univ_conds, exist_conds) : conditions * conditions)
     (expr : expr) (witness_map : (conditions * expr option) list ident_map) :
     (conditions * expr option) list ident_map Rewriter.t =
   let open Rewriter.Syntax in
-  let elim_a0 = elim_a0 ~fraction_fallback in
+  let elim_a0 = elim_a0 ~resource_fallback in
   match expr with
   | App (And, e_list, _) ->
       let* witness_map =
@@ -1074,7 +1073,9 @@ and elim_a0 ?(fraction_fallback = false) (univ_vars : universal_quants)
       Rewriter.return witness_map
   | App (Eq, [ left; right ], _) ->
       let add_candidates pattern value witness_map =
-        let+ candidates = core_witness_comp exist_vars value pattern true in
+        let+ candidates =
+          core_witness_comp ~resource_fallback exist_vars value pattern true
+        in
         Map.fold candidates ~init:witness_map ~f:(fun ~key ~data witnesses ->
             Map.update witnesses key ~f:(fun existing ->
                 (exist_conds, Some data) :: Option.value existing ~default:[]))
@@ -1123,7 +1124,7 @@ and elim_a0 ?(fraction_fallback = false) (univ_vars : universal_quants)
       in
 
       let* witnesses =
-        core_witness_comp ~ra_hint:field_ra_hint ~fraction_fallback relevant_vars
+        core_witness_comp ~ra_hint:field_ra_hint ~resource_fallback relevant_vars
           concrete_expr val_expr false
       in
 
@@ -1210,7 +1211,8 @@ and elim_a0 ?(fraction_fallback = false) (univ_vars : universal_quants)
             Rewriter.List.fold_left out_args_concrete_exprs ~init:witness_map
               ~f:(fun witness_map (out_arg, concrete_expr) ->
                 let* witnesses =
-                  core_witness_comp exist_vars concrete_expr out_arg true
+                  core_witness_comp ~resource_fallback exist_vars concrete_expr out_arg
+                    true
                 in
 
                 let witness_map =
@@ -1249,7 +1251,7 @@ and elim_a0 ?(fraction_fallback = false) (univ_vars : universal_quants)
       | _ -> Rewriter.return witness_map)
   | _ -> Rewriter.return witness_map
 
-and core_witness_comp ?(ra_hint : qual_ident option = None) ?(fraction_fallback = false)
+and core_witness_comp ?(ra_hint : qual_ident option = None) ?(resource_fallback = false)
     (exists : var_decl list) (concrete_expr : expr) (given_expr : expr) (exact : bool) :
     expr ident_map Rewriter.t =
   let open Rewriter.Syntax in
@@ -1303,8 +1305,8 @@ and core_witness_comp ?(ra_hint : qual_ident option = None) ?(fraction_fallback 
                      (QualIdent.append ra_name Predefs.lib_auth_frag_destr1_ident))
                   [ concrete_expr ]
               in
-              core_witness_comp exists auth_chunk (List.hd_exn exprs) true
-              (* Error.error_simple "unimplemented" *)
+              core_witness_comp ~resource_fallback exists auth_chunk (List.hd_exn exprs)
+                true (* Error.error_simple "unimplemented" *)
             else if String.equal (Ident.name (QualIdent.unqualify constr_ident)) "frag"
             then
               begin match exprs with
@@ -1322,7 +1324,7 @@ and core_witness_comp ?(ra_hint : qual_ident option = None) ?(fraction_fallback 
                       [ concrete_expr ]
                   in
                   (* The fragment's type can be the representation of [M], not [M]. *)
-                  core_witness_comp
+                  core_witness_comp ~resource_fallback
                     ~ra_hint:
                       (Some (QualIdent.append ra_name (Ident.make Loc.dummy "M" 0)))
                     exists
@@ -1346,7 +1348,7 @@ and core_witness_comp ?(ra_hint : qual_ident option = None) ?(fraction_fallback 
                    (QualIdent.append ra_name (Ident.make Loc.dummy "value" 0)))
                 [ concrete_expr ]
             in
-            core_witness_comp exists actual elements true
+            core_witness_comp ~resource_fallback exists actual elements true
         | _ -> Rewriter.return (Map.empty (module Ident))
         end
       else if Predefs.is_lib_frac_mod orig_name then
@@ -1358,40 +1360,32 @@ and core_witness_comp ?(ra_hint : qual_ident option = None) ?(fraction_fallback 
                   QualIdent.unqualify constr_ident = Predefs.lib_frac_chunk_constr_ident)
             then Rewriter.return (Map.empty (module Ident))
             else
-              (* A `Frac` chunk is `frac_chunk(value, fraction)`, and the two
-                 components are determined to different degrees by what the heap
-                 holds. The *value* is pinned exactly: whatever fraction is held,
-                 `frac_proj1` of it is the value. The *fraction* is not -- the
-                 assertion being exhaled asks for at most what is held, so any
-                 amount up to `frac_proj2` would do, and picking one is a guess.
-
-                 Hence the fraction is only ever solved in [fraction_fallback]
-                 mode, which the caller reserves for existentials that nothing
-                 else determined (see [elim_a1]). The guess is then the total
-                 available: the largest amount that can possibly work, so it
-                 succeeds whenever any choice would for a lower-bound constraint
-                 such as `q > 0.0`, and it is the only choice for `q == 1.0`. A
-                 wrong guess costs a failed proof, never soundness -- the exhale
-                 still asserts the permission is there. *)
-              match (fraction_fallback, exprs) with
-              | false, _ ->
-                  let frac_chunk =
-                    Expr.mk_app
-                      ~typ:(Expr.to_type (List.hd_exn exprs))
-                      (Expr.DataDestr
-                         (QualIdent.append ra_name Predefs.lib_frac_chunk_destr1_ident))
+              (* The value must match exactly; the available fraction is only a
+                 fallback. Traverse values in both passes for nested resource choices. *)
+              match exprs with
+              | [ value; fraction ] ->
+                  let project destructor typ =
+                    Expr.mk_app ~typ
+                      (Expr.DataDestr (QualIdent.append ra_name destructor))
                       [ concrete_expr ]
                   in
-                  core_witness_comp exists frac_chunk (List.hd_exn exprs) true
-              | true, [ _; frac_expr ] ->
-                  let frac_amount =
-                    Expr.mk_app ~typ:(Expr.to_type frac_expr)
-                      (Expr.DataDestr
-                         (QualIdent.append ra_name Predefs.lib_frac_chunk_destr2_ident))
-                      [ concrete_expr ]
+                  let* values =
+                    core_witness_comp ~resource_fallback exists
+                      (project Predefs.lib_frac_chunk_destr1_ident (Expr.to_type value))
+                      value true
                   in
-                  core_witness_comp exists frac_amount frac_expr true
-              | true, _ -> Rewriter.return (Map.empty (module Ident)))
+                  if not resource_fallback then Rewriter.return values
+                  else
+                    let+ fractions =
+                      core_witness_comp ~resource_fallback exists
+                        (project Predefs.lib_frac_chunk_destr2_ident
+                           (Expr.to_type fraction))
+                        fraction true
+                    in
+                    Map.merge values fractions ~f:(fun ~key:_ -> function
+                      | `Both (value, _) | `Left value -> Some value
+                      | `Right fraction -> Some fraction)
+              | _ -> Rewriter.return (Map.empty (module Ident)))
         | _ -> Error.type_error (Expr.to_loc given_expr) "Expected a data constructor."
       else if QualIdent.(orig_name = Predefs.lib_agree_mod_qual_ident) then
         match given_expr with
@@ -1405,7 +1399,8 @@ and core_witness_comp ?(ra_hint : qual_ident option = None) ?(fraction_fallback 
                      (QualIdent.append ra_name Predefs.lib_agree_destr1_ident))
                   [ concrete_expr ]
               in
-              core_witness_comp exists agree_chunk (List.hd_exn exprs) true
+              core_witness_comp ~resource_fallback exists agree_chunk (List.hd_exn exprs)
+                true
             else Rewriter.return (Map.empty (module Ident))
         | _ -> Error.type_error (Expr.to_loc given_expr) "Expected a data constructor."
       else Rewriter.return (Map.empty (module Ident))
@@ -1429,7 +1424,7 @@ and core_witness_comp ?(ra_hint : qual_ident option = None) ?(fraction_fallback 
               let inverse =
                 Expr.mk_app ~loc:attr.expr_loc ~typ operator [ first; second ]
               in
-              core_witness_comp vars inverse target true
+              core_witness_comp ~resource_fallback vars inverse target true
           in
           let* left_witnesses =
             match operator with
@@ -1448,7 +1443,7 @@ and core_witness_comp ?(ra_hint : qual_ident option = None) ?(fraction_fallback 
       | App (Uminus, [ operand ], attr)
         when Type.is_num (Expr.to_type concrete_expr)
              && Type.subtype_of (Expr.to_type concrete_expr) (Expr.to_type operand) ->
-          core_witness_comp exists
+          core_witness_comp ~resource_fallback exists
             (Expr.mk_app ~loc:attr.expr_loc ~typ:(Expr.to_type concrete_expr) Uminus
                [ concrete_expr ])
             operand true
@@ -1461,9 +1456,10 @@ and core_witness_comp ?(ra_hint : qual_ident option = None) ?(fraction_fallback 
               (Map.singleton (module Ident) (QualIdent.unqualify ident) concrete_expr)
           else Rewriter.return (Map.empty (module Ident))
       | App (Var singleton, [ pattern ], _)
-        when String.equal
-               (Ident.name (QualIdent.unqualify singleton))
-               (Expr.enumeration_name "{" ~singleton:true)
+        when resource_fallback
+             && String.equal
+                  (Ident.name (QualIdent.unqualify singleton))
+                  (Expr.enumeration_name "{" ~singleton:true)
              && Type.is_set (Expr.to_type concrete_expr)
              && List.exists exists ~f:(fun vd ->
                  Set.mem (Expr.local_vars pattern) vd.var_name) ->
@@ -1476,17 +1472,19 @@ and core_witness_comp ?(ra_hint : qual_ident option = None) ?(fraction_fallback 
             let* chosen = singleton_choice exists concrete_expr pattern in
             begin match chosen with
             | None -> Rewriter.return (Map.empty (module Ident))
-            | Some chosen -> core_witness_comp exists chosen pattern true
+            | Some chosen ->
+                core_witness_comp ~resource_fallback exists chosen pattern true
             end
           else Rewriter.return (Map.empty (module Ident))
       | App (Enumeration "{", [ pattern ], _)
-        when Type.is_set (Expr.to_type concrete_expr)
+        when resource_fallback
+             && Type.is_set (Expr.to_type concrete_expr)
              && List.exists exists ~f:(fun vd ->
                  Set.mem (Expr.local_vars pattern) vd.var_name) ->
           let* chosen = singleton_choice exists concrete_expr pattern in
           begin match chosen with
           | None -> Rewriter.return (Map.empty (module Ident))
-          | Some chosen -> core_witness_comp exists chosen pattern true
+          | Some chosen -> core_witness_comp ~resource_fallback exists chosen pattern true
           end
       | App (Tuple, exprs, _) ->
           let indexed_exprs = List.mapi exprs ~f:(fun i expr -> (expr, i)) in
@@ -1496,7 +1494,7 @@ and core_witness_comp ?(ra_hint : qual_ident option = None) ?(fraction_fallback 
               ~init:(Map.empty (module Ident))
               ~f:(fun witness_map (expr, index) ->
                 let* new_witness_map =
-                  core_witness_comp exists
+                  core_witness_comp ~resource_fallback exists
                     (if Int.(List.length indexed_exprs = 1) then concrete_expr
                      else Expr.mk_tuple_lookup concrete_expr index)
                     expr true
@@ -1540,7 +1538,8 @@ and core_witness_comp ?(ra_hint : qual_ident option = None) ?(fraction_fallback 
               ~init:(Map.empty (module Ident))
               ~f:(fun witness_map (destr_concrete_expr, sub_expr) ->
                 let* new_witness_map =
-                  core_witness_comp exists destr_concrete_expr sub_expr true
+                  core_witness_comp ~resource_fallback exists destr_concrete_expr sub_expr
+                    true
                 in
 
                 let witness_map =
