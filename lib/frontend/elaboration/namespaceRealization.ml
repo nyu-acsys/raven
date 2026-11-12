@@ -477,10 +477,6 @@ let validate_pass ~checked ~declarations program pending =
                }
        in
        let* () =
-         require_all ~context ~owner ~loc:m.mod_decl.mod_decl_loc here
-           (requirements contract)
-       in
-       let* () =
          Rewriter.List.iter m.mod_decl.mod_decl_returns ~f:(fun parent ->
              let* parent_symbol = Interfaces.realize_parent ~owner parent in
              let parent_contract =
@@ -517,14 +513,20 @@ let validate_pass ~checked ~declarations program pending =
                ~established:(not (Module.is_functor m.mod_decl))
                (result contract) (result promised))
        in
-       Rewriter.List.iter m.mod_def ~f:(function
-         | Module.SymbolDef (ModDef child) ->
-             walk here (QualIdent.append owner child.mod_decl.mod_decl_name) child
-         | SymbolDef (ModInst binding) -> application here owner binding
-         | SymbolDef
-             (CallDef _ | TypeDef _ | VarDef _ | FieldDef _ | ConstrDef _ | DestrDef _)
-         | Import _ ->
-             Rewriter.return ()))
+       let* () =
+         Rewriter.List.iter m.mod_def ~f:(function
+           | Module.SymbolDef (ModDef child) ->
+               walk here (QualIdent.append owner child.mod_decl.mod_decl_name) child
+           | SymbolDef (ModInst binding) -> application here owner binding
+           | SymbolDef
+               (CallDef _ | TypeDef _ | VarDef _ | FieldDef _ | ConstrDef _ | DestrDef _)
+           | Import _ ->
+               Rewriter.return ())
+       in
+       (* After the members, which report the requirements they contribute at their own
+          locations. *)
+       require_all ~context ~owner ~loc:m.mod_decl.mod_decl_loc here
+         (requirements contract))
   and application environment owner binding =
     let name = QualIdent.append owner binding.Module.mod_inst_name in
     match binding.mod_inst_def with
