@@ -1,0 +1,47 @@
+module Entry : Library.Type { rep type T = (Ref, Int) }
+module Entries : Library.SetRA = Library.SetRA[Entry]
+module Journal : Library.Auth = Library.Auth[Entries]
+module Alias : Journal = Journal
+
+ghost field raw: Set[(Ref, Int)]
+ghost field journal: Alias
+
+lemma singleton(cell: Ref, event: Ref, value: Int)
+  requires own(cell.raw, {(event, value)})
+  ensures exists chosen: Ref :: own(cell.raw, {(chosen, value)})
+{}
+
+lemma tuple_components(cell: Ref, event: Ref, value: Int)
+  requires own(cell.raw, {(event, value)})
+  ensures exists chosen: Ref, selected: Int :: own(cell.raw, {(chosen, selected)})
+{}
+
+lemma fragment(cell: Ref, first: Ref, second: Ref)
+  requires own(cell.journal, Alias.frag(Entries.set({(first, 1), (second, 2)})))
+  ensures exists chosen: Ref :: own(cell.journal, Alias.frag(Entries.set({(chosen, 2)})))
+{}
+
+lemma authoritative_fragment(cell: Ref, first: Ref, second: Ref)
+  requires own(cell.journal, Alias.auth_frag(Entries.set({(first, 1), (second, 2)}),
+                                            Entries.set({(first, 1), (second, 2)})))
+  ensures exists chosen: Ref :: own(cell.journal, Alias.frag(Entries.set({(chosen, 2)})))
+{}
+
+inline pred observed(cell: Ref, event: Ref, value: Int) {
+  own(cell.journal, Alias.frag(Entries.set({(event, value)})))
+}
+
+lemma predicate_fragment(cell: Ref, first: Ref, second: Ref, value: Int)
+  requires own(cell.journal, Alias.frag(Entries.set({(first, value), (second, value + 1)})))
+  ensures exists chosen: Ref :: observed(cell, chosen, value + 1)
+{}
+
+lemma quantified(event: Ref, value: Int)
+  requires forall cell: Ref :: own(cell.raw, {(event, value)})
+  ensures forall cell: Ref :: exists chosen: Ref :: own(cell.raw, {(chosen, value)})
+{}
+
+lemma ambiguous_value(cell: Ref, first: Ref, second: Ref, value: Int)
+  requires first != second && observed(cell, first, value) && observed(cell, second, value)
+  ensures exists chosen: Ref :: observed(cell, chosen, value)
+{}

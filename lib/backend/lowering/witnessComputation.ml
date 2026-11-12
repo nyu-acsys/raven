@@ -227,6 +227,76 @@ let generate_skolem_functions (skolem_fns : skolem_function_def list) =
 
   ret_exprs
 
+(** Choose a matching element without assuming the set contains one. *)
+let singleton_choice (exists : var_decl list) concrete_set pattern =
+  let open Rewriter.Syntax in
+  let loc = Expr.to_loc pattern in
+  let variable name typ =
+    {
+      Type.var_name = Ident.fresh loc name;
+      var_loc = loc;
+      var_type = typ;
+      var_const = true;
+      var_ghost = true;
+      var_implicit = false;
+    }
+  in
+  let result = variable "$set_element" (Expr.to_type pattern) in
+  let set_arg = variable "$set" (Type.set_typed (Expr.to_type pattern)) in
+  let existential id = List.exists exists ~f:(fun vd -> Ident.equal vd.var_name id) in
+  let rec constraints selected pattern (arguments, occurrences, facts) =
+    if not (Set.exists (Expr.local_vars pattern) ~f:existential) then
+      let arg = variable "$known" (Expr.to_type pattern) in
+      Some
+        ( (arg, pattern) :: arguments,
+          occurrences,
+          Expr.mk_eq selected (Expr.from_var_decl arg) :: facts )
+    else
+      match pattern with
+      | App (Var id, [], _) when existential (QualIdent.unqualify id) ->
+          let id = QualIdent.unqualify id in
+          begin match Map.find occurrences id with
+          | None -> Some (arguments, Map.set occurrences ~key:id ~data:selected, facts)
+          | Some previous ->
+              Some (arguments, occurrences, Expr.mk_eq selected previous :: facts)
+          end
+      | App (Tuple, parts, _) ->
+          List.foldi parts
+            ~init:(Some (arguments, occurrences, facts))
+            ~f:(fun index state part ->
+              Option.bind state ~f:(fun state ->
+                  constraints (Expr.mk_tuple_lookup selected index) part state))
+      | _ -> None
+  in
+  match
+    constraints (Expr.from_var_decl result) pattern ([], Map.empty (module Ident), [])
+  with
+  | None -> Rewriter.return None
+  | Some (arguments, _, facts) ->
+      let condition =
+        Expr.mk_and
+          (Expr.mk_eq
+             (Expr.mk_maplookup (Expr.from_var_decl set_arg) (Expr.from_var_decl result))
+             (Expr.mk_bool true)
+          :: facts)
+      in
+      let existence = Expr.mk_binder ~loc Exists [ result ] condition in
+      let+ choices =
+        generate_skolem_functions
+          [
+            {
+              universal_quants = { univ_vars = []; triggers = [] };
+              var_decl = result;
+              preconds = [ existence ];
+              postconds = [ condition ];
+              optn_args = (set_arg, concrete_set) :: List.rev arguments;
+              skolem_fn_id = Ident.fresh_member loc "$choose_set_element";
+              loc;
+            };
+          ]
+      in
+      List.hd choices
+
 (** Normalized guard literals, with contradictory paths removed syntactically. *)
 let normalize_conditions conditions =
   let rec flatten positive expr =
@@ -1235,8 +1305,46 @@ and core_witness_comp ?(ra_hint : qual_ident option = None) ?(fraction_fallback 
               in
               core_witness_comp exists auth_chunk (List.hd_exn exprs) true
               (* Error.error_simple "unimplemented" *)
+            else if String.equal (Ident.name (QualIdent.unqualify constr_ident)) "frag"
+            then
+              begin match exprs with
+              | [ fragment ] ->
+                  let project member =
+                    Expr.mk_app ~typ:(Expr.to_type fragment)
+                      (Expr.DataDestr
+                         (QualIdent.append ra_name (Ident.make Loc.dummy member 0)))
+                      [ concrete_expr ]
+                  in
+                  let is_fragment =
+                    Expr.mk_app ~typ:Type.bool
+                      (Expr.DataTest
+                         (QualIdent.append ra_name (Ident.make Loc.dummy "frag" 0)))
+                      [ concrete_expr ]
+                  in
+                  core_witness_comp exists
+                    (Expr.mk_ite is_fragment (project "f_proj1") (project "af_proj2"))
+                    fragment false
+              | _ -> Rewriter.return (Map.empty (module Ident))
+              end
             else Rewriter.return (Map.empty (module Ident))
         | _ -> Error.type_error (Expr.to_loc given_expr) "Expected a data constructor."
+      else if
+        QualIdent.(
+          orig_name
+          = QualIdent.from_list [ Predefs.lib_ident; Ident.make Loc.dummy "SetRA" 0 ])
+      then
+        begin match given_expr with
+        | App (DataConstr constructor, [ elements ], _)
+          when String.equal (Ident.name (QualIdent.unqualify constructor)) "set" ->
+            let actual =
+              Expr.mk_app ~typ:(Expr.to_type elements)
+                (Expr.DataDestr
+                   (QualIdent.append ra_name (Ident.make Loc.dummy "value" 0)))
+                [ concrete_expr ]
+            in
+            core_witness_comp exists actual elements true
+        | _ -> Rewriter.return (Map.empty (module Ident))
+        end
       else if Predefs.is_lib_frac_mod orig_name then
         match given_expr with
         | App (DataConstr constr_ident, exprs, _) -> (
@@ -1348,6 +1456,34 @@ and core_witness_comp ?(ra_hint : qual_ident option = None) ?(fraction_fallback 
             Rewriter.return
               (Map.singleton (module Ident) (QualIdent.unqualify ident) concrete_expr)
           else Rewriter.return (Map.empty (module Ident))
+      | App (Var singleton, [ pattern ], _)
+        when String.equal
+               (Ident.name (QualIdent.unqualify singleton))
+               (Expr.enumeration_name "{" ~singleton:true)
+             && Type.is_set (Expr.to_type concrete_expr)
+             && List.exists exists ~f:(fun vd ->
+                 Set.mem (Expr.local_vars pattern) vd.var_name) ->
+          let* original, _, _ = Rewriter.find singleton in
+          if
+            QualIdent.(
+              pop original
+              = from_list [ Predefs.lib_ident; Ident.make Loc.dummy "Sets" 0 ])
+          then
+            let* chosen = singleton_choice exists concrete_expr pattern in
+            begin match chosen with
+            | None -> Rewriter.return (Map.empty (module Ident))
+            | Some chosen -> core_witness_comp exists chosen pattern true
+            end
+          else Rewriter.return (Map.empty (module Ident))
+      | App (Enumeration "{", [ pattern ], _)
+        when Type.is_set (Expr.to_type concrete_expr)
+             && List.exists exists ~f:(fun vd ->
+                 Set.mem (Expr.local_vars pattern) vd.var_name) ->
+          let* chosen = singleton_choice exists concrete_expr pattern in
+          begin match chosen with
+          | None -> Rewriter.return (Map.empty (module Ident))
+          | Some chosen -> core_witness_comp exists chosen pattern true
+          end
       | App (Tuple, exprs, _) ->
           let indexed_exprs = List.mapi exprs ~f:(fun i expr -> (expr, i)) in
 

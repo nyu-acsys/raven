@@ -1,0 +1,40 @@
+module Entry : Library.Type { rep type T = (Ref, Int) }
+module Entries : Library.SetRA = Library.SetRA[Entry]
+module Journal : Library.Auth = Library.Auth[Entries]
+
+ghost field raw: Set[(Ref, Int)]
+ghost field journal: Journal
+
+lemma absent_value(cell: Ref, event: Ref)
+  requires own(cell.journal, Journal.frag(Entries.set({(event, 1)})))
+  ensures exists chosen: Ref :: own(cell.journal, Journal.frag(Entries.set({(chosen, 2)})))
+{}
+
+lemma empty_fragment(cell: Ref)
+  requires own(cell.journal, Journal.frag(Entries.set({})))
+  ensures exists chosen: Ref :: own(cell.journal, Journal.frag(Entries.set({(chosen, 2)})))
+{}
+
+lemma exact_set(cell: Ref, first: Ref, second: Ref)
+  requires first != second && own(cell.raw, {(first, 1), (second, 2)})
+  ensures exists chosen: Ref :: own(cell.raw, {(chosen, 2)})
+{}
+
+inline pred observed(cell: Ref, event: Ref, value: Int) {
+  own(cell.journal, Journal.frag(Entries.set({(event, value)})))
+}
+
+lemma absent_predicate(cell: Ref, event: Ref)
+  requires observed(cell, event, 1)
+  ensures exists chosen: Ref :: observed(cell, chosen, 2)
+{}
+
+lemma authority_is_not_observation(cell: Ref, event: Ref)
+  requires own(cell.journal, Journal.auth(Entries.set({(event, 2)})))
+  ensures exists chosen: Ref :: observed(cell, chosen, 2)
+{}
+
+lemma observations_do_not_determine_event(cell: Ref, first: Ref, second: Ref, value: Int)
+  requires first != second && observed(cell, first, value) && observed(cell, second, value)
+  ensures first == second
+{}
