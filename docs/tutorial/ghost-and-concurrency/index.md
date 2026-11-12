@@ -127,6 +127,8 @@ invariants requires an explicit predicate entry. Returning an input resource doe
 opening permissions excluded by the method's mask. A constructor can nevertheless grant
 permission for its output invariants when their namespaces are provably disjoint from the
 excluded input dependencies; it needs no extra `opens` clause for that.
+{{ref sec:module-namespace-contracts}} explains how these rules keep masks sound across module
+boundaries.
 
 ## Ghost fields and resource algebras {#sec:ghost-fields-resource-algebras}
 
