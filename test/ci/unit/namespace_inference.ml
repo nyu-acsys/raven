@@ -279,14 +279,13 @@ let test_atomic_implicit_and_resource_outputs () =
        proc logical(implicit ghost x: Int)\n\
        atomic requires leaf(x, 0) atomic ensures leaf(x, 0) {}"
   in
-  let _, exact =
-    Rewriter.eval (Rewriter.find_and_reify_callable (qi [ "exact" ])) symbols
-  in
-  let args = List.map exact.call_decl.call_decl_formals ~f:Expr.from_var_decl in
-  assert (
-    Callable.mask_equal (callable draft [ "exact" ]).grants
-      [ own [ "leaf" ] args; dependency [ "leaf" ] args ]);
-  assert (List.is_empty (callable draft [ "hidden" ]).grants);
+  (* Invariant grants are indexed by the formals before `;`, so hiding the others is
+     no loss. *)
+  List.iter [ "exact"; "hidden" ] ~f:(fun name ->
+      let x = argument symbols [ name ] in
+      assert (
+        Callable.mask_equal (callable draft [ name ]).grants
+          [ own [ "leaf" ] [ x ]; dependency [ "leaf" ] [ x ] ]));
   assert (
     Callable.mask_equal (callable draft [ "logical" ]).requires [ own [ "leaf" ] [] ]);
   assert (List.is_empty (callable draft [ "logical" ]).grants)
