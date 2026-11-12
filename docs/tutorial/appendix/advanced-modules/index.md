@@ -357,25 +357,32 @@ module Worker[P: Resource] {
 }
 ```
 
-This is sound only if `P.touch` can't open `cell`, which depends on `P`. Raven records the
+This is sound only if `P.touch` can't open `cell(y)`, which depends on `P`. Raven records the
 assumption in `Worker`'s contract, as a requirement that `P`'s namespaces be disjoint from
 `cell`'s, and checks it at every application. `Worker[Separate]`, whose `shared` contains no
-invariants, is accepted. `Worker[Actual]`, in
+invariants, is accepted. With `Actual`, `touch` opens `cell(root)`, so the two instances are
+distinct only if `y != root`. Since `work` names both instances by formals that its body never
+assigns, Raven checks this for the instances, as an assertion under `work`'s precondition.
+Nothing there rules out `y == root`, so `Worker[Actual]`, in
 [`broken/namespace_separation.rav`](./broken/namespace_separation.rav), is rejected at the
-application with `[Type Error] Cannot establish invariant namespace separation between cell and
-dependencies(Actual.shared)`, with the call in `Worker` that made the assumption as a Related
-Location. In the same way, a module passed for a parameter must satisfy the parameter's
+application with `[Verification Error] Cannot establish invariant namespace separation between
+cell(y) and cell(root)`, with the call in `Worker` that made the assumption as a Related
+Location. In [`namespace_instances.rav`](./namespace_instances.rav), the parameter's
+`shared(x)` is `cell(x)`, and the generic lemma requires `x != y`, so the application verifies.
+In the same way, a module passed for a parameter must satisfy the parameter's
 contract. In particular, a callable that the parameter's interface promises grants its caller a
 mask, like a constructor that allocates an invariant, must grant at least that mask. Otherwise
 the application is rejected with `Incompatible module namespace contracts`.
 
 **Limitations.** Contracts are conservative in three ways:
 
-- Across a module boundary, separation is a property of invariant declarations, not of
-  instances. In [`broken/namespace_instances.rav`](./broken/namespace_instances.rav), a functor
-  holds `cell(y)` open and calls its parameter, whose `shared(x)` is `cell(x)`, and requires
-  `x != y`. The same code verifies against the module directly, but the application is rejected,
-  because the contract records only that the parameter's `shared` overlaps `cell`.
+- Across a module boundary, instances are told apart only by the precondition of the generic
+  callable, and only if they are named by formals that its body never assigns. Otherwise,
+  separation is a property of invariant declarations. In
+  [`broken/namespace_instances.rav`](./broken/namespace_instances.rav), the functor opens
+  `cell(y)` through a local copy of `y`, so its application is rejected, although the same code
+  verifies against the module directly. Applications inside other functors are always checked
+  per declaration.
 - Masks are fixed by the interface. An implementation can't open an invariant its interface's
   mask doesn't cover, even if no caller would ever have it open. Declaring hidden invariants
   through a predicate entry makes every caller provide them, for every implementation.

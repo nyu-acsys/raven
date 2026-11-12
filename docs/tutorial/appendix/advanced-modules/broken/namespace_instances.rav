@@ -19,9 +19,10 @@ module Worker[P: Sig] {
   lemma work(x: Ref, y: Ref)
     requires cell(y) && P.shared(x) && x != y
   {
-    unfold cell(y);
+    ghost var w: Ref := y;
+    unfold cell(w);
     P.touch(x);
-    fold cell(y);
+    fold cell(w);
   }
 }
 module Applied = Worker[Actual]

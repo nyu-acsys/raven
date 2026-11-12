@@ -310,7 +310,7 @@ let test_realization_preserves_bodies () =
       (Map.empty (module QualIdent))
   in
   let before = bodies frozen in
-  let _, validated =
+  let _, (validated, _) =
     Rewriter.eval (Frontend.NamespaceRealization.validate ~draft frozen) tbl
   in
   assert (Map.equal phys_equal before (bodies validated))
@@ -332,7 +332,7 @@ let test_conditional_interface_requirements () =
   assert (not (List.is_empty conditional.separation));
   ignore
     (Rewriter.eval (Frontend.NamespaceRealization.validate ~draft frozen) tbl
-      : SymbolTbl.t * Module.t)
+      : SymbolTbl.t * (Module.t * Frontend.NamespaceRealization.obligation list))
 
 let test_standard_library_headers () =
   let ext_hooks = Ext.to_ext_hooks (Ext.module_map Ext.DefaultExt) in

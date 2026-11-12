@@ -1251,7 +1251,18 @@ let elaborate_phase_2 (m : Module.t) : Module.t Rewriter.t =
   let* collected = NamespaceClosure.collect m in
   let* draft = NamespaceClosure.close collected in
   let* m = NamespaceClosure.freeze draft collected.program in
-  NamespaceRealization.validate ~draft m
+  let* m, obligations = NamespaceRealization.validate ~draft m in
+  if List.is_empty obligations then Rewriter.return m
+  else
+    let* () = Rewriter.enter_module m in
+    let* lemmas =
+      Rewriter.List.map obligations ~f:NamespaceRealization.obligation_lemma
+    in
+    let* _ =
+      Rewriter.introduce_typecheck_symbols ~loc:m.mod_decl.mod_decl_loc
+        ~f:Typing.check_symbol lemmas
+    in
+    Rewriter.exit_module m
 
 let rewrites_type_ext (m : Module.t) : Module.t Rewriter.t =
   Logs.debug (fun m1 ->

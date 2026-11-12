@@ -102,6 +102,9 @@ type atomicity_check = {
   namespace_draft : NamespaceInference.t option;
   separation : NamespaceContract.separation_requirement list;
   callees : QualIdentSet.t;
+  scope : QualIdent.t;
+  (* The formals the body never writes, which separation instances can mention. *)
+  stable_formals : Set.M(Ident).t;
 }
 
 type namespace_analysis = {
@@ -115,7 +118,13 @@ let compare_separation left right =
   match compare_mask left.NamespaceContract.left right.NamespaceContract.left with
   | 0 ->
       begin match compare_mask left.right right.right with
-      | 0 -> Loc.compare left.loc right.loc
+      | 0 ->
+          begin match Loc.compare left.loc right.loc with
+          | 0 ->
+              Option.compare NamespaceContract.compare_separation_instances left.instances
+                right.instances
+          | order -> order
+          end
       | order -> order
       end
   | order -> order
@@ -127,31 +136,60 @@ let union_separation left right =
         requirement.right
       <= 0
     then requirement
-    else { requirement with left = requirement.right; right = requirement.left }
+    else
+      {
+        requirement with
+        left = requirement.right;
+        right = requirement.left;
+        instances =
+          Option.map requirement.instances ~f:(fun instances ->
+              {
+                instances with
+                instance_left = instances.instance_right;
+                instance_right = instances.instance_left;
+              });
+      }
   in
   List.map (left @ right) ~f:canonical |> List.dedup_and_sort ~compare:compare_separation
 
-(* Cross-namespace assumptions are lifted to whole families, without local binders. *)
+(* Cross-namespace assumptions are lifted to whole families, without local binders, and
+   keep their instances when the callable's precondition determines them. *)
 let require_separation ~loc required (state : atomicity_check) =
   match state.namespace_draft with
   | None -> state
   | Some _ ->
+      let stable args =
+        List.for_all args ~f:(fun arg ->
+            Set.is_subset (Expr.local_vars arg) ~of_:state.stable_formals)
+      in
       let separation =
-        List.concat_map required ~f:(fun (head, _) ->
+        List.concat_map required ~f:(fun (head, args) ->
             List.filter_map state.invs_opened ~f:(fun opened ->
                 let opened_head = Callable.MaskHead.Invariant opened.inv_name in
                 if Callable.equal_mask_head head opened_head then None
                 else
-                  let left, right =
+                  let required = (head, args) in
+                  let opened_entry = (opened_head, opened.inv_args) in
+                  let (left, _), (right, _), instance_left, instance_right =
                     if Callable.compare_mask_head head opened_head < 0 then
-                      (head, opened_head)
-                    else (opened_head, head)
+                      (required, opened_entry, required, opened_entry)
+                    else (opened_entry, required, opened_entry, required)
+                  in
+                  let instances =
+                    Option.some_if
+                      (stable args && stable opened.inv_args)
+                      {
+                        NamespaceContract.scope = state.scope;
+                        instance_left = [ instance_left ];
+                        instance_right = [ instance_right ];
+                      }
                   in
                   Some
                     {
                       NamespaceContract.left = [ (left, []) ];
                       right = [ (right, []) ];
                       loc;
+                      instances;
                     }))
       in
       { state with separation = union_separation state.separation separation }
@@ -620,6 +658,21 @@ let vars_written ~ext_hooks (stmt : Stmt.t) : Ident.t list =
   | Basic (Use _ | Spec _ | FieldWrite _ | Fpu _ | Return _ | AUAction _)
   | Block _ | Cond _ | Loop _ ->
       []
+
+(* The locals [stmt] or any statement nested in it writes. *)
+let rec vars_written_within ~ext_hooks (stmt : Stmt.t) : Ident.t list =
+  let nested =
+    match stmt.stmt_desc with
+    | Block block -> List.concat_map block.block_body ~f:(vars_written_within ~ext_hooks)
+    | Cond cond ->
+        vars_written_within ~ext_hooks cond.cond_then
+        @ vars_written_within ~ext_hooks cond.cond_else
+    | Loop loop ->
+        vars_written_within ~ext_hooks loop.loop_prebody
+        @ vars_written_within ~ext_hooks loop.loop_postbody
+    | Basic _ | StmtExt _ -> []
+  in
+  vars_written ~ext_hooks stmt @ nested
 
 (* The openings of both paths, with the locals written since on either. *)
 let join_openings (l1 : opening list) (l2 : opening list) : opening list =
@@ -2542,6 +2595,19 @@ let analyze ?namespace_draft (c : Callable.t) : (namespace_analysis, 'a) Rewrite
         let summary = Option.value_exn summary in
         (summary.requires, summary.separation)
   in
+  let* ext_hooks = Rewriter.current_ext_hooks in
+  let written =
+    match c.call_def with
+    | ProcDef { proc_body = Some body } -> vars_written_within ~ext_hooks body
+    | ProcDef { proc_body = None } | FuncDef _ -> []
+  in
+  let stable_formals =
+    List.filter_map c.call_decl.call_decl_formals ~f:(fun formal ->
+        Option.some_if
+          (not (List.mem written formal.var_name ~equal:Ident.equal))
+          formal.var_name)
+    |> Set.of_list (module Ident)
+  in
   Logs.debug (fun m ->
       m
         "Elaboration.rewrite_atomicity_analysis: Rewriting atomicity analysis for \
@@ -2564,6 +2630,8 @@ let analyze ?namespace_draft (c : Callable.t) : (namespace_analysis, 'a) Rewrite
         namespace_draft;
         separation;
         callees = Set.empty (module QualIdent);
+        scope = scope_id;
+        stable_formals;
       }
     (let* callable = Rewriter.Callable.rewrite_stmts ~f:rewrite_au_cmnds c in
      let* (state : atomicity_check) = Rewriter.current_user_state in

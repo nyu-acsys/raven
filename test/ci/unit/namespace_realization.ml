@@ -25,7 +25,7 @@ let validate source =
   let tbl, collected = Rewriter.eval (Closure.collect typed) tbl in
   let tbl, draft = Rewriter.eval (Closure.close collected) tbl in
   let tbl, frozen = Rewriter.eval (Closure.freeze draft collected.program) tbl in
-  snd (Rewriter.eval (Realization.validate ~draft frozen) tbl)
+  fst (snd (Rewriter.eval (Realization.validate ~draft frozen) tbl))
 
 let accept source = ignore (validate source : Module.t)
 
@@ -174,7 +174,7 @@ let comparator source expected =
     in
     ignore
       (Rewriter.eval
-         (Rewriter.eval_with_user_state ~init:(Map.empty (module QualIdent)) action)
+         (Rewriter.eval_with_user_state ~init:Realization.empty_state action)
          tbl)
   in
   compare

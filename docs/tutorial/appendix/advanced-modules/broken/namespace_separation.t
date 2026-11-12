@@ -2,7 +2,7 @@
   [Error] File "./namespace_separation.rav", line 43, columns 7-14:
   43 | module Applied = Worker[Actual]
               ^^^^^^^
-  Type Error: Cannot establish invariant namespace separation between cell and dependencies(Actual.shared).
+  Verification Error: Cannot establish invariant namespace separation between cell(y) and cell(root).
   [Error] File "./namespace_separation.rav", line 38, columns 4-15:
   38 |     P.touch(x);
            ^^^^^^^^^^^

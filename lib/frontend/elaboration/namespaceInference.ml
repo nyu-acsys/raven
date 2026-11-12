@@ -309,6 +309,7 @@ let summarize equations seed =
                 NamespaceContract.left = [ (head, []) ];
                 right = [ (other, []) ];
                 loc = QualIdent.to_loc (Callable.mask_head_name head);
+                instances = None;
               })
         in
         { NamespaceContract.grants = [ grant ]; conditions })
@@ -521,8 +522,16 @@ let find_callable ?(normalize = true) draft name =
       let* separation =
         Rewriter.List.map summary.separation ~f:(fun requirement ->
             let* left = Masks.resolve_mask requirement.NamespaceContract.left in
-            let+ right = Masks.resolve_mask requirement.right in
-            { requirement with left; right })
+            let* right = Masks.resolve_mask requirement.right in
+            let+ instances =
+              match requirement.instances with
+              | None -> Rewriter.return None
+              | Some instances ->
+                  let* instance_left = Masks.resolve_mask instances.instance_left in
+                  let+ instance_right = Masks.resolve_mask instances.instance_right in
+                  Some { instances with instance_left; instance_right }
+            in
+            { requirement with left; right; instances })
       in
       let summary = { summary with NamespaceContract.requires; grants; separation } in
       let+ grants =

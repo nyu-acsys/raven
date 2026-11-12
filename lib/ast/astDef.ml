@@ -3483,10 +3483,20 @@ module NamespaceContract = struct
   }
   [@@deriving compare]
 
+  type separation_instances = {
+    scope : QualIdent.t;
+    instance_left : Callable.mask;
+    instance_right : Callable.mask;
+  }
+  [@@deriving compare]
+  (** The instances of a requirement, over formals that the body of [scope] never writes,
+      so that its precondition determines them. *)
+
   type separation_requirement = {
     left : Callable.mask;
     right : Callable.mask;
     loc : Loc.t;
+    instances : separation_instances option;
   }
   [@@deriving compare]
 
@@ -3570,8 +3580,17 @@ module NamespaceContract = struct
   let map_state_separation ~name ~expr (requirement : separation_requirement) =
     let open State.Syntax in
     let* left = map_state_mask ~name ~expr requirement.left in
-    let+ right = map_state_mask ~name ~expr requirement.right in
-    { requirement with left; right }
+    let* right = map_state_mask ~name ~expr requirement.right in
+    let+ instances =
+      match requirement.instances with
+      | None -> State.return None
+      | Some instances ->
+          let* scope = name instances.scope in
+          let* instance_left = map_state_mask ~name ~expr instances.instance_left in
+          let+ instance_right = map_state_mask ~name ~expr instances.instance_right in
+          Some { scope; instance_left; instance_right }
+    in
+    { requirement with left; right; instances }
 
   let map_state_guarded_grant ~name ~expr (grant : guarded_grant) =
     let open State.Syntax in

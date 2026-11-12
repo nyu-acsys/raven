@@ -394,6 +394,7 @@ let test_summary_substitution_preserves_conflicts () =
                   left = [ (own [ "F"; "P"; "i" ], []) ];
                   right = [ (own [ "F"; "P"; "j" ], []) ];
                   loc = Util.Loc.dummy;
+                  instances = None;
                 };
               ];
           })

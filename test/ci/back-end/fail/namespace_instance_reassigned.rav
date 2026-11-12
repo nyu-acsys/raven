@@ -1,0 +1,29 @@
+// A formal the body writes does not determine the instance, so it is checked per declaration.
+field f: Int
+inv cell(x: Ref) { own(x.f, 0, 1.0) }
+
+interface Sig {
+  inv shared(x: Ref)
+  lemma touch(x: Ref)
+    requires shared(x)
+}
+
+module Actual : Sig {
+  inv shared(x: Ref) = cell
+  lemma touch(x: Ref) {
+    unfold shared(x);
+    fold shared(x);
+  }
+}
+
+module Worker[P: Sig] {
+  proc work(x: Ref, y: Ref, z: Ref)
+    requires cell(y) && cell(z) && P.shared(x) && x != y
+  {
+    y := z;
+    unfold cell(y);
+    P.touch(x);
+    fold cell(y);
+  }
+}
+module Applied = Worker[Actual]

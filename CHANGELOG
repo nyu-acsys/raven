@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 - Infer existential witnesses from singleton-set tuple patterns and Auth/SetRA fragments.
 - Infer invariant mask grants when only their implicit parameters are hidden, while retaining every formal before `;`.
 - Check atomic-update token and argument identity with proof obligations, including aliases established by contracts.
+- Separate invariant instances that generic code holds open from its functor arguments' by the generic callable's precondition.
 
 ### Fixed
 

@@ -24,7 +24,7 @@ let test_prefixes () =
       assert (List.is_empty (Callable.mask_inter broad other)))
 
 let requirement left right : NamespaceContract.separation_requirement =
-  { left; right; loc }
+  { left; right; loc; instances = None }
 
 let test_collapsing_substitution () =
   let left = mask [ own [ "P" ] []; dependencies [ "P" ] [] ] in

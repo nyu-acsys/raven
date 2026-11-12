@@ -11,6 +11,23 @@ type environment = {
   assumptions : NamespaceContract.separation_requirement list;
 }
 
+type obligation = {
+  requirement : NamespaceContract.separation_requirement;
+  scope : QualIdent.t;
+  conditions : Expr.t list;
+  pairs : (Callable.mask_entry * Callable.mask_entry) list;
+  loc : Loc.t;
+}
+(** Instances of [requirement] separated under the precondition of [scope] if [conditions]
+    hold. *)
+
+type state = {
+  pending : NamespaceContract.separation_requirement list Map.M(QualIdent).t;
+  obligations : obligation list;
+}
+
+let empty_state = { pending = Map.empty (module QualIdent); obligations = [] }
+
 let empty_environment =
   {
     roots = Set.empty (module QualIdent);
@@ -71,17 +88,113 @@ let overlaps ?(rename = Fn.id) context requirement =
 
 let remember ~owner constraints =
   let open Rewriter.Syntax in
-  let* pending = Rewriter.current_user_state in
+  let* state = Rewriter.current_user_state in
   Rewriter.set_user_state
-    (Map.update pending owner ~f:(fun previous ->
-         Requirements.union (Option.value previous ~default:[]) constraints))
+    {
+      state with
+      pending =
+        Map.update state.pending owner ~f:(fun previous ->
+            Requirements.union (Option.value previous ~default:[]) constraints);
+    }
 
-let require ?(rename = Fn.id) ~context ~owner ~loc environment requirement =
+(** The argument inequalities that separate two entries of [requirement]'s instances, if
+    the entries are disjoint at most up to their arguments. *)
+let separating_condition ?(rename = Fn.id) context requirement (head, args)
+    (other, other_args) =
+  let open Rewriter.Syntax in
+  match (head, other) with
+  | Callable.MaskHead.Invariant name, Callable.MaskHead.Invariant _
+    when Callable.equal_mask_head head other ->
+      let arity =
+        Map.find context.Entailment.namespaces name
+        |> Option.value_map ~default:0 ~f:(fun (declaration : namespace_decl) ->
+            List.length declaration.formals)
+      in
+      let compared =
+        Int.min arity (Int.min (List.length args) (List.length other_args))
+      in
+      let args = List.take args compared and other_args = List.take other_args compared in
+      (* Identical arguments name the same instance. *)
+      Rewriter.return
+        (if compared = 0 || List.equal (fun a b -> Expr.compare a b = 0) args other_args
+         then None
+         else
+           Some
+             (Some
+                (Expr.mk_or
+                   (List.map2_exn args other_args ~f:(fun arg other_arg ->
+                        Expr.mk_not (Expr.mk_eq arg other_arg))))))
+  | _ ->
+      let+ separate =
+        Entailment.entails ~rename context ~assumptions:[]
+          {
+            requirement with
+            left = [ (head, []) ];
+            right = [ (other, []) ];
+            instances = None;
+          }
+      in
+      if separate then Some None else None
+
+(** Discharges [requirement] by the conditions its instances need, as an obligation of the
+    callable that determines them. *)
+let separate_instances ?(rename = Fn.id) ~context ~loc requirement =
+  let open Rewriter.Syntax in
+  match requirement.NamespaceContract.instances with
+  | None -> Rewriter.return false
+  | Some instances -> (
+      let* state = Rewriter.current_user_state in
+      if
+        List.exists state.obligations ~f:(fun obligation ->
+            NamespaceContract.compare_separation_requirement obligation.requirement
+              requirement
+            = 0)
+      then Rewriter.return true
+      else
+        let* left = Entailment.normalize_mask ~rename context instances.instance_left in
+        let* right = Entailment.normalize_mask ~rename context instances.instance_right in
+        let pairs = List.cartesian_product left right in
+        let* conditions =
+          Rewriter.List.map pairs ~f:(fun (left, right) ->
+              separating_condition ~rename context requirement left right)
+        in
+        match Option.all conditions with
+        | None -> Rewriter.return false
+        | Some conditions ->
+            let separated = List.zip_exn pairs conditions in
+            let+ () =
+              Rewriter.set_user_state
+                {
+                  state with
+                  obligations =
+                    {
+                      requirement;
+                      scope = instances.scope;
+                      conditions = List.filter_opt conditions;
+                      pairs =
+                        List.filter_map separated ~f:(fun (pair, condition) ->
+                            Option.map condition ~f:(fun _ -> pair));
+                      loc;
+                    }
+                    :: state.obligations;
+                }
+            in
+            true)
+
+let require ?(rename = Fn.id) ?(instances = false) ~context ~owner ~loc environment
+    requirement =
   let open Rewriter.Syntax in
   let* satisfied =
     Entailment.entails ~rename context ~assumptions:environment.assumptions requirement
   in
-  if satisfied then Rewriter.return ()
+  let* separated =
+    if
+      satisfied || (not instances)
+      || not (Set.is_empty environment.roots && Set.is_empty environment.universals)
+    then Rewriter.return false
+    else separate_instances ~rename ~context ~loc requirement
+  in
+  if satisfied || separated then Rewriter.return ()
   else
     let* conflict = overlaps ~rename context requirement in
     if conflict then report ~loc requirement
@@ -103,13 +216,12 @@ let require ?(rename = Fn.id) ~context ~owner ~loc environment requirement =
         let* left = Entailment.canonical_mask ~rename requirement.left in
         let* right = Entailment.canonical_mask ~rename requirement.right in
         let requirement = { requirement with left; right } in
-        let* pending = Rewriter.current_user_state in
-        Rewriter.set_user_state
-          (Map.update pending owner ~f:(fun previous ->
-               Requirements.union (Option.value previous ~default:[]) [ requirement ]))
+        remember ~owner [ requirement ]
 
-let require_all ?(rename = Fn.id) ~context ~owner ~loc environment constraints =
-  Rewriter.List.iter constraints ~f:(require ~rename ~context ~owner ~loc environment)
+let require_all ?(rename = Fn.id) ?instances ~context ~owner ~loc environment constraints
+    =
+  Rewriter.List.iter constraints
+    ~f:(require ~rename ?instances ~context ~owner ~loc environment)
 
 let align_callable (actual : NamespaceContract.callable_summary)
     (expected : NamespaceContract.callable_summary) =
@@ -525,7 +637,7 @@ let validate_pass ~checked ~declarations program pending =
        in
        (* After the members, which report the requirements they contribute at their own
           locations. *)
-       require_all ~context ~owner ~loc:m.mod_decl.mod_decl_loc here
+       require_all ~instances:true ~context ~owner ~loc:m.mod_decl.mod_decl_loc here
          (requirements contract))
   and application environment owner binding =
     let name = QualIdent.append owner binding.Module.mod_inst_name in
@@ -571,8 +683,8 @@ let validate_pass ~checked ~declarations program pending =
         let* () =
           match actual with
           | NamespaceContract.Module summary ->
-              require_all ~context ~owner ~loc:binding.mod_inst_loc environment
-                summary.separation
+              require_all ~instances:true ~context ~owner ~loc:binding.mod_inst_loc
+                environment summary.separation
           | Functor _ -> Rewriter.return ()
           | Requalified _ -> assert false
         in
@@ -616,7 +728,7 @@ let validate_pass ~checked ~declarations program pending =
           compatible ~checked ~declarations ~owner ~loc:binding.mod_inst_loc environment
             ~actual_path ~expected_path:expected_owner ~established:true provided expected
   in
-  Rewriter.eval_with_user_state ~init:pending
+  Rewriter.eval_with_user_state ~init:{ empty_state with pending }
     (let* () =
        walk empty_environment
          (QualIdent.from_ident program.Module.mod_decl.mod_decl_name)
@@ -624,7 +736,51 @@ let validate_pass ~checked ~declarations program pending =
      in
      Rewriter.current_user_state)
 
-(** Validate conditional headers and close newly exposed realization requirements. *)
+(** A lemma that proves [obligation] from the ordinary precondition of its callable. *)
+let obligation_lemma obligation =
+  let open Rewriter.Syntax in
+  let+ callable = Rewriter.find_and_reify_callable obligation.scope in
+  let decl = callable.call_decl in
+  let entry (head, args) =
+    let name = Ident.to_string (QualIdent.unqualify (Callable.mask_head_name head)) in
+    name ^ "(" ^ String.concat ~sep:", " (List.map args ~f:Expr.to_source_string) ^ ")"
+  in
+  let separated =
+    String.concat ~sep:", "
+      (List.map obligation.pairs ~f:(fun (left, right) ->
+           entry left ^ " and " ^ entry right))
+  in
+  let errors =
+    [
+      Stmt.mk_const_spec_error
+        ( Error.Verification Error.Mask,
+          obligation.loc,
+          "Cannot establish invariant namespace separation between " ^ separated );
+      Stmt.mk_const_spec_error
+        ( Error.RelatedLoc,
+          obligation.requirement.loc,
+          "This generic check requires the namespaces to be disjoint" );
+    ]
+  in
+  let check =
+    Stmt.mk_assert_expr ~loc:obligation.loc ~spec_error:errors
+      (Expr.mk_and obligation.conditions)
+  in
+  Module.CallDef
+    {
+      call_decl =
+        Callable.mk_call_decl ~kind:Lemma
+          ~name:(Ident.fresh obligation.loc "$separation")
+          ~loc:obligation.loc ~formals:decl.call_decl_formals
+          ~precond:
+            (List.filter decl.call_decl_precond ~f:(fun spec -> not spec.spec_atomic))
+          ~needs_mask:[] ~grants_mask:[] ();
+      call_def =
+        ProcDef { proc_body = Some (Stmt.mk_block_stmt ~loc:obligation.loc [ check ]) };
+    }
+
+(** Validate conditional headers and close newly exposed realization requirements; also
+    returns the obligations that separate instances. *)
 let validate ~draft program =
   let open Rewriter.Syntax in
   let checked = Hashtbl.create (module QualIdent) in
@@ -637,9 +793,11 @@ let validate ~draft program =
            (fun left right -> NamespaceContract.compare_namespace_decl left right = 0)
            previous declarations)
     then Hashtbl.clear checked;
-    let* next = validate_pass ~checked ~declarations program pending in
+    let* { pending = next; obligations } =
+      validate_pass ~checked ~declarations program pending
+    in
     let equal = Map.equal Requirements.equal pending next in
-    if equal then Rewriter.return program
+    if equal then Rewriter.return (program, obligations)
     else
       let* program =
         NamespaceClosure.freeze ~refresh:true ~requirements:next draft program

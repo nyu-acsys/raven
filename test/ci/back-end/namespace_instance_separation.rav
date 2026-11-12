@@ -1,0 +1,34 @@
+// Generic code separates instances by its precondition, checked at each application.
+field f: Int
+inv cell(x: Ref) { own(x.f, 0, 1.0) }
+
+interface Sig {
+  inv shared(x: Ref)
+  lemma touch(x: Ref)
+    requires shared(x)
+}
+
+module Actual : Sig {
+  inv shared(x: Ref) = cell
+  lemma touch(x: Ref) {
+    unfold shared(x);
+    fold shared(x);
+  }
+}
+
+module Worker[P: Sig] {
+  lemma work(x: Ref, y: Ref)
+    requires cell(y) && P.shared(x) && x != y
+  {
+    unfold cell(y);
+    P.touch(x);
+    fold cell(y);
+  }
+}
+module Applied = Worker[Actual]
+
+lemma client(a: Ref, b: Ref)
+  requires cell(b) && Actual.shared(a) && a != b
+{
+  Applied.work(a, b);
+}
