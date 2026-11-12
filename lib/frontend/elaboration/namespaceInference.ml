@@ -63,9 +63,7 @@ let granted_specs decl =
   let open Rewriter.Syntax in
   let+ masks =
     Rewriter.List.map decl.Callable.call_decl_postcond ~f:(fun spec ->
-        let+ applications =
-          Masks.expr_inv_applications ~explicit_only:false spec.spec_form
-        in
+        let+ applications = Masks.expr_grant_applications spec.spec_form in
         let expressible =
           Set.union
             (expressible_formals decl spec.spec_atomic)

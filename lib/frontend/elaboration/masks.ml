@@ -66,7 +66,7 @@ let substitute_and_truncate_mask ~(mentioned_formals : Type.var_decl list)
    than papered over by inferring it from the callee's mask. *)
 
 (* Walks an expression collecting every [Pred]/[Invariant] application
-   (declaration, kind, arguments, and number of explicit parameters) reachable
+   (declaration, kind, arguments, and number of formals before `;`) reachable
    through [App]/[Binder] nesting -- the same traversal shape (and same [Pred] |
    [Invariant] filter) as [ProgUtils.expr_preds_mentioned], just
    additionally keeping each application's kind and arguments. *)
@@ -93,14 +93,26 @@ let rec inv_applications (expr : Expr.t) :
       List.concat nested
   | Expr.Binder (_, _, _, body, _) -> inv_applications body
 
-(* With [~explicit_only], the implicit arguments (after the `;`) are dropped,
-   which widens an entry to all instances with the same explicit arguments.
-   That is only sound for masks a callable needs, not for masks it grants. *)
+(* With [~explicit_only], retain every formal before `;` and drop the implicit
+   arguments after it. Needs may approximate predicate dependencies this way;
+   grants project only invariant implicit parameters below. *)
 let expr_inv_applications ~explicit_only (expr : Expr.t) =
   let open Rewriter.Syntax in
   let+ apps = inv_applications expr in
-  List.map apps ~f:(fun (qi, kind, args, n_explicit) ->
-      (qi, kind, if explicit_only then List.take args n_explicit else args))
+  List.map apps ~f:(fun (qi, kind, args, n_formals) ->
+      (qi, kind, if explicit_only then List.take args n_formals else args))
+
+(* Invariant grants are indexed by every formal before `;`, including implicit
+   ghost formals. Implicit parameters after `;` do not index invariant grants;
+   predicate dependencies retain their implicit arguments. Opening credit does not
+   supply ownership or determine the established instance's implicit arguments. *)
+let expr_grant_applications expr =
+  let open Rewriter.Syntax in
+  let+ apps = inv_applications expr in
+  List.map apps ~f:(fun (qi, kind, args, n_formals) ->
+      ( qi,
+        kind,
+        match kind with Callable.Invariant -> List.take args n_formals | _ -> args ))
 
 let compute_proc_lemma_mask (c : Callable.t) : (Callable.mask, 'a) Rewriter.t_ext =
   let open Rewriter.Syntax in
@@ -412,7 +424,7 @@ let rewrite_grants_mask (c : Callable.t) : Callable.t Rewriter.t =
         in
         let* ensures_applications =
           Rewriter.List.map c.call_decl.call_decl_postcond ~f:(fun spec ->
-              let+ apps = expr_inv_applications ~explicit_only:false spec.spec_form in
+              let+ apps = expr_grant_applications spec.spec_form in
               List.map apps ~f:(fun (qi, kind, args) ->
                   (qi, kind, args, spec.spec_atomic)))
         in
