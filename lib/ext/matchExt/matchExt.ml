@@ -34,19 +34,16 @@ module MatchExt (Cont : Ext) = struct
   type match_arm = { arm_ctor : Ident.t option; arm_vars : Ident.t list }
   (** One `case ctor(x, y) => ...` arm. [arm_ctor] is [None] for a wildcard/default arm
       (`case _ => ...`). Kept as bare, unqualified [Ident.t]s throughout -- parsing,
-      type-checking, and rewriting alike -- rather than switching to resolved
-      [QualIdent.t]s after type-checking (the way [Is] does): a local variable's own
-      reference is always just [QualIdent.from_ident] of its bare name (see e.g.
-      [DecreasesExt]'s own `$decreases_...` locals, referenced the same way), so there is
-      no resolved form to switch to for [arm_vars], and re-deriving [arm_ctor]'s matching
-      variant from [as_data_type]/[find_variant] a second time in [rewrite_expr_ext] is
-      cheap -- the same redundant-recompute trade DecreasesExt's own [is_wf_order_type]
-      already makes on purpose. *)
+      type-checking, and rewriting alike: a local variable's own reference is always just
+      [QualIdent.from_ident] of its bare name (see e.g. [DecreasesExt]'s own
+      `$decreases_...` locals, referenced the same way), so there is no resolved form to
+      switch to for [arm_vars], and re-deriving [arm_ctor]'s matching variant from
+      [as_data_type]/[find_variant] a second time in [rewrite_expr_ext] is cheap -- the
+      same redundant-recompute trade DecreasesExt's own [is_wf_order_type] already makes
+      on purpose. *)
 
-  (** Tag carries the resolved constructor's own qual_ident (e.g. `Library.List$Int.::`,
-      or `MyModule.MyType.cons` for a user `data` type) -- resolved once, at type-checking
-      time, against the scrutinee's own type; by the time [rewrite_expr_ext] runs, no
-      further name resolution is needed. *)
+  (** [Is] carries the parsed constructor name. Type checking resolves it to a core
+      [DataTest], whose constructor identity follows module substitutions. *)
   type Expr.expr_ext += Is of QualIdent.t | MatchExpr of match_arm list
 
   (** A `match` statement, whose arms' bodies are blocks. Type checking lowers it to
@@ -336,17 +333,6 @@ module MatchExt (Cont : Ext) = struct
     let open Rewriter.Syntax in
     match (expr_ext, expr_list) with
     | Is ctor_ident_as_qi, [ scrutinee ] -> (
-        (* The parser hands us the bare constructor name wrapped as an unqualified
-         qual_ident (see matchExt_parser.mly); take its base back out. [unqualify]
-         rather than [to_ident] because this can also be an *already* type-checked
-         [Is], whose tag by then holds the resolved, qualified constructor ([to_ident]
-         fails outright on those): a contract expression is type-checked more than
-         once on some paths, e.g. when a callable is re-introduced via
-         [Rewriter.introduce_typecheck_symbol']. Dropping the qualifier and
-         re-resolving below just recomputes the same [ctor_qi], the same cheap
-         redundant-recompute trade [arm_ctor] already makes by design (see
-         [match_arm]) -- and keeps this hook idempotent, which is the property that
-         actually matters here. *)
         let ctor_ident = QualIdent.unqualify ctor_ident_as_qi in
         (* [set_ghost_to expected_typ] on the scrutinee, as every core case in ExprTyping
          does: testing the constructor of a ghost value is itself ghost, and is fine
@@ -369,7 +355,7 @@ module MatchExt (Cont : Ext) = struct
             | Some (ctor_qi, _) ->
                 let bool_typ = Type.bool |> Type.set_ghost_to expected_typ in
                 functs.set_checked_type
-                  (Expr.App (ExprExt (Is ctor_qi), [ scrutinee ], expr_attr))
+                  (Expr.App (DataTest ctor_qi, [ scrutinee ], expr_attr))
                   bool_typ bool_typ expected_typ))
     | MatchExpr arms, scrutinee :: bodies when List.length bodies = List.length arms -> (
         (* Ghostness propagates into the scrutinee exactly as for [Is] above. *)

@@ -1,0 +1,26 @@
+module Box[E: Library.Type] {
+  rep type T = data {
+    case empty;
+    case box(value: E)
+  }
+}
+
+module Factory[E: Library.Type] {
+  inline pred initialized(x: Box[E]) { x is box }
+
+  proc make(value: E) returns (result: Box[E])
+    ensures initialized(result)
+    ensures result.value == value
+  { result := Box.box(value); }
+}
+
+module Integers = Factory[Int]
+module Booleans = Factory[Bool]
+
+proc integer_client() returns (result: Box[Int])
+  ensures Integers.initialized(result)
+{ result := Integers.make(42); }
+
+proc boolean_client() returns (result: Box[Bool])
+  ensures Booleans.initialized(result)
+{ result := Booleans.make(true); }
