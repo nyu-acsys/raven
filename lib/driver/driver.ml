@@ -481,8 +481,8 @@ let parse_program ?(free = false) ~includes ~diagnostics config file_names : Ast
     [library_snapshots], the type-checked library is kept there and reused by later runs.
     [cancellation] is how the solver learns that the run is cancelled. The sites of the
     library's includes are recorded in [includes]. *)
-let check_program ?on_typed ?on_scheduled ?on_progress ?library_snapshots ?cancellation
-    ~includes ~extension_mode ~diagnostics config (md : Ast.Module.t) =
+let check_program ?on_typed ?on_scheduled ?on_progress ?select_member ?library_snapshots
+    ?cancellation ~includes ~extension_mode ~diagnostics config (md : Ast.Module.t) =
   (* Variable which controls whether the
     - `front_end_output.log` (the elaborated program)
     - `lowered_output.log` (the lowered program)
@@ -655,9 +655,9 @@ let check_program ?on_typed ?on_scheduled ?on_progress ?library_snapshots ?cance
       in
       let cache = Option.map config.cache_dir ~f:Backend.VerificationCache.load in
       let context =
-        Backend.CheckerContext.create ?focus ~counterexamples:config.counterexamples
-          ~renew_solver:(not config.shared_solver) ?fingerprinting ?cache ?on_scheduled
-          ?on_progress ~diagnostics solver_session
+        Backend.CheckerContext.create ?focus ?select_member
+          ~counterexamples:config.counterexamples ~renew_solver:(not config.shared_solver)
+          ?fingerprinting ?cache ?on_scheduled ?on_progress ~diagnostics solver_session
       in
       let (_ : Backend.CheckerContext.context) = backend_check_cu tbl context processed in
       ()

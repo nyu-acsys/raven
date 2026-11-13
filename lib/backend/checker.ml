@@ -371,8 +371,8 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) : 
   | ProcDef proc_def -> (
       match proc_def.proc_body with
       | Some stmt when not (is_free callable.call_decl.call_decl_status) ->
-          let* in_focus = in_focus call_decl.call_decl_loc in
           let proc = procedure fully_qual_name call_decl in
+          let* in_focus = in_focus proc in
           let* fingerprint = fingerprint fully_qual_name in
           let* focused = focused_assertion in
           if not in_focus then State.return ()
@@ -485,7 +485,7 @@ let record_cached tbl qual_name fingerprint : unit t =
   let open State.Syntax in
   match reify tbl qual_name with
   | Module.CallDef { call_def = ProcDef { proc_body = Some stmt }; call_decl } ->
-      let* in_focus = in_focus call_decl.call_decl_loc in
+      let* in_focus = in_focus (procedure qual_name call_decl) in
       let* focused = focused_assertion in
       if not in_focus then State.return ()
       else
@@ -510,7 +510,7 @@ let scheduled tbl qual_name : Diagnostics.MemberStatus.procedure list t =
   match reify tbl qual_name with
   | Module.CallDef { call_def = ProcDef { proc_body = Some stmt }; call_decl }
     when not (is_free call_decl.call_decl_status) ->
-      let* in_focus = in_focus call_decl.call_decl_loc in
+      let* in_focus = in_focus (procedure qual_name call_decl) in
       let+ focused = focused_assertion in
       if not in_focus then []
       else

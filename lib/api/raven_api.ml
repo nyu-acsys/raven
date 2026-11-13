@@ -636,7 +636,7 @@ end
 (* A top-level handler, as the executable's: the errors that end a run are returned as
    diagnostics, never raised. *)
 let verify ?(options = default_options) ?(includes = []) ?cache_dir ?on_progress
-    (program : Program.t) : result =
+    ?select_member (program : Program.t) : result =
   let notify = on_progress in
   let config = { (config_of options) with cache_dir } in
   let diagnostics =
@@ -654,13 +654,23 @@ let verify ?(options = default_options) ?(includes = []) ?cache_dir ?on_progress
   let on_progress =
     Option.map on_progress ~f:(fun send pending -> send (report Progress pending))
   in
+  let select_member =
+    Option.map select_member ~f:(fun select (proc : Diagnostics.MemberStatus.procedure) ->
+        select
+          {
+            Progress.name = proc.proc_name;
+            kind = proc.proc_kind;
+            loc = proc.proc_loc;
+            outcome = Pending;
+          })
+  in
   let run () =
     Ast.Ident.restore ();
     let included =
       Driver.parse_program ~free:true ~includes:include_sites ~diagnostics config includes
     in
-    Driver.check_program ?on_typed ?on_scheduled ?on_progress ~includes:include_sites
-      ~extension_mode:(`Explicit extension) ~diagnostics config
+    Driver.check_program ?on_typed ?on_scheduled ?on_progress ?select_member
+      ~includes:include_sites ~extension_mode:(`Explicit extension) ~diagnostics config
       (Ast.merge_prog included program)
   in
   let errors =

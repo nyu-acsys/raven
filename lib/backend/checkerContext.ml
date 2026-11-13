@@ -24,6 +24,7 @@ type context = {
   auto_dependencies : Dependencies.Graph.t;
   diagnostics : Diagnostics.t;  (** The run's, for the verification errors. *)
   focus : focus option;
+  select_member : (Diagnostics.MemberStatus.procedure -> bool) option;
   counterexamples : bool;  (** Whether failed checks report a counterexample. *)
   fingerprinting : fingerprinting option;
   cache : VerificationCache.t option;
@@ -52,8 +53,8 @@ type context = {
 
 type 'a t = context -> context * 'a
 
-let create ?focus ?(counterexamples = false) ?(renew_solver = true) ?fingerprinting ?cache
-    ?on_scheduled ?on_progress ~diagnostics session =
+let create ?focus ?select_member ?(counterexamples = false) ?(renew_solver = true)
+    ?fingerprinting ?cache ?on_scheduled ?on_progress ~diagnostics session =
   {
     session;
     renew_solver;
@@ -61,6 +62,7 @@ let create ?focus ?(counterexamples = false) ?(renew_solver = true) ?fingerprint
     auto_dependencies = Dependencies.Graph.empty;
     diagnostics;
     focus;
+    select_member;
     counterexamples;
     fingerprinting;
     cache;
@@ -100,15 +102,14 @@ let in_arm id arm (m : 'a t) : 'a t =
   let context', a = m { context with arms = (id, arm) :: context.arms } in
   ({ context' with arms = context.arms }, a)
 
-(** Whether the procedure declared at [loc] is checked. *)
-let in_focus (loc : Loc.t) : bool t =
+(** Whether [proc] is checked. *)
+let in_focus (proc : Diagnostics.MemberStatus.procedure) : bool t =
  fun context ->
   ( context,
-    match context.focus with
-    | None -> true
-    | Some focus ->
+    Option.for_all context.select_member ~f:(fun select -> select proc)
+    && Option.for_all context.focus ~f:(fun focus ->
         List.exists focus.extents ~f:(fun extent ->
-            Diagnostics.MemberStatus.contains extent loc) )
+            Diagnostics.MemberStatus.contains extent proc.proc_loc)) )
 
 (** Whether the assertion named [name], if it is named, is checked; [None] if every
     assertion is. *)

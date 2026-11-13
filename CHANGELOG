@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- The OCaml API can select individual backend proof obligations to verify.
+
 ### Changed
 
 - Infer existential witnesses from singleton-set tuple patterns and Auth/SetRA fragments.

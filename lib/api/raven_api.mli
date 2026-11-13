@@ -493,6 +493,7 @@ val verify :
   ?includes:string list ->
   ?cache_dir:string ->
   ?on_progress:(Progress.t -> unit) ->
+  ?select_member:(Progress.check -> bool) ->
   Program.t ->
   result
 (** Type-checks and verifies [program], together with Raven's library and the files
@@ -500,4 +501,12 @@ val verify :
     persistent cache of successful verification fingerprints. [on_progress] receives a
     [Typed] snapshot after successful type checking, [Scheduled] once the remaining checks
     are known, [Progress] after each procedure finishes, and [Final] with all recorded
-    outcomes and final diagnostics, including after an aborted run. *)
+    outcomes and final diagnostics, including after an aborted run.
+
+    [select_member] selects backend procedures and lemmas to verify, including generated
+    proof obligations. It receives their progress descriptor with outcome [Pending], never
+    a named assertion; all assertions within a selected procedure are checked. The
+    predicate must be stable across calls. Unselected procedures are neither scheduled nor
+    recorded as verified or cached. The complete program still undergoes frontend checks.
+    Callers can select by backend name even when locations are [Loc.none], or attribute
+    locations to their own source members to include generated obligations. *)

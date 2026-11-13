@@ -70,6 +70,11 @@
  (modules api_verify)
  (libraries raven-ivl.api))
 
+(test
+ (name selection_api)
+ (modules selection_api)
+ (libraries raven-ivl.api base unix))
+
 (executable
  (name progress_api)
  (modules progress_api)
