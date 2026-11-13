@@ -1,0 +1,18 @@
+module Maybe = Library.Option[Int]
+
+field entries: Set[(Ref, Int)]
+
+inline pred recorded(cell: Ref, value: Int) {
+  exists event: Ref :: own(cell.entries, {(event, value)})
+}
+
+proc choose_event(cell: Ref, source: Maybe.T)
+  requires own(cell.entries, {(cell, match source {
+    case none => 0
+    case some(value) => value
+  })})
+  ensures recorded(cell, match source {
+    case none => 0
+    case some(value) => value
+  })
+{}

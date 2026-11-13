@@ -241,8 +241,9 @@ let singleton_choice (exists : var_decl list) concrete_set pattern =
       var_implicit = false;
     }
   in
-  let result = variable "$set_element" (Expr.to_type pattern) in
-  let set_arg = variable "$set" (Type.set_typed (Expr.to_type pattern)) in
+  let* element_type = !Rewriter.expand_type_expr_ref (Expr.to_type pattern) in
+  let result = variable "$set_element" element_type in
+  let set_arg = variable "$set" (Type.set_typed element_type) in
   let existential id = List.exists exists ~f:(fun vd -> Ident.equal vd.var_name id) in
   let rec constraints selected pattern (arguments, occurrences, facts) =
     if not (Set.exists (Expr.local_vars pattern) ~f:existential) then
@@ -1487,6 +1488,10 @@ and core_witness_comp ?(ra_hint : qual_ident option = None) ?(resource_fallback 
           | Some chosen -> core_witness_comp ~resource_fallback exists chosen pattern true
           end
       | App (Tuple, exprs, _) ->
+          let* concrete_type =
+            !Rewriter.expand_type_expr_ref (Expr.to_type concrete_expr)
+          in
+          let concrete_expr = Expr.set_type concrete_expr concrete_type in
           let indexed_exprs = List.mapi exprs ~f:(fun i expr -> (expr, i)) in
 
           let* witness_map =

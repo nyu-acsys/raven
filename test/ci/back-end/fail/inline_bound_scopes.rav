@@ -1,0 +1,10 @@
+field value: Int
+
+inline pred leaf(cell: Ref) {
+  exists witness: Int :: own(cell.value, witness)
+}
+
+proc caller_name(witness: Int, cell: Ref)
+  requires witness == 7 && own(cell.value, 42)
+  ensures exists anchor: Int :: anchor == witness && leaf(cell) && anchor == 42
+{}

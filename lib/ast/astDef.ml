@@ -1511,68 +1511,104 @@ module Expr = struct
   let unfold_tuple_for_arity arity expr =
     if arity = 1 then [ expr ] else unfold_tuple expr
 
-  (** Map all identifiers occuring in expression [e] to new identifiers according to
-      function [fct] *)
-  let map_idents fct e =
-    let rec sub = function
-      | App (constr, args, expr_attr) ->
-          let args = List.map args ~f:sub in
-          let constr =
-            match constr with
-            | Var qual_ident -> Var (fct qual_ident)
-            | DataConstr qual_ident -> DataConstr (fct qual_ident)
-            | DataDestr qual_ident -> DataDestr (fct qual_ident)
-            | DataTest qual_ident -> DataTest (fct qual_ident)
-            | _ -> constr
-          in
-          App (constr, args, expr_attr)
-      | Binder (b, vars, trgs, e, expr_attr) ->
-          let trgs = List.map trgs ~f:(fun exprs -> List.map exprs ~f:sub) in
-          Binder (b, vars, trgs, sub e, expr_attr)
+  (** Traverse with a threaded accumulator and an arbitrary child-result type. Binder
+      entry supplies the child context and declarations; its algebra sees the outer
+      context. [stop] skips a subtree. Extension payloads remain opaque. *)
+  let fold_map ?(stop = fun _ _ _ -> None) ?(include_triggers = true) ~enter ~app ~binder
+      context acc expr =
+    let rec visit context acc expr =
+      match stop context acc expr with
+      | Some result -> result
+      | None ->
+          begin match expr with
+          | App (constr, arguments, attr) ->
+              let acc, arguments = List.fold_map arguments ~init:acc ~f:(visit context) in
+              app context acc constr arguments attr
+          | Binder (kind, variables, triggers, body, attr) ->
+              let inner, acc, (variables : var_decl list) =
+                enter context acc kind variables
+              in
+              let acc, triggers =
+                if include_triggers then
+                  List.fold_map triggers ~init:acc ~f:(fun acc trigger ->
+                      List.fold_map trigger ~init:acc ~f:(visit inner))
+                else (acc, [])
+              in
+              let acc, body = visit inner acc body in
+              binder context acc kind variables triggers body attr
+          end
     in
-    sub e
+    visit context acc expr
+
+  (** Result-only specialization of [fold_map]; the result need not be an expression. *)
+  let map ?(stop = fun _ _ -> None) ?include_triggers ~enter ~app ~binder context expr =
+    let stop context () expr =
+      Option.map (stop context expr) ~f:(fun result -> ((), result))
+    in
+    let enter context () kind variables =
+      let inner, variables = enter context kind variables in
+      (inner, (), variables)
+    in
+    let app context () constr arguments attr = ((), app context constr arguments attr) in
+    let binder context () kind variables triggers body attr =
+      ((), binder context kind variables triggers body attr)
+    in
+    snd (fold_map ~stop ?include_triggers ~enter ~app ~binder context () expr)
+
+  (** Map expression identifiers without rewriting binder declarations or types. *)
+  let map_idents fct e =
+    let app () constr args attr =
+      let constr =
+        match constr with
+        | Var name -> Var (fct name)
+        | DataConstr name -> DataConstr (fct name)
+        | DataDestr name -> DataDestr (fct name)
+        | DataTest name -> DataTest (fct name)
+        | _ -> constr
+      in
+      App (constr, args, attr)
+    in
+    map
+      ~enter:(fun () _ variables -> ((), variables))
+      ~app
+      ~binder:(fun () kind variables triggers body attr ->
+        Binder (kind, variables, triggers, body, attr))
+      () e
 
   (** Rewrite names in both expressions and their type annotations. *)
-  let rec map_qual_idents ~f = function
-    | App (constr, arguments, attr) ->
-        let constr =
-          match constr with
-          | Var name -> Var (f name)
-          | DataConstr name -> DataConstr (f name)
-          | DataDestr name -> DataDestr (f name)
-          | DataTest name -> DataTest (f name)
-          | AUPred name -> AUPred (f name)
-          | AUPredCommit name -> AUPredCommit (f name)
-          | constr -> constr
-        in
-        App
-          ( constr,
-            List.map arguments ~f:(map_qual_idents ~f),
+  let map_qual_idents ~f expr =
+    let attr a =
+      {
+        a with
+        expr_type = Type.map_qual_idents ~f a.expr_type;
+        expr_type_annot = Option.map a.expr_type_annot ~f:(Type.map_qual_idents ~f);
+      }
+    in
+    let enter () _ variables =
+      ( (),
+        List.map variables ~f:(fun variable ->
             {
-              attr with
-              expr_type = Type.map_qual_idents ~f attr.expr_type;
-              expr_type_annot =
-                Option.map attr.expr_type_annot ~f:(Type.map_qual_idents ~f);
-            } )
-    | Binder (kind, variables, triggers, body, attr) ->
-        let variables =
-          List.map variables ~f:(fun variable ->
-              {
-                variable with
-                Type.var_type = Type.map_qual_idents ~f variable.Type.var_type;
-              })
-        in
-        Binder
-          ( kind,
-            variables,
-            List.map triggers ~f:(List.map ~f:(map_qual_idents ~f)),
-            map_qual_idents ~f body,
-            {
-              attr with
-              expr_type = Type.map_qual_idents ~f attr.expr_type;
-              expr_type_annot =
-                Option.map attr.expr_type_annot ~f:(Type.map_qual_idents ~f);
-            } )
+              variable with
+              Type.var_type = Type.map_qual_idents ~f variable.Type.var_type;
+            }) )
+    in
+    let app () constr args a =
+      let constr =
+        match constr with
+        | Var name -> Var (f name)
+        | DataConstr name -> DataConstr (f name)
+        | DataDestr name -> DataDestr (f name)
+        | DataTest name -> DataTest (f name)
+        | AUPred name -> AUPred (f name)
+        | AUPredCommit name -> AUPredCommit (f name)
+        | _ -> constr
+      in
+      App (constr, args, attr a)
+    in
+    map ~enter ~app
+      ~binder:(fun () kind variables triggers body a ->
+        Binder (kind, variables, triggers, body, attr a))
+      () expr
 
   (** Substitutes all identifiers in expression [e] with other identifiers according to
       substitution map [subst_map]. ** This operation is not capture avoiding. *)
@@ -1615,104 +1651,166 @@ module Expr = struct
     eq sm e1 e2
 
   (** Adds to [acc] the variables that [expr] mentions without qualification, free or
-      bound. *)
-  let rec mentioned_vars acc (expr : t) =
-    match expr with
-    | App (Var qual_ident, args, _) ->
-        let acc =
-          if List.is_empty (QualIdent.path qual_ident) then
-            Set.add acc (QualIdent.unqualify qual_ident)
-          else acc
-        in
-        List.fold args ~init:acc ~f:mentioned_vars
-    | App (_, args, _) -> List.fold args ~init:acc ~f:mentioned_vars
-    | Binder (_, _, trgs, body, _) ->
-        List.fold (List.concat trgs) ~init:(mentioned_vars acc body) ~f:mentioned_vars
+      bound. Unused declarations are not occurrences. *)
+  let mentioned_vars acc expr =
+    let app () acc constr _ _ =
+      let acc =
+        match constr with
+        | Var name when List.is_empty (QualIdent.path name) ->
+            Set.add acc (QualIdent.unqualify name)
+        | _ -> acc
+      in
+      (acc, ())
+    in
+    fst
+      (fold_map
+         ~enter:(fun () acc _ variables -> ((), acc, variables))
+         ~app
+         ~binder:(fun () acc _ _ _ () _ -> (acc, ()))
+         () acc expr)
+
+  (* Reserve both occurrences and declarations before allocating replacement identities. *)
+  let reserve_names expr =
+    let enter () _ variables =
+      List.iter variables ~f:(fun variable -> Ident.declare variable.Type.var_name);
+      ((), variables)
+    in
+    let app () constr _ _ =
+      match constr with
+      | Var name when List.is_empty (QualIdent.path name) ->
+          Ident.declare (QualIdent.unqualify name)
+      | _ -> ()
+    in
+    map ~enter ~app ~binder:(fun () _ _ _ () _ -> ()) () expr
 
   (** [expr] with each variable in [map] replaced by its image. A binder that rebinds a
       variable of [map] hides it, and a bound variable that an image mentions is renamed
-      so that it does not capture it. *)
-  let alpha_renaming (expr : t) (map : t qual_ident_map) : t =
-    (* The variables the images mention, which no binder may capture. *)
+      so that it does not capture it. Expressions and images must be type-checked and have
+      compatible types. Each occurrence retains its type and type annotation. *)
+  let alpha_renaming expr substitution =
     let mentioned =
       lazy
-        (Map.fold map
+        (Map.fold substitution
            ~init:(Set.empty (module Ident))
            ~f:(fun ~key:_ ~data acc -> mentioned_vars acc data))
     in
-    let rec rename map expr =
-      if Map.is_empty map then expr
-      else
-        match expr with
-        | App (constr, expr_list, expr_attr) -> (
-            let expr_list = List.map expr_list ~f:(rename map) in
-            match constr with
-            | Var qual_ident -> (
-                match Map.find map qual_ident with
-                | None -> App (Var qual_ident, expr_list, expr_attr)
-                | Some expr' ->
-                    (* TODO: Potentially dropping expr_list here *)
-                    expr')
-            | _ -> App (constr, expr_list, expr_attr))
-        | Binder (binder, var_decl_list, trgs, body, expr_attr) ->
-            let map =
-              List.fold var_decl_list ~init:map ~f:(fun map (var : var_decl) ->
-                  Map.remove map (QualIdent.from_ident var.var_name))
-            in
-            let map, var_decl_list =
-              List.fold_map var_decl_list ~init:map ~f:(fun map (var : var_decl) ->
-                  if Map.is_empty map || not (Set.mem (Lazy.force mentioned) var.var_name)
-                  then (map, var)
-                  else
-                    (* Numbered above every variable of the same name in sight, which
-                       [Ident.fresh] alone does not guarantee for names it did not make. *)
-                    let in_sight =
-                      mentioned_vars (Lazy.force mentioned)
-                        (Binder (binder, var_decl_list, trgs, body, expr_attr))
-                    in
-                    let above =
-                      Set.fold in_sight ~init:var.var_name.ident_num ~f:(fun n id ->
-                          if String.equal (Ident.name id) (Ident.name var.var_name) then
-                            max n id.ident_num
-                          else n)
-                    in
-                    let fresh =
-                      {
-                        var with
-                        var_name =
-                          Ident.fresh ~id:(above + 1) var.var_loc
-                            (Ident.name var.var_name);
-                      }
-                    in
-                    ( Map.set map
-                        ~key:(QualIdent.from_ident var.var_name)
-                        ~data:(from_var_decl fresh),
-                      fresh ))
-            in
-            Binder
-              ( binder,
-                var_decl_list,
-                List.map trgs ~f:(List.map ~f:(rename map)),
-                rename map body,
-                expr_attr )
+    let reserved =
+      lazy
+        (reserve_names expr;
+         Map.iter substitution ~f:reserve_names)
     in
-    rename map expr
+    let enter map _ variables =
+      let map =
+        List.fold variables ~init:map ~f:(fun map variable ->
+            Map.remove map (QualIdent.from_ident variable.Type.var_name))
+      in
+      List.fold_map variables ~init:map ~f:(fun map variable ->
+          if
+            Map.is_empty map
+            || not (Set.mem (Lazy.force mentioned) variable.Type.var_name)
+          then (map, variable)
+          else
+            let () = Lazy.force reserved in
+            let fresh =
+              {
+                variable with
+                Type.var_name =
+                  Ident.fresh variable.Type.var_loc (Ident.name variable.Type.var_name);
+              }
+            in
+            ( Map.set map
+                ~key:(QualIdent.from_ident variable.Type.var_name)
+                ~data:(from_var_decl fresh),
+              fresh ))
+    in
+    let app map constr arguments attr =
+      match constr with
+      | Var name ->
+          begin match Map.find map name with
+          | Some replacement ->
+              let replacement_attr = attr_of replacement in
+              if
+                Type.equal attr.expr_type replacement_attr.expr_type
+                && Option.equal Type.equal attr.expr_type_annot
+                     replacement_attr.expr_type_annot
+              then replacement
+              else
+                let replacement_attr =
+                  {
+                    replacement_attr with
+                    expr_type = attr.expr_type;
+                    expr_type_annot = attr.expr_type_annot;
+                  }
+                in
+                begin match replacement with
+                | App (constr, arguments, _) -> App (constr, arguments, replacement_attr)
+                | Binder (kind, variables, triggers, body, _) ->
+                    Binder (kind, variables, triggers, body, replacement_attr)
+                end
+          | None -> App (constr, arguments, attr)
+          end
+      | _ -> App (constr, arguments, attr)
+    in
+    map
+      ~stop:(fun map expr -> Option.some_if (Map.is_empty map) expr)
+      ~enter ~app
+      ~binder:(fun _ kind variables triggers body attr ->
+        Binder (kind, variables, triggers, body, attr))
+      substitution expr
 
-  (** Extends [acc] with the signature of the free variables occuring in expression [e].
-  *)
-  let signature ?(acc = Map.empty (module QualIdent)) e =
-    let rec fv bv vars = function
-      | App (Var id, [], attr) ->
-          if Set.mem bv id then vars else Map.set vars ~key:id ~data:attr.expr_type
-      | App (_, ts, _) -> List.fold_left ts ~f:(fv bv) ~init:vars
-      | Binder (_, vs, trgs, e, _) ->
-          let bv =
-            List.fold_left vs ~init:bv ~f:(fun bv var_decl ->
-                Set.add bv (QualIdent.from_ident var_decl.var_name))
+  (** Gives a copied expression's core binders fresh identities, preserving free names. *)
+  let freshen_bound_vars expr =
+    reserve_names expr;
+    let enter renaming _ variables =
+      List.fold_map variables ~init:renaming ~f:(fun renaming variable ->
+          let fresh =
+            {
+              variable with
+              Type.var_name =
+                Ident.fresh variable.Type.var_loc (Ident.name variable.Type.var_name);
+            }
           in
-          fv bv vars e
+          ( Map.set renaming
+              ~key:(QualIdent.from_ident variable.Type.var_name)
+              ~data:(QualIdent.from_ident fresh.Type.var_name),
+            fresh ))
     in
-    fv (Set.empty (module QualIdent)) acc e
+    let app renaming constr arguments attr =
+      let constr =
+        match constr with
+        | Var name -> Var (Option.value (Map.find renaming name) ~default:name)
+        | _ -> constr
+      in
+      App (constr, arguments, attr)
+    in
+    map ~enter ~app
+      ~binder:(fun _ kind variables triggers body attr ->
+        Binder (kind, variables, triggers, body, attr))
+      (Map.empty (module QualIdent))
+      expr
+
+  (** Extends [acc] with the signature of free value variables, excluding triggers. *)
+  let signature ?(acc = Map.empty (module QualIdent)) expr =
+    let enter bound acc _ variables =
+      ( List.fold variables ~init:bound ~f:(fun bound variable ->
+            Set.add bound (QualIdent.from_ident variable.Type.var_name)),
+        acc,
+        variables )
+    in
+    let app bound acc constr arguments attr =
+      let acc =
+        match (constr, arguments) with
+        | Var name, [] when not (Set.mem bound name) ->
+            Map.set acc ~key:name ~data:attr.expr_type
+        | _ -> acc
+      in
+      (acc, ())
+    in
+    fst
+      (fold_map ~include_triggers:false ~enter ~app
+         ~binder:(fun _ acc _ _ _ () _ -> (acc, ()))
+         (Set.empty (module QualIdent))
+         acc expr)
 
   (** Extends [acc] with the set of all symbols occuring free in expression [e]. *)
   let symbols ?(acc = Set.empty (module QualIdent)) e =

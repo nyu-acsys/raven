@@ -207,3 +207,8 @@
  (name dependency_pruning)
  (modules dependency_pruning)
  (libraries raven base))
+
+(test
+ (name expr_fold)
+ (modules expr_fold)
+ (libraries raven base))

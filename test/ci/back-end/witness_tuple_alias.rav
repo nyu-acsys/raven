@@ -1,0 +1,51 @@
+module Storage[X: Library.Type] {
+  module Agreement = Library.Agree[X]
+  ghost field agreed: Agreement
+  ghost field entries: Set[X.T]
+
+  inline pred agreement(cell: Ref, value: X.T) {
+    own(cell.agreed, Agreement.agree(value))
+  }
+
+  inline pred entry(cell: Ref, value: X.T) {
+    own(cell.entries, {value})
+  }
+}
+
+module Pair: Library.Type { rep type T = (Ref, Int) }
+module Nested: Library.Type { rep type T = (Pair.T, Int) }
+module Pairs = Storage[Pair]
+module NestedPairs = Storage[Nested]
+
+pred agreement(cell: Ref) {
+  exists value: Int :: Pairs.agreement(cell, (cell, value))
+}
+
+pred entry(cell: Ref) {
+  exists value: Int :: Pairs.entry(cell, (cell, value))
+}
+
+pred nested_entry(cell: Ref) {
+  exists first: Int, second: Int :: NestedPairs.entry(cell, ((cell, first), second))
+}
+
+proc fold_agreement(cell: Ref)
+  requires own(cell.Pairs.agreed, Pairs.Agreement.agree((cell, 42)))
+  ensures agreement(cell)
+{
+  fold agreement(cell);
+}
+
+proc fold_entry(cell: Ref)
+  requires own(cell.Pairs.entries, {(cell, 42)})
+  ensures entry(cell)
+{
+  fold entry(cell);
+}
+
+proc fold_nested_entry(cell: Ref)
+  requires own(cell.NestedPairs.entries, {((cell, 41), 42)})
+  ensures nested_entry(cell)
+{
+  fold nested_entry(cell);
+}

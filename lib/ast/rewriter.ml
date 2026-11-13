@@ -2664,7 +2664,9 @@ let inline_func_body name args : (AstDef.expr option, 'a) t_ext =
                   ~key:(QualIdent.from_ident parameter.AstDef.Type.var_name)
                   ~data:arg)
           in
-          Some (AstDef.Expr.alpha_renaming body substitutions)
+          Some
+            (AstDef.Expr.freshen_bound_vars
+               (AstDef.Expr.alpha_renaming body substitutions))
       end
   | _ -> None
 

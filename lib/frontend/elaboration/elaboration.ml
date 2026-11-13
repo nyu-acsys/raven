@@ -165,7 +165,7 @@ let rec rewrite_inline_preds_expr seen (expr : expr) : expr Rewriter.t =
           let* body = normalize_inline_pred_body body in
           let new_body =
             Expr.mk_binder ~loc ~typ:(Expr.to_type expr) Exists new_dropped_args
-              (Expr.alpha_renaming body new_renaming_map)
+              (Expr.freshen_bound_vars (Expr.alpha_renaming body new_renaming_map))
           in
           rewrite_inline_preds_expr (Set.add seen qual_ident) new_body
       | _ -> Rewriter.Expr.descend expr ~f:(rewrite_inline_preds_expr seen)
