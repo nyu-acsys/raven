@@ -1,2 +1,2 @@
 (cram
- (deps %{project_root}/bin/raven.exe errorCreditsLib.rav))
+ (deps %{bin:raven} errorCreditsLib.rav))
