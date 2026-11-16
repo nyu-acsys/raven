@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- The OCaml API can construct one-shot prophecy types, resources, allocations, and resolutions.
 - The OCaml API can select individual backend proof obligations to verify.
 
 ### Changed

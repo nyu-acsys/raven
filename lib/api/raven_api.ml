@@ -220,6 +220,24 @@ module Stmt = struct
     S.Stmt.at ~loc (S.Stmt.while_ ~loc ?invariants test (S.Stmt.block_stmt ~loc body))
 end
 
+module Prophecy = struct
+  module P = Ext.ProphecyExtInstance
+
+  let type_ ~loc typ = P.proph_id_type ~loc ~one_shot:true typ
+
+  let owns ~loc prophecy value =
+    Ast.Expr.mk_app ~loc ~typ:Ast.Type.any
+      (ExprExt (P.ProphResource (true, Ast.Type.any)))
+      [ prophecy; value ]
+
+  let create ~loc typ prophecy value =
+    S.Stmt.at ~loc (Basic (BasicStmtExt (P.NewProph (true, typ), [ prophecy; value ])))
+
+  let resolve ~loc prophecy value =
+    S.Stmt.at ~loc
+      (Basic (BasicStmtExt (P.ResolveProph (true, Ast.Type.any), [ prophecy; value ])))
+end
+
 module Callable = struct
   type t = Ast.Callable.t
   type proc_kind = Proc | Lemma | Axiom

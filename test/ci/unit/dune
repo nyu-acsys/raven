@@ -224,6 +224,11 @@
  (libraries raven base))
 
 (test
+ (name prophecy_api)
+ (modules prophecy_api)
+ (libraries raven-ivl.api base))
+
+(test
  (name type_ghost)
  (modules type_ghost)
  (libraries raven))

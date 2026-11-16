@@ -241,6 +241,14 @@ module Stmt : sig
   val while_ : loc:Loc.t -> ?invariants:Spec.t list -> Expr.t -> t list -> t
 end
 
+(** One-shot prophecy resources, interpreted by Raven's prophecy extension. *)
+module Prophecy : sig
+  val type_ : loc:Loc.t -> Type.t -> Type.t
+  val owns : loc:Loc.t -> Expr.t -> Expr.t -> Expr.t
+  val create : loc:Loc.t -> Type.t -> Expr.t -> Expr.t -> Stmt.t
+  val resolve : loc:Loc.t -> Expr.t -> Expr.t -> Stmt.t
+end
+
 module Callable : sig
   type t
   type proc_kind = Proc | Lemma | Axiom
