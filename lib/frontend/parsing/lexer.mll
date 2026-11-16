@@ -170,7 +170,8 @@ let advance st (tok : Parser.token) =
     | LBRACE when st.next_brace_is_trigger -> Trigger :: st.scopes
     | LBRACE ->
         (match st.scopes with
-         | Loop_header :: rest when st.last_token_can_end_stmt ->
+         | Loop_header :: rest
+           when st.last_token_can_end_stmt && st.next_brace_kinds = [] ->
              (* A complete-looking token (the last invariant's expression, or the bare condition
                 if there are none) just precedes this brace: it's the loop's own body. A trigger
                 pattern nested in an invariant's expression is never preceded by such a token (::
@@ -273,6 +274,7 @@ let advance st (tok : Parser.token) =
        clause. A `return` with values is always followed by at least one more
        token before the next newline, so this can't misfire on those. *)
     | RETURN -> true
+    | RBRACE when (match st.scopes with Group :: _ -> true | _ -> false) -> true
     (* The closing '>' of [AtomicToken<P>] -- see [in_atomic_token_brackets]'s doc comment.
        [st], not the freshly-computed [in_atomic_token_brackets] above, since what matters is
        whether *this* '>' was the closing one, i.e. the state as of just before it. *)

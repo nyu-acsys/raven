@@ -1,0 +1,28 @@
+type OptionInt = data { case none; case some(value: Int) }
+
+proc match_invariant(capacity: OptionInt)
+  requires match capacity { case none => true case some(limit) => 0 <= limit }
+{
+  var i: Int := 0;
+  while (i < 1)
+    invariant 0 <= i <= 1
+    invariant match capacity { case none => true case some(limit) => 0 <= limit }
+    invariant exists witness: Int
+    :: witness == i
+  {
+    i := i + 1;
+  }
+}
+
+// The arm's i shadows the counter; it must not become a loop argument.
+proc shadowed_counter(capacity: OptionInt)
+  requires match capacity { case none => true case some(i) => 0 <= i }
+{
+  var i: Int := 0;
+  while (i < 1)
+    invariant 0 <= i <= 1
+    invariant match capacity { case none => true case some(i) => 0 <= i }
+  {
+    i := i + 1;
+  }
+}
