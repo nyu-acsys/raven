@@ -1,0 +1,21 @@
+module RootRA : Library.SetRA = Library.SetRA[Int]
+ghost field before: RootRA
+
+pred root_before(r: Ref) { own(r.before, RootRA.id, 0.5) }
+pred root_after(r: Ref) { own(r.after, RootRA.id, 0.5) }
+pred root_explicit(r: Ref) { own(r.explicit, RootRA.id, 0.5) }
+
+module Nested {
+  module RA : Library.SetRA = Library.SetRA[Bool]
+  ghost field before: RA
+
+  pred nested_before(r: Ref) { own(r.before, RA.id, 0.5) }
+  pred nested_after(r: Ref) { own(r.after, RA.id, 0.5) }
+  pred nested_explicit(r: Ref) { own(r.explicit, RA.id, 0.5) }
+
+  ghost field after: RA
+  ghost field explicit: RA.T
+}
+
+ghost field after: RootRA
+ghost field explicit: RootRA.T

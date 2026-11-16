@@ -723,8 +723,11 @@ and check_own (arg_list : expr list) (constr : Expr.constr) (expr_attr : Expr.ex
   let* field_type =
     match expr2 with
     | App (Var qual_ident, [], _) ->
-        let+ field_def = Rewriter.find_and_reify_field qual_ident in
-        field_def.field_type |> Type.field_val |> Type.set_ghost_to expected_typ
+        let* field_def = Rewriter.find_and_reify_field qual_ident in
+        let+ field_type =
+          Rewriter.in_scope_of qual_ident (TypeExpr.check field_def.field_type)
+        in
+        field_type |> Type.field_val |> Type.set_ghost_to expected_typ
     | _ -> expected_field_identifier_error (Expr.to_loc expr2)
   in
   let* is_ra_type = lift (ProgUtils.is_ra_type field_type) in

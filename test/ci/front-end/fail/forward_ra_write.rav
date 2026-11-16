@@ -1,0 +1,21 @@
+module RootRA : Library.SetRA = Library.SetRA[Int]
+ghost field before: RootRA
+
+lemma root_before(r: Ref) { r.before := RootRA.id; }
+lemma root_after(r: Ref) { r.after := RootRA.id; }
+lemma root_explicit(r: Ref) { r.explicit := RootRA.id; }
+
+module Nested {
+  module RA : Library.SetRA = Library.SetRA[Bool]
+  ghost field before: RA
+
+  lemma nested_before(r: Ref) { r.before := RA.id; }
+  lemma nested_after(r: Ref) { r.after := RA.id; }
+  lemma nested_explicit(r: Ref) { r.explicit := RA.id; }
+
+  ghost field after: RA
+  ghost field explicit: RA.T
+}
+
+ghost field after: RootRA
+ghost field explicit: RootRA.T

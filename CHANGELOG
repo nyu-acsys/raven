@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Resolve forward resource-algebra field types in their declaration scope before checking ownership or assignment.
 - Substitution preserves checked expression types and annotations, including match-arm projections.
 - Inlined predicates and functions keep independent quantified witnesses without capturing caller variables.
 - Constructor tests retain the correct datatype family when generic predicates are instantiated.

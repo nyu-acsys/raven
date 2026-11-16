@@ -1,0 +1,50 @@
+module RootRA : Library.SetRA = Library.SetRA[Int]
+
+ghost field before: RootRA
+ghost field before_explicit: RootRA.T
+
+lemma root(r: Ref)
+  requires own(r.before, RootRA.set({1, 2}))
+  requires own(r.before_explicit, RootRA.set({1, 2}))
+  requires own(r.after, RootRA.set({1, 2}))
+  requires own(r.after_explicit, RootRA.set({1, 2}))
+  ensures own(r.before, RootRA.set({1})) && own(r.before, RootRA.set({2}))
+  ensures own(r.before_explicit, RootRA.set({1})) && own(r.before_explicit, RootRA.set({2}))
+  ensures own(r.after, RootRA.set({1})) && own(r.after, RootRA.set({2}))
+  ensures own(r.after_explicit, RootRA.set({1})) && own(r.after_explicit, RootRA.set({2}))
+{}
+
+module Nested {
+  module RA : Library.SetRA = Library.SetRA[Bool]
+
+  ghost field before: RA
+  ghost field before_explicit: RA.T
+
+  lemma nested(r: Ref)
+    requires own(r.before, RA.set({true, false}))
+    requires own(r.before_explicit, RA.set({true, false}))
+    requires own(r.after, RA.set({true, false}))
+    requires own(r.after_explicit, RA.set({true, false}))
+    ensures own(r.before, RA.set({true})) && own(r.before, RA.set({false}))
+    ensures own(r.before_explicit, RA.set({true})) && own(r.before_explicit, RA.set({false}))
+    ensures own(r.after, RA.set({true})) && own(r.after, RA.set({false}))
+    ensures own(r.after_explicit, RA.set({true})) && own(r.after_explicit, RA.set({false}))
+  {}
+
+  ghost field after: RA
+  ghost field after_explicit: RA.T
+}
+
+module OuterRA = RootRA
+
+module Client {
+  module RootRA : Library.SetRA = Library.SetRA[Bool]
+
+  lemma owner_scope(r: Ref)
+    requires own(r.after, OuterRA.set({1, 2}))
+    ensures own(r.after, OuterRA.set({1})) && own(r.after, OuterRA.set({2}))
+  {}
+}
+
+ghost field after: RootRA
+ghost field after_explicit: RootRA.T
