@@ -588,7 +588,8 @@ module Type = struct
   let dummy_attr = { type_loc = Loc.dummy; type_ghost = false }
 
   let mk_attr ?(ghost = false) loc =
-    if Loc.(loc = dummy) then dummy_attr else { type_loc = loc; type_ghost = ghost }
+    if Loc.(loc = dummy) && not ghost then dummy_attr
+    else { type_loc = loc; type_ghost = ghost }
 
   let mk_app ?(loc = Loc.dummy) ?(ghost = false) t ts = App (t, ts, mk_attr ~ghost loc)
   let mk_int loc = App (Int, [], mk_attr loc)

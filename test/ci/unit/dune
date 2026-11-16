@@ -222,3 +222,8 @@
  (name prophecy_printing)
  (modules prophecy_printing)
  (libraries raven base))
+
+(test
+ (name type_ghost)
+ (modules type_ghost)
+ (libraries raven))
