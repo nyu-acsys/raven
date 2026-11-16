@@ -18,6 +18,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Match-bound variables in loop invariants remain local to their match arms during loop extraction.
 - Types constructed without a source location retain their ghost flag.
 - Printed one-shot prophecy types retain their resolution limit when reparsed.
 - Resolve forward resource-algebra field types in their declaration scope before checking ownership or assignment.

@@ -72,8 +72,8 @@ let rewrite_callable_error_msg (call : Callable.t) : Callable.t Rewriter.t =
   in
   Callable.{ call_decl; call_def }
 
-(* Eliminate extension binders before substituting the caller's arguments. *)
-let rec normalize_inline_pred_body (expr : expr) =
+(* Eliminate extension binders before substitution and free-variable analysis. *)
+let rec normalize_expr_binders (expr : expr) =
   let open Rewriter.Syntax in
   let* normalized =
     match expr with
@@ -83,17 +83,16 @@ let rec normalize_inline_pred_body (expr : expr) =
     | _ -> Rewriter.return None
   in
   match normalized with
-  | Some expr -> normalize_inline_pred_body expr
+  | Some expr -> normalize_expr_binders expr
   | None ->
       begin match expr with
       | App (constr, args, attr) ->
-          let+ args = Rewriter.List.map args ~f:normalize_inline_pred_body in
+          let+ args = Rewriter.List.map args ~f:normalize_expr_binders in
           Expr.App (constr, args, attr)
       | Binder (binder, vars, triggers, body, attr) ->
-          let+ body = normalize_inline_pred_body body
+          let+ body = normalize_expr_binders body
           and+ triggers =
-            Rewriter.List.map triggers
-              ~f:(Rewriter.List.map ~f:normalize_inline_pred_body)
+            Rewriter.List.map triggers ~f:(Rewriter.List.map ~f:normalize_expr_binders)
           in
           Expr.Binder (binder, vars, triggers, body, attr)
       end
@@ -162,7 +161,7 @@ let rec rewrite_inline_preds_expr seen (expr : expr) : expr Rewriter.t =
                   ~data:arg_expr)
           in
 
-          let* body = normalize_inline_pred_body body in
+          let* body = normalize_expr_binders body in
           let new_body =
             Expr.mk_binder ~loc ~typ:(Expr.to_type expr) Exists new_dropped_args
               (Expr.freshen_bound_vars (Expr.alpha_renaming body new_renaming_map))
@@ -1175,6 +1174,8 @@ let rec elaborate_phase_1 (m : Module.t) : (Module.t * scc_map) Rewriter.t =
       m1 "Elaboration.elaborate_phase_1: Starting rewrite_callable_error_msg on module %a"
         Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_callables ~f:rewrite_callable_error_msg m in
+
+  let* m = Rewriter.Module.rewrite_expressions ~f:normalize_expr_binders m in
 
   Logs.debug (fun m1 ->
       m1 "Elaboration.elaborate_phase_1: Starting rewrite_compr_expr on module %a"
