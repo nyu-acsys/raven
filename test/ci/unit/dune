@@ -217,3 +217,8 @@
  (name expr_fold)
  (modules expr_fold)
  (libraries raven base))
+
+(test
+ (name prophecy_printing)
+ (modules prophecy_printing)
+ (libraries raven base))

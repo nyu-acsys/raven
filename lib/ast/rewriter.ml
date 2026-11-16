@@ -256,6 +256,7 @@ and type_check_stmt_functs = {
 
 and ext_hooks = {
   type_ext_to_name : Type.type_ext -> string;
+  pr_type_ext : Type.pr_type_ext;
   expr_ext_to_string : Expr.expr_ext -> string;
   pr_expr_ext : Expr.pr_expr_ext;
   expr_ext_is_literal : Expr.expr_ext -> bool;
@@ -474,6 +475,7 @@ let default_cli_config : cli_config = { cli_strict = false }
 let default_ext_hooks : ext_hooks =
   {
     type_ext_to_name = Type.default_type_ext_to_name;
+    pr_type_ext = Type.default_pr_type_ext;
     expr_ext_to_string = Expr.default_expr_ext_to_string;
     pr_expr_ext = Expr.default_pr_expr_ext;
     expr_ext_is_literal = (fun _ -> false);
@@ -832,35 +834,37 @@ type printers = {
     computation, in scope. *)
 let printers_of_ext_hooks ?(names = SourceNames.default) (h : ext_hooks) : printers =
   let _, pr_type, pr_type_var_decl, pr_type_var_decl_list, _, _, _, _, _, _ =
-    Type.make_printers_with_names ~names ~type_ext_to_name:h.type_ext_to_name
+    Type.make_printers_with_names ~names ~pr_type_ext:h.pr_type_ext
+      ~type_ext_to_name:h.type_ext_to_name
   in
   let _, _, _, pr_expr, pr_expr_list, _, _, _, _, _, _, _ =
-    Expr.make_printers_with_names ~names ~type_ext_to_name:h.type_ext_to_name
-      ~expr_ext_to_string:h.expr_ext_to_string ~pr_expr_ext:h.pr_expr_ext
+    Expr.make_printers_with_names ~names ~pr_type_ext:h.pr_type_ext
+      ~type_ext_to_name:h.type_ext_to_name ~expr_ext_to_string:h.expr_ext_to_string
+      ~pr_expr_ext:h.pr_expr_ext
   in
   let _, pr_stmt_spec_list, pr_stmt_basic, pr_stmt, _, _, _ =
-    Stmt.make_printers_with_names ~names ~type_ext_to_name:h.type_ext_to_name
-      ~expr_ext_to_string:h.expr_ext_to_string ~pr_expr_ext:h.pr_expr_ext
-      ~pr_basic_stmt_ext:h.pr_basic_stmt_ext ~pr_stmt_ext:h.pr_stmt_ext
-      ~contract_ext_to_string:h.contract_ext_to_string
+    Stmt.make_printers_with_names ~names ~pr_type_ext:h.pr_type_ext
+      ~type_ext_to_name:h.type_ext_to_name ~expr_ext_to_string:h.expr_ext_to_string
+      ~pr_expr_ext:h.pr_expr_ext ~pr_basic_stmt_ext:h.pr_basic_stmt_ext
+      ~pr_stmt_ext:h.pr_stmt_ext ~contract_ext_to_string:h.contract_ext_to_string
   in
   let _, _, pr_callable =
-    Callable.make_printers_with_names ~names ~type_ext_to_name:h.type_ext_to_name
-      ~expr_ext_to_string:h.expr_ext_to_string ~pr_expr_ext:h.pr_expr_ext
-      ~pr_basic_stmt_ext:h.pr_basic_stmt_ext ~pr_stmt_ext:h.pr_stmt_ext
-      ~contract_ext_to_string:h.contract_ext_to_string
+    Callable.make_printers_with_names ~names ~pr_type_ext:h.pr_type_ext
+      ~type_ext_to_name:h.type_ext_to_name ~expr_ext_to_string:h.expr_ext_to_string
+      ~pr_expr_ext:h.pr_expr_ext ~pr_basic_stmt_ext:h.pr_basic_stmt_ext
+      ~pr_stmt_ext:h.pr_stmt_ext ~contract_ext_to_string:h.contract_ext_to_string
   in
   let pr_module, _, pr_module_instrs, _ =
-    Module.make_printers_with_names ~names ~type_ext_to_name:h.type_ext_to_name
-      ~expr_ext_to_string:h.expr_ext_to_string ~pr_expr_ext:h.pr_expr_ext
-      ~pr_basic_stmt_ext:h.pr_basic_stmt_ext ~pr_stmt_ext:h.pr_stmt_ext
-      ~contract_ext_to_string:h.contract_ext_to_string
+    Module.make_printers_with_names ~names ~pr_type_ext:h.pr_type_ext
+      ~type_ext_to_name:h.type_ext_to_name ~expr_ext_to_string:h.expr_ext_to_string
+      ~pr_expr_ext:h.pr_expr_ext ~pr_basic_stmt_ext:h.pr_basic_stmt_ext
+      ~pr_stmt_ext:h.pr_stmt_ext ~contract_ext_to_string:h.contract_ext_to_string
   in
   let pr_symbol, symbol_to_string =
-    Symbol.make_printers_with_names ~names ~type_ext_to_name:h.type_ext_to_name
-      ~expr_ext_to_string:h.expr_ext_to_string ~pr_expr_ext:h.pr_expr_ext
-      ~pr_basic_stmt_ext:h.pr_basic_stmt_ext ~pr_stmt_ext:h.pr_stmt_ext
-      ~contract_ext_to_string:h.contract_ext_to_string
+    Symbol.make_printers_with_names ~names ~pr_type_ext:h.pr_type_ext
+      ~type_ext_to_name:h.type_ext_to_name ~expr_ext_to_string:h.expr_ext_to_string
+      ~pr_expr_ext:h.pr_expr_ext ~pr_basic_stmt_ext:h.pr_basic_stmt_ext
+      ~pr_stmt_ext:h.pr_stmt_ext ~contract_ext_to_string:h.contract_ext_to_string
   in
   {
     pr_type;

@@ -57,6 +57,7 @@ module type Ext = sig
 
   (* AstDef *)
   val type_ext_to_name : Type.type_ext -> string
+  val pr_type_ext : Type.pr_type_ext
   val expr_ext_to_string : Expr.expr_ext -> string
 
   val pr_expr_ext : Expr.pr_expr_ext

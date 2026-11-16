@@ -474,11 +474,27 @@ module Type = struct
 
   let to_name t = make_to_name ~type_ext_to_name:default_type_ext_to_name t
 
-  (** Builds the mutually-recursive printer family, parameterized by how to render
-      [TypeExt] leaves. [make_printers ~type_ext_to_name:default_type_ext_to_name] below
-      is what every caller gets by default; an extension-aware set is built the same way
-      from the extension's own [type_ext_to_name]. *)
-  let make_printers_with ~names ~qual_ident_to_string ~type_ext_to_name =
+  type pr_type_ext =
+    names:SourceNames.t ->
+    pr:(Stdlib.Format.formatter -> t -> unit) ->
+    Stdlib.Format.formatter ->
+    type_ext ->
+    t list ->
+    unit
+
+  (** Prints the extension constructor with its type arguments in source form. *)
+  let default_pr_type_ext : pr_type_ext =
+   fun ~names:_ ~pr ppf extension arguments ->
+    match arguments with
+    | [] -> Stdlib.Format.pp_print_string ppf (default_type_ext_to_name extension)
+    | _ ->
+        Stdlib.Format.fprintf ppf "%s[%a]"
+          (default_type_ext_to_name extension)
+          (Print.pr_list_comma pr) arguments
+
+  (** Builds the recursive printer family using the extension's source printer and its
+      constructor names. *)
+  let make_printers_with ~names ~qual_ident_to_string ~pr_type_ext ~type_ext_to_name =
     let module Ident = struct
       include Ident
 
@@ -494,6 +510,8 @@ module Type = struct
           Stdlib.Format.fprintf ppf "data {@\n  @[%a@]@\n}" pr_variant_decl_list decls
     and pr ppf t =
       match t with
+      | App (TypeExt extension, arguments, _) ->
+          pr_type_ext ~names ~pr ppf extension arguments
       | App (Prod, [], _) -> Stdlib.Format.fprintf ppf "()"
       | App (t1, [], attr) -> Stdlib.Format.fprintf ppf "%a" pr_constr t1
       | App (Map, [ t1; App (Bool, _, _) ], _) ->
@@ -535,13 +553,13 @@ module Type = struct
       pr_list,
       to_string )
 
-  let make_printers_with_names ~names ~type_ext_to_name =
+  let make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name =
     make_printers_with ~names
       ~qual_ident_to_string:(SourceNames.qual_ident_to_string names)
-      ~type_ext_to_name
+      ~pr_type_ext ~type_ext_to_name
 
-  let make_printers ~type_ext_to_name =
-    make_printers_with_names ~names:SourceNames.default ~type_ext_to_name
+  let make_printers ~pr_type_ext ~type_ext_to_name =
+    make_printers_with_names ~names:SourceNames.default ~pr_type_ext ~type_ext_to_name
 
   let ( pr_constr,
         pr,
@@ -553,13 +571,14 @@ module Type = struct
         pr_arg_list,
         pr_list,
         to_string ) =
-    make_printers ~type_ext_to_name:default_type_ext_to_name
+    make_printers ~pr_type_ext:default_pr_type_ext
+      ~type_ext_to_name:default_type_ext_to_name
 
   (** [t] as written in the program, with generated modules shown in their source form. *)
   let to_string_user t =
     let _, _, _, _, _, _, _, _, _, to_string =
       make_printers_with ~names:SourceNames.default
-        ~qual_ident_to_string:QualIdent.to_string_user
+        ~qual_ident_to_string:QualIdent.to_string_user ~pr_type_ext:default_pr_type_ext
         ~type_ext_to_name:default_type_ext_to_name
     in
     to_string t
@@ -1120,7 +1139,8 @@ module Expr = struct
       [TypeExt]/[ExprExt] leaves. [make_printers] applied to the default stubs (below) is
       what every caller gets by default; an extension-aware set is built the same way from
       the extension's own hooks. *)
-  let make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext =
+  let make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name ~expr_ext_to_string
+      ~pr_expr_ext =
     let module QualIdent = struct
       include QualIdent
 
@@ -1133,7 +1153,7 @@ module Expr = struct
         ~expr_ext_to_string
     in
     let _, type_pr, _, _, _, _, type_pr_ident, _, _, _ =
-      Type.make_printers_with_names ~names ~type_ext_to_name
+      Type.make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name
     in
     let module Type = struct
       include Type
@@ -1329,8 +1349,8 @@ module Expr = struct
       pr_var_decl_list,
       to_string )
 
-  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext =
-    make_printers_with_names ~names:SourceNames.default ~type_ext_to_name
+  let make_printers ~pr_type_ext ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext =
+    make_printers_with_names ~names:SourceNames.default ~pr_type_ext ~type_ext_to_name
       ~expr_ext_to_string ~pr_expr_ext
 
   let ( pr_constr,
@@ -1345,7 +1365,8 @@ module Expr = struct
         pr_var_decl,
         pr_var_decl_list,
         to_string ) =
-    make_printers ~type_ext_to_name:Type.default_type_ext_to_name
+    make_printers ~pr_type_ext:Type.default_pr_type_ext
+      ~type_ext_to_name:Type.default_type_ext_to_name
       ~expr_ext_to_string:default_expr_ext_to_string ~pr_expr_ext:default_pr_expr_ext
 
   (** Like [to_string], but with the freshening numbers the disambiguation pass gives a
@@ -2246,8 +2267,8 @@ module Stmt = struct
 
   (** Builds the mutually-recursive statement printer family, parameterized by how to
       render [TypeExt]/[ExprExt]/[StmtExt]/[contract_ext] leaves. *)
-  let make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext
-      ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
+  let make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name ~expr_ext_to_string
+      ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
     let module Ident = struct
       include Ident
 
@@ -2260,7 +2281,7 @@ module Stmt = struct
       let pr_list ppf ids = Print.pr_list_comma pr ppf ids
     end in
     let _, type_pr, _, _, _, _, _, _, _, _ =
-      Type.make_printers_with_names ~names ~type_ext_to_name
+      Type.make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name
     in
     let module Type = struct
       include Type
@@ -2268,8 +2289,8 @@ module Stmt = struct
       let pr = type_pr
     end in
     let _, _, _, expr_pr, expr_pr_list, _, _, _, _, _, _, _ =
-      Expr.make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string
-        ~pr_expr_ext
+      Expr.make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name
+        ~expr_ext_to_string ~pr_expr_ext
     in
     let module Expr = struct
       include Expr
@@ -2488,14 +2509,15 @@ module Stmt = struct
     let print chan s = Print.print_of_format pr s chan in
     (pr_var_def, pr_spec_list, pr_basic_stmt, pr, pr_block, to_string, print)
 
-  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext
-      ~pr_stmt_ext ~contract_ext_to_string =
-    make_printers_with_names ~names:SourceNames.default ~type_ext_to_name
+  let make_printers ~pr_type_ext ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext
+      ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
+    make_printers_with_names ~names:SourceNames.default ~pr_type_ext ~type_ext_to_name
       ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext
       ~contract_ext_to_string
 
   let pr_var_def, pr_spec_list, pr_basic_stmt, pr, pr_block, to_string, print =
-    make_printers ~type_ext_to_name:Type.default_type_ext_to_name
+    make_printers ~pr_type_ext:Type.default_pr_type_ext
+      ~type_ext_to_name:Type.default_type_ext_to_name
       ~expr_ext_to_string:Expr.default_expr_ext_to_string
       ~pr_expr_ext:Expr.default_pr_expr_ext ~pr_basic_stmt_ext:default_pr_basic_stmt_ext
       ~pr_stmt_ext:default_pr_stmt_ext
@@ -3200,8 +3222,8 @@ module Callable = struct
   (** Builds the printer family, parameterized by how to render [TypeExt]/[ExprExt]/
       [StmtExt] leaves (see [Type.make_printers]/[Expr.make_printers]/
       [Stmt.make_printers], which this composes). *)
-  let make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext
-      ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
+  let make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name ~expr_ext_to_string
+      ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
     let module Ident = struct
       include Ident
 
@@ -3214,8 +3236,8 @@ module Callable = struct
       let pr_list ppf ids = Print.pr_list_comma pr ppf ids
     end in
     let _, _, _, expr_pr, _, _, _, _, _, expr_pr_var_decl, expr_pr_var_decl_list, _ =
-      Expr.make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string
-        ~pr_expr_ext
+      Expr.make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name
+        ~expr_ext_to_string ~pr_expr_ext
     in
     let module Expr = struct
       include Expr
@@ -3225,8 +3247,9 @@ module Callable = struct
       let pr_var_decl_list = expr_pr_var_decl_list
     end in
     let _, stmt_pr_spec_list, _, stmt_pr, _, _, _ =
-      Stmt.make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string
-        ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string
+      Stmt.make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name
+        ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext
+        ~contract_ext_to_string
     in
     let module Stmt = struct
       include Stmt
@@ -3352,14 +3375,15 @@ module Callable = struct
     in
     (pr_call_decl_specs, pr_call_decl, pr)
 
-  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext
-      ~pr_stmt_ext ~contract_ext_to_string =
-    make_printers_with_names ~names:SourceNames.default ~type_ext_to_name
+  let make_printers ~pr_type_ext ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext
+      ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
+    make_printers_with_names ~names:SourceNames.default ~pr_type_ext ~type_ext_to_name
       ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext
       ~contract_ext_to_string
 
   let pr_call_decl_specs, pr_call_decl, pr =
-    make_printers ~type_ext_to_name:Type.default_type_ext_to_name
+    make_printers ~pr_type_ext:Type.default_pr_type_ext
+      ~type_ext_to_name:Type.default_type_ext_to_name
       ~expr_ext_to_string:Expr.default_expr_ext_to_string
       ~pr_expr_ext:Expr.default_pr_expr_ext
       ~pr_basic_stmt_ext:Stmt.default_pr_basic_stmt_ext
@@ -4029,8 +4053,8 @@ module Module = struct
   (** Builds the printer family, parameterized by how to render [TypeExt]/[ExprExt]/
       [StmtExt] leaves (see [Type.make_printers]/[Expr.make_printers]/
       [Stmt.make_printers]/[Callable.make_printers], which this composes). *)
-  let make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext
-      ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
+  let make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name ~expr_ext_to_string
+      ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
     let module Ident = struct
       include Ident
 
@@ -4043,7 +4067,7 @@ module Module = struct
       let pr_list ppf ids = Print.pr_list_comma pr ppf ids
     end in
     let _, type_pr, _, _, _, _, _, _, type_pr_list, _ =
-      Type.make_printers_with_names ~names ~type_ext_to_name
+      Type.make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name
     in
     let module Type = struct
       include Type
@@ -4052,8 +4076,9 @@ module Module = struct
       let pr_list = type_pr_list
     end in
     let stmt_pr_var_def, _, _, _, _, _, _ =
-      Stmt.make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string
-        ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string
+      Stmt.make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name
+        ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext
+        ~contract_ext_to_string
     in
     let module Stmt = struct
       include Stmt
@@ -4061,8 +4086,9 @@ module Module = struct
       let pr_var_def = stmt_pr_var_def
     end in
     let _, _, callable_pr =
-      Callable.make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string
-        ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string
+      Callable.make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name
+        ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext
+        ~contract_ext_to_string
     in
     let module Callable = struct
       include Callable
@@ -4208,14 +4234,15 @@ module Module = struct
     in
     (pr, pr_instr, pr_instr_list, pr_symbol)
 
-  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext
-      ~pr_stmt_ext ~contract_ext_to_string =
-    make_printers_with_names ~names:SourceNames.default ~type_ext_to_name
+  let make_printers ~pr_type_ext ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext
+      ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
+    make_printers_with_names ~names:SourceNames.default ~pr_type_ext ~type_ext_to_name
       ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext
       ~contract_ext_to_string
 
   let pr, pr_instr, pr_instr_list, pr_symbol =
-    make_printers ~type_ext_to_name:Type.default_type_ext_to_name
+    make_printers ~pr_type_ext:Type.default_pr_type_ext
+      ~type_ext_to_name:Type.default_type_ext_to_name
       ~expr_ext_to_string:Expr.default_expr_ext_to_string
       ~pr_expr_ext:Expr.default_pr_expr_ext
       ~pr_basic_stmt_ext:Stmt.default_pr_basic_stmt_ext
@@ -4443,23 +4470,25 @@ module Symbol = struct
 
   let set_free = Module.set_symbol_free
 
-  let make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext
-      ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
+  let make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name ~expr_ext_to_string
+      ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
     let _, _, _, pr_symbol =
-      Module.make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string
-        ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string
+      Module.make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name
+        ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext
+        ~contract_ext_to_string
     in
     let to_string m = Print.string_of_format pr_symbol m in
     (pr_symbol, to_string)
 
-  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext
-      ~pr_stmt_ext ~contract_ext_to_string =
-    make_printers_with_names ~names:SourceNames.default ~type_ext_to_name
+  let make_printers ~pr_type_ext ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext
+      ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
+    make_printers_with_names ~names:SourceNames.default ~pr_type_ext ~type_ext_to_name
       ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext
       ~contract_ext_to_string
 
   let pr, to_string =
-    make_printers ~type_ext_to_name:Type.default_type_ext_to_name
+    make_printers ~pr_type_ext:Type.default_pr_type_ext
+      ~type_ext_to_name:Type.default_type_ext_to_name
       ~expr_ext_to_string:Expr.default_expr_ext_to_string
       ~pr_expr_ext:Expr.default_pr_expr_ext
       ~pr_basic_stmt_ext:Stmt.default_pr_basic_stmt_ext

@@ -996,6 +996,7 @@ let canonical_type_key =
   let _, _, _, _, _, _, _, _, _, to_string =
     AstDef.Type.make_printers_with ~names:AstDef.SourceNames.default
       ~qual_ident_to_string:structural_qid_key
+      ~pr_type_ext:AstDef.Type.default_pr_type_ext
       ~type_ext_to_name:AstDef.Type.default_type_ext_to_name
   in
   to_string
