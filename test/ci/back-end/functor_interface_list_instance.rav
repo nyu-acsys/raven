@@ -1,0 +1,30 @@
+// A functor's List[E.T] is the instance that E's interface declares, which an argument
+// module holds as an alias of its own List instance.
+interface Elem {
+  rep type T
+  pred phi(x: T, tail: List[T])
+}
+
+module Fns[E: Elem] {
+  func located(xs: List[E.T], target: E.T) returns (ret: Bool)
+    decreases xs
+  {
+    match xs {
+      case nil => false
+      case x :: tl => x == target || located(tl, target)
+    }
+  }
+}
+
+module Cells : Elem {
+  rep type T = Int
+  pred phi(x: T, tail: List[T]) {
+    match tail { case nil => true case y :: _ => x < y }
+  }
+}
+
+module CellFns = Fns[Cells]
+
+proc client() {
+  assert CellFns.located(List.::(1, List.::(2, List.nil)), 2);
+}

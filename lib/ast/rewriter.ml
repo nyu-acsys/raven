@@ -2394,13 +2394,19 @@ module Symbol = struct
               CallDef { callable with call_def = ProcDef { proc_body = None } }
           | _ -> symbol
         in
+        (* A substituted name may lead through an alias of the argument, such as the
+           instance of a generic type that the argument's interface declares. *)
+        let requalify qid =
+          let requalified = QualIdent.requalify (SymbolTbl.qid_subst subst) qid in
+          if QualIdent.equal requalified qid then qid
+          else SymbolTbl.follow_transparent requalified tbl
+        in
         let _, symbol1 =
           eval
             (Module.rewrite_qual_idents_in_symbol
                ~transformations:
                  [ AstDef.NamespaceContract.Substitute (SymbolTbl.qid_subst subst) ]
-               ~f:(subst |> SymbolTbl.qid_subst |> QualIdent.requalify)
-               symbol0)
+               ~f:requalify symbol0)
             tbl_scope
         in
 

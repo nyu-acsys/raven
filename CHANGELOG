@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Functor instances can use the generic type instances that their argument's interface declares, such as `List[T]`.
 - Match-bound variables in loop invariants remain local to their match arms during loop extraction.
 - Loop headers containing match expressions preserve multiline invariants when parsed.
 - Types constructed without a source location retain their ghost flag.

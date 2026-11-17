@@ -846,6 +846,25 @@ let goto name tbl : t =
   List.fold_left (QualIdent.path name) ~init:(reset tbl) ~f:(fun tbl ident ->
       enter ident tbl |> Option.value ~default:tbl)
 
+(** [name] with each transparent alias among the modules on its path replaced by its
+    target. *)
+let follow_transparent name tbl =
+  let rec go fuel scope prefix ids =
+    match ids with
+    | [] -> List.rev prefix
+    | id :: rest ->
+        begin match Hashtbl.find (get_scope_entries scope) id with
+        | Some (Transparent target) when fuel > 0 && not (List.is_empty rest) ->
+            go (fuel - 1) tbl.tbl_root [] (QualIdent.to_list target @ rest)
+        | _ ->
+            begin match Hashtbl.find (get_scope_children scope) id with
+            | Some child -> go fuel child (id :: prefix) rest
+            | None -> List.rev_append prefix ids
+            end
+        end
+  in
+  QualIdent.from_list (go 16 tbl.tbl_root [] (QualIdent.to_list name))
+
 let goto_scope scope tbl : t =
   (* Logs.debug (fun m -> m "SymbolTbl.goto_scope: scope = %a; tbl_curr=%a" QualIdent.pr scope QualIdent.pr tbl.tbl_curr.scope_id); *)
   List.fold_left (QualIdent.to_list scope) ~init:(reset tbl) ~f:(fun tbl ident ->
