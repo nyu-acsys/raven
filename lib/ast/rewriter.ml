@@ -169,6 +169,10 @@ type isc_template = {
 
 module IscCacheTbl = Hashtbl.M (IscCacheKey)
 
+(* Every cached ISC by the shape of its inverted expression, so that ISCs inverting the
+   same expression under the same guard share one inverse function. *)
+module IscShapeTbl = Hashtbl.M (String)
+
 (* [ext_hooks] bundles every function an active language extension contributes to the
    core pipeline (see docs/ext/README.md). It has to be defined mutually with [state]/[t]
    because several of its fields return [_ t]. A value of this type is installed once,
@@ -191,6 +195,7 @@ type 'a state = {
      [heapsExplicitTrnsl.ml], never exposed outside this module as a global/mutable
      reference. *)
   state_isc_cache : isc_template IscCacheTbl.t;
+  state_isc_shapes : isc_template list IscShapeTbl.t;
   (* The run's errors recorded at recovery points (see [recover]), warnings and editor
      annotations. *)
   state_diagnostics : Diagnostics.t;
@@ -619,6 +624,7 @@ let eval ?(update = true) ?(ext_hooks = default_ext_hooks)
       state_ext_hooks = ext_hooks;
       state_cli_config = cli_config;
       state_isc_cache = Hashtbl.create (module IscCacheKey);
+      state_isc_shapes = Hashtbl.create (module String);
       state_diagnostics = diagnostics;
       state_record_references = false;
     }
@@ -933,6 +939,9 @@ let set_user_state user_data s = ({ s with state_user_data = user_data }, ())
    [Hashtbl.find]/[Hashtbl.add] into it directly -- the table is mutated in place, not
    rebuilt, so no "set" counterpart is needed the way [state_user_data] has one. *)
 let current_isc_cache s : 'a state * isc_template IscCacheTbl.t = (s, s.state_isc_cache)
+
+let current_isc_shapes s : 'a state * isc_template list IscShapeTbl.t =
+  (s, s.state_isc_shapes)
 
 let current_module_name s : 'a state * qual_ident =
   let s, curr_scope = current_scope s in

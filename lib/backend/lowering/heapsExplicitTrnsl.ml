@@ -1335,7 +1335,9 @@ type expr_match = { var_decl : var_decl; expr : expr option }
 
 let match_up_expr ~(printers : Rewriter.printers) (expr1 : expr) (expr2 : expr)
     (vars : var_decl list) : (var_decl * expr) ident_map option =
-  (* expr1 is the expr with vars; expr2 is the one to be matched against. So expr1 is allowed to have more existentials than expr2. For first implementation, expr2 is not allowed to have any existentials for now *)
+  (* expr1 is the expr with vars; expr2 is the one to be matched against. An existential
+     of expr1 binding vars is matched by its body; any other only by an existential of
+     expr2. *)
 
   (* Return value of None represents that the expressions did not match up *)
 
@@ -1356,42 +1358,13 @@ let match_up_expr ~(printers : Rewriter.printers) (expr1 : expr) (expr2 : expr)
          None)
        else *)
     match (expr1, expr2) with
+    | Binder (Exists, v_d1, _, e1, _), _
+      when List.for_all v_d1 ~f:(fun vd -> Map.mem var_map vd.var_name) ->
+        match_up_expr e1 expr2 var_map
+    | Binder (Exists, v_d1, _, e1, _), Binder (Exists, v_d2, _, e2, _)
     | Binder (Compr, v_d1, _, e1, _), Binder (Compr, v_d2, _, e2, _)
     | Binder (Forall, v_d1, _, e1, _), Binder (Forall, v_d2, _, e2, _) ->
-        if not (Int.equal (List.length v_d1) (List.length v_d2)) then None
-        else
-          let typ_check =
-            List.for_all2_exn v_d1 v_d2 ~f:(fun vd1 vd2 ->
-                Type.equal vd1.var_type vd2.var_type)
-          in
-
-          if not typ_check then None
-          else
-            let renaming_map =
-              List.fold2_exn v_d1 v_d2
-                ~init:(Map.empty (module QualIdent))
-                ~f:(fun renam_map vd1 vd2 ->
-                  Map.add_exn renam_map
-                    ~key:(QualIdent.from_ident vd2.var_name)
-                    ~data:(Expr.from_var_decl vd1))
-            in
-
-            (* renaming expr2 to use the same universal quants as expr1 *)
-            let e2 = Expr.alpha_renaming e2 renaming_map in
-
-            match_up_expr e1 e2 var_map
-    | Binder (Exists, v_d1, _, e1, _), e2 ->
-        let var_map =
-          List.fold v_d1 ~init:var_map ~f:(fun var_map vd1 ->
-              match Map.find var_map vd1.var_name with
-              | Some _ -> var_map
-              | None ->
-                  Error.internal_error (Expr.to_loc expr1)
-                    "unexpected existential quantifier in expr1; expected all \
-                     existentials to be declared in var_map")
-        in
-
-        match_up_expr e1 e2 var_map
+        match_binders v_d1 e1 v_d2 e2 var_map
     | App (constr1, exprs1, _), App (constr2, exprs2, _) -> (
         match constr1 with
         | Var qual_ident
@@ -1428,6 +1401,29 @@ let match_up_expr ~(printers : Rewriter.printers) (expr1 : expr) (expr2 : expr)
               (* Logs.debug (fun m -> m "HeapsExplicitTrnsl.match_up_expr: Constructor mismatch: %a; %a" Expr.pr expr1 Expr.pr expr2); *)
               None)
     | _ -> None
+  and match_binders v_d1 e1 v_d2 e2 var_map =
+    if not (Int.equal (List.length v_d1) (List.length v_d2)) then None
+    else
+      let typ_check =
+        List.for_all2_exn v_d1 v_d2 ~f:(fun vd1 vd2 ->
+            Type.equal vd1.var_type vd2.var_type)
+      in
+
+      if not typ_check then None
+      else
+        let renaming_map =
+          List.fold2_exn v_d1 v_d2
+            ~init:(Map.empty (module QualIdent))
+            ~f:(fun renam_map vd1 vd2 ->
+              Map.add_exn renam_map
+                ~key:(QualIdent.from_ident vd2.var_name)
+                ~data:(Expr.from_var_decl vd1))
+        in
+
+        (* renaming expr2 to use the same universal quants as expr1 *)
+        let e2 = Expr.alpha_renaming e2 renaming_map in
+
+        match_up_expr e1 e2 var_map
   in
 
   let var_map_optn =
@@ -1449,20 +1445,17 @@ let match_up_expr ~(printers : Rewriter.printers) (expr1 : expr) (expr2 : expr)
                    "expected all variables to be matched up"))
   | None -> None
 
-(* Looks up an already-compiled inverse function for the ISC identified by
-   [spec_source]/[conjunct_idx] (the [clause_idx]-th clause of the callable [decl_qi],
-   [conjunct_idx]-th ISC within that clause -- see [Rewriter.state_isc_cache]), reusing it
-   if the current occurrence's [(universal_quants, conds, inv_expr)] matches (via
-   [match_up_expr]) the template recorded for the first occurrence seen for that key.
-   Falls back to [generate_inv_function] (minting a fresh function, exactly as before)
-   whenever there's no [spec_source], this is the first occurrence for the key, or -- as a
-   pure safety net -- matching against a cached template unexpectedly fails.
+(* Looks up an already-compiled inverse function for this ISC, reusing it if the current
+   occurrence's [(universal_quants, conds, inv_expr)] matches (via [match_up_expr]) a
+   recorded template: first the one for [spec_source]/[conjunct_idx] (the
+   [conjunct_idx]-th ISC of the [clause_idx]-th clause of the callable [decl_qi]), then
+   any template of the same shape, so that ISCs inverting the same expression under the
+   same guard share one inverse. Otherwise mints a fresh one with [generate_inv_function].
 
    Returns the same [expr] [generate_inv_function] would (the inverse function applied to
    [arg_expr]), plus the "env" actual expressions to substitute for [inv_expr]'s free
    locals when a caller needs to reapply the same inverse function to [inv_expr] itself
-   (e.g. for forward-trigger assertions) -- previously recomputed there via a second,
-   independent [compute_env_local_var_decls] call. *)
+   (e.g. for forward-trigger assertions). *)
 let get_or_generate_inv_function ~loc (universal_quants : universal_quants)
     (conds : conditions) (inv_expr : expr) ~(arg_expr : expr)
     ~(spec_source : (qual_ident * int) option) ~(conjunct_idx : int) :
@@ -1472,73 +1465,79 @@ let get_or_generate_inv_function ~loc (universal_quants : universal_quants)
   else
     (* The template includes the context, as the inverse function's conditions do. *)
     let template_conds = conds @ injectivity_context universal_quants inv_expr in
-    let mint_fresh () =
-      let* inv_fn_expr =
-        generate_inv_function ~loc universal_quants conds inv_expr ~arg_expr
-      in
-      let+ env_local_var_decls =
-        compute_env_local_var_decls ~loc inv_expr template_conds universal_quants
-      in
-      (inv_fn_expr, env_local_var_decls)
+    let* printers = Rewriter.current_printers in
+    let* isc_cache = Rewriter.current_isc_cache in
+    let* isc_shapes = Rewriter.current_isc_shapes in
+    let* inv_type = !Rewriter.expand_type_expr_ref (Expr.to_type inv_expr) in
+    let shape =
+      Stdlib.Format.asprintf "%a(%a)" Type.pr inv_type (Print.pr_list_comma Type.pr)
+        (List.map universal_quants.univ_vars ~f:(fun (_, vd) -> vd.var_type))
     in
-    match spec_source with
+    let cache_key =
+      Option.map spec_source ~f:(fun (decl_qi, clause_idx) ->
+          (decl_qi, clause_idx, conjunct_idx))
+    in
+    let occurrence_forall =
+      Expr.mk_binder Forall
+        (List.map universal_quants.univ_vars ~f:snd)
+        (Expr.mk_tuple (template_conds @ [ inv_expr ]))
+    in
+    let instantiate (tmpl : Rewriter.isc_template) =
+      let template_forall =
+        Expr.mk_binder Forall
+          (List.map tmpl.isc_univ_vars ~f:snd)
+          (Expr.mk_tuple (tmpl.isc_conds @ [ tmpl.isc_inv_expr ]))
+      in
+      match_up_expr ~printers template_forall occurrence_forall tmpl.isc_env_var_decls
+      |> Option.map ~f:(fun var_map ->
+          let env_actual_exprs =
+            List.map tmpl.isc_env_var_decls ~f:(fun vd ->
+                snd (Map.find_exn var_map vd.var_name))
+          in
+          let ret_type =
+            Type.mk_prod loc
+              (List.map universal_quants.univ_vars ~f:(fun (_, vd) -> vd.var_type))
+          in
+          ( tmpl,
+            Expr.mk_app ~loc ~typ:ret_type (Var tmpl.isc_inv_fn_qual_ident)
+              (arg_expr :: env_actual_exprs),
+            env_actual_exprs ))
+    in
+    let keyed = Option.bind cache_key ~f:(Hashtbl.find isc_cache) in
+    let reused =
+      match Option.bind keyed ~f:instantiate with
+      | Some _ as found -> found
+      | None -> List.find_map (Hashtbl.find_multi isc_shapes shape) ~f:instantiate
+    in
+    match reused with
+    | Some (tmpl, inv_fn_expr, env_actual_exprs) ->
+        Option.iter cache_key ~f:(fun key ->
+            if Option.is_none keyed then Hashtbl.set isc_cache ~key ~data:tmpl);
+        Rewriter.return (inv_fn_expr, env_actual_exprs)
     | None ->
-        let+ inv_fn_expr, env_local_var_decls = mint_fresh () in
+        let* inv_fn_expr =
+          generate_inv_function ~loc universal_quants conds inv_expr ~arg_expr
+        in
+        let+ env_local_var_decls =
+          compute_env_local_var_decls ~loc inv_expr template_conds universal_quants
+        in
+        (match inv_fn_expr with
+        | App (Var inv_fn_qual_ident, _, _) ->
+            let tmpl =
+              Rewriter.
+                {
+                  isc_inv_fn_qual_ident = inv_fn_qual_ident;
+                  isc_univ_vars = universal_quants.univ_vars;
+                  isc_conds = template_conds;
+                  isc_inv_expr = inv_expr;
+                  isc_env_var_decls = env_local_var_decls;
+                }
+            in
+            Hashtbl.add_multi isc_shapes ~key:shape ~data:tmpl;
+            Option.iter cache_key ~f:(fun key ->
+                if Option.is_none keyed then Hashtbl.set isc_cache ~key ~data:tmpl)
+        | _ -> ());
         (inv_fn_expr, List.map env_local_var_decls ~f:Expr.from_var_decl)
-    | Some (decl_qi, clause_idx) -> (
-        let* isc_cache = Rewriter.current_isc_cache in
-        let cache_key = (decl_qi, clause_idx, conjunct_idx) in
-        match Hashtbl.find isc_cache cache_key with
-        | None ->
-            let* inv_fn_expr, env_local_var_decls = mint_fresh () in
-            (match inv_fn_expr with
-            | App (Var inv_fn_qual_ident, _, _) ->
-                Hashtbl.set isc_cache ~key:cache_key
-                  ~data:
-                    Rewriter.
-                      {
-                        isc_inv_fn_qual_ident = inv_fn_qual_ident;
-                        isc_univ_vars = universal_quants.univ_vars;
-                        isc_conds = template_conds;
-                        isc_inv_expr = inv_expr;
-                        isc_env_var_decls = env_local_var_decls;
-                      }
-            | _ -> ());
-            Rewriter.return
-              (inv_fn_expr, List.map env_local_var_decls ~f:Expr.from_var_decl)
-        | Some tmpl -> (
-            let* printers = Rewriter.current_printers in
-            let template_forall =
-              Expr.mk_binder Forall
-                (List.map tmpl.isc_univ_vars ~f:snd)
-                (Expr.mk_tuple (tmpl.isc_conds @ [ tmpl.isc_inv_expr ]))
-            in
-            let occurrence_forall =
-              Expr.mk_binder Forall
-                (List.map universal_quants.univ_vars ~f:snd)
-                (Expr.mk_tuple (template_conds @ [ inv_expr ]))
-            in
-            match
-              match_up_expr ~printers template_forall occurrence_forall
-                tmpl.isc_env_var_decls
-            with
-            | Some var_map ->
-                let env_actual_exprs =
-                  List.map tmpl.isc_env_var_decls ~f:(fun vd ->
-                      snd (Map.find_exn var_map vd.var_name))
-                in
-                let ret_type =
-                  Type.mk_prod loc
-                    (List.map universal_quants.univ_vars ~f:(fun (_, vd) -> vd.var_type))
-                in
-                let inv_fn_expr =
-                  Expr.mk_app ~loc ~typ:ret_type (Var tmpl.isc_inv_fn_qual_ident)
-                    (arg_expr :: env_actual_exprs)
-                in
-                Rewriter.return (inv_fn_expr, env_actual_exprs)
-            | None ->
-                let+ inv_fn_expr, env_local_var_decls = mint_fresh () in
-                (inv_fn_expr, List.map env_local_var_decls ~f:Expr.from_var_decl)))
 
 module ParseAssertionLang = struct
   let rec parse_a ?cmnt ?spec_error ?spec_source ~loc
