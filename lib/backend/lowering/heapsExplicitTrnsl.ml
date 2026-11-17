@@ -1186,6 +1186,94 @@ let eliminate_perm_vars ~loc ~fields_list ~preds_list ~au_preds_list
   in
   rewrite body
 
+(* Drops the validity check of a heap framed by a copy of itself: in
+   [c := h; ...; h := frameHeap(h, c); assert valid(h)] with no write to [h] in between,
+   valid(frame(a, a)) follows from valid(a) by the axiom weak_frameCompInv of every
+   resource algebra. Runs once all heap updates are explicit assignments. *)
+let drop_unchanged_frame_checks (body : Stmt.t) : Stmt.t Rewriter.t =
+  let open Rewriter.Syntax in
+  let local (qi : qual_ident) = Option.some_if (QualIdent.is_local qi) qi.qual_base in
+  (* [copies] maps each local last assigned another local's value to that local, while
+     neither has been written since. *)
+  let forget copies writes =
+    Map.filteri copies ~f:(fun ~key ~data ->
+        not (Set.mem writes key || Set.mem writes data))
+  in
+  let note copies (stmt : Stmt.t) =
+    let writes = Set.of_list (module Ident) (Stmt.stmt_local_vars_modified stmt) in
+    let copies = forget copies writes in
+    match stmt.stmt_desc with
+    | Basic (Assign { assign_lhs = [ lhs ]; assign_rhs = App (Var rhs, [], _); _ }) -> (
+        match (local lhs, local rhs) with
+        | Some c, Some h -> Map.set copies ~key:c ~data:h
+        | _ -> copies)
+    | _ -> copies
+  in
+  let framed_by_own_copy copies (stmt : Stmt.t) =
+    match stmt.stmt_desc with
+    | Basic
+        (Assign
+           {
+             assign_lhs = [ lhs ];
+             assign_rhs =
+               App (Var frame, [ App (Var arg, [], _); App (Var copy, [], _) ], _);
+             _;
+           })
+      when String.equal (Ident.name frame.qual_base) "frameHeap"
+           && QualIdent.equal lhs arg -> (
+        match (local lhs, local copy) with
+        | Some h, Some c when Option.equal Ident.equal (Map.find copies c) (Some h) ->
+            Some h
+        | _ -> None)
+    | _ -> None
+  in
+  let is_validity_check heap (stmt : Stmt.t) =
+    match stmt.stmt_desc with
+    | Basic
+        (Spec (Assert, { spec_form = App (Var valid, [ App (Var arg, [], _) ], _); _ }))
+      ->
+        String.equal (Ident.name valid.qual_base)
+          (Ident.name (ProgUtils.heap_utils_valid_ident stmt.stmt_loc))
+        && Option.equal Ident.equal (local arg) (Some heap)
+    | _ -> false
+  in
+  let join copies1 copies2 =
+    Map.merge copies1 copies2 ~f:(fun ~key:_ -> function
+      | `Both (h1, h2) when Ident.equal h1 h2 -> Some h1
+      | _ -> None)
+  in
+  let no_copies = Map.empty (module Ident) in
+  let rec rewrite copies (stmt : Stmt.t) : (Stmt.t * Ident.t Map.M(Ident).t) Rewriter.t =
+    match stmt.stmt_desc with
+    | Basic _ -> Rewriter.return (stmt, note copies stmt)
+    | Block block ->
+        let rec walk copies acc = function
+          | [] -> Rewriter.return (List.rev acc, copies)
+          | s :: rest -> (
+              let* s, copies' = rewrite copies s in
+              match (framed_by_own_copy copies s, rest) with
+              | Some heap, next :: rest when is_validity_check heap next ->
+                  walk copies' (s :: acc) rest
+              | _ -> walk copies' (s :: acc) rest)
+        in
+        let+ body, copies = walk copies [] block.block_body in
+        ({ stmt with stmt_desc = Block { block with block_body = body } }, copies)
+    | Cond cond ->
+        let* cond_then, copies_then = rewrite copies cond.cond_then in
+        let+ cond_else, copies_else = rewrite copies cond.cond_else in
+        ( { stmt with stmt_desc = Cond { cond with cond_then; cond_else } },
+          join copies_then copies_else )
+    | Loop _ | StmtExt _ ->
+        let+ stmt =
+          Rewriter.Stmt.descend stmt ~f:(fun s ->
+              let+ s, _ = rewrite no_copies s in
+              s)
+        in
+        (stmt, no_copies)
+  in
+  let+ body, _ = rewrite no_copies body in
+  body
+
 let rec rewrite_fpu (stmt : Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
   match stmt.stmt_desc with

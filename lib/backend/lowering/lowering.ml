@@ -1980,6 +1980,9 @@ let lower (m : Module.t) : (Module.t * CallGraph.Graph.t) Rewriter.t =
   let* m =
     Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.rewrite_make_heaps_explicit m
   in
+  let* m =
+    Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.drop_unchanged_frame_checks m
+  in
 
   Logs.debug (fun m1 ->
       m1 "Lowering.lower: Starting rewrite_expand_types on module %a" Ident.pr
