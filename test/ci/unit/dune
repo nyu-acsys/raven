@@ -232,3 +232,8 @@
  (name type_ghost)
  (modules type_ghost)
  (libraries raven))
+
+(test
+ (name ident_hash)
+ (modules ident_hash)
+ (libraries raven base))

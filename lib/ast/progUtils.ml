@@ -59,7 +59,7 @@ let sealed_impl_suffix = AstDef.Module.sealed_impl_suffix
     the definitions of a sealed module [M]. *)
 let source_module_name (name : ident) : ident =
   match String.chop_suffix name.ident_name ~suffix:sealed_impl_suffix with
-  | Some base -> { name with ident_name = base }
+  | Some base -> Ident.with_name name base
   | None -> name
 
 let serialize (s : string) : string =

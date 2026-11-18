@@ -16,7 +16,10 @@ module Ident = struct
         Only generated modules have one. *)
 
     type t = {
-      ident_name : string;
+      ident_name : string; [@hash.ignore]
+      ident_name_hash : int;
+          (** The hash of [ident_name], which hashes use for it, as names can be long.
+              [compare] must not ignore it, or [ppx_hash] ignores it too. *)
       ident_num : int;
       ident_loc : Loc.t; [@compare.ignore] [@hash.ignore]
       ident_display : display option; [@compare.ignore] [@hash.ignore]
@@ -68,7 +71,17 @@ module Ident = struct
   let make loc name num =
     let name = sanitized_name name in
 
-    { ident_name = name; ident_num = num; ident_loc = loc; ident_display = None }
+    {
+      ident_name = name;
+      ident_name_hash = String.hash name;
+      ident_num = num;
+      ident_loc = loc;
+      ident_display = None;
+    }
+
+  (** [id] with the name [name]. *)
+  let with_name id name =
+    { id with ident_name = name; ident_name_hash = String.hash name }
 
   let name id = id.ident_name
 
@@ -176,7 +189,7 @@ module Ident = struct
   let restore_selection depth =
     selected := List.drop !selected (List.length !selected - depth)
 
-  let sanitize subst id = { id with ident_name = String.map ~f:subst id.ident_name }
+  let sanitize subst id = with_name id (String.map ~f:subst id.ident_name)
 end
 
 type ident = Ident.t

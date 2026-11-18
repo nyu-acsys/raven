@@ -24,6 +24,7 @@ All notable changes to this project will be documented in this file.
 - Verifying only selected members no longer lowers the bodies of the others, speeding up focused checks.
 - Pretty-printers are built once per run instead of for every expression and statement checked, speeding up type checking.
 - Editor annotations read each source file once per run instead of once per inherited clause, speeding up type checking.
+- Identifiers carry the hash of their names, speeding up name resolution for long generated names.
 
 ### Fixed
 
