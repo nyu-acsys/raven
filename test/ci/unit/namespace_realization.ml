@@ -165,7 +165,8 @@ let comparator source expected =
     let open Rewriter.Syntax in
     let action =
       let* namespaces, _ = Closure.imported_summaries () in
-      Realization.compatible ~declarations:(Map.data namespaces)
+      let* prepared = Frontend.NamespaceEntailment.prepare (Map.data namespaces) in
+      Realization.compatible ~prepared
         ~owner:(QualIdent.from_ident Predefs.prog_ident)
         ~loc:Util.Loc.dummy ~established:true Realization.empty_environment
         ~actual_path:(path name) ~expected_path:(path expected)

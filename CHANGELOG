@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file.
 - Atomic-update aborts skip validity checks of heaps unchanged since the update was opened, speeding up verification.
 - Each proof obligation's solver gets only the declarations and axioms its proof can use, speeding up verification.
 - Checking the separation of invariant namespaces resolves each module name once, speeding up elaboration.
+- Contract compatibility checks share the canonical forms of namespace declarations, speeding up elaboration.
 
 ### Fixed
 

@@ -104,22 +104,33 @@ let align_body source target body =
   List.map body ~f:(fun (head, args) ->
       (head, List.map args ~f:(fun arg -> Expr.alpha_renaming arg renaming)))
 
-let create ?(rename = Fn.id) ?(overrides = []) ?(callables = []) declarations =
+let canonical_declaration ?(rename = Fn.id) declaration =
   let open Rewriter.Syntax in
-  let canonical declaration =
-    Rewriter.in_scope_of declaration.name
-      (let* name = canonical_name ~rename declaration.name in
-       let+ definition =
-         match declaration.definition with
-         | Abstract -> Rewriter.return Abstract
-         | Defined body ->
-             let+ body = canonical_mask ~rename body in
-             Defined body
-       in
-       { declaration with name; definition })
-  in
-  let source_declarations = declarations in
-  let* declarations = Rewriter.List.map declarations ~f:canonical in
+  Rewriter.in_scope_of declaration.name
+    (let* name = canonical_name ~rename declaration.name in
+     let+ definition =
+       match declaration.definition with
+       | Abstract -> Rewriter.return Abstract
+       | Defined body ->
+           let+ body = canonical_mask ~rename body in
+           Defined body
+     in
+     { declaration with name; definition })
+
+type prepared = { sources : namespace_decl list; canonical : namespace_decl list }
+(** Declarations with their canonical forms, which contexts that do not rename share. *)
+
+let prepare declarations =
+  let open Rewriter.Syntax in
+  let+ canonical = Rewriter.List.map declarations ~f:canonical_declaration in
+  { sources = declarations; canonical }
+
+(** The context of the [sources] declarations, whose canonical forms are [declarations].
+*)
+let build ~rename ~overrides ~callables ~sources declarations =
+  let open Rewriter.Syntax in
+  let canonical = canonical_declaration ~rename in
+  let source_declarations = sources in
   let* overrides = Rewriter.List.map overrides ~f:canonical in
   let merge map declaration =
     Map.update map declaration.name ~f:(function
@@ -203,6 +214,25 @@ let create ?(rename = Fn.id) ?(overrides = []) ?(callables = []) declarations =
       callables = Map.of_alist_exn (module QualIdent) callables;
       roots = roots table;
     }
+
+let create ?(rename = Fn.id) ?(overrides = []) ?(callables = []) declarations =
+  let open Rewriter.Syntax in
+  let* canonical = Rewriter.List.map declarations ~f:(canonical_declaration ~rename) in
+  build ~rename ~overrides ~callables ~sources:declarations canonical
+
+(** Like [create] without renaming on the [prepared] declarations and [declarations], with
+    the canonical forms of the [prepared] ones. *)
+let extend ?(overrides = []) prepared declarations =
+  let open Rewriter.Syntax in
+  let* canonical = Rewriter.List.map declarations ~f:canonical_declaration in
+  build ~rename:Fn.id ~overrides ~callables:[]
+    ~sources:(prepared.sources @ declarations)
+    (prepared.canonical @ canonical)
+
+(** The declarations of [context], which are canonical. *)
+let prepared context =
+  let declarations = Map.data context.namespaces in
+  { sources = declarations; canonical = declarations }
 
 (** Resource identity comes from raw predicate contracts, not body upper bounds. *)
 let normalize_predicates ?(rename = Fn.id) state mask =

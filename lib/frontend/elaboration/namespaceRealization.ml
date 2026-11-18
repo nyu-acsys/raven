@@ -307,7 +307,7 @@ type checked = check list QualIdentHashtbl.t
     adds its requirements to the pending ones, which only grow. *)
 
 (** Structural shape/type compliance has already been checked by the nominal checker. *)
-let rec compatible ?(checked : checked = Hashtbl.create (module QualIdent)) ~declarations
+let rec compatible ?(checked : checked = Hashtbl.create (module QualIdent)) ~prepared
     ~owner ~loc environment ~actual_path ~expected_path ?(transformations = [])
     ~established actual expected =
   let open Rewriter.Syntax in
@@ -330,12 +330,12 @@ let rec compatible ?(checked : checked = Hashtbl.create (module QualIdent)) ~dec
     Rewriter.return ()
   else
     let+ () =
-      compatible_unchecked ~checked ~declarations ~owner ~loc environment ~actual_path
+      compatible_unchecked ~checked ~prepared ~owner ~loc environment ~actual_path
         ~expected_path ~transformations ~established actual expected
     in
     Hashtbl.add_multi checked ~key:actual_path ~data:check
 
-and compatible_unchecked ~checked ~declarations ~owner ~loc environment ~actual_path
+and compatible_unchecked ~checked ~prepared ~owner ~loc environment ~actual_path
     ~expected_path ~transformations ~established actual expected =
   let open Rewriter.Syntax in
   let rename = NamespaceContract.requalify transformations in
@@ -354,14 +354,27 @@ and compatible_unchecked ~checked ~declarations ~owner ~loc environment ~actual_
         | Module summary -> summary
         | Functor _ | Requalified _ -> assert false
       in
-      let* context = Entailment.create ~rename (declarations @ actual.namespaces) in
       let overrides =
         List.filter expected.namespaces ~f:(fun declaration ->
             match declaration.NamespaceContract.definition with
             | Defined _ -> true
             | Abstract -> false)
       in
-      let* budget = Entailment.create ~rename ~overrides (Map.data context.namespaces) in
+      (* Without renaming, the canonical forms of the declarations are shared. *)
+      let* context, budget =
+        if List.is_empty transformations then
+          let* context = Entailment.extend prepared actual.namespaces in
+          let+ budget = Entailment.extend ~overrides (Entailment.prepared context) [] in
+          (context, budget)
+        else
+          let* context =
+            Entailment.create ~rename (prepared.Entailment.sources @ actual.namespaces)
+          in
+          let+ budget =
+            Entailment.create ~rename ~overrides (Map.data context.namespaces)
+          in
+          (context, budget)
+      in
       let environment =
         if established then
           {
@@ -429,7 +442,7 @@ and compatible_unchecked ~checked ~declarations ~owner ~loc environment ~actual_
           match List.Assoc.find actual.modules name ~equal:Ident.equal with
           | None -> signature_error loc "a nested module summary is missing"
           | Some provided ->
-              compatible ~checked ~declarations ~owner ~loc environment
+              compatible ~checked ~prepared ~owner ~loc environment
                 ~actual_path:(QualIdent.append actual_path name)
                 ~expected_path:(QualIdent.append actual_path name)
                 ~transformations ~established:true provided promised)
@@ -473,7 +486,7 @@ and compatible_unchecked ~checked ~declarations ~owner ~loc environment ~actual_
       in
       let* context =
         Entailment.create ~rename:actual_rename
-          (declarations @ own_namespaces actual.result)
+          (prepared.Entailment.sources @ own_namespaces actual.result)
       in
       (* An impossible promised condition cannot justify a realization. *)
       let* () =
@@ -505,7 +518,7 @@ and compatible_unchecked ~checked ~declarations ~owner ~loc environment ~actual_
         Rewriter.List.iter (List.zip_exn actual.parameters expected.parameters)
           ~f:(fun ((_, demanded), (parameter, supplied)) ->
             let path = QualIdent.append expected_path parameter in
-            compatible ~checked ~declarations ~owner ~loc environment ~actual_path:path
+            compatible ~checked ~prepared ~owner ~loc environment ~actual_path:path
               ~expected_path:path ~transformations:actual_transformations
               ~established:true supplied demanded)
       in
@@ -522,7 +535,7 @@ and compatible_unchecked ~checked ~declarations ~owner ~loc environment ~actual_
         | Functor _ as result -> result
         | Requalified _ -> assert false
       in
-      compatible ~checked ~declarations ~owner ~loc environment ~actual_path
+      compatible ~checked ~prepared ~owner ~loc environment ~actual_path
         ~expected_path:actual_path ~transformations:actual_transformations
         ~established:true
         (without_formal_members actual.parameters actual.result)
@@ -551,7 +564,8 @@ let snapshot_contract ?(implementation = false) name =
 
 let validate_pass ~checked ~declarations program pending =
   let open Rewriter.Syntax in
-  let* context = Entailment.create declarations in
+  let* prepared = Entailment.prepare declarations in
+  let* context = Entailment.extend prepared [] in
   let rec walk environment owner (m : Module.t) =
     Rewriter.in_scope_of
       (Module.unit_parameter_path owner)
@@ -620,8 +634,8 @@ let validate_pass ~checked ~declarations program pending =
                  }
                else here
              in
-             compatible ~checked ~declarations ~owner ~loc:m.mod_decl.mod_decl_loc
-               comparison ~actual_path:owner ~expected_path:owner
+             compatible ~checked ~prepared ~owner ~loc:m.mod_decl.mod_decl_loc comparison
+               ~actual_path:owner ~expected_path:owner
                ~established:(not (Module.is_functor m.mod_decl))
                (result contract) (result promised))
        in
@@ -674,9 +688,9 @@ let validate_pass ~checked ~declarations program pending =
                           let* provided =
                             snapshot_contract ~implementation:true actual_path
                           in
-                          compatible ~checked ~declarations ~owner
-                            ~loc:binding.mod_inst_loc environment ~actual_path
-                            ~expected_path:actual_path ~established:true provided promised)
+                          compatible ~checked ~prepared ~owner ~loc:binding.mod_inst_loc
+                            environment ~actual_path ~expected_path:actual_path
+                            ~established:true provided promised)
               end
         in
         let* actual = snapshot_contract ~implementation:true name in
@@ -725,7 +739,7 @@ let validate_pass ~checked ~declarations program pending =
         let provided, actual_path = (actual, name) in
         if nominal then Rewriter.return ()
         else
-          compatible ~checked ~declarations ~owner ~loc:binding.mod_inst_loc environment
+          compatible ~checked ~prepared ~owner ~loc:binding.mod_inst_loc environment
             ~actual_path ~expected_path:expected_owner ~established:true provided expected
   in
   Rewriter.eval_with_user_state ~init:{ empty_state with pending }
