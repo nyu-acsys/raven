@@ -24,6 +24,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Verification cache fingerprints no longer depend on the numbering of unrelated identifiers.
 - Functor instances can use the generic type instances that their argument's interface declares, such as `List[T]`.
 - Match-bound variables in loop invariants remain local to their match arms during loop extraction.
 - Loop headers containing match expressions preserve multiline invariants when parsed.

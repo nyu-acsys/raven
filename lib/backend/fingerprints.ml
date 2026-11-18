@@ -117,7 +117,9 @@ let compute ~(run_key : string) ~(symbol_text : Module.symbol -> string)
           (String.concat ~sep:"\n"
              (run_key
              :: digest (symbol_text (symbol q))
-             :: List.map (Set.to_list covered) ~f:(fun q ->
-                 QualIdent.to_string q ^ " " ^ used_digest q)))
+                (* By name, as the order of identifiers depends on their numbering. *)
+             :: List.sort ~compare:String.compare
+                  (List.map (Set.to_list covered) ~f:(fun q ->
+                       QualIdent.to_string q ^ " " ^ used_digest q))))
       in
       { obligation = q; fingerprint; covered })
