@@ -112,15 +112,17 @@ let rec check_stmt ~proc curr_callable (stmt : Stmt.t) : unit t =
       State.return ()
   | Cond ({ cond_test = Some test; _ } as cond_desc) ->
       let* id = enter_branch ~loc:(Stmt.to_loc stmt) test in
-      let* _ = push_path_condn test in
-      let* _ = in_arm id true (check_stmt ~proc curr_callable cond_desc.cond_then) in
-      let* _ = pop_path_condn in
-
-      let* _ = push_path_condn (Expr.mk_not test) in
-      let* _ = in_arm id false (check_stmt ~proc curr_callable cond_desc.cond_else) in
-      let* _ = pop_path_condn in
-
-      State.return ()
+      (* Each arm is checked without the facts of the other, which its path contradicts;
+         both arms' facts, under their path conditions, then hold after the conditional. *)
+      let arm condition branch body =
+        in_scope_of_branch
+          (let* _ = push_path_condn condition in
+           let* _ = in_arm id branch (check_stmt ~proc curr_callable body) in
+           pop_path_condn)
+      in
+      let* _, then_commands = arm test true cond_desc.cond_then in
+      let* _, else_commands = arm (Expr.mk_not test) false cond_desc.cond_else in
+      rewrite (then_commands @ else_commands)
   | Cond cond_desc ->
       Error.unsupported_error (Stmt.to_loc stmt)
         "Non-deterministic choice is currently not supported."

@@ -36,6 +36,16 @@ module SmtSession : sig
   val with_scope : session -> f:(unit -> 'a) -> 'a
   (** Restores the solver scope on return or exception. Cleanup preserves body errors. *)
 
+  type entry
+  (** A command written in a scope. *)
+
+  val scoped_commands : session -> f:(unit -> 'a) -> 'a * entry list
+  (** Runs [f] in a new scope, returning its result with the commands written in the
+      scope, outside nested ones. *)
+
+  val rewrite : session -> entry list -> unit
+  (** Writes the commands again, in the current scope. *)
+
   val with_owners : session -> Ast.QualIdent.t list -> f:(unit -> 'a) -> 'a
   (** Writes the commands of [f] as those that declare or axiomatize the symbols [owners].
   *)

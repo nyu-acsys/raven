@@ -416,6 +416,27 @@ module SmtSession = struct
         completed := true;
         result)
 
+  (** Runs [f] in a new scope, returning its result with the commands written in the
+      scope, outside nested ones. *)
+  let scoped_commands session ~f =
+    let commands = ref [] in
+    let result =
+      with_scope session ~f:(fun () ->
+          let result = f () in
+          commands := List.rev (List.hd_exn session.trail);
+          result)
+    in
+    (result, !commands)
+
+  (** Writes the [commands] again, in the current scope. *)
+  let rewrite session commands =
+    List.iter commands ~f:(fun entry ->
+        session.trail <-
+          (match session.trail with
+          | level :: levels -> (entry :: level) :: levels
+          | [] -> [ [ entry ] ]);
+        write_text session entry.text)
+
   let assert_expr ?name session expr = write session (mk_assert ?name expr)
 
   (** The response to a command whose answer is an S-expression, which may span several

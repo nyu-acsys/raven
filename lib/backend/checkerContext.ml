@@ -202,6 +202,21 @@ let write_comment comment : unit t =
 let with_scope (computation : 'a t) : 'a t =
  fun context -> Session.with_scope context.session ~f:(fun () -> computation context)
 
+(** Runs [computation] in a scope of its own, and returns its result with the commands it
+    wrote there. *)
+let in_scope_of_branch (computation : 'a t) : ('a * Session.entry list) t =
+ fun context ->
+  let (context, result), commands =
+    Session.scoped_commands context.session ~f:(fun () -> computation context)
+  in
+  (context, (result, commands))
+
+(** Writes the [commands] again, in the current scope. *)
+let rewrite commands : unit t =
+ fun context ->
+  Session.rewrite context.session commands;
+  (context, ())
+
 let push_path_condn term =
   let open State.Syntax in
   map_state ~f:(fun context ->

@@ -197,6 +197,32 @@ let test_pruned_renew () =
       let sent = drain query_read in
       assert (has sent "A" && has sent "B" && has sent "C" && not (has sent "D")))
 
+(* The commands written in a branch's scope are returned, and writing them again puts
+   them in the enclosing scope, which a reset then replays. *)
+let test_branch_commands () =
+  let query_read, query_write = Unix.pipe ~cloexec:true () in
+  let response_read, response_write = Unix.pipe ~cloexec:true () in
+  let session =
+    of_owned_descriptors ~response_timeout:(Some 1.) ~input:response_read
+      ~output:query_write ()
+  in
+  Stdlib.Fun.protect
+    ~finally:(fun () ->
+      stop session;
+      best_effort (fun () -> Unix.close response_write);
+      best_effort (fun () -> Unix.close query_read))
+    (fun () ->
+      let symbol name = Ast.QualIdent.from_ident (Ast.Ident.make Util.Loc.dummy name 0) in
+      let declare name = write session (Smt.SmtLibAst.mk_declare_sort (symbol name) 0) in
+      let has sent name = String.is_substring sent ~substring:("." ^ name ^ " 0)") in
+      let (), commands = scoped_commands session ~f:(fun () -> declare "A") in
+      assert (List.length commands = 1);
+      ignore (drain query_read);
+      rewrite session commands;
+      assert (has (drain query_read) "A");
+      renew session;
+      assert (has (drain query_read) "A"))
+
 let rec ignore_stdin () =
   ignore (Unix.select [] [] [] 60.);
   ignore_stdin ()
@@ -216,5 +242,6 @@ let () =
     test_original_error_survives_broken_pipe ();
     test_scope_cleanup_failure ~body_fails:true;
     test_scope_cleanup_failure ~body_fails:false;
-    test_pruned_renew ()
+    test_pruned_renew ();
+    test_branch_commands ()
   end
