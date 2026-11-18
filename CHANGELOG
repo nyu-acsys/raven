@@ -23,6 +23,7 @@ All notable changes to this project will be documented in this file.
 - Building namespace entailment contexts no longer re-canonicalizes declarations already in canonical form, speeding up elaboration.
 - Verifying only selected members no longer lowers the bodies of the others, speeding up focused checks.
 - Pretty-printers are built once per run instead of for every expression and statement checked, speeding up type checking.
+- Editor annotations read each source file once per run instead of once per inherited clause, speeding up type checking.
 
 ### Fixed
 

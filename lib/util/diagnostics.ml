@@ -375,6 +375,8 @@ type t = {
           the member in the module that inherits it. *)
   cancellation : cancellation option;
   mutable last_poll : float;  (** When [cancellation] was last polled. *)
+  sources : (string, string option) Hashtbl.t;
+      (** The contents of the source files read for the run, by file name. *)
 }
 
 let create ?max_errors ?(collect_warnings = false) ?(reference_files = []) ?cancellation
@@ -394,7 +396,12 @@ let create ?max_errors ?(collect_warnings = false) ?(reference_files = []) ?canc
     origins = Hashtbl.create (module String);
     cancellation;
     last_poll = 0.;
+    sources = Hashtbl.create (module String);
   }
+
+(** The contents of the source [file], read once for the run. *)
+let source_content d file =
+  Hashtbl.find_or_add d.sources file ~default:(fun () -> Loc.source_content file)
 
 (** Raises [Cancelled] if the run is cancelled. *)
 let check_cancelled d =
