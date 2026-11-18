@@ -1,3 +1,10 @@
+18 nov, 2026:
+- [ ] Investigate a symbol-resolution cache result that differs from an uncached
+    lookup in `test/ci/front-end/merge_inherited_members.rav`: `K`, both an
+    interface and a functor parameter (`module P[K: K]`), resolves differently
+    when looked up through `scope_cache`. The test passes; check whether the cache
+    can return a stale result here and whether some other program observes it.
+
 10 nov, 2026:
 - [ ] Handle explicit quantifier triggers that become invalid after expanding inline
     functions: conditionals and Boolean connectives are rejected as SMT patterns,
