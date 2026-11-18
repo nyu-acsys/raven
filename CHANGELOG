@@ -22,6 +22,7 @@ All notable changes to this project will be documented in this file.
 - Contract compatibility checks share the canonical forms of namespace declarations, speeding up elaboration.
 - Building namespace entailment contexts no longer re-canonicalizes declarations already in canonical form, speeding up elaboration.
 - Verifying only selected members no longer lowers the bodies of the others, speeding up focused checks.
+- Pretty-printers are built once per run instead of for every expression and statement checked, speeding up type checking.
 
 ### Fixed
 

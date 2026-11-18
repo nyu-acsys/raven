@@ -178,6 +178,22 @@ module IscShapeTbl = Hashtbl.M (String)
    because several of its fields return [_ t]. A value of this type is installed once,
    by [eval] below, and threaded through the rest of the pipeline as ordinary monadic
    state -- there is no global mutable reference standing in for "the active extension". *)
+type printers = {
+  pr_type : Stdlib.Format.formatter -> type_expr -> unit;
+  pr_type_var_decl : Stdlib.Format.formatter -> var_decl -> unit;
+  pr_type_var_decl_list : Stdlib.Format.formatter -> var_decl list -> unit;
+  pr_expr : Stdlib.Format.formatter -> expr -> unit;
+  pr_expr_list : Stdlib.Format.formatter -> expr list -> unit;
+  pr_stmt : Stdlib.Format.formatter -> Stmt.t -> unit;
+  pr_stmt_basic : Stdlib.Format.formatter -> Stmt.basic_stmt_desc -> unit;
+  pr_stmt_spec_list : string -> Stdlib.Format.formatter -> Stmt.spec list -> unit;
+  pr_callable : Stdlib.Format.formatter -> Callable.t -> unit;
+  pr_module : Stdlib.Format.formatter -> Module.t -> unit;
+  pr_module_instrs : Stdlib.Format.formatter -> Module.module_instr list -> unit;
+  pr_symbol : Stdlib.Format.formatter -> Module.symbol -> unit;
+  symbol_to_string : Module.symbol -> string;
+}
+
 type 'a state = {
   state_table : SymbolTbl.t;
   state_update_table : bool;
@@ -188,6 +204,7 @@ type 'a state = {
   state_relaxed_lookup : bool list;
   state_user_data : 'a;
   state_ext_hooks : ext_hooks;
+  state_printers : printers Lazy.t;  (** Those of [state_ext_hooks]. *)
   state_cli_config : cli_config;
   (* Cache of already-compiled ISCs, keyed by [IscCacheKey.t]. A single [Hashtbl.t]
      instance threaded (not rebuilt) through every state copy for the run -- mutated in
@@ -608,6 +625,64 @@ let check_stmt_ref :
 
 include State
 
+(** The extension-aware sibling of AstDef's default printers ([Type.pr], [Stmt.pr], etc.):
+    built from the given extension hooks. Use this (rather than the bare
+    [Type.pr]/[Stmt.pr]/...) in debug logging or error messages that might run over an AST
+    that can still contain [*_ext] nodes, i.e. before [Elaboration.elaborate_module] has
+    rewritten them away. Most callers want [current_printers] below, which reads the hooks
+    out of the active [Rewriter.t] state; this pure version exists for the handful of call
+    sites (e.g. [lib/driver/driver.ml]) that only have an [ext_hooks] value, not a running
+    computation, in scope. *)
+let printers_of_ext_hooks ?(names = SourceNames.default) (h : ext_hooks) : printers =
+  let _, pr_type, pr_type_var_decl, pr_type_var_decl_list, _, _, _, _, _, _ =
+    Type.make_printers_with_names ~names ~pr_type_ext:h.pr_type_ext
+      ~type_ext_to_name:h.type_ext_to_name
+  in
+  let _, _, _, pr_expr, pr_expr_list, _, _, _, _, _, _, _ =
+    Expr.make_printers_with_names ~names ~pr_type_ext:h.pr_type_ext
+      ~type_ext_to_name:h.type_ext_to_name ~expr_ext_to_string:h.expr_ext_to_string
+      ~pr_expr_ext:h.pr_expr_ext
+  in
+  let _, pr_stmt_spec_list, pr_stmt_basic, pr_stmt, _, _, _ =
+    Stmt.make_printers_with_names ~names ~pr_type_ext:h.pr_type_ext
+      ~type_ext_to_name:h.type_ext_to_name ~expr_ext_to_string:h.expr_ext_to_string
+      ~pr_expr_ext:h.pr_expr_ext ~pr_basic_stmt_ext:h.pr_basic_stmt_ext
+      ~pr_stmt_ext:h.pr_stmt_ext ~contract_ext_to_string:h.contract_ext_to_string
+  in
+  let _, _, pr_callable =
+    Callable.make_printers_with_names ~names ~pr_type_ext:h.pr_type_ext
+      ~type_ext_to_name:h.type_ext_to_name ~expr_ext_to_string:h.expr_ext_to_string
+      ~pr_expr_ext:h.pr_expr_ext ~pr_basic_stmt_ext:h.pr_basic_stmt_ext
+      ~pr_stmt_ext:h.pr_stmt_ext ~contract_ext_to_string:h.contract_ext_to_string
+  in
+  let pr_module, _, pr_module_instrs, _ =
+    Module.make_printers_with_names ~names ~pr_type_ext:h.pr_type_ext
+      ~type_ext_to_name:h.type_ext_to_name ~expr_ext_to_string:h.expr_ext_to_string
+      ~pr_expr_ext:h.pr_expr_ext ~pr_basic_stmt_ext:h.pr_basic_stmt_ext
+      ~pr_stmt_ext:h.pr_stmt_ext ~contract_ext_to_string:h.contract_ext_to_string
+  in
+  let pr_symbol, symbol_to_string =
+    Symbol.make_printers_with_names ~names ~pr_type_ext:h.pr_type_ext
+      ~type_ext_to_name:h.type_ext_to_name ~expr_ext_to_string:h.expr_ext_to_string
+      ~pr_expr_ext:h.pr_expr_ext ~pr_basic_stmt_ext:h.pr_basic_stmt_ext
+      ~pr_stmt_ext:h.pr_stmt_ext ~contract_ext_to_string:h.contract_ext_to_string
+  in
+  {
+    pr_type;
+    pr_type_var_decl;
+    pr_type_var_decl_list;
+    pr_expr;
+    pr_expr_list;
+    pr_stmt;
+    pr_stmt_basic;
+    pr_stmt_spec_list;
+    pr_callable;
+    pr_module;
+    pr_module_instrs;
+    pr_symbol;
+    symbol_to_string;
+  }
+
 (** Runs [m] on [tbl]. It records in [diagnostics], the run's, and fails at the end if [m]
     recorded errors, with all of them. *)
 let eval ?(update = true) ?(ext_hooks = default_ext_hooks)
@@ -622,6 +697,7 @@ let eval ?(update = true) ?(ext_hooks = default_ext_hooks)
       state_relaxed_lookup = [];
       state_user_data = ();
       state_ext_hooks = ext_hooks;
+      state_printers = lazy (printers_of_ext_hooks ext_hooks);
       state_cli_config = cli_config;
       state_isc_cache = Hashtbl.create (module IscCacheKey);
       state_isc_shapes = Hashtbl.create (module String);
@@ -814,84 +890,10 @@ let get_table s = (s, s.state_table)
 let current_ext_hooks s = (s, s.state_ext_hooks)
 let current_cli_config s = (s, s.state_cli_config)
 
-type printers = {
-  pr_type : Stdlib.Format.formatter -> type_expr -> unit;
-  pr_type_var_decl : Stdlib.Format.formatter -> var_decl -> unit;
-  pr_type_var_decl_list : Stdlib.Format.formatter -> var_decl list -> unit;
-  pr_expr : Stdlib.Format.formatter -> expr -> unit;
-  pr_expr_list : Stdlib.Format.formatter -> expr list -> unit;
-  pr_stmt : Stdlib.Format.formatter -> Stmt.t -> unit;
-  pr_stmt_basic : Stdlib.Format.formatter -> Stmt.basic_stmt_desc -> unit;
-  pr_stmt_spec_list : string -> Stdlib.Format.formatter -> Stmt.spec list -> unit;
-  pr_callable : Stdlib.Format.formatter -> Callable.t -> unit;
-  pr_module : Stdlib.Format.formatter -> Module.t -> unit;
-  pr_module_instrs : Stdlib.Format.formatter -> Module.module_instr list -> unit;
-  pr_symbol : Stdlib.Format.formatter -> Module.symbol -> unit;
-  symbol_to_string : Module.symbol -> string;
-}
-
-(** The extension-aware sibling of AstDef's default printers ([Type.pr], [Stmt.pr], etc.):
-    built from the given extension hooks. Use this (rather than the bare
-    [Type.pr]/[Stmt.pr]/...) in debug logging or error messages that might run over an AST
-    that can still contain [*_ext] nodes, i.e. before [Elaboration.elaborate_module] has
-    rewritten them away. Most callers want [current_printers] below, which reads the hooks
-    out of the active [Rewriter.t] state; this pure version exists for the handful of call
-    sites (e.g. [lib/driver/driver.ml]) that only have an [ext_hooks] value, not a running
-    computation, in scope. *)
-let printers_of_ext_hooks ?(names = SourceNames.default) (h : ext_hooks) : printers =
-  let _, pr_type, pr_type_var_decl, pr_type_var_decl_list, _, _, _, _, _, _ =
-    Type.make_printers_with_names ~names ~pr_type_ext:h.pr_type_ext
-      ~type_ext_to_name:h.type_ext_to_name
-  in
-  let _, _, _, pr_expr, pr_expr_list, _, _, _, _, _, _, _ =
-    Expr.make_printers_with_names ~names ~pr_type_ext:h.pr_type_ext
-      ~type_ext_to_name:h.type_ext_to_name ~expr_ext_to_string:h.expr_ext_to_string
-      ~pr_expr_ext:h.pr_expr_ext
-  in
-  let _, pr_stmt_spec_list, pr_stmt_basic, pr_stmt, _, _, _ =
-    Stmt.make_printers_with_names ~names ~pr_type_ext:h.pr_type_ext
-      ~type_ext_to_name:h.type_ext_to_name ~expr_ext_to_string:h.expr_ext_to_string
-      ~pr_expr_ext:h.pr_expr_ext ~pr_basic_stmt_ext:h.pr_basic_stmt_ext
-      ~pr_stmt_ext:h.pr_stmt_ext ~contract_ext_to_string:h.contract_ext_to_string
-  in
-  let _, _, pr_callable =
-    Callable.make_printers_with_names ~names ~pr_type_ext:h.pr_type_ext
-      ~type_ext_to_name:h.type_ext_to_name ~expr_ext_to_string:h.expr_ext_to_string
-      ~pr_expr_ext:h.pr_expr_ext ~pr_basic_stmt_ext:h.pr_basic_stmt_ext
-      ~pr_stmt_ext:h.pr_stmt_ext ~contract_ext_to_string:h.contract_ext_to_string
-  in
-  let pr_module, _, pr_module_instrs, _ =
-    Module.make_printers_with_names ~names ~pr_type_ext:h.pr_type_ext
-      ~type_ext_to_name:h.type_ext_to_name ~expr_ext_to_string:h.expr_ext_to_string
-      ~pr_expr_ext:h.pr_expr_ext ~pr_basic_stmt_ext:h.pr_basic_stmt_ext
-      ~pr_stmt_ext:h.pr_stmt_ext ~contract_ext_to_string:h.contract_ext_to_string
-  in
-  let pr_symbol, symbol_to_string =
-    Symbol.make_printers_with_names ~names ~pr_type_ext:h.pr_type_ext
-      ~type_ext_to_name:h.type_ext_to_name ~expr_ext_to_string:h.expr_ext_to_string
-      ~pr_expr_ext:h.pr_expr_ext ~pr_basic_stmt_ext:h.pr_basic_stmt_ext
-      ~pr_stmt_ext:h.pr_stmt_ext ~contract_ext_to_string:h.contract_ext_to_string
-  in
-  {
-    pr_type;
-    pr_type_var_decl;
-    pr_type_var_decl_list;
-    pr_expr;
-    pr_expr_list;
-    pr_stmt;
-    pr_stmt_basic;
-    pr_stmt_spec_list;
-    pr_callable;
-    pr_module;
-    pr_module_instrs;
-    pr_symbol;
-    symbol_to_string;
-  }
-
-(** [current_printers] reads the active extension's hooks out of the [Rewriter.t] state --
-    see [printers_of_ext_hooks] for the pure/no-state version. *)
+(** [current_printers] are the printers of the active extension, built once per run -- see
+    [printers_of_ext_hooks] for the pure/no-state version. *)
 let current_printers (s : 'a state) : 'a state * printers =
-  (s, printers_of_ext_hooks s.state_ext_hooks)
+  (s, Lazy.force s.state_printers)
 
 (* Captured before [Logs] is shadowed below, for the rest of this file to use when
    logging something that doesn't need [printers] (plain values, no AST fragments). *)
@@ -907,7 +909,7 @@ module Stdlib_logs = Logs
 module Logs = struct
   let lift (log : ('a, unit) Stdlib_logs.msgf -> unit)
       (f : printers -> ('a, unit) Stdlib_logs.msgf) (s : 'st state) : 'st state * unit =
-    log (fun m -> f (printers_of_ext_hooks s.state_ext_hooks) m);
+    log (fun m -> f (Lazy.force s.state_printers) m);
     (s, ())
 
   let debug f = lift Stdlib_logs.debug f
