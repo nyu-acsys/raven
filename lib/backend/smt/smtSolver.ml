@@ -23,11 +23,27 @@ module SmtSession = struct
         (** Watched while waiting for an answer. *)
   }
 
+  type entry = {
+    text : string;
+    owners : Ast.QualIdent.t list;
+        (** The symbols the command declares or axiomatizes; none if it is always needed.
+        *)
+  }
+
   type session = {
     mutable stack_height : int;
     mutable solver_state : solver_state;
-    mutable trail : string list list;
+    mutable trail : entry list list;
         (** The commands of each open scope, innermost first, each in reverse order. *)
+    mutable owners : Ast.QualIdent.t list;  (** Those of the commands written next. *)
+    mutable replays : Ast.QualIdent.t -> bool;
+        (** Which symbols' commands a reset solver gets again. *)
+    mutable pruned_below : int option;
+        (** The stack height at the reset that dropped commands, while the scope opened
+            after it is open. *)
+    mutable behind : bool;
+        (** Whether the solver lacks commands it was reset without, so that the commands
+            after them wait for the next reset. *)
     restartable : bool;  (** Whether the session started its solver itself. *)
     mutable timed_out : bool;
         (** Whether the solver was replaced because the last query timed out. *)
@@ -40,6 +56,10 @@ module SmtSession = struct
     {
       stack_height = 0;
       trail = [ [] ];
+      owners = [];
+      replays = (fun _ -> true);
+      pruned_below = None;
+      behind = false;
       restartable;
       timed_out = false;
       solver_state =
@@ -163,7 +183,7 @@ module SmtSession = struct
         | Error (Unix.Unix_error (Unix.EINTR, _, _)) -> output offset
         | Error exn -> fail_write exn
     in
-    output 0
+    if not session.behind then output 0
 
   let write_command session cmd = write_text session (SmtLibAst.command_to_string cmd)
 
@@ -175,11 +195,20 @@ module SmtSession = struct
           "Cannot write a solver control command directly; use session operations"
     | _ ->
         let text = SmtLibAst.command_to_string cmd in
+        let entry = { text; owners = session.owners } in
         session.trail <-
           (match session.trail with
-          | level :: levels -> (text :: level) :: levels
-          | [] -> [ [ text ] ]);
+          | level :: levels -> (entry :: level) :: levels
+          | [] -> [ [ entry ] ]);
         write_text session text
+
+  (** Writes the commands of [f] as those of the symbols [owners]. *)
+  let with_owners session owners ~f =
+    let outer = session.owners in
+    session.owners <- owners;
+    let result = f () in
+    session.owners <- outer;
+    result
 
   let write_comment session cmnt = write_text session (SmtLibAst.comment_to_string cmnt)
 
@@ -257,11 +286,15 @@ module SmtSession = struct
         Error.internal_error Loc.dummy ("Failed to read Z3 output: " ^ Exn.to_string exn)
 
   (** Sends the session's scopes and commands to its solver again, which the log already
-      has. *)
+      has, of the commands of symbols only those of the symbols it [replays]. *)
   let replay session =
+    let replayed ({ owners; _ } : entry) =
+      List.is_empty owners || List.exists owners ~f:session.replays
+    in
     List.iteri (List.rev session.trail) ~f:(fun depth level ->
         if depth > 0 then write_text ~log:false session (command_to_string (mk_push 1));
-        List.iter (List.rev level) ~f:(write_text ~log:false session))
+        List.iter (List.rev level) ~f:(fun entry ->
+            if replayed entry then write_text ~log:false session entry.text))
 
   (** Replaces the solver by a new process with the same scopes and commands. *)
   let restart session =
@@ -278,11 +311,18 @@ module SmtSession = struct
     replay session
 
   (** Resets the solver and replays the session's scopes and commands, so that what the
-      checks before left in the solver's search state does not affect the checks after. *)
-  let renew session =
+      checks before left in the solver's search state does not affect the checks after. Of
+      the commands of symbols, only those of symbols in [keep] are replayed. *)
+  let renew ?keep session =
     if not session.solver_state.closed then begin
+      session.behind <- false;
+      session.replays <- Option.value keep ~default:(fun _ -> true);
+      session.pruned_below <- Option.map keep ~f:(fun _ -> session.stack_height);
       write_text session
-        (SmtLibAst.comment_to_string "A reset solver replays the commands above");
+        (SmtLibAst.comment_to_string
+           (if Option.is_some keep then
+              "A reset solver replays the commands above that the next check can use"
+            else "A reset solver replays the commands above"));
       write_text ~log:false session "(reset)\n";
       replay session
     end
@@ -303,6 +343,7 @@ module SmtSession = struct
 
   let check_sat session : sat_result =
     session.timed_out <- false;
+    if session.behind then renew session;
     write_command session (mk_check_sat ());
     match read_response session with
     | Error Response_timeout ->
@@ -351,6 +392,11 @@ module SmtSession = struct
     if session.stack_height <= 0 then Error.internal_error Loc.dummy "pop on empty stack";
     write_command session (mk_pop 1);
     session.stack_height <- session.stack_height - 1;
+    Option.iter session.pruned_below ~f:(fun height ->
+        if session.stack_height <= height then begin
+          session.pruned_below <- None;
+          session.behind <- true
+        end);
     session.trail <- List.tl_exn session.trail
 
   let with_scope session ~f =

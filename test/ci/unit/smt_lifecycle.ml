@@ -148,6 +148,55 @@ let test_scope_cleanup_failure ~body_fails =
         | _ -> false);
       assert (match read_response session with Error Session_closed -> true | _ -> false))
 
+(* What a pipe holds, without waiting for more. *)
+let drain fd =
+  Unix.set_nonblock fd;
+  let buffer = Bytes.create 65536 in
+  let rec go acc =
+    match Unix.read fd buffer 0 (Bytes.length buffer) with
+    | 0 -> acc
+    | count -> go (acc ^ Bytes.To_string.sub buffer ~pos:0 ~len:count)
+    | exception Unix.Unix_error ((Unix.EAGAIN | Unix.EWOULDBLOCK), _, _) -> acc
+  in
+  go ""
+
+(* A reset that keeps the commands of some symbols only gives the solver the others
+   again before a later query, and holds back the commands after the check it was for
+   until then. *)
+let test_pruned_renew () =
+  let query_read, query_write = Unix.pipe ~cloexec:true () in
+  let response_read, response_write = Unix.pipe ~cloexec:true () in
+  let session =
+    of_owned_descriptors ~response_timeout:(Some 1.) ~input:response_read
+      ~output:query_write ()
+  in
+  Stdlib.Fun.protect
+    ~finally:(fun () ->
+      stop session;
+      best_effort (fun () -> Unix.close response_write);
+      best_effort (fun () -> Unix.close query_read))
+    (fun () ->
+      let symbol name = Ast.QualIdent.from_ident (Ast.Ident.make Util.Loc.dummy name 0) in
+      let declare name =
+        with_owners session
+          [ symbol name ]
+          ~f:(fun () -> write session (Smt.SmtLibAst.mk_declare_sort (symbol name) 0))
+      in
+      let has sent name = String.is_substring sent ~substring:("." ^ name ^ " 0)") in
+      declare "A";
+      declare "B";
+      ignore (drain query_read);
+      renew ~keep:(Ast.QualIdent.equal (symbol "A")) session;
+      let sent = drain query_read in
+      assert (has sent "A" && not (has sent "B"));
+      with_scope session ~f:(fun () -> declare "D");
+      declare "C";
+      assert (not (has (drain query_read) "C"));
+      write_all response_write "sat\n" 0;
+      ignore (check_sat session);
+      let sent = drain query_read in
+      assert (has sent "A" && has sent "B" && has sent "C" && not (has sent "D")))
+
 let rec ignore_stdin () =
   ignore (Unix.select [] [] [] 60.);
   ignore_stdin ()
@@ -166,5 +215,6 @@ let () =
     test_forced_stop_and_reap ();
     test_original_error_survives_broken_pipe ();
     test_scope_cleanup_failure ~body_fails:true;
-    test_scope_cleanup_failure ~body_fails:false
+    test_scope_cleanup_failure ~body_fails:false;
+    test_pruned_renew ()
   end

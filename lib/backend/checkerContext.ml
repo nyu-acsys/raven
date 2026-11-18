@@ -29,6 +29,9 @@ type context = {
   fingerprinting : fingerprinting option;
   cache : VerificationCache.t option;
   fingerprints : string qual_ident_map;  (** Those of the obligations, when computed. *)
+  coverage : QualIdentSet.t qual_ident_map;
+      (** The symbols the check of each obligation can use (see [Fingerprints.coverage]).
+      *)
   used_fingerprints : string list;
       (** The fingerprints of the obligations found in the cache or verified. *)
   failed : bool;  (** Whether a check of the procedure being checked failed. *)
@@ -67,6 +70,7 @@ let create ?focus ?select_member ?(counterexamples = false) ?(renew_solver = tru
     fingerprinting;
     cache;
     fingerprints = Map.empty (module QualIdent);
+    coverage = Map.empty (module QualIdent);
     used_fingerprints = [];
     failed = false;
     on_scheduled;
@@ -79,11 +83,22 @@ let create ?focus ?select_member ?(counterexamples = false) ?(renew_solver = tru
     next_branch = 0;
   }
 
-(** Resets the solver for the next procedure, if each is checked in a reset solver. *)
-let renew_solver : unit t =
+(** Resets the solver for checking the obligation [qual_name], if each is checked in a
+    reset solver, with only the symbols the check can use. *)
+let renew_solver qual_name : unit t =
  fun context ->
-  if context.renew_solver then Session.renew context.session;
+  if context.renew_solver then begin
+    let keep =
+      Option.map (Map.find context.coverage qual_name) ~f:(fun covered q ->
+          QualIdent.equal q qual_name || Set.mem covered q)
+    in
+    Session.renew ?keep context.session
+  end;
   (context, ())
+
+(** Writes the commands of [m] as those of the symbols [owners]. *)
+let with_owners owners (m : 'a t) : 'a t =
+ fun context -> Session.with_owners context.session owners ~f:(fun () -> m context)
 
 (** Forgets the conditionals of the procedure checked before. *)
 let start_procedure : unit t =

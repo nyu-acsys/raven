@@ -223,7 +223,7 @@ let rec check_stmt ~proc curr_callable (stmt : Stmt.t) : unit t =
 let check_procedure fully_qual_name (callable : Ast.Callable.t) stmt proc : unit t =
   let open State.Syntax in
   let call_decl = callable.call_decl in
-  let* () = renew_solver in
+  let* () = renew_solver fully_qual_name in
   with_scope
   @@
   let* () = start_procedure in
@@ -591,7 +591,8 @@ let declare_and_check_dep (tbl : SymbolTbl.t) (g : Dependencies.Graph.t)
   in
 
   let* _ =
-    State.List.iter dep_sym_fn ~f:(fun (qual_name, sym) -> declare_fn qual_name sym)
+    State.List.iter dep_sym_fn ~f:(fun (qual_name, sym) ->
+        with_owners [ qual_name ] (declare_fn qual_name sym))
   in
 
   let data_types =
@@ -606,7 +607,7 @@ let declare_and_check_dep (tbl : SymbolTbl.t) (g : Dependencies.Graph.t)
   let* _ =
     if List.is_empty data_types then Rewriter.return ()
     else
-      let+ _ = define_datatypes data_types in
+      let+ _ = with_owners (List.map data_types ~f:fst) (define_datatypes data_types) in
       ()
   in
 
@@ -623,6 +624,8 @@ let declare_and_check_dep (tbl : SymbolTbl.t) (g : Dependencies.Graph.t)
     | ready, pending ->
         let* _ =
           State.List.iter ready ~f:(fun (qual_name, (callable : Ast.Callable.t)) ->
+              with_owners [ qual_name ]
+              @@
               match (callable.call_def, callable.call_decl.call_decl_returns) with
               | FuncDef { func_body = Some body }, [ ret ] ->
                   write
@@ -666,7 +669,7 @@ let declare_and_check_dep (tbl : SymbolTbl.t) (g : Dependencies.Graph.t)
     in
     let+ _ =
       State.List.iter ready ~f:(fun (qual_name, callable, _) ->
-          assume_auto_lemma qual_name callable)
+          with_owners [ qual_name ] (assume_auto_lemma qual_name callable))
     in
     pending
   in
@@ -677,7 +680,7 @@ let declare_and_check_dep (tbl : SymbolTbl.t) (g : Dependencies.Graph.t)
         let* _ =
           (* A macro's definition already says everything its axiom would. *)
           if is_macro_name qual_name then Rewriter.return ()
-          else check_member qual_name sym
+          else with_owners [ qual_name ] (check_member qual_name sym)
         in
         let checked = Set.add checked qual_name in
         let+ pending = assume_ready checked pending in
@@ -781,6 +784,12 @@ let check_module (module_defs : Ast.Module.t list) (lemma_calls : Dependencies.G
   let context =
     {
       context with
+      coverage =
+        Map.of_alist_reduce
+          (module QualIdent)
+          (Fingerprints.coverage ~reify:(reify tbl) ~deps:deps_graph ~auto:auto_graph
+             dependencies)
+          ~f:Fn.const;
       fingerprints =
         Map.of_alist_reduce
           (module QualIdent)
