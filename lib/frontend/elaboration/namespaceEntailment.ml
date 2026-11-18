@@ -7,10 +7,30 @@ type t = {
   namespaces : namespace_decl Map.M(QualIdent).t;
   equations : NamespaceEquations.t;
   callables : callable_summary Map.M(QualIdent).t;
+  roots : Set.M(QualIdent).t;
+      (** The module parameters and undefined module instances of the program, whose
+          invariants have no fixed identity. *)
 }
 
 let rec prefixes name =
   name :: (if QualIdent.is_qualified name then prefixes (QualIdent.pop name) else [])
+
+let roots (table : SymbolTbl.t) =
+  Map.fold table.tbl_symbols
+    ~init:(Set.empty (module QualIdent))
+    ~f:(fun ~key:owner ~data roots ->
+      match data with
+      | Module.ModDef definition ->
+          let roots =
+            List.fold (Module.formals definition.mod_decl) ~init:roots
+              ~f:(fun roots formal ->
+                Set.add roots (QualIdent.append owner formal.Module.mod_inst_name))
+          in
+          List.fold definition.mod_def ~init:roots ~f:(fun roots -> function
+            | Module.SymbolDef (ModInst { mod_inst_name; mod_inst_def = None; _ }) ->
+                Set.add roots (QualIdent.append owner mod_inst_name)
+            | _ -> roots)
+      | _ -> roots)
 
 let project_instances table name =
   List.fold (prefixes name) ~init:name ~f:(fun name prefix ->
@@ -181,6 +201,7 @@ let create ?(rename = Fn.id) ?(overrides = []) ?(callables = []) declarations =
       namespaces;
       equations = NamespaceEquations.solve (Map.data namespaces);
       callables = Map.of_alist_exn (module QualIdent) callables;
+      roots = roots table;
     }
 
 (** Resource identity comes from raw predicate contracts, not body upper bounds. *)
@@ -362,32 +383,42 @@ let identity_mentions ?(rename = Fn.id) ~roots mask =
   else
     let* canonical = canonical_mask ~rename mask in
     let+ table = Rewriter.get_table in
-    let rec depends seen name =
+    (* Whether a root is reachable from [name]; a search that reaches none from a name
+       reaches none from any it visited, so each name is visited once. *)
+    let rec depends visited name =
       let name =
         if Module.is_unit_parameter_path name then QualIdent.pop name else name
       in
-      if List.exists (prefixes name) ~f:(Set.mem roots) then true
-      else if Set.mem seen name then false
+      if List.exists (prefixes name) ~f:(Set.mem roots) then (true, visited)
+      else if Set.mem visited name then (false, visited)
       else
-        let seen = Set.add seen name in
-        List.exists (prefixes name) ~f:(fun owner ->
-            let alias =
+        any (Set.add visited name) (prefixes name) ~f:(fun visited owner ->
+            let found, visited =
               match
                 SymbolTbl.resolve_and_find ~implementation:true ~read_only:true owner
                   (SymbolTbl.goto owner table)
               with
               | Some (original, resolved, _, _) ->
-                  depends seen original || depends seen resolved
-              | None -> false
+                  any visited [ original; resolved ] ~f:depends
+              | None -> (false, visited)
             in
-            alias
-            ||
-            match SymbolTbl.application_origin owner table with
-            | Some (head, _) -> depends seen head
-            | None -> false)
+            if found then (true, visited)
+            else
+              match SymbolTbl.application_origin owner table with
+              | Some (head, _) -> depends visited head
+              | None -> (false, visited))
+    and any visited names ~f =
+      match names with
+      | [] -> (false, visited)
+      | name :: names ->
+          let found, visited = f visited name in
+          if found then (true, visited) else any visited names ~f
     in
-    List.exists (mask @ canonical) ~f:(fun (head, _) ->
-        depends (Set.empty (module QualIdent)) (Callable.mask_head_name head))
+    fst
+      (any
+         (Set.empty (module QualIdent))
+         (List.map (mask @ canonical) ~f:(fun (head, _) -> Callable.mask_head_name head))
+         ~f:depends)
 
 let rec entails ?(rename = Fn.id) state ~assumptions requirement =
   let open Rewriter.Syntax in
@@ -416,23 +447,7 @@ let rec entails ?(rename = Fn.id) state ~assumptions requirement =
   if same_invariant then Rewriter.return false
   else
     let* table = Rewriter.get_table in
-    let roots =
-      Map.fold table.tbl_symbols
-        ~init:(Set.empty (module QualIdent))
-        ~f:(fun ~key:owner ~data roots ->
-          match data with
-          | Module.ModDef definition ->
-              let roots =
-                List.fold (Module.formals definition.mod_decl) ~init:roots
-                  ~f:(fun roots formal ->
-                    Set.add roots (QualIdent.append owner formal.Module.mod_inst_name))
-              in
-              List.fold definition.mod_def ~init:roots ~f:(fun roots -> function
-                | Module.SymbolDef (ModInst { mod_inst_name; mod_inst_def = None; _ }) ->
-                    Set.add roots (QualIdent.append owner mod_inst_name)
-                | _ -> roots)
-          | _ -> roots)
-    in
+    let roots = state.roots in
     let* original_symbolic =
       identity_mentions ~rename ~roots
         (original_requirement.left @ original_requirement.right)
