@@ -21,6 +21,7 @@ All notable changes to this project will be documented in this file.
 - Checking the separation of invariant namespaces resolves each module name once, speeding up elaboration.
 - Contract compatibility checks share the canonical forms of namespace declarations, speeding up elaboration.
 - Building namespace entailment contexts no longer re-canonicalizes declarations already in canonical form, speeding up elaboration.
+- Verifying only selected members no longer lowers the bodies of the others, speeding up focused checks.
 
 ### Fixed
 
