@@ -117,13 +117,13 @@ let canonical_declaration ?(rename = Fn.id) declaration =
      in
      { declaration with name; definition })
 
-type prepared = { sources : namespace_decl list; canonical : namespace_decl list }
-(** Declarations with their canonical forms, which contexts that do not rename share. *)
-
-let prepare declarations =
-  let open Rewriter.Syntax in
-  let+ canonical = Rewriter.List.map declarations ~f:canonical_declaration in
-  { sources = declarations; canonical }
+type prepared = {
+  sources : namespace_decl list;
+  canonical : namespace_decl list;
+  context : t;  (** The context of [sources] alone. *)
+}
+(** Declarations with their canonical forms and context, which contexts that do not rename
+    share. *)
 
 (** The context of the [sources] declarations, whose canonical forms are [declarations].
 *)
@@ -227,19 +227,31 @@ let create ?(rename = Fn.id) ?(overrides = []) ?(callables = []) declarations =
   let* canonical = Rewriter.List.map declarations ~f:(canonical_declaration ~rename) in
   build ~rename ~overrides ~callables ~sources:declarations canonical
 
+(** The [declarations] with their canonical forms and context. *)
+let prepare declarations =
+  let open Rewriter.Syntax in
+  let* canonical = Rewriter.List.map declarations ~f:canonical_declaration in
+  let+ context =
+    build ~rename:Fn.id ~overrides:[] ~callables:[] ~sources:declarations canonical
+  in
+  { sources = declarations; canonical; context }
+
 (** Like [create] without renaming on the [prepared] declarations and [declarations], with
     the canonical forms of the [prepared] ones. *)
 let extend ?(overrides = []) prepared declarations =
   let open Rewriter.Syntax in
-  let* canonical = Rewriter.List.map declarations ~f:canonical_declaration in
-  build ~rename:Fn.id ~overrides ~callables:[]
-    ~sources:(prepared.sources @ declarations)
-    (prepared.canonical @ canonical)
+  if List.is_empty overrides && List.is_empty declarations then
+    Rewriter.return prepared.context
+  else
+    let* canonical = Rewriter.List.map declarations ~f:canonical_declaration in
+    build ~rename:Fn.id ~overrides ~callables:[]
+      ~sources:(prepared.sources @ declarations)
+      (prepared.canonical @ canonical)
 
-(** The declarations of [context], which are canonical. *)
+(** The declarations of [context], which are canonical, with [context]. *)
 let prepared context =
   let declarations = Map.data context.namespaces in
-  { sources = declarations; canonical = declarations }
+  { sources = declarations; canonical = declarations; context }
 
 (** Resource identity comes from raw predicate contracts, not body upper bounds. *)
 let normalize_predicates ?(rename = Fn.id) state mask =

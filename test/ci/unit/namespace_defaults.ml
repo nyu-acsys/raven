@@ -191,10 +191,11 @@ let test_required_nested_member_still_checked () =
   match
     Rewriter.eval
       (Rewriter.eval_with_user_state ~init:Realization.empty_state
-         (Realization.compatible
-            ~prepared:{ Frontend.NamespaceEntailment.sources = []; canonical = [] }
-            ~owner:path ~loc:Util.Loc.dummy Realization.empty_environment
-            ~actual_path:path ~expected_path:path ~established:true actual expected))
+         (let open Rewriter.Syntax in
+          let* prepared = Frontend.NamespaceEntailment.prepare [] in
+          Realization.compatible ~prepared ~owner:path ~loc:Util.Loc.dummy
+            Realization.empty_environment ~actual_path:path ~expected_path:path
+            ~established:true actual expected))
       tbl
   with
   | _ -> failwith "A real nested member was omitted"

@@ -26,6 +26,7 @@ All notable changes to this project will be documented in this file.
 - Editor annotations read each source file once per run instead of once per inherited clause, speeding up type checking.
 - Identifiers carry the hash of their names, speeding up name resolution for long generated names.
 - Symbol resolution also caches lookups of module implementations and read-only lookups, speeding up elaboration.
+- Namespace validation reuses one entailment context for the compatibility checks that add no namespace declarations, speeding up elaboration.
 
 ### Fixed
 
