@@ -182,8 +182,15 @@ let build ~rename ~overrides ~callables ~sources declarations =
                       ~typ:(Rewriter.Type.rewrite_qual_idents ~f:requalify)
                       template
                   in
-                  let+ declaration = canonical { declaration with name } in
-                  Some declaration
+                  let declaration = { declaration with name } in
+                  (* A name's own declaration is in the context already. *)
+                  if
+                    QualIdent.equal original name
+                    && NamespaceContract.compare_namespace_decl declaration template = 0
+                  then Rewriter.return None
+                  else
+                    let+ declaration = canonical declaration in
+                    Some declaration
               | Some { definition = Abstract; _ } | None -> Rewriter.return None
               end
           | None -> Rewriter.return None
