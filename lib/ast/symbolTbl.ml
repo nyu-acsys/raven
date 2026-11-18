@@ -82,6 +82,9 @@ type scope = {
   (* Cache that maps names (partially) qualified names to fully qualified names, relative to this scope. *)
   scope_cache : (int * (QualIdent.t * QualIdent.t * subst) list) QualIdentHashtbl.t;
       [@hash.ignore]
+  (* Like [scope_cache], for resolutions to implementations. *)
+  scope_impl_cache : (int * (QualIdent.t * QualIdent.t * subst) list) QualIdentHashtbl.t;
+      [@hash.ignore]
   (* The imports of a single member that no declaration hides yet, with their locations,
      names and targets. *)
   scope_named_imports : (Loc.t * QualIdent.t * QualIdent.t list) IdentHashtbl.t;
@@ -198,6 +201,7 @@ let create_scope qual_ident is_abstract is_local =
     scope_entries = Hashtbl.create (module Ident);
     scope_children = Hashtbl.create (module Ident);
     scope_cache = Hashtbl.create (module QualIdent);
+    scope_impl_cache = Hashtbl.create (module QualIdent);
     scope_named_imports = Hashtbl.create (module Ident);
   }
 
@@ -254,6 +258,7 @@ let copy tbl =
         scope_entries = Hashtbl.copy scope.scope_entries;
         scope_children;
         scope_cache = Hashtbl.copy scope.scope_cache;
+        scope_impl_cache = Hashtbl.copy scope.scope_impl_cache;
         scope_named_imports = Hashtbl.copy scope.scope_named_imports;
       }
     in
@@ -355,6 +360,9 @@ let rec resolve_candidates ?(canonical_aliases = false)
     ?(preserve_abstract_owners = false) ?(read_only = false) ?(implementation = false)
     name (tbl : t) : (QualIdent.t * QualIdent.t * subst) list option =
   let open Option.Syntax in
+  (* Whether the resolution looks into a local scope, whose reads a cached result must
+     have recorded (see [tbl_local_reads]). *)
+  let local = ref false in
   let rec go_forward symbolic inst_scopes scope subst ids =
     (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: scope: %a;\n tbl.tbl_path: %a;\n  ids1: [%a];\n entries: [%a]" 
       QualIdent.pr (get_scope_id scope) 
@@ -377,6 +385,7 @@ let rec resolve_candidates ?(canonical_aliases = false)
         then None
         else
           let () =
+            if scope.scope_is_local then local := true;
             if scope.scope_is_local && (not canonical_aliases) && not read_only then
               Hashtbl.set tbl.tbl_local_reads ~key:first_id ~data:!(tbl.tbl_generation)
           in
@@ -519,13 +528,16 @@ let rec resolve_candidates ?(canonical_aliases = false)
   in
   let first_id = QualIdent.first_ident name in
   let rec go_backward is_first curr_scope path =
-    let scope_cache = get_scope_cache curr_scope in
-    (if is_first && (not canonical_aliases) && not implementation then
+    let scope_cache =
+      if implementation then curr_scope.scope_impl_cache else get_scope_cache curr_scope
+    in
+    (if is_first && not canonical_aliases then
        Hashtbl.find scope_cache name
        |> Option.bind ~f:(fun (generation, cached) ->
            if Int.equal generation !(tbl.tbl_generation) then Some cached else None)
      else None)
     |> Option.or_else () ~f:(fun _ ->
+        if curr_scope.scope_is_local then local := true;
         if curr_scope.scope_is_local && (not canonical_aliases) && not read_only then
           Hashtbl.set tbl.tbl_local_reads ~key:first_id ~data:!(tbl.tbl_generation);
         let+ resolved =
@@ -570,8 +582,8 @@ let rec resolve_candidates ?(canonical_aliases = false)
                     QualIdent.compare left right)
           else resolved
         in
-        if is_first && (not canonical_aliases) && (not implementation) && not read_only
-        then Hashtbl.set scope_cache ~key:name ~data:(!(tbl.tbl_generation), resolved);
+        if is_first && (not canonical_aliases) && not (read_only && !local) then
+          Hashtbl.set scope_cache ~key:name ~data:(!(tbl.tbl_generation), resolved);
         resolved)
   in
   let resolved =
