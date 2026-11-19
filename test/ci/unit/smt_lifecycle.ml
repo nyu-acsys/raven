@@ -223,6 +223,32 @@ let test_branch_commands () =
       renew session;
       assert (has (drain query_read) "A"))
 
+(* A validity check assumes the negated goal under a fresh tag instead of in a scope of
+   its own, and reads the answer as before. *)
+let test_tagged_check () =
+  let query_read, query_write = Unix.pipe ~cloexec:true () in
+  let response_read, response_write = Unix.pipe ~cloexec:true () in
+  let session =
+    of_owned_descriptors ~response_timeout:(Some 1.) ~input:response_read
+      ~output:query_write ()
+  in
+  Stdlib.Fun.protect
+    ~finally:(fun () ->
+      stop session;
+      best_effort (fun () -> Unix.close response_write);
+      best_effort (fun () -> Unix.close query_read))
+    (fun () ->
+      write_all response_write "unsat\n" 0;
+      let height = stack_height session in
+      assert (
+        match check_valid session (Ast.Expr.mk_bool true) with
+        | Valid -> true
+        | Invalid | Inconclusive | Timeout -> false);
+      let sent = drain query_read in
+      assert (String.is_substring sent ~substring:"(check-sat-assuming (");
+      assert (not (String.is_substring sent ~substring:"(push"));
+      assert (stack_height session = height))
+
 let rec ignore_stdin () =
   ignore (Unix.select [] [] [] 60.);
   ignore_stdin ()
@@ -243,5 +269,6 @@ let () =
     test_scope_cleanup_failure ~body_fails:true;
     test_scope_cleanup_failure ~body_fails:false;
     test_pruned_renew ();
-    test_branch_commands ()
+    test_branch_commands ();
+    test_tagged_check ()
   end

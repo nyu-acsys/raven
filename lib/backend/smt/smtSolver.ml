@@ -44,6 +44,7 @@ module SmtSession = struct
     mutable behind : bool;
         (** Whether the solver lacks commands it was reset without, so that the commands
             after them wait for the next reset. *)
+    mutable checks : int;  (** How many validity checks were made, for their tags. *)
     restartable : bool;  (** Whether the session started its solver itself. *)
     mutable timed_out : bool;
         (** Whether the solver was replaced because the last query timed out. *)
@@ -60,6 +61,7 @@ module SmtSession = struct
       replays = (fun _ -> true);
       pruned_below = None;
       behind = false;
+      checks = 0;
       restartable;
       timed_out = false;
       solver_state =
@@ -341,10 +343,11 @@ module SmtSession = struct
       stop_solver session
     end
 
-  let check_sat session : sat_result =
+  (** Sends the satisfiability check [text] and reads its result. *)
+  let check session text : sat_result =
     session.timed_out <- false;
     if session.behind then renew session;
-    write_command session (mk_check_sat ());
+    write_text session text;
     match read_response session with
     | Error Response_timeout ->
         (* A query that runs past the timeout is unknown, whether or not Z3 has noticed
@@ -360,6 +363,9 @@ module SmtSession = struct
                  "Z3 returned unexpected output while checking this proof obligation: %s \
                   (re-run with --verbosity=debug to inspect log.smt2)"
                  str))
+
+  let check_sat session : sat_result =
+    check session (SmtLibAst.command_to_string (mk_check_sat ()))
 
   (** Why the last [check_sat] returned [Unknown]. *)
   let unknown_reason session : validity_result =
@@ -472,22 +478,31 @@ module SmtSession = struct
                 | _ -> None))
         | _ -> None)
 
+  (* The negation of [expr] is assumed under a fresh tag, rather than in a scope of its
+     own, so that the solver keeps what it learned between checks. *)
   let check_valid_with_model ?name session expr ~model =
-    with_scope session ~f:(fun () ->
-        assert_expr ?name session (Ast.Expr.mk_not expr);
-        let result =
-          match check_sat session with
-          | Unsat -> Valid
-          | Sat -> Invalid
-          | Unknown -> unknown_reason session
-        in
-        (* A failed check's model, before the scope that has it is left. *)
-        let model =
-          match result with
-          | Invalid | Inconclusive -> Some (model (get_values session))
-          | Valid | Timeout -> None
-        in
-        (result, model))
+    session.checks <- session.checks + 1;
+    let tag =
+      Ast.QualIdent.from_ident (Ast.Ident.make Loc.dummy "$check" session.checks)
+    in
+    write session (mk_declare_const tag Ast.Type.bool);
+    let tag_expr = Ast.Expr.mk_app ~typ:Ast.Type.bool (Var tag) [] in
+    assert_expr ?name session (Ast.Expr.mk_impl tag_expr (Ast.Expr.mk_not expr));
+    let result =
+      match
+        check session
+          (Stdlib.Format.asprintf "(check-sat-assuming (%a))@." SmtLibAst.pr_smt_ident tag)
+      with
+      | Unsat -> Valid
+      | Sat -> Invalid
+      | Unknown -> unknown_reason session
+    in
+    let model =
+      match result with
+      | Invalid | Inconclusive -> Some (model (get_values session))
+      | Valid | Timeout -> None
+    in
+    (result, model)
 
   let check_valid ?name session expr =
     fst (check_valid_with_model ?name session expr ~model:(fun _ -> ()))

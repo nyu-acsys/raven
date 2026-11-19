@@ -4,7 +4,12 @@ let rec respond response reason =
   match Stdio.In_channel.input_line Stdio.In_channel.stdin with
   | None -> ()
   | Some line ->
-      begin match String.strip line with
+      let line = String.strip line in
+      let line =
+        if String.is_prefix line ~prefix:"(check-sat-assuming " then "(check-sat)"
+        else line
+      in
+      begin match line with
       | "(check-sat)" -> (
           (* With RAVEN_TEST_HANG, the first query of the first process gets no answer. *)
           match Sys.getenv "RAVEN_TEST_HANG" with

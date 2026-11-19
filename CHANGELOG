@@ -28,6 +28,7 @@ All notable changes to this project will be documented in this file.
 - Symbol resolution also caches lookups of module implementations and read-only lookups, speeding up elaboration.
 - Namespace validation reuses one entailment context for the compatibility checks that add no namespace declarations, speeding up elaboration.
 - Each arm of a conditional is checked without the facts of the other arm, speeding up verification of procedures with many branches.
+- Validity checks assume the negated goal under a fresh tag instead of in a solver scope of their own, so the solver keeps what it learned between checks, speeding up verification.
 
 ### Fixed
 
