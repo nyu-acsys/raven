@@ -1,0 +1,47 @@
+// A cut proves its assertion and verifies the rest from it, and from the values of
+// variables, alone.
+
+field f: Int
+
+proc kept(x: Ref, y: Ref)
+  requires own(x.f, 1, 1.0) && own(y.f, 2, 1.0)
+{
+  x.f := 3;
+  cut own(x.f, 3, 1.0);
+  var v := x.f;
+  assert v == 3;
+}
+
+proc values(x: Ref)
+  requires own(x.f, 1, 1.0)
+{
+  var a := 5;
+  cut own(x.f, 1, 1.0);
+  assert a == 5;
+}
+
+// A cut in one arm leaves the other arm's facts, and those after the arms, alone.
+proc branch(x: Ref, c: Bool)
+  requires own(x.f, 1, 1.0)
+{
+  if (c) {
+    cut own(x.f, 1, 1.0);
+  } else {
+    var v := x.f;
+    assert v == 1;
+  }
+  var w := x.f;
+  assert w == 1;
+}
+
+proc nested(x: Ref, y: Ref, c: Bool)
+  requires own(x.f, 1, 1.0) && own(y.f, 2, 1.0)
+{
+  cut own(x.f, 1, 1.0) && own(y.f, 2, 1.0);
+  if (c) {
+    cut own(x.f, 1, 1.0);
+  } else {
+    var v := y.f;
+    assert v == 2;
+  }
+}

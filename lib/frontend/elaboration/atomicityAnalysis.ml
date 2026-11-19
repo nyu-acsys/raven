@@ -1465,7 +1465,8 @@ let keeps_closable (stmt : Stmt.t) : bool =
       ( VarDef _ | New _ | Assign _ | Bind _ | Havoc _ | FieldRead _ | Return _ | Call _
       | Snapshot _ ) ->
       true
-  | Basic (Spec (kind, _)) -> not (Poly.equal kind Stmt.Exhale)
+  | Basic (Spec ((Exhale | Cut), _)) -> false
+  | Basic (Spec ((Assume | Assert | Inhale), _)) -> true
   | Basic (Use { use_kind = Unfold; _ }) -> true
   | Basic (AUAction { auaction_kind = BindAU _ | OpenAU _; _ }) -> true
   | Basic (Use { use_kind = Fold; _ } | AUAction _ | Fpu _ | FieldWrite _ | BasicStmtExt _)
@@ -1860,6 +1861,13 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
         in
         let* _ = Rewriter.set_user_state atomicity_state in
         Rewriter.return stmt
+    | Basic (Spec (Cut, _))
+      when not
+             (List.is_empty atomicity_state.au_opened
+             && List.is_empty atomicity_state.invs_opened) ->
+        (* The frames that closing them restores predate the cut. *)
+        Error.verification_error ~code:Error.Atomicity loc
+          "A cut cannot be made while an invariant or atomic update is open"
     | Basic (Return return_expr) ->
         let atomicity_state = take_atomic_step ~loc atomicity_state in
         let* _ = Rewriter.set_user_state atomicity_state in

@@ -2118,18 +2118,27 @@ module Stmt = struct
     fpu_new_val : expr;
   }
 
-  type spec_kind = Assume | Assert | Inhale | Exhale
+  type spec_kind =
+    | Assume
+    | Assert
+    | Inhale
+    | Exhale
+    | Cut
+        (** [cut P]: exhales [P], forgets everything known except the values of variables,
+            and inhales [P], so that the rest is verified from [P] alone. *)
 
   let assume_string = "assume"
   let assert_string = "assert"
   let inhale_string = "inhale"
   let exhale_string = "exhale"
+  let cut_string = "cut"
 
   let spec_kind_to_string = function
     | Assume -> assume_string
     | Assert -> assert_string
     | Inhale -> inhale_string
     | Exhale -> exhale_string
+    | Cut -> cut_string
 
   type use_kind = Fold | Unfold
 

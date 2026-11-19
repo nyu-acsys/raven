@@ -4,12 +4,13 @@ open Util
 
 let rec rewrite_stmt_error_msg call_id (stmt : Stmt.t) : Stmt.t Rewriter.t =
   match stmt.stmt_desc with
-  | Basic (Spec (((Assert | Exhale) as kind), spec)) ->
+  | Basic (Spec (((Assert | Exhale | Cut) as kind), spec)) ->
       let error =
         ( Error.Verification Error.Assertion,
           Expr.to_loc spec.spec_form,
           match kind with
           | Assert -> "This assertion may be violated"
+          | Cut -> "The cut's assertion may not hold"
           | _ -> "This assertion may not hold: insufficient permissions" )
       in
       let spec_error = spec.spec_error @ [ Stmt.mk_const_spec_error error ] in

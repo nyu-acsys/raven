@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 - The OCaml API can construct one-shot prophecy types, resources, allocations, and resolutions.
 - The OCaml API can select individual backend proof obligations to verify.
+- `cut P` proves `P` and verifies the rest of a procedure from `P` and variables' values alone.
 
 ### Changed
 

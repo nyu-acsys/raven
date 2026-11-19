@@ -220,6 +220,11 @@ module Stmt : sig
   val assume : loc:Loc.t -> Spec.t -> t
   val inhale : loc:Loc.t -> Spec.t -> t
   val exhale : loc:Loc.t -> Spec.t -> t
+
+  val cut : loc:Loc.t -> Spec.t -> t
+  (** [cut P]: proves [P], and verifies the rest from [P] and the values of variables
+      alone. *)
+
   val return : loc:Loc.t -> Expr.t list -> t
 
   val fold : loc:Loc.t -> ?witnesses:(Ident.t * Expr.t) list -> Name.t -> Expr.t list -> t

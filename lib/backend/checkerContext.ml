@@ -211,6 +211,13 @@ let in_scope_of_branch (computation : 'a t) : ('a * Session.entry list) t =
   in
   (context, (result, commands))
 
+(** Starts a new epoch: the assertions made so far are retired until the current scope is
+    closed. A procedure with cuts starts its first epoch on entry. *)
+let new_epoch : unit t =
+ fun context ->
+  Session.new_epoch context.session;
+  (context, ())
+
 (** Writes the [commands] again, in the current scope. *)
 let rewrite commands : unit t =
  fun context ->
@@ -237,6 +244,13 @@ let assume_expr ?name expr : unit t =
   let+ context = get_state in
   let expr = under_path_conditions context expr |> Expr.drop_trivially_true in
   Session.assert_expr ?name context.session expr
+
+(** Assumes the definition of a variable's value, which cuts keep. *)
+let assume_definition expr : unit t =
+  let open State.Syntax in
+  let+ context = get_state in
+  let expr = under_path_conditions context expr |> Expr.drop_trivially_true in
+  Session.keeping context.session ~f:(fun () -> Session.assert_expr context.session expr)
 
 let check_valid ?name expr : SmtSolver.validity_result t =
   let open State.Syntax in

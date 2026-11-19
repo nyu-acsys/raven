@@ -277,6 +277,33 @@ let assigned_vars (stmt : Stmt.t) : Ident.t list =
       List.concat_map lhs ~f:(fun e -> Set.to_list (Expr.local_vars e))
   | _ -> []
 
+(** [stmt] with each [cut P] expanded into the exhale of [P], the cut itself, which
+    retires what is known, and the inhale of [P]. *)
+let rec rewrite_cut_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
+  match stmt.stmt_desc with
+  | Basic (Spec (Cut, spec)) ->
+      let loc = stmt.stmt_loc in
+      let point =
+        {
+          stmt with
+          stmt_desc =
+            Basic
+              (Spec
+                 (Cut, { spec with spec_form = Expr.mk_bool ~loc true; spec_error = [] }));
+        }
+      in
+      Rewriter.return
+        (Stmt.mk_block_stmt ~loc
+           [
+             { stmt with stmt_desc = Basic (Spec (Exhale, spec)) };
+             point;
+             {
+               stmt with
+               stmt_desc = Basic (Spec (Inhale, { spec with spec_error = [] }));
+             };
+           ])
+  | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_cut_stmts
+
 (** Replaces a `fold p(x, y)` stmt with `exhale p(); inhale p.body`, and an unfold
     conversely. *)
 let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
@@ -1807,13 +1834,25 @@ let rec rewrite_assign_stmts (s : Stmt.t) : Stmt.t Rewriter.t =
             let+ typ = Rewriter.Symbol.reify_type s.stmt_loc symbol in
             Expr.mk_var ~typ qual_ident)
       in
-
-      let assume_stmt =
+      (* Cuts keep the definitions of variables' values, which the checker takes as
+         assignments, but not those of heaps. *)
+      if
+        List.exists assign_lhs ~f:(fun x ->
+            HeapNames.is_heap (QualIdent.unqualify (Expr.to_qual_ident x)))
+      then
         Stmt.mk_assume_expr ~loc:s.stmt_loc
           (Expr.mk_eq (Expr.mk_tuple assign_lhs) assign_stmt.assign_rhs)
-      in
-
-      assume_stmt
+      else
+        {
+          s with
+          stmt_desc =
+            Basic
+              (Assign
+                 {
+                   assign_stmt with
+                   assign_lhs = List.map assign_lhs ~f:Expr.to_qual_ident;
+                 });
+        }
   | _ -> let* s = Rewriter.Stmt.descend s ~f:rewrite_assign_stmts in
 
          Rewriter.return s
@@ -1823,6 +1862,7 @@ let lower (m : Module.t) : (Module.t * CallGraph.Graph.t) Rewriter.t =
   Logs.debug (fun m1 ->
       m1 "Lowering.lower: Starting rewrite_fold_unfold_stmts on module %a" Ident.pr
         m.mod_decl.mod_decl_name);
+  let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_cut_stmts m in
   let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_fold_unfold_stmts m in
 
   let* tbl = Rewriter.get_table in

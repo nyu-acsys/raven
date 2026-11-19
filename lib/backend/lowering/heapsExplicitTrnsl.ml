@@ -1075,7 +1075,41 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
         assume_stmt1 :: assume_stmt2 :: assumes)
   in
 
-  Rewriter.return (Stmt.mk_block_stmt ~loc (init_assumes @ [ body ]))
+  (* After a cut, the heaps hold only what the cut inhales. *)
+  let heap_vars =
+    List.concat_map
+      (field_heap_var_defs @ pred_heap_var_defs @ au_heap_var_defs)
+      ~f:(fun (h1, h2, _, _) -> [ h1.Stmt.var_decl; h2.Stmt.var_decl ])
+  in
+  let reset_heaps loc =
+    List.map heap_vars ~f:(fun (h : var_decl) ->
+        Stmt.mk_havoc ~loc (QualIdent.from_ident h.var_name))
+    @ init_assumes
+  in
+  let rec after_cuts (stmt : Stmt.t) : Stmt.t =
+    match stmt.stmt_desc with
+    | Block block ->
+        {
+          stmt with
+          stmt_desc =
+            Block { block with block_body = List.map block.block_body ~f:after_cuts };
+        }
+    | Cond cond ->
+        {
+          stmt with
+          stmt_desc =
+            Cond
+              {
+                cond with
+                cond_then = after_cuts cond.cond_then;
+                cond_else = after_cuts cond.cond_else;
+              };
+        }
+    | Basic (Spec (Cut, _)) ->
+        Stmt.mk_block_stmt ~loc:stmt.stmt_loc (stmt :: reset_heaps stmt.stmt_loc)
+    | Basic _ | Loop _ | StmtExt _ -> stmt
+  in
+  Rewriter.return (Stmt.mk_block_stmt ~loc (init_assumes @ [ after_cuts body ]))
 
 (* The heaps of the given fields, predicates and atomic updates, each with the utils
    module of its chunks. *)
@@ -4449,6 +4483,7 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
       | Spec (spec_kind, spec) ->
           let* translated =
             match spec_kind with
+            | Cut -> Rewriter.return s
             | Inhale ->
                 let expr = spec.spec_form in
 

@@ -92,6 +92,14 @@ let procedure fully_qual_name (call_decl : Ast.Callable.call_decl) :
     proc_kind = (match call_decl.call_decl_kind with Lemma -> "lemma" | _ -> "proc");
   }
 
+(** Whether [stmt] has a cut, which retires what is known before it. *)
+let rec has_cut (stmt : Stmt.t) =
+  match stmt.stmt_desc with
+  | Block block -> List.exists block.block_body ~f:has_cut
+  | Cond cond -> has_cut cond.cond_then || has_cut cond.cond_else
+  | Basic (Spec (Cut, _)) -> true
+  | Basic _ | Loop _ | StmtExt _ -> false
+
 (** The named assertions of [stmt], with their statements. *)
 let rec named_assertions (stmt : Stmt.t) : (Stmt.spec * string * Stmt.t) list =
   match stmt.stmt_desc with
@@ -128,6 +136,16 @@ let rec check_stmt ~proc curr_callable (stmt : Stmt.t) : unit t =
         "Non-deterministic choice is currently not supported."
   | Basic basic_stmt -> (
       match basic_stmt with
+      | Assign { assign_lhs; assign_rhs; _ } ->
+          (* A variable's definition, which cuts keep. *)
+          let types =
+            match (assign_lhs, Expr.to_type assign_rhs) with
+            | [ _ ], typ -> [ typ ]
+            | _, App (Prod, types, _) -> types
+            | _ -> Error.internal_error stmt.stmt_loc "An assignment of mismatched arity"
+          in
+          let lhs = List.map2_exn assign_lhs types ~f:(fun x typ -> Expr.mk_var ~typ x) in
+          assume_definition (Expr.mk_eq (Expr.mk_tuple lhs) assign_rhs)
       | Spec (spec_kind, spec) -> (
           let* _ =
             match spec.spec_comment with
@@ -137,6 +155,7 @@ let rec check_stmt ~proc curr_callable (stmt : Stmt.t) : unit t =
 
           match spec_kind with
           | Assume -> assume_expr ?name:spec.spec_name spec.spec_form
+          | Cut -> new_epoch
           | Assert ->
               let* focused = focused_assertion in
               (* With an assertion in focus, the others are assumed, and only its outcome
@@ -241,6 +260,7 @@ let check_procedure fully_qual_name (callable : Ast.Callable.t) stmt proc : unit
         write (mk_declare_const (QualIdent.from_ident local.var_name) local.var_type))
   in
 
+  let* () = if has_cut stmt then new_epoch else State.return () in
   let* () = check_stmt ~proc fully_qual_name stmt in
   let* focused = focused_assertion in
   if Option.is_none focused then record_result proc Verified else State.return ()

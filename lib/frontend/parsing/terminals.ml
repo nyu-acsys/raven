@@ -16,6 +16,7 @@ let keyword_token (keyword : Ast.SourceKeywords.t) : Parser.token =
   | Case -> CASE
   | Choose -> CHOOSE
   | Checked -> CHECKED
+  | Cut -> SPEC Stmt.Cut
   | Data -> DATA
   | Else -> ELSE
   | Ensures -> ENSURES

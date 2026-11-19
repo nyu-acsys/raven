@@ -197,6 +197,7 @@ module Stmt = struct
   let assume = spec_stmt Assume
   let inhale = spec_stmt Inhale
   let exhale = spec_stmt Exhale
+  let cut = spec_stmt Cut
   let return ~loc es = S.Stmt.at ~loc (S.Stmt.return ~loc es)
 
   let fold ~loc ?witnesses name args =

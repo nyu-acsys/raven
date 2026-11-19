@@ -1,0 +1,13 @@
+field f: Int
+
+inv positive(x: Ref) {
+  exists k: Int :: own(x.f, k, 1.0) && k > 0
+}
+
+proc inside(x: Ref)
+  requires positive(x)
+{
+  unfold positive(x);
+  cut true;
+  fold positive(x);
+}

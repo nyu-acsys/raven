@@ -28,6 +28,8 @@ module SmtSession = struct
     owners : Ast.QualIdent.t list;
         (** The symbols the command declares or axiomatizes; none if it is always needed.
         *)
+    guarded : (string option * Ast.Expr.t) option;
+        (** For an assertion guarded by an epoch, its name and formula. *)
   }
 
   type session = {
@@ -36,6 +38,8 @@ module SmtSession = struct
     mutable trail : entry list list;
         (** The commands of each open scope, innermost first, each in reverse order. *)
     mutable owners : Ast.QualIdent.t list;  (** Those of the commands written next. *)
+    mutable keeping : bool;
+        (** Whether cuts keep the assertions written next: definitions of values. *)
     mutable replays : Ast.QualIdent.t -> bool;
         (** Which symbols' commands a reset solver gets again. *)
     mutable pruned_below : int option;
@@ -45,6 +49,10 @@ module SmtSession = struct
         (** Whether the solver lacks commands it was reset without, so that the commands
             after them wait for the next reset. *)
     mutable checks : int;  (** How many validity checks were made, for their tags. *)
+    mutable epochs : (int * Ast.QualIdent.t) list;
+        (** The epochs of a procedure with cuts, innermost first: the stack height of each
+            one's scope, with the literal that guards its assertions. Checks assume only
+            the current one's, so that a cut retires the assertions before it. *)
     restartable : bool;  (** Whether the session started its solver itself. *)
     mutable timed_out : bool;
         (** Whether the solver was replaced because the last query timed out. *)
@@ -58,10 +66,12 @@ module SmtSession = struct
       stack_height = 0;
       trail = [ [] ];
       owners = [];
+      keeping = false;
       replays = (fun _ -> true);
       pruned_below = None;
       behind = false;
       checks = 0;
+      epochs = [];
       restartable;
       timed_out = false;
       solver_state =
@@ -197,12 +207,19 @@ module SmtSession = struct
           "Cannot write a solver control command directly; use session operations"
     | _ ->
         let text = SmtLibAst.command_to_string cmd in
-        let entry = { text; owners = session.owners } in
+        let entry = { text; owners = session.owners; guarded = None } in
         session.trail <-
           (match session.trail with
           | level :: levels -> (entry :: level) :: levels
           | [] -> [ [ entry ] ]);
         write_text session text
+
+  (** Writes the commands of [f] as ones that cuts keep. *)
+  let keeping session ~f =
+    session.keeping <- true;
+    let result = f () in
+    session.keeping <- false;
+    result
 
   (** Writes the commands of [f] as those of the symbols [owners]. *)
   let with_owners session owners ~f =
@@ -297,6 +314,31 @@ module SmtSession = struct
         if depth > 0 then write_text ~log:false session (command_to_string (mk_push 1));
         List.iter (List.rev level) ~f:(fun entry ->
             if replayed entry then write_text ~log:false session entry.text))
+
+  (** Starts a new epoch, guarded by a fresh literal: the assertions of the current one
+      are retired until the current scope is closed. *)
+  let new_epoch session =
+    (* A cut in the scope of the first epoch, the procedure's, is never undone: its
+       retired assertions leave the solver, which a reset replays without them. *)
+    let outermost =
+      Option.exists (List.last session.epochs) ~f:(fun (height, _) ->
+          height = session.stack_height)
+    in
+    if outermost && not session.solver_state.closed then begin
+      session.trail <-
+        List.map session.trail
+          ~f:(List.filter ~f:(fun entry -> Option.is_none entry.guarded));
+      write_text session
+        (SmtLibAst.comment_to_string "A reset solver replays the commands a cut keeps");
+      write_text ~log:false session "(reset)\n";
+      replay session
+    end;
+    session.checks <- session.checks + 1;
+    let literal =
+      Ast.QualIdent.from_ident (Ast.Ident.make Loc.dummy "$epoch" session.checks)
+    in
+    write session (mk_declare_const literal Ast.Type.bool);
+    session.epochs <- (session.stack_height, literal) :: session.epochs
 
   (** Replaces the solver by a new process with the same scopes and commands. *)
   let restart session =
@@ -398,6 +440,8 @@ module SmtSession = struct
     if session.stack_height <= 0 then Error.internal_error Loc.dummy "pop on empty stack";
     write_command session (mk_pop 1);
     session.stack_height <- session.stack_height - 1;
+    session.epochs <-
+      List.drop_while session.epochs ~f:(fun (height, _) -> session.stack_height < height);
     Option.iter session.pruned_below ~f:(fun height ->
         if session.stack_height <= height then begin
           session.pruned_below <- None;
@@ -434,16 +478,41 @@ module SmtSession = struct
     in
     (result, !commands)
 
-  (** Writes the [commands] again, in the current scope. *)
+  let add_entry session entry =
+    session.trail <-
+      (match session.trail with
+      | level :: levels -> (entry :: level) :: levels
+      | [] -> [ [ entry ] ]);
+    write_text session entry.text
+
+  (** The assertion of [expr], guarded by the current epoch's literal if there is one and
+      [expr] is not a definition that cuts keep. *)
+  let guarded_entry ?name session expr =
+    match session.epochs with
+    | (_, literal) :: _ when not session.keeping ->
+        let guard = Ast.Expr.mk_app ~typ:Ast.Type.bool (Var literal) [] in
+        {
+          text =
+            SmtLibAst.command_to_string (mk_assert ?name (Ast.Expr.mk_impl guard expr));
+          owners = session.owners;
+          guarded = Some (name, expr);
+        }
+    | _ ->
+        {
+          text = SmtLibAst.command_to_string (mk_assert ?name expr);
+          owners = session.owners;
+          guarded = None;
+        }
+
+  (** Writes the [commands] again, in the current scope, under its current epoch. *)
   let rewrite session commands =
     List.iter commands ~f:(fun entry ->
-        session.trail <-
-          (match session.trail with
-          | level :: levels -> (entry :: level) :: levels
-          | [] -> [ [ entry ] ]);
-        write_text session entry.text)
+        match entry.guarded with
+        | Some (name, expr) -> add_entry session (guarded_entry ?name session expr)
+        | None -> add_entry session entry)
 
-  let assert_expr ?name session expr = write session (mk_assert ?name expr)
+  let assert_expr ?name session expr =
+    add_entry session (guarded_entry ?name session expr)
 
   (** The response to a command whose answer is an S-expression, which may span several
       lines. *)
@@ -488,10 +557,21 @@ module SmtSession = struct
     write session (mk_declare_const tag Ast.Type.bool);
     let tag_expr = Ast.Expr.mk_app ~typ:Ast.Type.bool (Var tag) [] in
     assert_expr ?name session (Ast.Expr.mk_impl tag_expr (Ast.Expr.mk_not expr));
+    (* The current epoch's assertions hold; the retired epochs' are switched off. *)
+    let pr_assumption ppf (literal, live) =
+      if live then SmtLibAst.pr_smt_ident ppf literal
+      else Stdlib.Format.fprintf ppf "(not %a)" SmtLibAst.pr_smt_ident literal
+    in
+    let assumptions =
+      (tag, true) :: List.mapi session.epochs ~f:(fun i (_, literal) -> (literal, i = 0))
+    in
     let result =
       match
         check session
-          (Stdlib.Format.asprintf "(check-sat-assuming (%a))@." SmtLibAst.pr_smt_ident tag)
+          (Stdlib.Format.asprintf "(check-sat-assuming (%a))@."
+             (Stdlib.Format.pp_print_list ~pp_sep:Stdlib.Format.pp_print_space
+                pr_assumption)
+             assumptions)
       with
       | Unsat -> Valid
       | Sat -> Invalid

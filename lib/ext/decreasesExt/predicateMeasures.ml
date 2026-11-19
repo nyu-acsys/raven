@@ -436,8 +436,8 @@ let rewrite_body ~same_scc ~measure_of call_decl spec body =
             tag
         in
         ({ stmt with stmt_desc = StmtExt tag }, [])
-    | Basic (Use _ | Spec ((Inhale | Exhale), _) | AUAction _ | BasicStmtExt _) | Loop _
-      ->
+    | Basic (Use _ | Spec ((Inhale | Exhale | Cut), _) | AUAction _ | BasicStmtExt _)
+    | Loop _ ->
         Rewriter.return (stmt, [])
     | Basic _ -> Rewriter.return (stmt, occurrences)
   in

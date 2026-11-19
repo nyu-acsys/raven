@@ -44,7 +44,14 @@ module SmtSession : sig
       scope, outside nested ones. *)
 
   val rewrite : session -> entry list -> unit
-  (** Writes the commands again, in the current scope. *)
+  (** Writes the commands again, in the current scope, under its current epoch. *)
+
+  val new_epoch : session -> unit
+  (** Starts a new epoch: checks no longer assume the assertions of the current one, until
+      the current scope is closed. *)
+
+  val keeping : session -> f:(unit -> 'a) -> 'a
+  (** Writes the assertions of [f] unguarded by epochs: definitions that cuts keep. *)
 
   val with_owners : session -> Ast.QualIdent.t list -> f:(unit -> 'a) -> 'a
   (** Writes the commands of [f] as those that declare or axiomatize the symbols [owners].

@@ -80,6 +80,7 @@ const SIDEBAR_LABELS: Record<string, string> = {
   'sec:triggers-revisited': 'Triggers, revisited',
   'sec:inline': 'Inline predicates and functions',
   'sec:assert-with': 'assert ... with',
+  'sec:cut': 'Cutting a long proof',
 
   'sec:ra-definition': 'The definition',
   'sec:ra-interface': 'The interface a custom RA implements',
