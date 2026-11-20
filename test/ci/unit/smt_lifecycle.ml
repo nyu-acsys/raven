@@ -148,15 +148,19 @@ let test_scope_cleanup_failure ~body_fails =
         | _ -> false);
       assert (match read_response session with Error Session_closed -> true | _ -> false))
 
-(* What a pipe holds, without waiting for more. *)
-let drain fd =
-  Unix.set_nonblock fd;
+(* What the pipe [fd] holds, read up to a marker written behind it through [writer]:
+   reads that would not block need sockets on Windows. *)
+let drain ~writer fd =
+  let marker = "; drained\n" in
+  write_all writer marker 0;
   let buffer = Bytes.create 65536 in
   let rec go acc =
-    match Unix.read fd buffer 0 (Bytes.length buffer) with
-    | 0 -> acc
-    | count -> go (acc ^ Bytes.To_string.sub buffer ~pos:0 ~len:count)
-    | exception Unix.Unix_error ((Unix.EAGAIN | Unix.EWOULDBLOCK), _, _) -> acc
+    match String.substr_index acc ~pattern:marker with
+    | Some index -> String.prefix acc index
+    | None -> (
+        match Unix.read fd buffer 0 (Bytes.length buffer) with
+        | 0 -> acc
+        | count -> go (acc ^ Bytes.To_string.sub buffer ~pos:0 ~len:count))
   in
   go ""
 
@@ -185,16 +189,16 @@ let test_pruned_renew () =
       let has sent name = String.is_substring sent ~substring:("." ^ name ^ " 0)") in
       declare "A";
       declare "B";
-      ignore (drain query_read);
+      ignore (drain ~writer:query_write query_read);
       renew ~keep:(Ast.QualIdent.equal (symbol "A")) session;
-      let sent = drain query_read in
+      let sent = drain ~writer:query_write query_read in
       assert (has sent "A" && not (has sent "B"));
       with_scope session ~f:(fun () -> declare "D");
       declare "C";
-      assert (not (has (drain query_read) "C"));
+      assert (not (has (drain ~writer:query_write query_read) "C"));
       write_all response_write "sat\n" 0;
       ignore (check_sat session);
-      let sent = drain query_read in
+      let sent = drain ~writer:query_write query_read in
       assert (has sent "A" && has sent "B" && has sent "C" && not (has sent "D")))
 
 (* The commands written in a branch's scope are returned, and writing them again puts
@@ -217,11 +221,11 @@ let test_branch_commands () =
       let has sent name = String.is_substring sent ~substring:("." ^ name ^ " 0)") in
       let (), commands = scoped_commands session ~f:(fun () -> declare "A") in
       assert (List.length commands = 1);
-      ignore (drain query_read);
+      ignore (drain ~writer:query_write query_read);
       rewrite session commands;
-      assert (has (drain query_read) "A");
+      assert (has (drain ~writer:query_write query_read) "A");
       renew session;
-      assert (has (drain query_read) "A"))
+      assert (has (drain ~writer:query_write query_read) "A"))
 
 (* A validity check assumes the negated goal under a fresh tag instead of in a scope of
    its own, and reads the answer as before. *)
@@ -244,7 +248,7 @@ let test_tagged_check () =
         match check_valid session (Ast.Expr.mk_bool true) with
         | Valid -> true
         | Invalid | Inconclusive | Timeout -> false);
-      let sent = drain query_read in
+      let sent = drain ~writer:query_write query_read in
       assert (String.is_substring sent ~substring:"(check-sat-assuming (");
       assert (not (String.is_substring sent ~substring:"(push"));
       assert (stack_height session = height))
