@@ -102,6 +102,8 @@ type atomicity_check = {
   namespace_draft : NamespaceInference.t option;
   separation : NamespaceContract.separation_requirement list;
   callees : QualIdentSet.t;
+  (* The masks of the loops this callable enters, cut down to what is available there. *)
+  loop_masks : (QualIdent.t * Callable.mask) list;
   scope : QualIdent.t;
   (* The formals the body never writes, which separation instances can mention. *)
   stable_formals : Set.M(Ident).t;
@@ -111,6 +113,7 @@ type namespace_analysis = {
   callable : Callable.t;
   separation : NamespaceContract.separation_requirement list;
   callees : QualIdentSet.t;
+  loop_masks : (QualIdent.t * Callable.mask) list;
 }
 
 let compare_separation left right =
@@ -1668,13 +1671,30 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
                     Error.internal_error loc "Missing draft namespace summary for callee"
               in
               let+ callee = Rewriter.resolve call_desc.call_name in
-              ( summary.requires,
+              (* Entering a loop: it may only open what is available here. Entries no
+                 invariant of the current mask could cover are dropped; the rest are
+                 checked below as for any call. *)
+              let requires, loop_masks =
+                if
+                  call_decl.call_decl_is_loop
+                  && not (QualIdent.equal callee atomicity_state.scope)
+                then
+                  let available =
+                    List.filter summary.requires ~f:(fun (head, _) ->
+                        List.exists atomicity_state.mask ~f:(fun (candidate, _) ->
+                            Callable.equal_mask_head head candidate))
+                  in
+                  (available, (callee, available) :: atomicity_state.loop_masks)
+                else (summary.requires, atomicity_state.loop_masks)
+              in
+              ( requires,
                 summary.grants,
                 {
                   atomicity_state with
                   separation =
                     union_separation atomicity_state.separation summary.separation;
                   callees = Set.add atomicity_state.callees callee;
+                  loop_masks;
                 } )
         in
         let needs_substitution =
@@ -2487,6 +2507,8 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
                   else_atomicity_state.separation;
               callees =
                 Set.union then_atomicity_state.callees else_atomicity_state.callees;
+              loop_masks =
+                then_atomicity_state.loop_masks @ else_atomicity_state.loop_masks;
               invs_opened =
                 join_ghost_updates ~from:then_atomicity_state.invs_opened
                   else_atomicity_state.invs_opened;
@@ -2638,6 +2660,7 @@ let analyze ?namespace_draft (c : Callable.t) : (namespace_analysis, 'a) Rewrite
         namespace_draft;
         separation;
         callees = Set.empty (module QualIdent);
+        loop_masks = [];
         scope = scope_id;
         stable_formals;
       }
@@ -2665,7 +2688,12 @@ let analyze ?namespace_draft (c : Callable.t) : (namespace_analysis, 'a) Rewrite
            }
        | _ -> callable
      in
-     { callable; separation = state.separation; callees = state.callees })
+     {
+       callable;
+       separation = state.separation;
+       callees = state.callees;
+       loop_masks = state.loop_masks;
+     })
 
 let rewrite_atomicity_analysis c =
   let open Rewriter.Syntax in

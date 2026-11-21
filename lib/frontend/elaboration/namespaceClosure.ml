@@ -88,34 +88,76 @@ let imported_summaries () =
           gather owner contract state
       | _ -> state)
 
+(* A loop's summary once its entry has cut its mask down to [available]. *)
+let enter_loop (summary : NamespaceContract.callable_summary) available =
+  {
+    summary with
+    requires = available;
+    grants =
+      List.filter summary.grants ~f:(fun grant ->
+          List.exists available ~f:(fun entry -> NamespaceInference.covers entry grant));
+  }
+
 let collect program =
   let open Rewriter.Syntax in
   let* namespaces, callables = imported_summaries () in
-  let* draft =
+  let* initial =
     NamespaceInference.infer ~namespaces:(Map.data namespaces)
       ~callables:(Map.to_alist callables) program
   in
-  let collect_callable call =
+  (* Loops are analyzed after the callable that enters them, whose analysis fixes
+     their masks. *)
+  let collect_callable ~loops ?(unentered = false) call =
     match call.Callable.call_def with
     | FuncDef _ | ProcDef { proc_body = None } -> Rewriter.return call
     | ProcDef { proc_body = Some _ } ->
         let* name = Rewriter.current_scope_id in
-        let* analysis = AtomicityAnalysis.collect_namespace_requirements draft call in
-        let* analyses = Rewriter.current_user_state in
-        let analyses =
-          match Map.add analyses ~key:name ~data:analysis with
-          | `Ok analyses -> analyses
-          | `Duplicate ->
-              Error.internal_error call.call_decl.call_decl_loc
-                "A callable was analyzed twice for namespace requirements"
+        let* analyses, draft = Rewriter.current_user_state in
+        let entered () =
+          Map.exists analyses ~f:(fun analysis ->
+              List.Assoc.mem analysis.AtomicityAnalysis.loop_masks name
+                ~equal:QualIdent.equal)
         in
-        let+ () = Rewriter.set_user_state analyses in
-        analysis.callable
+        if
+          Bool.( <> ) call.call_decl.call_decl_is_loop loops
+          || Map.mem analyses name
+          || (loops && (not unentered) && not (entered ()))
+        then Rewriter.return call
+        else
+          let* analysis = AtomicityAnalysis.collect_namespace_requirements draft call in
+          let callables =
+            List.fold analysis.loop_masks ~init:draft.NamespaceInference.callables
+              ~f:(fun callables (loop, available) ->
+                Map.change callables loop
+                  ~f:(Option.map ~f:(fun summary -> enter_loop summary available)))
+          in
+          let+ () =
+            Rewriter.set_user_state
+              (Map.set analyses ~key:name ~data:analysis, { draft with callables })
+          in
+          analysis.callable
+  in
+  let rec loops program =
+    let* analyzed = Rewriter.current_user_state in
+    let* program =
+      Rewriter.Module.rewrite_callables ~f:(collect_callable ~loops:true) program
+    in
+    let* analyses = Rewriter.current_user_state in
+    if Map.length (fst analyses) = Map.length (fst analyzed) then Rewriter.return program
+    else loops program
   in
   Rewriter.eval_with_user_state
-    ~init:(Map.empty (module QualIdent))
-    (let* program = Rewriter.Module.rewrite_callables ~f:collect_callable program in
-     let+ analyses = Rewriter.current_user_state in
+    ~init:(Map.empty (module QualIdent), initial)
+    (let* program =
+       Rewriter.Module.rewrite_callables ~f:(collect_callable ~loops:false) program
+     in
+     let* program = loops program in
+     let* program =
+       Rewriter.Module.rewrite_callables
+         ~f:(collect_callable ~loops:true ~unentered:true)
+         program
+     in
+     let+ analyses, draft = Rewriter.current_user_state in
      { program; draft; analyses })
 
 (** Close only summary edges; the transformed bodies are retained unchanged. *)

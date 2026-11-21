@@ -3212,6 +3212,9 @@ module Callable = struct
         (** Whether this procedure or lemma has a body that is not available here: freeing
             it (see [Callable.set_status]) dropped the body, which is not checked again.
         *)
+    call_decl_is_loop : bool;
+        (** Whether this procedure or lemma is the elaboration of a loop: its mask is what
+            its loop invariant mentions and its entry point has available. *)
     call_decl_needs_mask : mask option;
         (** Invariant mask required from this callable's caller -- computed purely from
             [call_decl_precond] (see [masks.ml]); also the starting mask for checking this
@@ -3430,8 +3433,8 @@ module Callable = struct
   let mk_call_decl ~(kind : call_kind) ~(name : ident) ~(loc : location) ?(formals = [])
       ?(returns = []) ?(locals = []) ?(precond = []) ?(postcond = []) ?(contract_ext = [])
       ?(status = NotFree) ?(is_auto = false) ?(is_inline = false)
-      ?(physical_atomic = false) ?needs_mask ?grants_mask ?opens ?alias ?(loc_params = [])
-      () : call_decl =
+      ?(physical_atomic = false) ?(is_loop = false) ?needs_mask ?grants_mask ?opens ?alias
+      ?(loc_params = []) () : call_decl =
     {
       call_decl_kind = kind;
       call_decl_physical_atomic = physical_atomic;
@@ -3448,6 +3451,7 @@ module Callable = struct
       call_decl_is_auto = is_auto;
       call_decl_is_inline = is_inline;
       call_decl_is_sealed = false;
+      call_decl_is_loop = is_loop;
       call_decl_needs_mask = needs_mask;
       call_decl_grants_mask = grants_mask;
       call_decl_opens = opens;

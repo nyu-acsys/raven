@@ -1,0 +1,26 @@
+// A loop cannot open an invariant that is not available where it starts, even
+// one that an earlier iteration created.
+
+field f: Int
+
+inv counter(x: Ref) { exists v: Int :: own(x.f, v) }
+
+proc make(n: Int, z: Ref) returns (xs: Set[Ref])
+  requires 0 <= n
+{
+  var i: Int := 0;
+  xs := {};
+  while (i < n)
+    invariant forall x: Ref :: x in xs ==> counter(x)
+  {
+    var x: Ref;
+    x := new(f: 0);
+    fold counter(x);
+    xs := xs ++ {x};
+    if (z in xs) {
+      unfold counter(z);
+      fold counter(z);
+    }
+    i := i + 1;
+  }
+}

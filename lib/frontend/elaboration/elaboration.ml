@@ -565,7 +565,8 @@ let rec rewrite_loops (enclosing : Callable.call_decl) (stmt : Stmt.t) : Stmt.t 
           ~kind:(if is_ghost_scope then Lemma else Proc)
           ~name:loop_proc_name ~loc:stmt.stmt_loc ~formals:loop_arg_var_decls
           ~returns:loop_ret_var_decls ~locals:loop_local_var_decls ~precond:loop_precond
-          ~postcond:loop_postcond ~contract_ext:loop_contract_ext ?opens:loop_opens ()
+          ~postcond:loop_postcond ~contract_ext:loop_contract_ext ?opens:loop_opens
+          ~is_loop:true ()
       in
 
       let* loop_body =
