@@ -1,0 +1,11 @@
+// An iterated conjunction of invariant instances holds only for instances held.
+
+field label: Int
+
+inv tag(x: Ref; implicit ghost k: Int) { own(x.label, k, 0.5) }
+
+proc extend(xs: Map[Int, Ref], n: Int)
+  requires forall j: Int :: 0 <= j && j < n ==> tag(xs[j], j)
+  ensures forall j: Int :: 0 <= j && j <= n ==> tag(xs[j], j)
+{
+}
