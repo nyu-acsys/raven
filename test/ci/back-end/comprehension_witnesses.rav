@@ -1,0 +1,64 @@
+// Witnesses of existentials in comprehensions of resources: the old value of an entry, and
+// the map of a range of entries' values, are the heap's.
+
+module RefType : Library.Type {
+  rep type T = Ref
+}
+
+module F : Library.CancellativeResourceAlgebra = Library.Frac[RefType]
+
+// Pointwise ownership of the entries of an array.
+module Entries : Library.ResourceAlgebra {
+  rep type T = Map[Int, F.T]
+
+  val id: T = { k: Int :: F.id }
+
+  func valid(m: T) returns (ret: Bool) {
+    forall k: Int :: {m[k]} F.valid(m[k])
+  }
+
+  func comp(a: T, b: T) returns (ret: T) {
+    { k: Int :: F.comp(a[k], b[k]) }
+  }
+
+  func frame(a: T, b: T) returns (ret: T) {
+    { k: Int :: F.frame(a[k], b[k]) }
+  }
+
+  func fpuAllowed(a: T, b: T) returns (ret: Bool) {
+    forall k: Int :: {a[k]} {b[k]} F.fpuAllowed(a[k], b[k]) || a[k] == b[k]
+  }
+}
+module Arrays {
+  ghost field contents: Entries
+
+  inline func entry(i: Int, v: Ref, q: Real) returns (m: Entries) {
+    { k: Int :: k == i ? F.frac_chunk(v, q) : F.id }
+  }
+
+  inline func range(first: Int, last: Int, vs: Map[Int, Ref]) returns (m: Entries) {
+    { k: Int :: first <= k && k < last ? F.frac_chunk(vs[k], 1.0) : F.id }
+  }
+
+  proc write(a: Ref, i: Int, v: Ref, implicit ghost old: Ref)
+    requires own(a.contents, entry(i, old, 1.0))
+    ensures own(a.contents, entry(i, v, 1.0))
+  {
+    fpu(a, contents, entry(i, old, 1.0), entry(i, v, 1.0));
+  }
+
+  // The old value is the heap's: no witness is given.
+  proc overwrite(a: Ref, i: Int, v: Ref, w: Ref)
+    requires own(a.contents, entry(i, w, 1.0))
+    ensures own(a.contents, entry(i, v, 1.0))
+  {
+    write(a, i, v);
+  }
+
+  // The values of a range are the heap's.
+  proc forget(a: Ref, n: Int, vs: Map[Int, Ref])
+    requires own(a.contents, range(0, n, vs))
+    ensures exists ws: Map[Int, Ref] :: own(a.contents, range(0, n, ws))
+  {
+  }
+}

@@ -90,6 +90,7 @@ module Expr = struct
   let set = S.Expr.set
   let seq = S.Expr.seq
   let set_compr = S.Expr.set_compr
+  let compr = S.Expr.set_compr
   let map_literal = S.Expr.map_literal
   let index = S.Expr.index
   let update = S.Expr.update

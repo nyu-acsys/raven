@@ -119,6 +119,10 @@ module Expr : sig
   val set_compr : loc:Loc.t -> Var.t -> t -> t
   (** The set comprehension [{x: T :: e}]. *)
 
+  val compr : loc:Loc.t -> Var.t -> t -> t
+  (** The comprehension [{x: T :: e}]: a set if [e] is a Boolean, else the map from each
+      [x] to [e]. *)
+
   val map_literal : loc:Loc.t -> (t * t) list -> t -> t
   (** The map literal [{k1 := v1, ..., else default}]. *)
 

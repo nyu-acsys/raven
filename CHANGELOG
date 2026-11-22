@@ -6,12 +6,14 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- The OCaml API can construct map comprehensions.
 - The OCaml API can construct one-shot prophecy types, resources, allocations, and resolutions.
 - The OCaml API can select individual backend proof obligations to verify.
 - `cut P` proves `P` and verifies the rest of a procedure from `P` and variables' values alone.
 
 ### Changed
 
+- Infer existential witnesses from comprehensions of resources, such as entries of a map-valued field.
 - Iterated conjunctions of invariant instances no longer need an injective index.
 - A loop may mention invariants unavailable where it starts, such as those it creates; it opens only available ones.
 - Infer existential witnesses from singleton-set tuple patterns and Auth/SetRA fragments.
