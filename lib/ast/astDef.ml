@@ -3186,7 +3186,7 @@ module Callable = struct
   let mask_inter = MaskSet.inter
 
   (** [Opens] bounds the invariants a procedure or lemma may open, [Depends] those the
-      definition of an abstract predicate may depend on. *)
+      definition of an abstract predicate or invariant may depend on. *)
   type bound_kind = Opens | Depends
 
   let bound_keyword = function Opens -> "opens" | Depends -> "depends"
@@ -3262,7 +3262,8 @@ module Callable = struct
     call_decl_bound : bound_clause option;
         (** The user's [opens] clause, if any, replaces the [call_decl_needs_mask]
             otherwise inferred from [call_decl_precond]; a [depends] clause bounds the
-            dependencies of an abstract predicate, checked where it is implemented. *)
+            dependencies of an abstract predicate or invariant, checked where it is
+            implemented. *)
     call_decl_ancestry : ancestry_clause option;
     call_decl_loc : location;  (** source location of declaration *)
     call_decl_loc_params : QualIdent.t list;
@@ -3689,7 +3690,7 @@ end
 (** Frozen namespace contracts *)
 
 module NamespaceContract = struct
-  (** [Bounded mask] is an abstract predicate whose definition depends on no invariant
+  (** [Bounded mask] is an abstract resource whose definition depends on no invariant
       outside [mask]. *)
   type namespace_definition =
     | Abstract

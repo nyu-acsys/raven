@@ -435,7 +435,7 @@ let check_definition (callable : Callable.t) : Module.symbol t =
              }))
   in
 
-  (* What a procedure or lemma may open, or an abstract predicate may depend on. *)
+  (* What a procedure or lemma may open, or an abstract resource may depend on. *)
   let* call_decl_bound =
     Rewriter.Option.map call_decl.call_decl_bound
       ~f:(fun (clause : Callable.bound_clause) ->
@@ -443,11 +443,10 @@ let check_definition (callable : Callable.t) : Module.symbol t =
         | Opens, (Proc | Lemma) -> ()
         | Opens, (Func | Pred | Invariant) ->
             opens_on_pure_callable_error call_decl.call_decl_loc call_decl.call_decl_name
-        | Depends, Pred when Callable.is_abstract callable -> ()
-        | Depends, Pred -> depends_on_defined_predicate_error clause.bound_loc
-        | Depends, (Proc | Lemma | Func | Invariant) ->
-            depends_on_non_predicate_error call_decl.call_decl_loc
-              call_decl.call_decl_name
+        | Depends, (Pred | Invariant) when Callable.is_abstract callable -> ()
+        | Depends, (Pred | Invariant) -> depends_on_definition_error clause.bound_loc
+        | Depends, (Proc | Lemma | Func) ->
+            depends_on_non_resource_error call_decl.call_decl_loc call_decl.call_decl_name
         end;
         let+ bound_entries =
           check_mask_clause

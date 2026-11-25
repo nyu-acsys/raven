@@ -6,7 +6,7 @@ pred defined(x: Ref) depends {} { cell(x) }
 
 proc procedure(x: Ref) depends {} {}
 
-inv shared(x: Ref) depends {}
+inv shared(x: Ref) depends {} { cell(x) }
 
 interface I {
   pred other(x: Ref) depends cell(y)

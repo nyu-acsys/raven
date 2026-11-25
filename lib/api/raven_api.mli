@@ -303,8 +303,8 @@ module Callable : sig
   (** The function, predicate or invariant [name] and its body; [inline] has its uses
       replaced by its body; [decreases] is the measure that its recursive calls decrease.
       [ancestry] gives an invariant's concrete parent or public containment promise.
-      [depends] bounds the invariants a predicate without a body depends on, like [opens]
-      of {!proc}. *)
+      [depends] bounds the invariants a predicate or invariant without a body depends on,
+      like [opens] of {!proc}. *)
 
   type resource_kind = Predicate | Invariant
 

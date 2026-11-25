@@ -286,11 +286,11 @@ module Callable = struct
       ?(ensures = []) ?(decreases = []) ?ancestry ?depends name body =
     let () =
       match (kind, body, depends) with
-      | _, _, None | Pred, None, Some _ -> ()
-      | (Func | Inv), _, Some _ | Pred, Some _, Some _ ->
+      | _, _, None | (Pred | Inv), None, Some _ -> ()
+      | Func, _, Some _ | (Pred | Inv), Some _, Some _ ->
           invalid_arg
-            "Raven_api.Callable.func: only predicates without a body have a depends \
-             clause"
+            "Raven_api.Callable.func: only predicates and invariants without a body have \
+             a depends clause"
     in
     let ancestry =
       Option.map ancestry ~f:(fun ancestry ->

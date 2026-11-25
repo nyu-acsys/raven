@@ -388,16 +388,16 @@ let opens_on_pure_callable_error loc name =
        !"%{Ident#user} may not have an opens clause; only procedures and lemmas can"
        name)
 
-let depends_on_non_predicate_error loc name =
+let depends_on_non_resource_error loc name =
   Error.type_error loc
     (Printf.sprintf
-       !"%{Ident#user} may not have a depends clause; only predicates can"
+       !"%{Ident#user} may not have a depends clause; only predicates and invariants can"
        name)
 
-let depends_on_defined_predicate_error loc =
+let depends_on_definition_error loc =
   Error.type_error loc
-    "Only a predicate without a definition may have a depends clause; a definition \
-     determines what the predicate depends on"
+    "Only a predicate or invariant without a definition may have a depends clause; a \
+     definition determines what it depends on"
 
 let opens_not_resource_error loc ~keyword kind qual_ident =
   Error.type_error loc

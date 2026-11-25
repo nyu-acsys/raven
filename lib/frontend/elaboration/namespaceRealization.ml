@@ -564,10 +564,10 @@ and compatible_unchecked ~checked ~prepared ~owner ~loc environment ~actual_path
                     then
                       signature_error loc
                         begin match promised.kind with
-                        | Pred ->
+                        | Pred | Invariant ->
                             "the invariants " ^ Ident.to_string name
                             ^ " depends on exceed its depends clause"
-                        | Proc | Lemma | Invariant | Func ->
+                        | Proc | Lemma | Func ->
                             "the required mask of " ^ Ident.to_string name
                             ^ " exceeds the promised mask"
                         end
