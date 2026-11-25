@@ -1,0 +1,22 @@
+inv root(x: Int) { true }
+interface Resource { pred p(x: Int) }
+module Empty: Resource { pred p(x: Int) { true } }
+module Factory[R: Resource] {
+  lemma create(x: Int)
+    requires R.p(x)
+    ensures root(x)
+    opens {}
+  { fold root(x); }
+}
+module Client[R: Resource] {
+  module Make = Factory[R]
+  lemma use(x: Int)
+    requires R.p(x)
+    opens {}
+  {
+    Make.create(x);
+    unfold root(x);
+    fold root(x);
+  }
+}
+module Safe = Client[Empty]

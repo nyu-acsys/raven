@@ -88,8 +88,40 @@ let test_guarded_constructor_credit () =
   let omitted = resolved tbl draft [ "Risk"; "omitted" ] in
   assert (List.is_empty omitted.grants)
 
+let test_composed_predicate_profile () =
+  let tbl, draft =
+    infer
+      "interface Resource { pred valid(x: Int)\n\
+       lemma advance(x: Int) requires valid(x) ensures valid(x + 1) }\n\
+       module Implementation[A: Resource, B: Resource] {\n\
+       pred valid(x: Int) { A.valid(x) && B.valid(x) }\n\
+       lemma advance(x: Int) requires valid(x) ensures valid(x + 1) {} }"
+  in
+  let actual = resolved tbl draft [ "Implementation"; "advance" ] in
+  let expected = resolved tbl draft [ "Resource"; "advance" ] in
+  let rename =
+    QualIdent.requalify
+      [ (qi [ "Resource" ], QualIdent.to_list (qi [ "Implementation" ])) ]
+  in
+  let expected =
+    NamespaceContract.map_callable_summary ~name:rename
+      ~expr:(Expr.map_qual_idents ~f:rename)
+      ~typ:(Type.map_qual_idents ~f:rename)
+      expected
+    |> Realization.align_callable actual
+  in
+  let comparison =
+    let open Rewriter.Syntax in
+    let* context = Entailment.create (Map.data draft.namespaces) in
+    Realization.grants_cover context ~assumptions:[] actual expected
+  in
+  assert (snd (Rewriter.eval comparison tbl))
+
 let () =
-  match test_guarded_constructor_credit () with
+  match
+    test_guarded_constructor_credit ();
+    test_composed_predicate_profile ()
+  with
   | () -> ()
   | exception Util.Error.Msg errors ->
       failwith (String.concat ~sep:"\n" (List.map errors ~f:Util.Error.to_string))

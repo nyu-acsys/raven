@@ -1,0 +1,11 @@
+inv root(x: Int) { child(x, 0) }
+inv child(x: Int, k: Int) parent root(x) { true }
+pred witness(y: Int) { exists v: Int :: v == y }
+lemma bad(ghost x: Int, y: Int)
+  requires root(x) && root(y) && witness(y)
+  opens root(x)
+{
+  unfold witness(y)[x := v];
+  unfold root(x);
+  fold root(x);
+}

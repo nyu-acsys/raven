@@ -1,0 +1,14 @@
+include "queue_lock_client.rav"
+
+module ReusedGuard[Locks: QueueLock] {
+  module L = Locks[CounterResource]
+
+  proc twice(l: L, c: Ref)
+    requires L.is_lock(l, c)
+    opens L.is_lock(l, c)
+  {
+    var guard := L.acquire(l, c);
+    L.release(l, guard, c);
+    L.release(l, guard, c);
+  }
+}

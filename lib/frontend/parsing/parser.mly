@@ -102,7 +102,7 @@ let inline_modifier ~loc (kind : Callable.call_kind) (is_inline : bool) : bool =
 %token <bool> MODULE
 %token <string> STRINGVAL
 %token TYPE IMPORT INCLUDE
-%token RETURNS REQUIRES ENSURES INVARIANT OPENS
+%token RETURNS REQUIRES ENSURES INVARIANT OPENS PARENT WITHIN
 %token EOF
 
 %nonassoc IFF
@@ -382,23 +382,35 @@ func_decl:
 }
 
 callable_decl:
-  id = callable_name; LPAREN; formals = formals_with_loc; RPAREN; returns = return_params; cs = contracts {
+  id = callable_name; LPAREN; formals = formals_with_loc; RPAREN; returns = return_params;
+  ancestry = option(ancestry_clause); cs = contracts {
   let precond, postcond, contract_ext, opens = cs in
   let opens = single_opens_clause opens in
   let loc_params, formals = formals in
   Surface.Callable.decl ~kind:Func ~loc:(Loc.make $startpos(id) $endpos(id))
-    ~formals ~returns ~precond ~postcond ~contract_ext ?opens ~loc_params id
+    ~formals ~returns ~precond ~postcond ~contract_ext ?opens ?ancestry ~loc_params id
 }
 
 callable_decl_out_vars:
-  id = callable_name; LPAREN; formals = formals_with_loc; SEMICOLON; returns = var_decls_with_modifiers; RPAREN; cs = contracts {
+  id = callable_name; LPAREN; formals = formals_with_loc; SEMICOLON;
+  returns = var_decls_with_modifiers; RPAREN; ancestry = option(ancestry_clause);
+  cs = contracts {
   let precond, postcond, contract_ext, opens = cs in
   let opens = single_opens_clause opens in
   let loc_params, formals = formals in
   Surface.Callable.decl ~kind:Func ~loc:(Loc.make $startpos(id) $endpos(id))
-    ~formals ~returns ~precond ~postcond ~contract_ext ?opens ~loc_params id
+    ~formals ~returns ~precond ~postcond ~contract_ext ?opens ?ancestry ~loc_params id
 }
 
+ancestry_clause:
+| ancestry_kind = ancestry_keyword; target = qual_ident; ancestry_args = call {
+  Callable.{ ancestry_kind; ancestry_target = Expr.to_qual_ident target;
+             ancestry_args; ancestry_loc = Loc.make $symbolstartpos $endpos }
+}
+
+%inline ancestry_keyword:
+| PARENT { Callable.Parent }
+| WITHIN { Callable.Within }
 
 return_params:
 | RETURNS; LPAREN; decls = var_decls_with_modifiers; RPAREN { decls }
@@ -877,6 +889,8 @@ mod_ident:
 %public plain_ident:
 | x = IDENT { x }
 | UNDERSCORE { Ident.make (Loc.make $symbolstartpos $endpos) "_" 0 }
+| PARENT { Ident.make (Loc.make $symbolstartpos $endpos) "parent" 0 }
+| WITHIN { Ident.make (Loc.make $symbolstartpos $endpos) "within" 0 }
 
 %public decl_name:
 | x = plain_ident { x }

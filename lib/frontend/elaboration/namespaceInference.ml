@@ -5,6 +5,7 @@ type t = {
   namespaces : NamespaceContract.namespace_decl Map.M(QualIdent).t;
   equations : NamespaceEquations.t;
   entailment : NamespaceEntailment.t;
+  regions : NamespaceRegions.t;
   callables : NamespaceContract.callable_summary Map.M(QualIdent).t;
 }
 (** Draft inference; installing a frozen contract requires subsequent validation. *)
@@ -27,6 +28,7 @@ type callable_seed = {
 type collection = {
   namespaces : NamespaceContract.namespace_decl Map.M(QualIdent).t;
   seeds : callable_seed Map.M(QualIdent).t;
+  body_references : Set.M(QualIdent).t;
 }
 
 let formal_names formals =
@@ -59,45 +61,112 @@ let required_specs decl =
   in
   Callable.mask_canon (List.concat masks)
 
+let latent_dependencies expression =
+  Expr.map
+    ~enter:(fun () _ variables -> ((), variables))
+    ~app:(fun () constructor children _ ->
+      let nested = List.concat children in
+      match constructor with
+      | Expr.AUPred name -> (Callable.MaskHead.Dependencies name, []) :: nested
+      | _ -> nested)
+    ~binder:(fun () _ _ _ body _ -> body)
+    () expression
+  |> Callable.mask_canon
+
+let exposed_specs decl =
+  let open Rewriter.Syntax in
+  let+ ordinary = required_specs decl in
+  List.fold decl.Callable.call_decl_precond ~init:ordinary ~f:(fun mask spec ->
+      Callable.mask_union mask (latent_dependencies spec.spec_form))
+
+let exposed_expression formals expression =
+  let open Rewriter.Syntax in
+  let+ ordinary = required_expression formals expression in
+  Callable.mask_union ordinary (latent_dependencies expression)
+
 let granted_specs decl =
   let open Rewriter.Syntax in
-  let+ masks =
+  let stop () = function
+    | Expr.App (And, _, _) | Expr.Binder (Exists, _, _, _, _) -> None
+    | Expr.App (Var _, _, _) as expression -> Some [ expression ]
+    | _ -> Some []
+  in
+  let positive expression =
+    Expr.map ~stop
+      ~enter:(fun () _ variables -> ((), variables))
+      ~app:(fun () _ children _ -> List.concat children)
+      ~binder:(fun () binder _ _ body _ -> match binder with Exists -> body | _ -> [])
+      () expression
+  in
+  let* masks =
     Rewriter.List.map decl.Callable.call_decl_postcond ~f:(fun spec ->
-        let+ applications = Masks.expr_grant_applications spec.spec_form in
+        let* applications =
+          Rewriter.List.map (positive spec.spec_form) ~f:Masks.expr_grant_applications
+        in
         let expressible =
           Set.union
             (expressible_formals decl spec.spec_atomic)
             (formal_names decl.call_decl_returns)
         in
-        List.concat_map applications ~f:(fun (name, kind, args) ->
-            let prefix = Masks.truncate_to_formal_expressible expressible args in
-            if List.length prefix = List.length args then
-              application_entries (name, kind, args)
-            else []))
+        Rewriter.return
+          (List.filter_map (List.concat applications) ~f:(fun (name, kind, args) ->
+               let prefix = Masks.truncate_to_formal_expressible expressible args in
+               if List.length prefix <> List.length args then None
+               else
+                 match kind with
+                 | Callable.Invariant -> Some (Callable.invariant_mask_entry name args)
+                 | Pred -> Some (Callable.MaskHead.Dependencies name, args)
+                 | Func | Proc | Lemma -> None)))
   in
-  Callable.mask_canon (List.concat masks)
+  Rewriter.return (Callable.mask_canon (List.concat masks))
+
+let ancestry (decl : Callable.call_decl) =
+  Option.value_map decl.call_decl_ancestry ~default:NamespaceContract.Root
+    ~f:(fun clause -> NamespaceContract.Declared clause)
 
 let allocate symbol =
   let open Rewriter.Syntax in
   let* () =
     match symbol with
-    | Module.CallDef
-        {
-          call_decl =
-            { call_decl_kind = Pred | Invariant; call_decl_alias = None; _ } as decl;
-          _;
-        } ->
+    | Module.CallDef { call_decl = { call_decl_kind = Pred | Invariant; _ } as decl; _ }
+      ->
         let* owner = Rewriter.current_scope_id in
         let name = QualIdent.append owner decl.call_decl_name in
+        let* alias = Rewriter.Option.map decl.call_decl_alias ~f:Rewriter.resolve in
         let* state = Rewriter.current_user_state in
         let namespace : NamespaceContract.namespace_decl =
-          { name; formals = decl.call_decl_formals; definition = Abstract }
+          {
+            name;
+            formals = decl.call_decl_formals;
+            definition = Abstract;
+            ancestry = ancestry decl;
+            alias;
+          }
         in
         Rewriter.set_user_state
           { state with namespaces = Map.set state.namespaces ~key:name ~data:namespace }
     | _ -> Rewriter.return ()
   in
   Rewriter.return symbol
+
+let rec collect_body_references (stmt : Stmt.t) =
+  let open Rewriter.Syntax in
+  let reference =
+    match stmt.stmt_desc with
+    | Basic (Call { call_name; _ }) -> Some call_name
+    | Basic (Use { use_name; _ }) -> Some use_name
+    | Basic (AUAction { auaction_kind = OpenAU { proc_qi; _ } }) -> Some proc_qi
+    | _ -> None
+  in
+  match reference with
+  | Some name ->
+      let* state = Rewriter.current_user_state in
+      let+ () =
+        Rewriter.set_user_state
+          { state with body_references = Set.add state.body_references name }
+      in
+      stmt
+  | None -> Rewriter.Stmt.descend ~f:collect_body_references stmt
 
 let collect symbol =
   let open Rewriter.Syntax in
@@ -112,6 +181,13 @@ let collect symbol =
           | Func | Pred | Invariant -> Rewriter.return None
         in
         let* _ = Rewriter.enter_callable call in
+        let* () =
+          match call.call_def with
+          | ProcDef { proc_body = Some body } ->
+              let+ _ = collect_body_references body in
+              ()
+          | ProcDef { proc_body = None } | FuncDef _ -> Rewriter.return ()
+        in
         let* definition, inferred, granted, opens =
           match decl.call_decl_kind with
           | Pred | Invariant ->
@@ -119,7 +195,7 @@ let collect symbol =
                 match call.call_def with
                 | FuncDef { func_body = Some body } ->
                     let+ mask =
-                      required_expression (formal_names decl.call_decl_formals) body
+                      exposed_expression (formal_names decl.call_decl_formals) body
                     in
                     NamespaceContract.Defined mask
                 | FuncDef { func_body = None } ->
@@ -181,6 +257,11 @@ let collect symbol =
               end
           | _ -> Rewriter.return None
         in
+        let* exposed =
+          match decl.call_decl_kind with
+          | Callable.Proc | Lemma -> exposed_specs decl
+          | Func | Pred | Invariant -> Rewriter.return inferred
+        in
         let* _ = Rewriter.exit_callable call in
         let* state = Rewriter.current_user_state in
         let namespaces =
@@ -198,73 +279,134 @@ let collect symbol =
             formals = decl.call_decl_formals;
             returns = decl.call_decl_returns;
             required = Option.value opens ~default:inferred;
-            inferred;
+            inferred = exposed;
             granted;
             opens;
           }
         in
         Rewriter.set_user_state
-          { namespaces; seeds = Map.set state.seeds ~key:name ~data:seed }
+          { state with namespaces; seeds = Map.set state.seeds ~key:name ~data:seed }
     | _ -> Rewriter.return ()
   in
   Rewriter.return symbol
 
 let resource_names mask = List.map mask ~f:(fun (head, _) -> Callable.mask_head_name head)
 
-let definition_resources declaration =
-  match declaration.NamespaceContract.definition with
-  | Abstract -> []
-  | Defined mask -> resource_names mask
+let body_resources (state : collection) callables =
+  let open Rewriter.Syntax in
+  let summary_resources (summary : NamespaceContract.callable_summary) =
+    resource_names (summary.requires @ summary.grants @ summary.exact_grants)
+    @ List.concat_map summary.guarded_grants ~f:(fun grant -> resource_names grant.grants)
+  in
+  let* names =
+    Rewriter.List.map (Set.to_list state.body_references) ~f:(fun name ->
+        Rewriter.in_scope_of name
+          (let+ resolved = Rewriter.resolve_and_find_opt ~read_only:true name in
+           match resolved with
+           | Some (name, symbol) ->
+               begin match Rewriter.Symbol.orig_symbol symbol with
+               | Module.CallDef
+                   { call_decl = { call_decl_kind = Pred | Invariant; _ }; _ } ->
+                   [ name ]
+               | Module.CallDef { call_decl = { call_decl_kind = Proc | Lemma; _ }; _ } ->
+                   let original = Rewriter.Symbol.orig_qid symbol in
+                   let names =
+                     match Map.find state.seeds original with
+                     | Some seed ->
+                         resource_names (seed.required @ seed.inferred @ seed.granted)
+                     | None ->
+                         Option.value_map (Map.find callables original) ~default:[]
+                           ~f:summary_resources
+                   in
+                   List.map names ~f:(QualIdent.requalify (Rewriter.Symbol.subst symbol))
+               | _ -> []
+               end
+           | None -> []))
+  in
+  let names = List.concat names |> List.dedup_and_sort ~compare:QualIdent.compare in
+  let+ names =
+    Rewriter.List.map names ~f:(fun name ->
+        let+ canonical = NamespaceEntailment.canonical_name ~physical:true name in
+        if QualIdent.equal canonical name then [ name ] else [ name; canonical ])
+  in
+  List.concat names
 
 (** Copy instantiated equations through the symbol's substitution, without inspecting
     instantiated bodies. Abstract declarations stay symbolic. *)
-let complete_namespaces (state : collection) =
+let complete_namespaces (state : collection) callables =
   let open Rewriter.Syntax in
+  let* body_resources = body_resources state callables in
   let pending =
-    List.concat_map (Map.data state.namespaces) ~f:definition_resources
+    List.concat_map (Map.data state.namespaces) ~f:NamespaceContract.references
     @ List.concat_map (Map.data state.seeds) ~f:(fun seed ->
         resource_names (seed.inferred @ seed.required @ seed.granted))
+    @ body_resources
   in
-  let rec complete namespaces = function
+  (* A referenced root can be regional through an otherwise unused child. *)
+  let descendants =
+    Map.fold state.namespaces
+      ~init:(Map.empty (module QualIdent))
+      ~f:(fun ~key:name ~data:decl descendants ->
+        match decl.ancestry with
+        | Declared _ when QualIdent.is_qualified name ->
+            Map.add_multi descendants ~key:(QualIdent.pop name) ~data:name
+        | Declared _ | Root | Unresolved -> descendants)
+  in
+  let rec complete namespaces owners = function
     | [] -> Rewriter.return namespaces
-    | name :: pending when Map.mem namespaces name -> complete namespaces pending
+    | name :: pending when Map.mem namespaces name -> complete namespaces owners pending
     | name :: pending ->
-        let* declaration =
+        let* declaration, owners, siblings =
           Rewriter.in_scope_of name
             (let* _, symbol = Rewriter.resolve_and_find name in
              let* decl = Rewriter.Symbol.reify_callable_decl symbol in
              let original = Rewriter.Symbol.orig_qid symbol in
-             match Map.find state.namespaces original with
-             | None ->
+             let requalify = QualIdent.requalify (Rewriter.Symbol.subst symbol) in
+             let* declaration =
+               match Map.find state.namespaces original with
+               | None ->
+                   Rewriter.return
+                     {
+                       NamespaceContract.name;
+                       formals = decl.call_decl_formals;
+                       definition = Abstract;
+                       ancestry = ancestry decl;
+                       alias = decl.call_decl_alias;
+                     }
+               | Some template ->
+                   let* declaration =
+                     NamespaceContract.map_state_namespace_decl
+                       ~name:(fun name -> Rewriter.return (requalify name))
+                       ~expr:(Rewriter.Expr.rewrite_qual_idents ~f:requalify)
+                       ~typ:(Rewriter.Type.rewrite_qual_idents ~f:requalify)
+                       template
+                   in
+                   let+ definition =
+                     match declaration.definition with
+                     | Abstract -> Rewriter.return NamespaceContract.Abstract
+                     | Defined body ->
+                         let+ body = Masks.resolve_mask body in
+                         NamespaceContract.Defined body
+                   in
+                   { declaration with name; definition }
+             in
+             if QualIdent.is_local original then Rewriter.return (declaration, owners, [])
+             else
+               let owner = QualIdent.pop original in
+               let projected = requalify owner in
+               if Set.mem owners projected then Rewriter.return (declaration, owners, [])
+               else
                  Rewriter.return
-                   {
-                     NamespaceContract.name;
-                     formals = decl.call_decl_formals;
-                     definition = Abstract;
-                   }
-             | Some template ->
-                 let requalify = QualIdent.requalify (Rewriter.Symbol.subst symbol) in
-                 let* declaration =
-                   NamespaceContract.map_state_namespace_decl
-                     ~name:(fun name -> Rewriter.return (requalify name))
-                     ~expr:(Rewriter.Expr.rewrite_qual_idents ~f:requalify)
-                     ~typ:(Rewriter.Type.rewrite_qual_idents ~f:requalify)
-                     template
-                 in
-                 let+ definition =
-                   match declaration.definition with
-                   | Abstract -> Rewriter.return NamespaceContract.Abstract
-                   | Defined body ->
-                       let+ body = Masks.resolve_mask body in
-                       NamespaceContract.Defined body
-                 in
-                 { declaration with name; definition })
+                   ( declaration,
+                     Set.add owners projected,
+                     List.map (Map.find_multi descendants owner) ~f:requalify ))
         in
         complete
           (Map.set namespaces ~key:name ~data:declaration)
-          (definition_resources declaration @ pending)
+          owners
+          (NamespaceContract.references declaration @ siblings @ pending)
   in
-  complete state.namespaces pending
+  complete state.namespaces (Set.empty (module QualIdent)) pending
 
 let covers entry grant =
   match Callable.mask_entry_meet entry grant with
@@ -276,10 +418,7 @@ let summarize equations seed =
   let requires =
     match (seed.kind, seed.opens) with
     | (Callable.Proc | Lemma), None ->
-        List.filter expanded ~f:(fun (head, _) ->
-            match head with
-            | Callable.MaskHead.Invariant _ -> true
-            | Dependencies _ -> false)
+        List.filter expanded ~f:(fun (head, _) -> Callable.is_invariant_head head)
     | Pred, _ -> seed.inferred
     | (Func | Invariant), _ | (Proc | Lemma), Some _ -> expanded
   in
@@ -320,6 +459,7 @@ let summarize equations seed =
     returns = seed.returns;
     requires;
     grants;
+    exact_grants = [];
     guarded_grants;
     separation = [];
   }
@@ -346,14 +486,7 @@ let inherit_summary seed origin summary =
           (QualIdent.to_loc origin.name)
           "Inherited mask contracts have different binder arities"
   in
-  let renaming =
-    List.fold pairs
-      ~init:(Map.empty (module QualIdent))
-      ~f:(fun renaming (source, target) ->
-        Map.set renaming
-          ~key:(QualIdent.from_ident source.Type.var_name)
-          ~data:(Expr.from_var_decl target))
-  in
+  let renaming = Expr.formal_renaming pairs in
   let summary =
     NamespaceContract.map_callable_summary ~name:Fn.id ~typ:Fn.id
       ~expr:(fun expression -> Expr.alpha_renaming expression renaming)
@@ -398,7 +531,7 @@ let freeze_predicates ~equations ~seeds imported =
       | _ -> Rewriter.return completed)
 
 (** Resolve declaration budgets before substituting their implementation resources. *)
-let freeze_budgets ~equations ~seeds imported =
+let freeze_budgets ~equations ~seeds ~profile imported =
   let open Rewriter.Syntax in
   let rec freeze path completed name =
     match Map.find completed name with
@@ -418,7 +551,9 @@ let freeze_budgets ~equations ~seeds imported =
         in
         let* completed, summary =
           match seed.origin with
-          | None -> Rewriter.return (completed, summarize equations seed)
+          | None ->
+              let+ summary = profile seed (summarize equations seed) in
+              (completed, summary)
           | Some origin ->
               let* completed, parent = freeze path completed origin.name in
               let+ summary =
@@ -438,6 +573,76 @@ let freeze_budgets ~equations ~seeds imported =
       let+ completed, _ = freeze (Set.empty (module QualIdent)) completed name in
       completed)
 
+let grant_profile context (seed : callable_seed)
+    (summary : NamespaceContract.callable_summary) =
+  let open Rewriter.Syntax in
+  match seed.kind with
+  | Callable.Func | Pred | Invariant -> Rewriter.return summary
+  | Proc | Lemma ->
+      let* exposure =
+        NamespaceEntailment.exposure context ~supplied:summary.requires seed.inferred
+      in
+      let* candidates = NamespaceEntailment.normalize_predicates context seed.granted in
+      let* profiles =
+        Rewriter.List.map candidates ~f:(fun ((head, args) as grant) ->
+            let loc = QualIdent.to_loc (Callable.mask_head_name head) in
+            let supplied =
+              NamespaceEntailment.covered_regions context ~by:summary.requires [ grant ]
+            in
+            let* regional =
+              if supplied then Rewriter.return (Some [])
+              else
+                NamespaceEntailment.grant_conditions ~exact:false ~loc context ~exposure
+                  grant
+            in
+            let* exact =
+              match head with
+              | Callable.MaskHead.Dependencies _ -> Rewriter.return false
+              | Invariant name ->
+                  let full =
+                    Option.exists (NamespaceRegions.declaration context.regions name)
+                      ~f:(fun decl -> List.length args = List.length decl.formals)
+                  in
+                  if not full then Rewriter.return false
+                  else if supplied then Rewriter.return true
+                  else
+                    let+ conditions =
+                      NamespaceEntailment.grant_conditions ~exact:true ~loc context
+                        ~exposure grant
+                    in
+                    Option.exists conditions ~f:List.is_empty
+            in
+            let conditions =
+              match regional with
+              | Some conditions -> conditions
+              | None ->
+                  List.map exposure ~f:(fun (other, _) ->
+                      NamespaceContract.
+                        {
+                          left = [ (head, []) ];
+                          right = [ (other, []) ];
+                          loc;
+                          instances = None;
+                        })
+            in
+            Rewriter.return (grant, regional, exact, conditions))
+      in
+      let grants =
+        List.filter_map profiles ~f:(fun (grant, regional, _, _) ->
+            Option.bind regional ~f:(fun conditions ->
+                Option.some_if (List.is_empty conditions) grant))
+      in
+      let exact_grants =
+        List.filter_map profiles ~f:(fun (grant, _, exact, _) ->
+            Option.some_if exact grant)
+      in
+      let guarded_grants =
+        List.filter_map profiles ~f:(fun (grant, regional, _, conditions) ->
+            if Option.exists regional ~f:List.is_empty then None
+            else Some NamespaceContract.{ grants = [ grant ]; conditions })
+      in
+      Rewriter.return { summary with grants; exact_grants; guarded_grants }
+
 let infer ?(namespaces = []) ?(callables = []) program =
   let open Rewriter.Syntax in
   let init : collection =
@@ -448,6 +653,7 @@ let infer ?(namespaces = []) ?(callables = []) program =
           (List.map namespaces ~f:(fun declaration ->
                (declaration.NamespaceContract.name, declaration)));
       seeds = Map.empty (module QualIdent);
+      body_references = Set.empty (module QualIdent);
     }
   in
   let* state =
@@ -456,7 +662,17 @@ let infer ?(namespaces = []) ?(callables = []) program =
        let* _ = Rewriter.Module.rec_rewrite_symbols ~f:collect program in
        Rewriter.current_user_state)
   in
-  let* namespaces = complete_namespaces state in
+  let* namespaces =
+    complete_namespaces state (Map.of_alist_exn (module QualIdent) callables)
+  in
+  let regions =
+    match NamespaceRegions.create (Map.data namespaces) with
+    | Ok regions -> regions
+    | Error error -> Util.Error.type_error error.loc error.message
+  in
+  let* () =
+    NamespaceRegionValidation.validate ~regions ~namespaces:(Map.data namespaces) program
+  in
   let equations = NamespaceEquations.solve (Map.data namespaces) in
   let imported =
     Map.of_alist_exn (module QualIdent) callables
@@ -484,13 +700,23 @@ let infer ?(namespaces = []) ?(callables = []) program =
   in
   let* callables =
     freeze_budgets ~equations
+      ~profile:(grant_profile resource_context)
       ~seeds:(Map.of_alist_exn (module QualIdent) seeds)
       predicates
   in
+  let* callables =
+    Rewriter.List.map (Map.to_alist callables) ~f:(fun (name, summary) ->
+        let+ requires =
+          NamespaceEntailment.normalize_predicates resource_context
+            summary.NamespaceContract.requires
+        in
+        (name, { summary with NamespaceContract.requires }))
+  in
+  let callables = Map.of_alist_exn (module QualIdent) callables in
   let+ entailment =
     NamespaceEntailment.create ~callables:(Map.to_alist callables) (Map.data namespaces)
   in
-  { namespaces; equations; entailment; callables }
+  { namespaces; equations; entailment; regions; callables }
 
 (* Imported equations can expose aliases only after expansion. *)
 let normalize_required draft mask =
@@ -518,7 +744,12 @@ let find_callable ?(normalize = true) draft name =
         if normalize then normalize_required draft summary.requires
         else Rewriter.return summary.requires
       in
-      let* grants = Masks.resolve_mask summary.grants in
+      let* exact_grants = NamespaceEntailment.canonical_mask summary.exact_grants in
+      let exact_grants =
+        NamespaceEntailment.resolve_namespaces draft.entailment exact_grants
+      in
+      let* grants = NamespaceEntailment.canonical_mask summary.grants in
+      let grants = NamespaceEntailment.resolve_namespaces draft.entailment grants in
       let* separation =
         Rewriter.List.map summary.separation ~f:(fun requirement ->
             let* left = Masks.resolve_mask requirement.NamespaceContract.left in
@@ -533,7 +764,26 @@ let find_callable ?(normalize = true) draft name =
             in
             { requirement with left; right; instances })
       in
-      let summary = { summary with NamespaceContract.requires; grants; separation } in
+      let* guarded_grants =
+        Rewriter.List.map summary.guarded_grants ~f:(fun profile ->
+            let+ grants =
+              NamespaceEntailment.canonical_mask profile.NamespaceContract.grants
+            in
+            {
+              profile with
+              grants = NamespaceEntailment.resolve_namespaces draft.entailment grants;
+            })
+      in
+      let summary =
+        {
+          summary with
+          NamespaceContract.requires;
+          grants;
+          exact_grants;
+          guarded_grants;
+          separation;
+        }
+      in
       let+ grants =
         if List.is_empty summary.guarded_grants then Rewriter.return grants
         else
@@ -542,4 +792,9 @@ let find_callable ?(normalize = true) draft name =
           in
           Masks.resolve_mask available
       in
-      Some { summary with NamespaceContract.grants }
+      Some
+        {
+          summary with
+          NamespaceContract.grants =
+            NamespaceEntailment.resolve_namespaces draft.entailment grants;
+        }

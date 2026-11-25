@@ -1,0 +1,17 @@
+interface API {
+  pred stored(x: Int)
+}
+module Actual: API {
+  inv hidden(x: Int) { true }
+  pred stored(x: Int) { hidden(x) }
+  lemma touch(x: Int)
+    requires hidden(x)
+    ensures hidden(x)
+  {}
+}
+module Public :> API = Actual
+lemma bad(x: Int)
+  requires Public.stored(x)
+{
+  Actual.touch(x);
+}

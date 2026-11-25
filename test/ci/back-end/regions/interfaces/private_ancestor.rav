@@ -1,0 +1,5 @@
+interface Family { inv root(x: Int) }
+module Actual: Family {
+  inv hidden(x: Int) { true }
+  inv root(x: Int) parent hidden(x) { true }
+}

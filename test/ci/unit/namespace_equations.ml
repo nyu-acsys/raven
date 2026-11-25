@@ -12,7 +12,7 @@ let own name args = Callable.invariant_mask_entry (qi name) args
 let dependencies name args = (Callable.MaskHead.Dependencies (qi name), args)
 
 let declaration ?(formals = []) name definition : NamespaceContract.namespace_decl =
-  { name = qi name; formals; definition }
+  { name = qi name; formals; definition; ancestry = Root; alias = None }
 
 let expect actual expected =
   assert (Callable.mask_equal actual (Callable.mask_canon expected))

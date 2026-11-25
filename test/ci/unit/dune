@@ -129,6 +129,16 @@
  (libraries raven base))
 
 (test
+ (name namespace_regions)
+ (modules namespace_regions)
+ (libraries raven base))
+
+(test
+ (name namespace_region_embedding)
+ (modules namespace_region_embedding)
+ (libraries raven base))
+
+(test
  (name unit_factories_api)
  (modules unit_factories_api)
  (libraries raven raven-ivl.api base))
@@ -237,3 +247,8 @@
  (name ident_hash)
  (modules ident_hash)
  (libraries raven base))
+
+(test
+ (name region_ancestry_api)
+ (modules region_ancestry_api)
+ (libraries raven raven-ivl.api base))

@@ -1,0 +1,32 @@
+interface Family[E: Library.Type] {
+  inv root(x: Int)
+  inv leaf(x: Int) within root(x)
+
+  lemma step(x: Int)
+    requires leaf(x)
+    ensures leaf(x)
+    opens root(x)
+}
+
+module Actual[E: Library.Type] : Family[E] {
+  inv root(x: Int) { true }
+  inv leaf(x: Int) parent root(x) { true }
+
+  lemma step(x: Int) {
+    unfold leaf(x);
+    fold leaf(x);
+  }
+}
+
+module Hidden :> Family = Actual
+module Concrete = Actual[Int]
+module Public = Hidden[Int]
+
+lemma bad(x: Int)
+  requires Concrete.leaf(x) && Public.leaf(x)
+  opens Concrete.leaf(x), Public.root(x)
+{
+  unfold Concrete.leaf(x);
+  Public.step(x);
+  fold Concrete.leaf(x);
+}

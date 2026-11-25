@@ -749,28 +749,29 @@ let resolve_and_find_exn name (tbl : t) =
       (* Logs.debug (fun m -> m "SymbolTbl.resolve_and_find_exn fail: tbl_symbols: %a" (Util.Print.pr_list_comma QualIdent.pr) (Map.keys (tbl.tbl_symbols))); *)
       unknown_member_error (QualIdent.to_loc name) name tbl)
 
+let module_binding name tbl =
+  let open Option.Syntax in
+  match Map.find tbl.tbl_symbols name with
+  | Some (Module.ModInst binding) -> Some (binding, Fn.id)
+  | _ when QualIdent.is_qualified name ->
+      let* _, _, parent, subst = resolve_and_find (QualIdent.pop name) tbl in
+      begin match parent with
+      | Module.ModDef parent ->
+          let+ binding =
+            List.find_map parent.mod_def ~f:(function
+              | Module.SymbolDef (ModInst binding)
+                when Ident.equal binding.mod_inst_name (QualIdent.unqualify name) ->
+                  Some binding
+              | _ -> None)
+          in
+          (binding, QualIdent.requalify (qid_subst subst))
+      | _ -> None
+      end
+  | _ -> None
+
 (** Application provenance does not identify a sealed view with its implementation. *)
 let application_origin name tbl =
   let open Option.Syntax in
-  let binding name =
-    match Map.find tbl.tbl_symbols name with
-    | Some (Module.ModInst binding) -> Some (binding, Fn.id)
-    | _ when QualIdent.is_qualified name ->
-        let* _, _, parent, subst = resolve_and_find (QualIdent.pop name) tbl in
-        begin match parent with
-        | Module.ModDef parent ->
-            let+ binding =
-              List.find_map parent.mod_def ~f:(function
-                | Module.SymbolDef (ModInst binding)
-                  when Ident.equal binding.mod_inst_name (QualIdent.unqualify name) ->
-                    Some binding
-                | _ -> None)
-            in
-            (binding, QualIdent.requalify (qid_subst subst))
-        | _ -> None
-        end
-    | _ -> None
-  in
   let rec origin visited name =
     if Set.mem visited name then None
     else
@@ -778,7 +779,7 @@ let application_origin name tbl =
       match find_sealed_view name tbl with
       | Some view -> Some (view.sealed_functor, view.sealed_args)
       | None ->
-          begin match binding name with
+          begin match module_binding name tbl with
           | Some ({ mod_inst_def = Some (Alias target); _ }, requalify) ->
               origin visited (requalify target)
           | Some

@@ -1,0 +1,119 @@
+inv root(x: Int) { child(x, 0) && child(x, 1) }
+inv child(x: Int, k: Int) parent root(x) { true }
+lemma child_step(x: Int, k: Int)
+  requires child(x, k)
+  ensures child(x, k)
+  opens child(x, k)
+{
+  unfold child(x, k);
+  fold child(x, k);
+}
+lemma nested(x: Int)
+  requires root(x)
+  ensures root(x)
+  opens root(x)
+{
+  unfold root(x);
+  unfold child(x, 0);
+  unfold child(x, 1);
+  fold child(x, 0);
+  fold child(x, 1);
+  child_step(x, 0);
+  fold root(x);
+}
+
+lemma root_step(x: Int)
+  requires root(x)
+  ensures root(x)
+  opens root(x)
+{
+  unfold root(x);
+  fold root(x);
+}
+inv middle(k: Int, o: Int) parent root(o) { leaf(0, k, o) }
+inv leaf(s: Int, k: Int, o: Int) parent middle(k, o) { true }
+lemma projected(x: Int, y: Int)
+  requires leaf(0, 3, x) && root(y) && x != y
+  ensures leaf(0, 3, x) && root(y)
+  opens root(x), root(y)
+{
+  unfold leaf(0, 3, x);
+  root_step(y);
+  fold leaf(0, 3, x);
+}
+lemma equal_owner(x: Int, y: Int)
+  requires root(x) && x == y
+  ensures root(x)
+  opens root(x)
+{
+  unfold root(x);
+  unfold child(y, 0);
+  fold child(y, 0);
+  fold root(x);
+}
+inv marker(x: Int) parent root(x) { true }
+lemma make_marker(x: Int)
+  ensures marker(x)
+  opens {}
+{
+  fold marker(x);
+}
+lemma exact_allocation()
+  opens {}
+{
+  make_marker(0);
+  unfold marker(0);
+  fold marker(0);
+}
+lemma branch_credit(b: Bool)
+  opens {}
+{
+  if (b) { fold marker(0); } else { fold marker(0); }
+  unfold marker(0);
+  fold marker(0);
+}
+
+field f: Int
+inv parent_cell(x: Ref) { child_cell(x) }
+inv child_cell(x: Ref) parent parent_cell(x) { own(x.f, 0, 1.0) }
+proc write(x: Ref)
+  requires parent_cell(x)
+  ensures parent_cell(x)
+  opens parent_cell(x)
+{
+  unfold parent_cell(x);
+  unfold child_cell(x);
+  x.f := 0;
+  fold child_cell(x);
+  fold parent_cell(x);
+}
+inv unit_root() { implicit_cell(0) }
+inv implicit_cell(; k: Int) parent unit_root() { k == 0 }
+lemma omitted_identity(b: Bool)
+  requires implicit_cell(0)
+  ensures implicit_cell(0)
+  opens unit_root()
+{
+  if (b) { unfold implicit_cell(); } else { unfold implicit_cell(); }
+  fold implicit_cell();
+}
+
+inv au_root(x: Int) { true }
+inv au_child(x: Int) parent au_root(x) { true }
+proc host(host_key: Int)
+  atomic requires au_child(host_key)
+  atomic ensures au_child(host_key)
+  opens au_child(host_key)
+{
+  ghost var token := bindAU();
+  openAU(token, host_key);
+  commitAU(token, host_key, ());
+}
+lemma help(token: AtomicToken<host>, x: Int)
+  requires au<host>(token, x)
+  ensures au<host>(token, x)
+  opens au_child(x)
+{
+  openAU(token, x);
+  abortAU(token, x);
+}

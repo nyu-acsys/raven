@@ -1,0 +1,17 @@
+inv cell(x: Int) { true }
+pred stored(x: Int) { cell(x) }
+lemma wrap(x: Int)
+  requires cell(x)
+  ensures stored(x)
+  opens {}
+{ fold stored(x); }
+lemma bad(x: Int)
+  requires cell(x)
+  opens {}
+{
+  wrap(x);
+  unfold stored(x);
+  unfold cell(x);
+  fold cell(x);
+  fold stored(x);
+}

@@ -1519,6 +1519,15 @@ module Expr = struct
   let from_var_decl (var_decl : var_decl) =
     mk_var ~typ:var_decl.var_type (QualIdent.from_ident var_decl.var_name)
 
+  (** The renaming of each first formal of [pairs] to its second. *)
+  let formal_renaming (pairs : (var_decl * var_decl) list) =
+    List.fold pairs
+      ~init:(Map.empty (module QualIdent))
+      ~f:(fun renaming ((source : var_decl), target) ->
+        Map.set renaming
+          ~key:(QualIdent.from_ident source.var_name)
+          ~data:(from_var_decl target))
+
   (** Auxiliary functions *)
 
   let to_qual_ident expr =
@@ -3114,6 +3123,10 @@ module Callable = struct
   let equal_mask_head left right = compare_mask_head left right = 0
   let mask_head_name = function MaskHead.Invariant name | Dependencies name -> name
 
+  let is_invariant_head = function
+    | MaskHead.Invariant _ -> true
+    | Dependencies _ -> false
+
   let map_mask_head head ~f =
     match head with
     | MaskHead.Invariant name -> MaskHead.Invariant (f name)
@@ -3175,6 +3188,18 @@ module Callable = struct
   type opens_clause = { opens_entries : mask_entry list; opens_loc : location }
   (** An explicit opens clause, retaining trailing wildcards and its source span. *)
 
+  type ancestry_kind = Parent | Within [@@deriving compare]
+
+  type ancestry_clause = {
+    ancestry_kind : ancestry_kind;
+    ancestry_target : QualIdent.t;
+    ancestry_args : Expr.t list;
+    ancestry_loc : location; [@compare.ignore]
+  }
+  [@@deriving compare]
+
+  let ancestry_keyword = function Parent -> "parent" | Within -> "within"
+
   let is_opens_wildcard e =
     Expr.is_ident e && String.equal (Ident.name (Expr.to_ident e)) "_"
 
@@ -3226,6 +3251,7 @@ module Callable = struct
     call_decl_opens : opens_clause option;
         (** The user's [opens] clause, if any: replaces the [call_decl_needs_mask]
             otherwise inferred from [call_decl_precond]. *)
+    call_decl_ancestry : ancestry_clause option;
     call_decl_loc : location;  (** source location of declaration *)
     call_decl_loc_params : QualIdent.t list;
         (** Fields of the formals written as *locations*, `x.A.f`, in order. Those formals
@@ -3358,14 +3384,22 @@ module Callable = struct
             in
             fprintf ppf "@\nopens @[<0>%a@]" (Print.pr_list_comma pr_entry) mask
       in
-      fprintf ppf "@[<2>%s %a(%a)@;%a%a%a%a%a%a@]"
+      let pr_call_ancestry ppf = function
+        | None -> ()
+        | Some { ancestry_kind; ancestry_target; ancestry_args; _ } ->
+            fprintf ppf "@\n%s %a(%a)"
+              (ancestry_keyword ancestry_kind)
+              QualIdent.pr ancestry_target (Print.pr_list_comma Expr.pr) ancestry_args
+      in
+      fprintf ppf "@[<2>%s %a(%a)@;%a%a%a%a%a%a%a@]"
         (free_modifier ^ auto_modifier ^ kind)
         Ident.pr call_decl.call_decl_name
         (Print.pr_list_comma Expr.pr_var_decl)
         call_decl.call_decl_formals pr_returns call_decl.call_decl_returns
-        pr_call_decl_specs call_decl pr_call_opens call_decl.call_decl_opens
-        pr_call_locals call_decl.call_decl_locals pr_call_needs_mask
-        call_decl.call_decl_needs_mask pr_call_grants_mask call_decl.call_decl_grants_mask
+        pr_call_ancestry call_decl.call_decl_ancestry pr_call_decl_specs call_decl
+        pr_call_opens call_decl.call_decl_opens pr_call_locals call_decl.call_decl_locals
+        pr_call_needs_mask call_decl.call_decl_needs_mask pr_call_grants_mask
+        call_decl.call_decl_grants_mask
     in
     let pr ppf def =
       let open Stdlib.Format in
@@ -3434,7 +3468,7 @@ module Callable = struct
       ?(returns = []) ?(locals = []) ?(precond = []) ?(postcond = []) ?(contract_ext = [])
       ?(status = NotFree) ?(is_auto = false) ?(is_inline = false)
       ?(physical_atomic = false) ?(is_loop = false) ?needs_mask ?grants_mask ?opens ?alias
-      ?(loc_params = []) () : call_decl =
+      ?ancestry ?(loc_params = []) () : call_decl =
     {
       call_decl_kind = kind;
       call_decl_physical_atomic = physical_atomic;
@@ -3455,6 +3489,7 @@ module Callable = struct
       call_decl_needs_mask = needs_mask;
       call_decl_grants_mask = grants_mask;
       call_decl_opens = opens;
+      call_decl_ancestry = ancestry;
       call_decl_loc = loc;
       call_decl_loc_params = loc_params;
     }
@@ -3497,6 +3532,12 @@ module Callable = struct
         ~f:(fun syms spec -> Expr.symbols ~acc:syms spec.spec_form)
         ~init:symbols_w_locals
         (callable.call_decl.call_decl_precond @ callable.call_decl.call_decl_postcond)
+    in
+    let symbols_w_locals_and_spec =
+      Option.fold callable.call_decl.call_decl_ancestry ~init:symbols_w_locals_and_spec
+        ~f:(fun symbols clause ->
+          List.fold clause.ancestry_args ~init:(Set.add symbols clause.ancestry_target)
+            ~f:(fun symbols expression -> Expr.symbols ~acc:symbols expression))
     in
 
     List.fold
@@ -3615,6 +3656,11 @@ module Callable = struct
       List.fold (d.call_decl_precond @ d.call_decl_postcond) ~init:acc ~f:of_spec
     in
     let acc = Option.fold d.call_decl_alias ~init:acc ~f:of_qi in
+    let acc =
+      Option.fold d.call_decl_ancestry ~init:acc
+        ~f:(fun acc { ancestry_target; ancestry_args; _ } ->
+          of_exprs (of_qi acc ancestry_target) ancestry_args)
+    in
     match c.call_def with
     | ProcDef { proc_body } -> Option.fold proc_body ~init:acc ~f:of_stmt
     | FuncDef { func_body } -> Option.fold func_body ~init:acc ~f:of_expr
@@ -3625,12 +3671,35 @@ end
 module NamespaceContract = struct
   type namespace_definition = Abstract | Defined of Callable.mask [@@deriving compare]
 
+  (** [Root] records a settled absence of ancestry. *)
+  type ancestry = Unresolved | Root | Declared of Callable.ancestry_clause
+  [@@deriving compare]
+
+  let equal_ancestry left right = compare_ancestry left right = 0
+
+  (** The declared ancestor of [ancestry], if any. *)
+  let ancestor_of = function Declared clause -> Some clause | Unresolved | Root -> None
+
   type namespace_decl = {
     name : QualIdent.t;
     formals : Type.var_decl list;
     definition : namespace_definition;
+    ancestry : ancestry;
+    alias : QualIdent.t option;
   }
   [@@deriving compare]
+
+  (** The names [declaration] refers to: its alias target, its ancestor, and those of its
+      definition. *)
+  let references declaration =
+    Option.to_list declaration.alias
+    @ Option.to_list
+        (Option.map (ancestor_of declaration.ancestry) ~f:(fun clause ->
+             clause.Callable.ancestry_target))
+    @
+    match declaration.definition with
+    | Abstract -> []
+    | Defined mask -> List.map mask ~f:(fun (head, _) -> Callable.mask_head_name head)
 
   type separation_instances = {
     scope : QualIdent.t;
@@ -3660,7 +3729,8 @@ module NamespaceContract = struct
     formals : Type.var_decl list;
     returns : Type.var_decl list;
     requires : Callable.mask;
-    grants : Callable.mask;
+    grants : Callable.mask;  (** Regional output authority. *)
+    exact_grants : Callable.mask;  (** Complete singleton identities. *)
     guarded_grants : guarded_grant list;
     separation : separation_requirement list;
   }
@@ -3713,18 +3783,30 @@ module NamespaceContract = struct
         let+ var_type = typ binder.Type.var_type in
         { binder with Type.var_type })
 
+  let map_state_ancestry ~name ~expr ancestry =
+    let open State.Syntax in
+    match ancestry with
+    | Unresolved -> State.return Unresolved
+    | Root -> State.return Root
+    | Declared clause ->
+        let* ancestry_target = name clause.Callable.ancestry_target in
+        let+ ancestry_args = State.List.map clause.ancestry_args ~f:expr in
+        Declared { clause with ancestry_target; ancestry_args }
+
   let map_state_namespace_decl ~name ~expr ~typ (declaration : namespace_decl) =
     let open State.Syntax in
     let* rewritten_name = name declaration.name in
     let* formals = map_state_binders ~typ declaration.formals in
-    let+ definition =
+    let* definition =
       match declaration.definition with
       | Abstract -> State.return Abstract
       | Defined mask ->
           let+ mask = map_state_mask ~name ~expr mask in
           Defined mask
     in
-    { name = rewritten_name; formals; definition }
+    let* ancestry = map_state_ancestry ~name ~expr declaration.ancestry in
+    let+ alias = State.Option.map declaration.alias ~f:name in
+    { name = rewritten_name; formals; definition; ancestry; alias }
 
   let map_state_separation ~name ~expr (requirement : separation_requirement) =
     let open State.Syntax in
@@ -3755,6 +3837,7 @@ module NamespaceContract = struct
     let* returns = map_state_binders ~typ summary.returns in
     let* requires = map_state_mask ~name ~expr summary.requires in
     let* grants = map_state_mask ~name ~expr summary.grants in
+    let* exact_grants = map_state_mask ~name ~expr summary.exact_grants in
     let* guarded_grants =
       State.List.map summary.guarded_grants ~f:(map_state_guarded_grant ~name ~expr)
     in
@@ -3767,11 +3850,46 @@ module NamespaceContract = struct
       returns;
       requires;
       grants;
+      exact_grants;
       guarded_grants;
       separation;
     }
 
   let lift f value state = (state, f value)
+
+  let map_ancestry ~name ~expr ancestry =
+    snd (map_state_ancestry ~name:(lift name) ~expr:(lift expr) ancestry ())
+
+  (** Two declarations of the same namespace as one, in the formals of [previous]: they
+      must agree on alias and ancestry, and their definitions are united. Both are frozen
+      from the same source declaration, so a disagreement is an inconsistency between
+      headers, an internal error. *)
+  let merge_declarations (previous : namespace_decl) (incoming : namespace_decl) =
+    let fail message = Error.internal_error (QualIdent.to_loc incoming.name) message in
+    if not (Option.equal QualIdent.equal previous.alias incoming.alias) then
+      fail "Namespace declarations have conflicting aliases";
+    let renaming =
+      match List.zip incoming.formals previous.formals with
+      | Ok pairs -> Expr.formal_renaming pairs
+      | Unequal_lengths -> fail "Namespace declarations have different formal arities"
+    in
+    let align_expression arg = Expr.alpha_renaming arg renaming in
+    let align body =
+      List.map body ~f:(fun (head, args) -> (head, List.map args ~f:align_expression))
+    in
+    if
+      not
+        (equal_ancestry previous.ancestry
+           (map_ancestry ~name:Fn.id ~expr:align_expression incoming.ancestry))
+    then fail "Namespace declarations have conflicting ancestry";
+    let definition =
+      match (previous.definition, incoming.definition) with
+      | Abstract, Abstract -> Abstract
+      | Defined body, Abstract -> Defined body
+      | Abstract, Defined body -> Defined (align body)
+      | Defined left, Defined right -> Defined (Callable.mask_union left (align right))
+    in
+    { previous with definition }
 
   let map_namespace_decl ~name ~expr ~typ declaration =
     snd

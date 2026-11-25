@@ -1,0 +1,19 @@
+inv root(x: Int) { child(x) }
+inv child(x: Int) parent root(x) { true }
+lemma create(x: Int)
+  ensures root(x)
+  opens {}
+{
+  fold child(x);
+  fold root(x);
+}
+lemma bad(x: Int)
+  requires child(x)
+  opens {}
+{
+  create(x);
+  unfold root(x);
+  unfold child(x);
+  fold child(x);
+  fold root(x);
+}

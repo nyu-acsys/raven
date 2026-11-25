@@ -1,0 +1,22 @@
+field value: Int
+inv cell(x: Ref) { exists n: Int :: own(x.value, n) }
+pred stored(x: Ref) { cell(x) }
+proc create(x: Ref)
+  requires own(x.value, 0)
+  ensures stored(x)
+  opens {}
+{
+  fold cell(x);
+  fold stored(x);
+}
+proc use(x: Ref)
+  requires own(x.value, 0)
+  opens {}
+{
+  create(x);
+  unfold stored(x);
+  unfold cell(x);
+  x.value := 1;
+  fold cell(x);
+  fold stored(x);
+}

@@ -1,0 +1,15 @@
+inv root(x: Int) { child(x, 0) }
+inv child(x: Int, k: Int) parent root(x) { true }
+inv marker(x: Int) parent root(x) { true }
+lemma no_credit(x: Int)
+  ensures false ==> marker(x)
+  opens {}
+{ }
+lemma bad(x: Int)
+  requires marker(x)
+  opens {}
+{
+  no_credit(x);
+  unfold marker(x);
+  fold marker(x);
+}

@@ -43,6 +43,7 @@ let test_collapsing_substitution () =
                 returns = [];
                 requires = Callable.mask_union left right;
                 grants = left;
+                exact_grants = [];
                 guarded_grants =
                   [ { grants = right; conditions = [ requirement left right ] } ];
                 separation = [ requirement left right ];
@@ -70,7 +71,13 @@ let test_collapsing_substitution () =
 
 let test_unknown_namespace () =
   let declaration : NamespaceContract.namespace_decl =
-    { name = qi [ "P" ]; formals = []; definition = Abstract }
+    {
+      name = qi [ "P" ];
+      formals = [];
+      definition = Abstract;
+      ancestry = Root;
+      alias = None;
+    }
   in
   let mapped definition =
     NamespaceContract.map_namespace_decl ~name:Fn.id ~expr:Fn.id ~typ:Fn.id
@@ -78,6 +85,14 @@ let test_unknown_namespace () =
   in
   begin match ((mapped Abstract).definition, (mapped (Defined [])).definition) with
   | Abstract, Defined [] -> ()
+  | _ -> assert false
+  end;
+  let preserve ancestry =
+    NamespaceContract.map_namespace_decl ~name:Fn.id ~expr:Fn.id ~typ:Fn.id
+      { declaration with ancestry }
+  in
+  begin match ((preserve Unresolved).ancestry, (preserve Root).ancestry) with
+  | Unresolved, Root -> ()
   | _ -> assert false
   end;
   assert (Option.is_none Module.empty_decl.mod_decl_mask_contract);
@@ -102,11 +117,28 @@ let argument =
   Expr.mk_app ~typ:formal.var_type (Var (source "value")) [ Expr.from_var_decl formal ]
   |> fun expression -> Expr.set_type_annot expression (Some formal.var_type)
 
+let ancestor_loc =
+  let position = { Lexing.dummy_pos with pos_fname = "source.rav"; pos_cnum = 2 } in
+  Util.Loc.make position position
+
 let higher_order_summary () =
   let open NamespaceContract in
   let region = [ dependencies [ "Source"; "P" ] [ argument ] ] in
   let declaration =
-    { name = source "P"; formals = [ formal ]; definition = Defined region }
+    {
+      name = source "P";
+      formals = [ formal ];
+      definition = Defined region;
+      alias = None;
+      ancestry =
+        Declared
+          {
+            ancestry_kind = Parent;
+            ancestry_target = source "Outer";
+            ancestry_args = [ argument ];
+            ancestry_loc = ancestor_loc;
+          };
+    }
   in
   let result =
     Module
@@ -122,6 +154,7 @@ let higher_order_summary () =
                 returns = [ returned ];
                 requires = region;
                 grants = region;
+                exact_grants = [ own [ "Source"; "I" ] [ argument ] ];
                 guarded_grants =
                   [
                     {
@@ -179,6 +212,8 @@ let check_higher_order = function
               end;
               assert (same_mask callable.requires expected_mask);
               assert (same_mask callable.grants expected_mask);
+              assert (
+                same_mask callable.exact_grants [ own [ "Target"; "I" ] [ expected ] ]);
               begin match callable.guarded_grants with
               | [ { grants; conditions = [ condition ] } ] ->
                   assert (same_mask grants expected_mask);
@@ -189,6 +224,23 @@ let check_higher_order = function
               begin match declaration.definition with
               | Defined body -> assert (same_mask body expected_mask)
               | Abstract -> assert false
+              end;
+              begin match declaration.ancestry with
+              | Declared
+                  {
+                    ancestry_kind = Parent;
+                    ancestry_target = name;
+                    ancestry_args = [ argument ];
+                    ancestry_loc = loc;
+                  } ->
+                  assert (QualIdent.equal name (target "Outer"));
+                  assert (Expr.compare argument expected = 0);
+                  assert (Type.equal (Expr.to_type argument) transformed.var_type);
+                  assert (
+                    Option.equal Type.equal (Expr.to_type_annot argument)
+                      (Some transformed.var_type));
+                  assert (Util.Loc.equal loc ancestor_loc)
+              | _ -> assert false
               end;
               assert (List.length summary.separation = 1)
           | _ -> assert false)
@@ -291,6 +343,7 @@ let test_guarded_grants () =
       returns = [];
       requires = [];
       grants = plain;
+      exact_grants = [];
       guarded_grants = [ { grants = guarded; conditions = [ condition ] } ];
       separation = [];
     }

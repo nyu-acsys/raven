@@ -1,0 +1,36 @@
+include "queue_lock.rav"
+
+module CounterResource: LockResource {
+  rep type T = Ref
+  field value: Int
+
+  pred resource(c: Ref) {
+    exists n: Int :: own(c.value, n)
+  }
+}
+
+module QueueLockClient[Locks: QueueLock] {
+  module L = Locks[CounterResource]
+  proc increment(l: L, c: Ref)
+    requires L.is_lock(l, c)
+    ensures L.is_lock(l, c)
+    opens L.is_lock(l, c)
+  {
+    var guard := L.acquire(l, c);
+    unfold CounterResource.resource(c);
+    var n := c.value;
+    c.value := n + 1;
+    fold CounterResource.resource(c);
+    L.release(l, guard, c);
+  }
+
+  proc create() returns (l: L, c: Ref)
+    ensures L.is_lock(l, c)
+  {
+    c := new(value: 0);
+    fold CounterResource.resource(c);
+    l := L.create(c);
+    increment(l, c);
+    increment(l, c);
+  }
+}

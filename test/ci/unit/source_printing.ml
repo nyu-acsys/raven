@@ -64,10 +64,17 @@ let () =
 let () =
   assert (
     Stdlib.Hashtbl.length Frontend.Terminals.keyword_table
-    = List.length Ast.SourceKeywords.entries);
+    = List.length Ast.SourceKeywords.entries
+      + List.length Ast.SourceKeywords.contextual_entries);
   List.iter Ast.SourceKeywords.entries ~f:(fun (name, keyword) ->
       assert (Stdlib.Hashtbl.mem Frontend.Terminals.keyword_table name);
       assert (Ast.SourceKeywords.is_keyword name);
+      let next = Frontend.Lexer.make_token () in
+      let actual = next (Lexing.from_string name) ~warn:(fun _ _ -> assert false) in
+      assert (Poly.equal actual (Frontend.Terminals.keyword_token keyword)));
+  List.iter Ast.SourceKeywords.contextual_entries ~f:(fun (name, keyword) ->
+      assert (Stdlib.Hashtbl.mem Frontend.Terminals.keyword_table name);
+      assert (not (Ast.SourceKeywords.is_keyword name));
       let next = Frontend.Lexer.make_token () in
       let actual = next (Lexing.from_string name) ~warn:(fun _ _ -> assert false) in
       assert (Poly.equal actual (Frontend.Terminals.keyword_token keyword)));
@@ -110,7 +117,11 @@ let () =
 let () =
   Stdlib.Hashtbl.iter
     (fun keyword _ ->
-      if (not (String.is_empty keyword)) && Char.is_lowercase keyword.[0] then begin
+      if
+        Ast.SourceKeywords.is_keyword keyword
+        && (not (String.is_empty keyword))
+        && Char.is_lowercase keyword.[0]
+      then begin
         let original = id keyword in
         let next = Frontend.Lexer.make_token () in
         let lexbuf = Lexing.from_string (Ast.Ident.to_source_string original) in

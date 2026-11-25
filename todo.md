@@ -1,3 +1,11 @@
+24 nov, 2026:
+- [ ] Add checked invariant-dependency bounds for opaque predicates, including an
+    empty bound for sealed execution contexts, so fresh-region grants need no
+    broad caller mask and private context representations can remain hidden.
+- [ ] Recognize specialized functor conformance when passing an opaque `F[X]`
+    instance to a parameter constrained by a named interface alias `I[X]`, where
+    `F[A] :> I[A]`. Passing the functor itself to an `I` parameter works.
+
 18 nov, 2026:
 - [ ] Investigate a symbol-resolution cache result that differs from an uncached
     lookup in `test/ci/front-end/merge_inherited_members.rav`: `K`, both an

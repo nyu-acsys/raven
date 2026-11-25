@@ -1,0 +1,22 @@
+inv root(x: Int) { true }
+interface Resource { pred p(x: Int) }
+module Hidden: Resource { pred p(x: Int) { root(x) } }
+module Factory[R: Resource] {
+  lemma create(x: Int)
+    requires R.p(x)
+    ensures root(x)
+    opens {}
+  { fold root(x); }
+}
+module Client[R: Resource] {
+  module Make = Factory[R]
+  lemma bad(x: Int)
+    requires R.p(x)
+    opens {}
+  {
+    Make.create(x);
+    unfold root(x);
+    fold root(x);
+  }
+}
+module Risk = Client[Hidden]

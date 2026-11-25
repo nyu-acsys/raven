@@ -1,0 +1,33 @@
+inv first() { true }
+inv second() { true }
+
+free pred hidden()
+
+free lemma make_first()
+  ensures first()
+  opens {}
+
+free lemma obtain_hidden()
+  ensures hidden()
+  opens {}
+
+free lemma retain_second()
+  requires hidden()
+  ensures hidden() && second()
+  opens {}
+
+free lemma use_both()
+  requires first() && second()
+  ensures first() && second()
+  opens first, second
+
+lemma client()
+  requires second()
+  ensures second()
+  opens second
+{
+  make_first();
+  obtain_hidden();
+  retain_second();
+  use_both();
+}

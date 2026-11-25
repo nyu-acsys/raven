@@ -1,0 +1,2 @@
+inv a(x: Int) parent b(x) { true }
+inv b(x: Int) parent a(x) { true }

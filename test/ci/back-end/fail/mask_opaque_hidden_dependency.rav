@@ -1,0 +1,20 @@
+module Actual {
+  free inv hidden(x: Ref)
+  inv stored(x: Ref) { hidden(x) }
+  free proc create() returns (x: Ref) ensures stored(x)
+  free proc touch(x: Ref) requires stored(x) ensures stored(x)
+}
+interface API {
+  inv stored(x: Ref)
+  proc create() returns (x: Ref) ensures stored(x)
+  proc touch(x: Ref) requires stored(x) ensures stored(x)
+}
+module Export : API {
+  inv stored(x: Ref) = Actual.stored
+  proc create() returns (x: Ref) { x := Actual.create(); }
+  proc touch(x: Ref) { Actual.touch(x); }
+}
+proc client() {
+  var x: Ref := Export.create();
+  Export.touch(x);
+}

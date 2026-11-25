@@ -17,38 +17,6 @@ type collected = {
   analyses : AtomicityAnalysis.namespace_analysis Map.M(QualIdent).t;
 }
 
-let merge_imported_namespace (previous : NamespaceContract.namespace_decl)
-    (incoming : NamespaceContract.namespace_decl) =
-  let open NamespaceContract in
-  let pairs =
-    match List.zip incoming.formals previous.formals with
-    | Ok pairs -> pairs
-    | Unequal_lengths ->
-        Error.internal_error
-          (QualIdent.to_loc incoming.name)
-          "Imported namespace declarations have different formal arities"
-  in
-  let renaming =
-    List.fold pairs
-      ~init:(Map.empty (module QualIdent))
-      ~f:(fun renaming (source, target) ->
-        Map.set renaming
-          ~key:(QualIdent.from_ident source.Type.var_name)
-          ~data:(Expr.from_var_decl target))
-  in
-  let align body =
-    List.map body ~f:(fun (head, args) ->
-        (head, List.map args ~f:(fun arg -> Expr.alpha_renaming arg renaming)))
-  in
-  let definition =
-    match (previous.definition, incoming.definition) with
-    | Abstract, Abstract -> Abstract
-    | Defined body, Abstract -> Defined body
-    | Abstract, Defined body -> Defined (align body)
-    | Defined left, Defined right -> Defined (Callable.mask_union left (align right))
-  in
-  { previous with definition }
-
 (* Imported summaries are read from headers, never reconstructed from lowered bodies. *)
 let imported_summaries () =
   let open Rewriter.Syntax in
@@ -63,7 +31,8 @@ let imported_summaries () =
               ~f:(fun namespaces declaration ->
                 Map.update namespaces declaration.NamespaceContract.name ~f:(function
                   | None -> declaration
-                  | Some previous -> merge_imported_namespace previous declaration))
+                  | Some previous ->
+                      NamespaceContract.merge_declarations previous declaration))
           in
           let callables =
             List.fold summary.callables ~init:callables
@@ -79,14 +48,47 @@ let imported_summaries () =
               gather (QualIdent.append owner name) contract state)
       | Requalified _ -> assert false
   in
-  Map.fold table.tbl_symbols
-    ~init:(Map.empty (module QualIdent), Map.empty (module QualIdent))
-    ~f:(fun ~key:owner ~data state ->
-      match data with
-      | Module.ModDef { mod_decl = { mod_decl_mask_contract = Some contract; _ }; _ }
+  let roots =
+    Map.to_alist table.tbl_symbols
+    |> List.filter_map ~f:(function
+      | ( owner,
+          Module.ModDef { mod_decl = { mod_decl_mask_contract = Some contract; _ }; _ } )
         when QualIdent.is_local owner ->
-          gather owner contract state
-      | _ -> state)
+          Some (owner, contract)
+      | _ -> None)
+  in
+  let rec headers checked namespaces contract =
+    if List.exists checked ~f:(phys_equal contract) then (checked, namespaces)
+    else
+      let checked = contract :: checked in
+      let visit (checked, namespaces) (_, contract) =
+        headers checked namespaces contract
+      in
+      match contract with
+      | NamespaceContract.Requalified { original; _ } ->
+          headers checked namespaces original
+      | Module summary ->
+          let namespaces =
+            List.fold summary.namespaces ~init:namespaces ~f:(fun map decl ->
+                Map.update map decl.NamespaceContract.name ~f:(function
+                  | None -> decl
+                  | Some previous -> NamespaceContract.merge_declarations previous decl))
+          in
+          List.fold summary.modules ~init:(checked, namespaces) ~f:visit
+      | Functor summary ->
+          let checked, namespaces =
+            List.fold summary.parameters ~init:(checked, namespaces) ~f:visit
+          in
+          headers checked namespaces summary.result
+  in
+  let _, namespaces =
+    List.fold roots
+      ~init:([], Map.empty (module QualIdent))
+      ~f:(fun (checked, namespaces) (_, contract) -> headers checked namespaces contract)
+  in
+  List.fold roots
+    ~init:(namespaces, Map.empty (module QualIdent))
+    ~f:(fun state (owner, contract) -> gather owner contract state)
 
 (* A loop's summary once its entry has cut its mask down to [available]. *)
 let enter_loop (summary : NamespaceContract.callable_summary) available =
@@ -96,6 +98,17 @@ let enter_loop (summary : NamespaceContract.callable_summary) available =
     grants =
       List.filter summary.grants ~f:(fun grant ->
           List.exists available ~f:(fun entry -> NamespaceInference.covers entry grant));
+    exact_grants =
+      List.filter summary.exact_grants ~f:(fun grant ->
+          List.exists available ~f:(fun entry -> NamespaceInference.covers entry grant));
+    guarded_grants =
+      List.filter_map summary.guarded_grants ~f:(fun profile ->
+          let grants =
+            List.filter profile.NamespaceContract.grants ~f:(fun grant ->
+                List.exists available ~f:(fun entry ->
+                    NamespaceInference.covers entry grant))
+          in
+          Option.some_if (not (List.is_empty grants)) { profile with grants });
   }
 
 let collect program =

@@ -1,0 +1,37 @@
+interface Family {
+  inv root(x: Int)
+  inv leaf(x: Int) within root(x)
+
+  lemma create(x: Int)
+    ensures root(x)
+    opens {}
+
+  lemma step(x: Int)
+    requires root(x)
+    ensures root(x)
+    opens root(x)
+}
+
+module Actual : Family {
+  inv root(x: Int) { leaf(x) }
+  inv leaf(x: Int) parent root(x) { true }
+
+  lemma create(x: Int) {
+    fold leaf(x);
+    fold root(x);
+  }
+
+  lemma step(x: Int) {
+    unfold root(x);
+    unfold leaf(x);
+    fold leaf(x);
+    fold root(x);
+  }
+}
+
+lemma use(x: Int)
+  opens {}
+{
+  Actual.create(x);
+  Actual.step(x);
+}

@@ -1,4 +1,4 @@
-(** Type checking of callables, their contracts and opens clauses. *)
+(** Type checking of callables and their clauses. *)
 
 open Base
 open Ast
@@ -7,9 +7,9 @@ open TypingMonad
 open TypingErrors
 open ProgUtils
 
-(* Checks an `opens` clause. Each entry names a predicate or invariant, with no arguments
-   (any instance) or one per parameter, implicit ones included, of which a trailing run
-   may be `_` and is preserved. Arguments may mention only the callable's formals,
+(* Checks an `opens` clause. Invariant entries name only parameters before `;`;
+   predicate dependency entries may also name implicit parameters after `;`. No arguments
+   selects every instance; trailing `_` arguments are preserved. Arguments mention only the callable's formals,
    except, for an atomic callable, its implicit ones (see [Masks.compute_proc_lemma_mask]). *)
 let check_opens (call_decl : Callable.call_decl) (formals : Type.var_decl list)
     (precond : Stmt.spec list) (postcond : Stmt.spec list)
@@ -47,7 +47,21 @@ let check_opens (call_decl : Callable.call_decl) (formals : Type.var_decl list)
         | _ -> opens_not_resource_error loc (Symbol.kind symbol) qi
       in
       let resource_params =
-        resource_decl.call_decl_formals @ resource_decl.call_decl_returns
+        match head with
+        | Callable.MaskHead.Invariant _ -> resource_decl.call_decl_formals
+        | Dependencies _ ->
+            resource_decl.call_decl_formals @ resource_decl.call_decl_returns
+      in
+      let args =
+        match head with
+        | Callable.MaskHead.Invariant _
+          when List.length args
+               = List.length resource_params + List.length resource_decl.call_decl_returns
+               && List.for_all
+                    (List.drop args (List.length resource_params))
+                    ~f:Callable.is_opens_wildcard ->
+            List.take args (List.length resource_params)
+        | Invariant _ | Dependencies _ -> args
       in
       let () =
         if (not (List.is_empty args)) && List.length args <> List.length resource_params
@@ -81,6 +95,103 @@ let check_opens (call_decl : Callable.call_decl) (formals : Type.var_decl list)
       in
       (head, prefix @ List.drop args (List.length prefix)))
 
+let check_ancestry (callable : Callable.t) (formals : Type.var_decl list)
+    (disam_tbl : DisambiguationTbl.t) (clause : Callable.ancestry_clause) :
+    Callable.ancestry_clause t =
+  let open Rewriter.Syntax in
+  let fail message = Error.type_error clause.ancestry_loc message in
+  let keyword = Callable.ancestry_keyword clause.ancestry_kind in
+  let () =
+    match Callable.kind callable with
+    | Invariant ->
+        if Poly.(clause.ancestry_kind = Parent) && Callable.is_abstract callable then
+          fail "A parent clause requires an invariant with a definition"
+    | Proc | Lemma | Func | Pred ->
+        fail (Printf.sprintf "Only invariants may declare a %s clause" keyword)
+  in
+  let* owner = Rewriter.current_module_name in
+  let* owner_symbol = Rewriter.find_absolute owner in
+  let owner_is_interface, owner_is_public_schema =
+    match owner_symbol with
+    | Some (Module.ModDef { mod_decl; _ }) ->
+        (mod_decl.mod_decl_is_interface, Option.is_some mod_decl.mod_decl_sealed_target)
+    | _ -> (false, false)
+  in
+  let () =
+    match clause.ancestry_kind with
+    | Parent when owner_is_interface -> fail "A parent clause requires a concrete module"
+    | Within when not (owner_is_interface || owner_is_public_schema) ->
+        fail "A within clause requires an interface invariant"
+    | Parent | Within -> ()
+  in
+  let* child = Rewriter.current_scope_id in
+  let* ancestry_target, target =
+    Rewriter.in_scope_of child (Rewriter.resolve_and_find clause.ancestry_target)
+  in
+  let* target_decl =
+    match Rewriter.Symbol.orig_symbol target with
+    | Module.CallDef { call_decl = { call_decl_kind = Invariant; _ }; _ } ->
+        Rewriter.Symbol.reify_callable_decl target
+    | _ -> fail (Printf.sprintf "A %s clause must name an invariant" keyword)
+  in
+  let () =
+    let same_module =
+      QualIdent.equal
+        (QualIdent.append owner (QualIdent.unqualify ancestry_target))
+        ancestry_target
+    in
+    match clause.ancestry_kind with
+    | Parent when not same_module ->
+        fail "A parent must name an invariant in the same module"
+    (* An implementation inherits the definition, whose ancestor is then its parent. *)
+    | Within when (not same_module) && not (Callable.is_abstract callable) ->
+        fail
+          "A within clause of an invariant with a definition must name an invariant in \
+           the same module"
+    | Parent | Within -> ()
+  in
+  let args_and_formals =
+    match List.zip clause.ancestry_args target_decl.call_decl_formals with
+    | Unequal_lengths ->
+        fail
+          (Printf.sprintf "A %s clause requires %d argument(s), but %d are given" keyword
+             (List.length target_decl.call_decl_formals)
+             (List.length clause.ancestry_args))
+    | Ok pairs -> pairs
+  in
+  let+ ancestry_args =
+    Rewriter.List.map args_and_formals ~f:(fun (arg, target_formal) ->
+        let bad_projection () =
+          Error.type_error (Expr.to_loc arg)
+            (Printf.sprintf
+               "A %s argument must be an explicit parameter of the child invariant"
+               keyword)
+        in
+        if (not (Expr.is_ident arg)) || Callable.is_opens_wildcard arg then
+          bad_projection ();
+        let* arg =
+          StmtTyping.disambiguate_and_check_expr arg
+            (Type.set_ghost true Type.any)
+            disam_tbl
+        in
+        if
+          (not (Expr.is_ident arg))
+          || not
+               (List.exists formals ~f:(fun formal ->
+                    (not formal.var_implicit)
+                    && Ident.equal formal.var_name (Expr.to_ident arg)))
+        then bad_projection ();
+        let+ target_formal =
+          Rewriter.in_scope_of ancestry_target (TypeExpr.check_var_decl target_formal)
+        in
+        let expected = target_formal.var_type in
+        let actual = Expr.to_type arg in
+        if not (Type.equal expected actual) then
+          type_mismatch_error (Expr.to_loc arg) expected actual;
+        arg)
+  in
+  { clause with ancestry_target; ancestry_args }
+
 let check_alias (callable : Callable.t) target : Module.symbol t =
   let open Rewriter.Syntax in
   let decl = callable.call_decl in
@@ -91,6 +202,8 @@ let check_alias (callable : Callable.t) target : Module.symbol t =
     | Proc | Lemma | Func -> fail "Only predicates and invariants may be resource aliases"
   in
   let () =
+    Option.iter decl.call_decl_ancestry ~f:(fun clause ->
+        Error.type_error clause.ancestry_loc "A resource alias cannot declare ancestry");
     if
       (not (List.is_empty decl.call_decl_precond))
       || (not (List.is_empty decl.call_decl_postcond))
@@ -246,6 +359,11 @@ let check_definition (callable : Callable.t) : Module.symbol t =
 
   let* _ = Rewriter.add_locals call_decl_locals in
 
+  let* call_decl_ancestry =
+    Rewriter.Option.map call_decl.call_decl_ancestry
+      ~f:(check_ancestry callable call_decl_formals disam_tbl)
+  in
+
   let* call_decl_precond =
     Rewriter.List.map call_decl.call_decl_precond ~f:(StmtTyping.check_spec disam_tbl)
   and* call_decl_postcond =
@@ -341,6 +459,7 @@ let check_definition (callable : Callable.t) : Module.symbol t =
       call_decl_postcond;
       call_decl_contract_ext;
       call_decl_opens;
+      call_decl_ancestry;
       call_decl_loc_params;
     }
   in

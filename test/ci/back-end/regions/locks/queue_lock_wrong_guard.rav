@@ -1,0 +1,14 @@
+include "queue_lock_client.rav"
+
+module WrongGuard[Locks: QueueLock] {
+  module L = Locks[CounterResource]
+
+  proc wrong(l: L, other: L, c: Ref, d: Ref)
+    requires L.is_lock(l, c) && L.is_lock(other, d) && l != other && c != d
+    opens L.is_lock(l, c), L.is_lock(other, d)
+  {
+    var first := L.acquire(l, c);
+    var second := L.acquire(other, d);
+    L.release(other, first, d);
+  }
+}

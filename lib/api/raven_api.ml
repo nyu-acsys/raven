@@ -279,9 +279,25 @@ module Callable = struct
     S.Callable.proc ~atomic kind decl (Option.map body ~f:(S.Stmt.block_stmt ~loc))
 
   type func_kind = Func | Pred | Inv
+  type ancestry = Parent of Name.t * Expr.t list | Within of Name.t * Expr.t list
 
   let func ~loc ?(kind = Func) ?(inline = false) ?formals ?returns ?(requires = [])
-      ?(ensures = []) ?(decreases = []) name body =
+      ?(ensures = []) ?(decreases = []) ?ancestry name body =
+    let ancestry =
+      Option.map ancestry ~f:(fun ancestry ->
+          begin match kind with
+          | Inv -> ()
+          | Func | Pred ->
+              invalid_arg "Raven_api.Callable.func: only invariants have ancestry"
+          end;
+          let ancestry_kind, ancestry_target, ancestry_args =
+            match ancestry with
+            | Parent (target, args) -> (Ast.Callable.Parent, target, args)
+            | Within (target, args) -> (Ast.Callable.Within, target, args)
+          in
+          Ast.Callable.
+            { ancestry_kind; ancestry_target; ancestry_args; ancestry_loc = loc })
+    in
     let kind : Ast.Callable.call_kind =
       match kind with
       | Func -> Func
@@ -293,7 +309,7 @@ module Callable = struct
     in
     let decl =
       S.Callable.decl ~loc ~kind ~is_inline:inline ?formals ?returns ~precond:requires
-        ~postcond:ensures ~contract_ext:(decreases_clause decreases) name
+        ~postcond:ensures ~contract_ext:(decreases_clause decreases) ?ancestry name
     in
     S.Callable.func decl body
 

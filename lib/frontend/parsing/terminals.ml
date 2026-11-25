@@ -47,6 +47,7 @@ let keyword_token (keyword : Ast.SourceKeywords.t) : Parser.token =
   | Null -> CONSTVAL Expr.Null
   | Opens -> OPENS
   | Own -> OWN
+  | Parent -> PARENT
   | Pred -> FUNC Pred
   | Proc -> PROC
   | Ref -> CONSTTYPE Type.Ref
@@ -66,6 +67,7 @@ let keyword_token (keyword : Ast.SourceKeywords.t) : Parser.token =
   | Var -> VAR false
   | Where -> WHERE
   | With -> WITH
+  | Within -> WITHIN
   | While -> WHILE
   | Proph_type -> PROPH
   | Resolve -> RESOLVE
@@ -88,7 +90,7 @@ let keyword_table = Hashtbl.create 128
 let () =
   List.iter
     (fun (name, keyword) -> Hashtbl.add keyword_table name (keyword_token keyword))
-    Ast.SourceKeywords.entries
+    (Ast.SourceKeywords.entries @ Ast.SourceKeywords.contextual_entries)
 
 let negated_keyword_token (keyword : Ast.SourceKeywords.t) =
   match keyword with In -> Some NOTIN | _ -> None

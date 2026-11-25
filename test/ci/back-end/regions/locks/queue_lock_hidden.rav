@@ -1,0 +1,12 @@
+include "queue_locks.rav"
+
+module CLH = CLHLock[CounterResource]
+module MCS = MCSLock[CounterResource]
+
+lemma clh_representation_is_hidden(l: CLH, c: Ref) {
+  unfold CLH.queued_loc(l, null, c);
+}
+
+lemma mcs_representation_is_hidden(l: MCS, c: Ref) {
+  unfold MCS.waiting_loc_inv(l, null, c);
+}

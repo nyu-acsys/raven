@@ -1,0 +1,37 @@
+interface API {
+  field value: Int
+  inv root(x: Ref)
+  proc create(x: Ref)
+    requires own(x.value, 0)
+    ensures root(x)
+    opens {}
+  proc touch(x: Ref)
+    requires root(x)
+    ensures root(x)
+}
+module Actual: API {
+  inv root(x: Ref) { child(x) }
+  inv child(x: Ref) parent root(x) { exists n: Int :: own(x.value, n) }
+  proc create(x: Ref) {
+    fold child(x);
+    fold root(x);
+  }
+  proc touch(x: Ref) {
+    unfold root(x);
+    unfold child(x);
+    x.value := 1;
+    fold child(x);
+    fold root(x);
+  }
+}
+module Client[P: API] {
+  proc use(x: Ref)
+    requires own(x.P.value, 0)
+    opens {}
+  {
+    P.create(x);
+    P.touch(x);
+  }
+}
+module Public :> API = Actual
+module Use = Client[Public]

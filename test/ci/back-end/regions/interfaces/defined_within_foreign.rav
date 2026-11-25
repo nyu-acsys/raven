@@ -1,0 +1,10 @@
+// A defined invariant cannot be within another module's invariant: its implementations
+// inherit its definition, whose ancestor must then be its parent.
+
+module Roots {
+  inv root(x: Int) { true }
+}
+
+interface Family {
+  inv leaf(x: Int, k: Int) within Roots.root(x) { true }
+}

@@ -9,6 +9,7 @@ type environment = {
   roots : QualIdentSet.t;
   universals : QualIdentSet.t;
   assumptions : NamespaceContract.separation_requirement list;
+  region_overrides : NamespaceContract.namespace_decl list;
 }
 
 type obligation = {
@@ -33,6 +34,7 @@ let empty_environment =
     roots = Set.empty (module QualIdent);
     universals = Set.empty (module QualIdent);
     assumptions = [];
+    region_overrides = [];
   }
 
 let below root name =
@@ -84,7 +86,18 @@ let overlaps ?(rename = Fn.id) context requirement =
       match head with
       | Callable.MaskHead.Dependencies _ -> false
       | Invariant _ ->
-          List.exists right ~f:(fun (other, _) -> Callable.equal_mask_head head other))
+          List.exists right ~f:(fun (other, _) ->
+              Callable.equal_mask_head head other
+              ||
+              match (head, other) with
+              | Callable.MaskHead.Invariant left, Invariant right ->
+                  Option.is_some
+                    (NamespaceRegions.projection context.regions ~descendant:left
+                       ~ancestor:right)
+                  || Option.is_some
+                       (NamespaceRegions.projection context.regions ~descendant:right
+                          ~ancestor:left)
+              | _ -> false))
 
 let remember ~owner constraints =
   let open Rewriter.Syntax in
@@ -234,14 +247,7 @@ let align_callable (actual : NamespaceContract.callable_summary)
         Error.internal_error Loc.dummy
           "Inconsistent callable binders in namespace contracts"
   in
-  let renaming =
-    List.fold pairs
-      ~init:(Map.empty (module QualIdent))
-      ~f:(fun renaming (source, target) ->
-        Map.set renaming
-          ~key:(QualIdent.from_ident source.Type.var_name)
-          ~data:(Expr.from_var_decl target))
-  in
+  let renaming = Expr.formal_renaming pairs in
   NamespaceContract.map_callable_summary ~name:Fn.id
     ~expr:(fun expression -> Expr.alpha_renaming expression renaming)
     ~typ:Fn.id expected
@@ -252,10 +258,21 @@ let grants_cover ?(rename = Fn.id) context ~assumptions provided promised =
     let* available = Entailment.available_grants ~rename context ~assumptions provided in
     let* available = Entailment.normalize_predicates ~rename context available in
     let+ required = Entailment.normalize_predicates ~rename context required in
-    Entailment.covered ~by:available required
+    Entailment.covered_regions context ~by:available required
   in
   let* unconditional = check assumptions promised.NamespaceContract.grants in
-  if not unconditional then Rewriter.return false
+  let* exact =
+    let* regional = Entailment.available_grants ~rename context ~assumptions provided in
+    let* regional = Entailment.normalize_predicates ~rename context regional in
+    let* exact = Entailment.normalize_predicates ~rename context provided.exact_grants in
+    let+ required =
+      Entailment.normalize_predicates ~rename context promised.exact_grants
+    in
+    List.for_all required ~f:(fun entry ->
+        Entailment.covered ~by:exact [ entry ]
+        || Entailment.covered_regions context ~by:regional [ entry ])
+  in
+  if not (unconditional && exact) then Rewriter.return false
   else
     Rewriter.List.for_all promised.guarded_grants ~f:(fun grant ->
         let* impossible =
@@ -286,11 +303,114 @@ let effective_path ?(implementation = true) name =
   | Some (original, _, _, substitution) ->
       QualIdent.requalify (SymbolTbl.qid_subst substitution) original
 
+let rec public_namespaces (summary : NamespaceContract.module_summary) =
+  summary.namespaces
+  @ List.concat_map summary.modules ~f:(fun (_, contract) ->
+      match NamespaceContract.view contract with
+      | Module nested -> public_namespaces nested
+      | Functor _ -> []
+      | Requalified _ -> assert false)
+
+let namespace_map declarations =
+  List.fold declarations
+    ~init:(Map.empty (module QualIdent))
+    ~f:(fun map (decl : namespace_decl) -> Map.set map ~key:decl.name ~data:decl)
+
+let region_embedding ~sources ~actual_path ~loc environment
+    (actual : NamespaceContract.module_summary)
+    (expected : NamespaceContract.module_summary) =
+  let open Rewriter.Syntax in
+  let actual_pool = namespace_map (sources @ public_namespaces actual) in
+  let public = public_namespaces expected in
+  let own = namespace_map public in
+  let constraint_names requirement =
+    List.map (requirement.left @ requirement.right) ~f:(fun (head, _) ->
+        Callable.mask_head_name head)
+  in
+  let refs =
+    List.concat_map public ~f:NamespaceContract.references
+    @ List.concat_map expected.callables ~f:(fun (_, summary) ->
+        List.map
+          (summary.requires @ summary.grants @ summary.exact_grants
+          @ List.concat_map summary.guarded_grants ~f:(fun grant -> grant.grants))
+          ~f:(fun (head, _) -> Callable.mask_head_name head)
+        @ List.concat_map summary.separation ~f:constraint_names
+        @ List.concat_map summary.guarded_grants ~f:(fun grant ->
+            List.concat_map grant.conditions ~f:constraint_names))
+    @ List.concat_map expected.separation ~f:constraint_names
+  in
+  let overrides = namespace_map (environment.region_overrides @ public) in
+  let initial = overrides in
+  let rec imports seen pool = function
+    | [] -> (pool, seen)
+    | name :: rest when Set.mem seen name -> imports seen pool rest
+    | name :: rest -> (
+        let seen = Set.add seen name in
+        let declaration =
+          match Map.find overrides name with
+          | Some declaration -> Some declaration
+          | None -> Map.find actual_pool name
+        in
+        match declaration with
+        | None -> imports seen pool rest
+        | Some declaration ->
+            imports seen
+              (Map.set pool ~key:name ~data:declaration)
+              (NamespaceContract.references declaration @ rest))
+  in
+  let expected_pool, imports = imports (Set.empty (module QualIdent)) initial refs in
+  let make pool =
+    match NamespaceRegions.create (Map.data pool) with
+    | Ok regions -> regions
+    | Error error -> Error.type_error error.loc error.message
+  in
+  let expected_regions = make expected_pool in
+  let actual_regions = make actual_pool in
+  let rec invariant_names owner (summary : NamespaceContract.module_summary) =
+    List.filter_map summary.callables ~f:(fun (name, callable) ->
+        match callable.kind with
+        | Callable.Invariant -> Some (QualIdent.append owner name)
+        | _ -> None)
+    @ List.concat_map summary.modules ~f:(fun (name, contract) ->
+        match NamespaceContract.view contract with
+        | Module nested -> invariant_names (QualIdent.append owner name) nested
+        | Functor _ -> []
+        | Requalified _ -> assert false)
+  in
+  let own_names = invariant_names actual_path expected in
+  let visible =
+    List.filter
+      (own_names @ Set.to_list imports)
+      ~f:(fun name -> Map.mem own name || not (below actual_path name))
+    |> List.dedup_and_sort ~compare:QualIdent.compare
+  in
+  let* mapping =
+    Rewriter.List.map visible ~f:(fun name ->
+        let+ target = Entailment.canonical_name ~physical:true name in
+        (name, target))
+  in
+  let regional =
+    List.exists mapping ~f:(fun (source, target) ->
+        NamespaceRegions.is_declared_regional expected_regions source
+        || NamespaceRegions.is_declared_regional actual_regions target)
+  in
+  let () =
+    if regional then
+      match
+        NamespaceRegionEmbedding.check ~expected:expected_regions ~actual:actual_regions
+          ~visible ~mapping
+      with
+      | Ok () -> ()
+      | Error error -> signature_error loc error.message
+  in
+  Rewriter.return (Map.data overrides, regional)
+
 type check = {
   check_owner : QualIdent.t;
   check_roots : QualIdent.t list;
   check_universals : QualIdent.t list;
   check_assumptions : NamespaceContract.separation_requirement list;
+  check_region_overrides : NamespaceContract.namespace_decl list;
   check_actual_path : QualIdent.t;
   check_expected_path : QualIdent.t;
   check_transformations : NamespaceContract.requalification list;
@@ -317,6 +437,7 @@ let rec compatible ?(checked : checked = Hashtbl.create (module QualIdent)) ~pre
       check_roots = Set.to_list environment.roots;
       check_universals = Set.to_list environment.universals;
       check_assumptions = environment.assumptions;
+      check_region_overrides = environment.region_overrides;
       check_actual_path = actual_path;
       check_expected_path = expected_path;
       check_transformations = transformations;
@@ -354,6 +475,11 @@ and compatible_unchecked ~checked ~prepared ~owner ~loc environment ~actual_path
         | Module summary -> summary
         | Functor _ | Requalified _ -> assert false
       in
+      let* region_overrides, _regional =
+        region_embedding ~sources:prepared.Entailment.sources ~actual_path ~loc
+          environment actual expected
+      in
+      let environment = { environment with region_overrides } in
       let overrides =
         List.filter expected.namespaces ~f:(fun declaration ->
             match declaration.NamespaceContract.definition with
@@ -368,7 +494,8 @@ and compatible_unchecked ~checked ~prepared ~owner ~loc environment ~actual_path
           (context, budget)
         else
           let* context =
-            Entailment.create ~rename (prepared.Entailment.sources @ actual.namespaces)
+            Entailment.create ~rename
+              (Entailment.overlay prepared.Entailment.sources actual.namespaces)
           in
           let+ budget =
             Entailment.create ~rename ~overrides (Map.data context.namespaces)
@@ -424,7 +551,7 @@ and compatible_unchecked ~checked ~prepared ~owner ~loc environment ~actual_path
                     in
                     if
                       (not abstract_resource)
-                      && not (Entailment.covered ~by:allowed required)
+                      && not (Entailment.covered_regions context ~by:allowed required)
                     then
                       signature_error loc
                         ("the required mask of " ^ Ident.to_string name

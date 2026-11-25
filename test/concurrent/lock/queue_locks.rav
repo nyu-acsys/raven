@@ -1,0 +1,17 @@
+include "clh-lock.rav"
+include "mcs-lock.rav"
+include "queue_lock_client.rav"
+
+module CLHClient = QueueLockClient[CLHLock]
+module MCSClient = QueueLockClient[MCSLock]
+
+proc use_both() {
+  var clh: CLHClient.L;
+  var c: Ref;
+  var mcs: MCSClient.L;
+  var m: Ref;
+  clh, c := CLHClient.create();
+  mcs, m := MCSClient.create();
+  CLHClient.increment(clh, c);
+  MCSClient.increment(mcs, m);
+}

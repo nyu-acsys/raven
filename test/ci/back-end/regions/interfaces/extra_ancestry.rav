@@ -1,0 +1,9 @@
+interface Independent {
+  inv first(x: Int)
+  inv second(x: Int)
+}
+
+module Actual : Independent {
+  inv first(x: Int) { true }
+  inv second(x: Int) parent first(x) { true }
+}

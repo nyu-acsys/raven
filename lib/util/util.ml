@@ -8,4 +8,5 @@ module Graph = Graph
 module Loc = Loc
 module Option = Option
 module Print = Print
+module Result = Result
 module State = State

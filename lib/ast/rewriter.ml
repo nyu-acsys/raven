@@ -1894,11 +1894,18 @@ module Callable = struct
     let* _ = add_call_decl_locals call_decl
     and* new_preconds = rewrite_specs call_decl.call_decl_precond
     and* new_postconds = rewrite_specs call_decl.call_decl_postcond in
+    (* The target is a name, not an expression: [rewrite_qual_idents] maps it. *)
+    let* call_decl_ancestry =
+      Option.map call_decl.call_decl_ancestry ~f:(fun clause ->
+          let+ ancestry_args = List.map clause.ancestry_args ~f:fe in
+          { clause with ancestry_args })
+    in
     let call_decl =
       {
         call_decl with
         call_decl_precond = new_preconds;
         call_decl_postcond = new_postconds;
+        call_decl_ancestry;
       }
     in
     match callable.call_def with
@@ -2011,6 +2018,13 @@ module Callable = struct
        substitution has to reach them too -- otherwise a call through an instance
        would still see the functor's abstract field. *)
     let call_decl_loc_params = Base.List.map callable.call_decl.call_decl_loc_params ~f in
+    let* call_decl_ancestry =
+      Option.map callable.call_decl.call_decl_ancestry ~f:(fun clause ->
+          let+ ancestry_args =
+            List.map clause.ancestry_args ~f:(Expr.rewrite_qual_idents ~f)
+          in
+          { clause with ancestry_target = f clause.ancestry_target; ancestry_args })
+    in
     let callable =
       {
         callable with
@@ -2021,6 +2035,7 @@ module Callable = struct
             call_decl_grants_mask;
             call_decl_opens;
             call_decl_loc_params;
+            call_decl_ancestry;
             call_decl_alias = Base.Option.map callable.call_decl.call_decl_alias ~f;
           };
       }

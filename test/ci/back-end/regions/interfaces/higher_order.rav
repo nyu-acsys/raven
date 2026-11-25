@@ -1,0 +1,38 @@
+interface Family {
+  inv root(x: Int)
+  inv leaf(x: Int) within root(x)
+
+  lemma step(x: Int)
+    requires leaf(x)
+    ensures leaf(x)
+    opens leaf(x)
+}
+
+interface Factory() : Family {}
+
+module Fresh() : Factory {
+  inv root(x: Int) { true }
+  inv leaf(x: Int) parent root(x) { true }
+
+  lemma step(x: Int) {
+    unfold leaf(x);
+    fold leaf(x);
+  }
+}
+
+module Client[Make: Factory] {
+  module Run() {
+    module Value = Make()
+
+    lemma use(x: Int)
+      requires Value.leaf(x)
+      ensures Value.leaf(x)
+      opens Value.root(x)
+    {
+      Value.step(x);
+    }
+  }
+}
+
+module Use = Client[Fresh]
+module Result = Use.Run()

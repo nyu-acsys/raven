@@ -1,0 +1,10 @@
+inv root(x: Int) { child(x) }
+inv child(x: Int) parent root(x) { true }
+lemma bad(x: Int)
+  requires root(x)
+  opens {}
+{
+  fold child(x);
+  unfold child(x);
+  fold child(x);
+}

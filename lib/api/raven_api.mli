@@ -284,6 +284,7 @@ module Callable : sig
       [_]; [decreases] is the measure that its recursive calls decrease. *)
 
   type func_kind = Func | Pred | Inv
+  type ancestry = Parent of Name.t * Expr.t list | Within of Name.t * Expr.t list
 
   val func :
     loc:Loc.t ->
@@ -294,12 +295,13 @@ module Callable : sig
     ?requires:Spec.t list ->
     ?ensures:Spec.t list ->
     ?decreases:Expr.t list ->
+    ?ancestry:ancestry ->
     Ident.t ->
     Expr.t option ->
     t
   (** The function, predicate or invariant [name] and its body; [inline] has its uses
       replaced by its body; [decreases] is the measure that its recursive calls decrease.
-  *)
+      [ancestry] gives an invariant's concrete parent or public containment promise. *)
 
   type resource_kind = Predicate | Invariant
 
