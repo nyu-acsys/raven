@@ -166,13 +166,13 @@ let record_inherited_contract ~diagnostics ~(member : ident) ~(source : qual_ide
               in
               Some { Diagnostics.Annotations.keyword; text; clause_loc = form_loc }))
   in
-  let opens_clause =
-    Option.bind orig_decl.call_decl_opens ~f:(fun clause ->
-        let clause_loc = clause.opens_loc in
+  let bound_clause =
+    Option.bind (Callable.opens_clause orig_decl) ~f:(fun clause ->
+        let clause_loc = clause.bound_loc in
         Option.map
           (Diagnostics.source_content diagnostics (Loc.file_name clause_loc))
           ~f:(fun content ->
-            let exprs = List.concat_map clause.opens_entries ~f:snd in
+            let exprs = List.concat_map clause.bound_entries ~f:snd in
             let text =
               renamed_clause_text ~content
                 ~span_start:(Loc.start_index clause_loc + String.length "opens")
@@ -184,7 +184,7 @@ let record_inherited_contract ~diagnostics ~(member : ident) ~(source : qual_ide
   let clauses =
     List.filter_map orig_decl.call_decl_precond ~f:(clause "requires")
     @ List.filter_map orig_decl.call_decl_postcond ~f:(clause "ensures")
-    @ Option.to_list opens_clause
+    @ Option.to_list bound_clause
   in
   if not (List.is_empty clauses) then
     Diagnostics.record_annotation diagnostics

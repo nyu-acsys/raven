@@ -44,14 +44,14 @@ let rec map_symbol source target symbol =
       let* call_decl_returns = parameters declaration.call_decl_returns in
       let* call_decl_precond = specs declaration.call_decl_precond in
       let* call_decl_postcond = specs declaration.call_decl_postcond in
-      let* call_decl_opens =
-        Rewriter.Option.map declaration.call_decl_opens ~f:(fun clause ->
-            let+ opens_entries =
-              Rewriter.List.map clause.Callable.opens_entries ~f:(fun (head, args) ->
+      let* call_decl_bound =
+        Rewriter.Option.map declaration.call_decl_bound ~f:(fun clause ->
+            let+ bound_entries =
+              Rewriter.List.map clause.Callable.bound_entries ~f:(fun (head, args) ->
                   let+ args = Rewriter.List.map args ~f:rewrite_expr in
                   (Callable.map_mask_head head ~f, args))
             in
-            { clause with opens_entries })
+            { clause with bound_entries })
       in
       let+ call_decl_ancestry =
         Rewriter.Option.map declaration.call_decl_ancestry ~f:(fun clause ->
@@ -68,7 +68,7 @@ let rec map_symbol source target symbol =
               call_decl_returns;
               call_decl_precond;
               call_decl_postcond;
-              call_decl_opens;
+              call_decl_bound;
               call_decl_ancestry;
               call_decl_loc_params = List.map declaration.call_decl_loc_params ~f;
             };
@@ -502,7 +502,7 @@ let module_ ~loc ~name ~interface ~actual =
                           call.call_decl with
                           call_decl_precond = [];
                           call_decl_postcond = [];
-                          call_decl_opens = None;
+                          call_decl_bound = None;
                         };
                     }
               in

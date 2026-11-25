@@ -244,12 +244,13 @@ module Callable = struct
   type t = Ast.Callable.t
   type proc_kind = Proc | Lemma | Axiom
 
-  let opens_clause (loc, entries) : Ast.Callable.opens_clause =
+  let bound_clause bound_kind (loc, entries) : Ast.Callable.bound_clause =
     {
-      opens_entries =
+      bound_kind;
+      bound_entries =
         List.map entries ~f:(fun (name, args) ->
             Ast.Callable.invariant_mask_entry name args);
-      opens_loc = loc;
+      bound_loc = loc;
     }
 
   let decreases_clause = function
@@ -273,7 +274,7 @@ module Callable = struct
     let decl =
       S.Callable.decl ~loc ~kind:Func ?formals ?returns ~precond:requires
         ~postcond:ensures
-        ?opens:(Option.map opens ~f:opens_clause)
+        ?bound:(Option.map opens ~f:(bound_clause Opens))
         ~contract_ext:(decreases_clause decreases) name
     in
     S.Callable.proc ~atomic kind decl (Option.map body ~f:(S.Stmt.block_stmt ~loc))
@@ -282,7 +283,15 @@ module Callable = struct
   type ancestry = Parent of Name.t * Expr.t list | Within of Name.t * Expr.t list
 
   let func ~loc ?(kind = Func) ?(inline = false) ?formals ?returns ?(requires = [])
-      ?(ensures = []) ?(decreases = []) ?ancestry name body =
+      ?(ensures = []) ?(decreases = []) ?ancestry ?depends name body =
+    let () =
+      match (kind, body, depends) with
+      | _, _, None | Pred, None, Some _ -> ()
+      | (Func | Inv), _, Some _ | Pred, Some _, Some _ ->
+          invalid_arg
+            "Raven_api.Callable.func: only predicates without a body have a depends \
+             clause"
+    in
     let ancestry =
       Option.map ancestry ~f:(fun ancestry ->
           begin match kind with
@@ -309,7 +318,9 @@ module Callable = struct
     in
     let decl =
       S.Callable.decl ~loc ~kind ~is_inline:inline ?formals ?returns ~precond:requires
-        ~postcond:ensures ~contract_ext:(decreases_clause decreases) ?ancestry name
+        ~postcond:ensures ~contract_ext:(decreases_clause decreases) ?ancestry
+        ?bound:(Option.map depends ~f:(bound_clause Depends))
+        name
     in
     S.Callable.func decl body
 

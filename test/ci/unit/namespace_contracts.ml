@@ -223,7 +223,7 @@ let check_higher_order = function
               end;
               begin match declaration.definition with
               | Defined body -> assert (same_mask body expected_mask)
-              | Abstract -> assert false
+              | Abstract | Bounded _ -> assert false
               end;
               begin match declaration.ancestry with
               | Declared

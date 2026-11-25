@@ -1,0 +1,13 @@
+// A predicate forwarding to an unbounded one cannot promise a bound: an instance could
+// depend on any invariant.
+interface Base {
+  pred context(self: Ref)
+}
+
+interface Context {
+  pred context(self: Ref) depends {}
+}
+
+module Wrap[B: Base] : Context {
+  pred context(self: Ref) { B.context(self) }
+}

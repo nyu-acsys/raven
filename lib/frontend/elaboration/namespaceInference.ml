@@ -199,7 +199,12 @@ let collect symbol =
                     in
                     NamespaceContract.Defined mask
                 | FuncDef { func_body = None } ->
-                    Rewriter.return NamespaceContract.Abstract
+                    begin match decl.call_decl_bound with
+                    | None -> Rewriter.return NamespaceContract.Abstract
+                    | Some clause ->
+                        let+ bound = Masks.resolve_mask (Callable.bound_mask clause) in
+                        NamespaceContract.Bounded bound
+                    end
                 | ProcDef _ -> assert false
               in
               ( Some definition,
@@ -213,8 +218,8 @@ let collect symbol =
               let* inferred = required_specs decl in
               let* granted = granted_specs decl in
               let+ opens =
-                Rewriter.Option.map decl.call_decl_opens ~f:(fun clause ->
-                    Masks.resolve_mask (Callable.opens_mask clause))
+                Rewriter.Option.map (Callable.opens_clause decl) ~f:(fun clause ->
+                    Masks.resolve_mask (Callable.bound_mask clause))
               in
               (None, inferred, granted, opens)
           | Func -> Rewriter.return (None, [], [], None)
@@ -384,6 +389,9 @@ let complete_namespaces (state : collection) callables =
                    let+ definition =
                      match declaration.definition with
                      | Abstract -> Rewriter.return NamespaceContract.Abstract
+                     | Bounded body ->
+                         let+ body = Masks.resolve_mask body in
+                         NamespaceContract.Bounded body
                      | Defined body ->
                          let+ body = Masks.resolve_mask body in
                          NamespaceContract.Defined body

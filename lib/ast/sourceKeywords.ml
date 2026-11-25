@@ -69,6 +69,7 @@ type t =
   | Where
   | With
   | Within
+  | Depends
   | While
   | Proph_type
   | Resolve
@@ -170,6 +171,6 @@ let entries =
   ]
 
 (* These words only act as keywords in a callable header. *)
-let contextual_entries = [ ("parent", Parent); ("within", Within) ]
+let contextual_entries = [ ("parent", Parent); ("within", Within); ("depends", Depends) ]
 let by_name = Map.of_alist_exn (module String) entries
 let is_keyword name = Map.mem by_name name

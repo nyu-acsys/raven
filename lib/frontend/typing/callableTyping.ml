@@ -7,21 +7,16 @@ open TypingMonad
 open TypingErrors
 open ProgUtils
 
-(* Checks an `opens` clause. Invariant entries name only parameters before `;`;
-   predicate dependency entries may also name implicit parameters after `;`. No arguments
-   selects every instance; trailing `_` arguments are preserved. Arguments mention only the callable's formals,
-   except, for an atomic callable, its implicit ones (see [Masks.compute_proc_lemma_mask]). *)
-let check_opens (call_decl : Callable.call_decl) (formals : Type.var_decl list)
-    (precond : Stmt.spec list) (postcond : Stmt.spec list)
+(* Checks an `opens` or `depends` clause. Invariant entries name only parameters before
+   `;`; predicate dependency entries may also name implicit parameters after `;`. No
+   arguments selects every instance; trailing `_` arguments are preserved. Arguments
+   mention only the callable's formals, except, for an atomic callable, its implicit ones
+   (see [Masks.compute_proc_lemma_mask]). *)
+let check_mask_clause ~keyword (call_decl : Callable.call_decl)
+    (formals : Type.var_decl list) (precond : Stmt.spec list) (postcond : Stmt.spec list)
     (disam_tbl : DisambiguationTbl.t) (entries : Callable.mask_entry list) :
     Callable.mask_entry list t =
   let open Rewriter.Syntax in
-  let () =
-    match call_decl.call_decl_kind with
-    | Proc | Lemma -> ()
-    | Func | Pred | Invariant ->
-        opens_on_pure_callable_error call_decl.call_decl_loc call_decl.call_decl_name
-  in
   let is_atomic =
     List.exists (precond @ postcond) ~f:(fun spec -> spec.Stmt.spec_atomic)
   in
@@ -44,7 +39,7 @@ let check_opens (call_decl : Callable.call_decl) (formals : Type.var_decl list)
             (inv_decl, Callable.MaskHead.Invariant qi)
         | CallDef { call_decl = { call_decl_kind = Pred; _ } as pred_decl; _ } ->
             (pred_decl, Callable.MaskHead.Dependencies qi)
-        | _ -> opens_not_resource_error loc (Symbol.kind symbol) qi
+        | _ -> opens_not_resource_error loc ~keyword (Symbol.kind symbol) qi
       in
       let resource_params =
         match head with
@@ -89,7 +84,8 @@ let check_opens (call_decl : Callable.call_decl) (formals : Type.var_decl list)
             let () =
               match Set.choose (Set.diff (Expr.local_vars arg) allowed) with
               | None -> ()
-              | Some ident -> opens_non_formal_error (Expr.to_loc arg) ident ~is_atomic
+              | Some ident ->
+                  opens_non_formal_error (Expr.to_loc arg) ~keyword ident ~is_atomic
             in
             arg)
       in
@@ -208,7 +204,7 @@ let check_alias (callable : Callable.t) target : Module.symbol t =
       (not (List.is_empty decl.call_decl_precond))
       || (not (List.is_empty decl.call_decl_postcond))
       || (not (List.is_empty decl.call_decl_contract_ext))
-      || Option.is_some decl.call_decl_opens
+      || Option.is_some decl.call_decl_bound
       || (not (List.is_empty decl.call_decl_locals))
       || (not (List.is_empty decl.call_decl_loc_params))
       || decl.call_decl_physical_atomic || decl.call_decl_is_inline
@@ -439,14 +435,27 @@ let check_definition (callable : Callable.t) : Module.symbol t =
              }))
   in
 
-  (* The invariants that the callable opens. *)
-  let* call_decl_opens =
-    Rewriter.Option.map call_decl.call_decl_opens ~f:(fun clause ->
-        let+ opens_entries =
-          check_opens call_decl call_decl_formals call_decl_precond call_decl_postcond
-            disam_tbl clause.Callable.opens_entries
+  (* What a procedure or lemma may open, or an abstract predicate may depend on. *)
+  let* call_decl_bound =
+    Rewriter.Option.map call_decl.call_decl_bound
+      ~f:(fun (clause : Callable.bound_clause) ->
+        begin match (clause.bound_kind, call_decl.call_decl_kind) with
+        | Opens, (Proc | Lemma) -> ()
+        | Opens, (Func | Pred | Invariant) ->
+            opens_on_pure_callable_error call_decl.call_decl_loc call_decl.call_decl_name
+        | Depends, Pred when Callable.is_abstract callable -> ()
+        | Depends, Pred -> depends_on_defined_predicate_error clause.bound_loc
+        | Depends, (Proc | Lemma | Func | Invariant) ->
+            depends_on_non_predicate_error call_decl.call_decl_loc
+              call_decl.call_decl_name
+        end;
+        let+ bound_entries =
+          check_mask_clause
+            ~keyword:(Callable.bound_keyword clause.bound_kind)
+            call_decl call_decl_formals call_decl_precond call_decl_postcond disam_tbl
+            clause.bound_entries
         in
-        { clause with opens_entries })
+        { clause with bound_entries })
   in
 
   let call_decl =
@@ -458,7 +467,7 @@ let check_definition (callable : Callable.t) : Module.symbol t =
       call_decl_precond;
       call_decl_postcond;
       call_decl_contract_ext;
-      call_decl_opens;
+      call_decl_bound;
       call_decl_ancestry;
       call_decl_loc_params;
     }

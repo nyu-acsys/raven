@@ -227,7 +227,7 @@ let advance st (tok : Parser.token) =
     | RBRACE, (depth, _) :: rest when depth = List.length st.scopes -> rest
     | _ -> st.brace_kind_restorations
   in
-  let next_brace_is_opens = match tok with OPENS -> true | _ -> false in
+  let next_brace_is_opens = match tok with OPENS | DEPENDS -> true | _ -> false in
   let next_brace_is_trigger =
     match tok, st.scopes with
     | COLONCOLON, _ -> st.in_quantifier_vars
@@ -266,7 +266,7 @@ let advance st (tok : Parser.token) =
   in
   let last_token_can_end_stmt =
     match tok with
-    | IDENT _ | UNDERSCORE | PARENT | WITHIN | MODIDENT _ | CONSTVAL _ | CONSTTYPE _ | ATOMICTOKEN
+    | IDENT _ | UNDERSCORE | PARENT | WITHIN | DEPENDS | MODIDENT _ | CONSTVAL _ | CONSTTYPE _ | ATOMICTOKEN
     | STRINGVAL _ | HASH _
     | RPAREN | RBRACKET | RBRACEPIPE | RBRACKETPIPE | ENUM_CLOSE _ | RENUMBRACE
     (* Unlike every other keyword here, `return` can legally end a statement

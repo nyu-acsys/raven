@@ -117,7 +117,7 @@ let test_recursive_widening () =
   assert (Poly.equal (Equations.declarations equations) declarations);
   match (List.hd_exn (Equations.declarations equations)).definition with
   | Defined body -> expect body original
-  | Abstract -> assert false
+  | Abstract | Bounded _ -> assert false
 
 let test_recursive_opaque_leaf () =
   let equations =

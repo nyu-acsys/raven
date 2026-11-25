@@ -1,0 +1,32 @@
+// A bound limits what a predicate may depend on; holding the predicate grants no
+// permission to open the invariants the bound names.
+field value: Int
+
+inv cell(x: Ref) { exists v: Int :: own(x.value, v) }
+
+interface Context {
+  pred context(x: Ref) depends cell(x)
+}
+
+module Actual : Context {
+  pred context(x: Ref) { cell(x) }
+}
+
+module Hidden :> Context = Actual
+
+lemma touch(x: Ref)
+  requires cell(x)
+  ensures cell(x)
+  opens cell(x)
+{
+  unfold cell(x);
+  fold cell(x);
+}
+
+lemma misuse(x: Ref)
+  requires Hidden.context(x) && cell(x)
+  ensures Hidden.context(x) && cell(x)
+  opens {}
+{
+  touch(x);
+}

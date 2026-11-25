@@ -296,12 +296,15 @@ module Callable : sig
     ?ensures:Spec.t list ->
     ?decreases:Expr.t list ->
     ?ancestry:ancestry ->
+    ?depends:Loc.t * (Name.t * Expr.t list) list ->
     Ident.t ->
     Expr.t option ->
     t
   (** The function, predicate or invariant [name] and its body; [inline] has its uses
       replaced by its body; [decreases] is the measure that its recursive calls decrease.
-      [ancestry] gives an invariant's concrete parent or public containment promise. *)
+      [ancestry] gives an invariant's concrete parent or public containment promise.
+      [depends] bounds the invariants a predicate without a body depends on, like [opens]
+      of {!proc}. *)
 
   type resource_kind = Predicate | Invariant
 

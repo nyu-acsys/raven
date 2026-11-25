@@ -35,7 +35,7 @@ let declaration_text ?(source_content = Loc.source_content) (symbol : Module.sym
           @ spec_locs d.call_decl_precond
           @ spec_locs d.call_decl_postcond
           @ Option.to_list
-              (Option.map d.call_decl_opens ~f:(fun clause -> clause.opens_loc)),
+              (Option.map d.call_decl_bound ~f:(fun clause -> clause.bound_loc)),
           (not (Callable.is_abstract c)) || d.call_decl_is_sealed )
     | TypeDef td -> (td.type_def_loc, [], false)
     | VarDef vd ->

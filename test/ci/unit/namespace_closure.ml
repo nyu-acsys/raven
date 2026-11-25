@@ -285,7 +285,7 @@ let test_prior_latent_au_dependency () =
       assert (
         List.exists body ~f:(fun (head, _) ->
             Callable.equal_mask_head head (Dependencies (previous "host"))))
-  | Abstract -> assert false
+  | Abstract | Bounded _ -> assert false
   end;
   let _, tbl, typed =
     parse ~tbl
@@ -330,7 +330,7 @@ let test_imported_namespace_merge_aligns_formals () =
   let expect merged entries =
     match merged.NamespaceContract.definition with
     | Defined body -> assert (Callable.mask_equal body entries)
-    | Abstract -> assert false
+    | Abstract | Bounded _ -> assert false
   in
   expect
     (NamespaceContract.merge_declarations defined other_defined)
@@ -390,7 +390,7 @@ let test_imported_projection_preserves_concrete_namespace () =
     (Map.find_exn collected.draft.namespaces actual_p).NamespaceContract.definition
   with
   | Defined [] -> ()
-  | Abstract | Defined _ -> assert false
+  | Abstract | Bounded _ | Defined _ -> assert false
   end;
   let use = Map.find_exn collected.analyses (qi [ "use" ]) in
   let body =

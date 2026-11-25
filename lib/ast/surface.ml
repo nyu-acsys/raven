@@ -450,11 +450,11 @@ module Callable = struct
       [loc_params] name the fields of leading location parameters, its results and its
       contract. *)
   let decl ~loc ~(kind : Callable.call_kind) ?(is_inline = false) ?(formals = [])
-      ?(returns = []) ?(precond = []) ?(postcond = []) ?(contract_ext = []) ?opens
+      ?(returns = []) ?(precond = []) ?(postcond = []) ?(contract_ext = []) ?bound
       ?ancestry ?(loc_params = []) (name : Ident.t) : Callable.call_decl =
     let decl =
       Callable.mk_call_decl ~kind ~name ~loc ~formals ~returns ~precond ~postcond
-        ~contract_ext ?opens ?ancestry ~loc_params ()
+        ~contract_ext ?bound ?ancestry ~loc_params ()
     in
     { decl with call_decl_is_inline = is_inline }
 

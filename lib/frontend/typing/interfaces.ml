@@ -486,11 +486,12 @@ let check_implements_callable (call_def : Callable.t) (orig_call_def : Callable.
         Expr.mk_app ~typ:Type.bool (Var name) args
       in
       match
-        (call_def.call_decl.call_decl_opens, orig_call_def.call_decl.call_decl_opens)
+        ( Callable.opens_clause call_def.call_decl,
+          Callable.opens_clause orig_call_def.call_decl )
       with
       | None, None -> Rewriter.return true
       | Some mask, Some orig_mask -> (
-          match List.zip (Callable.opens_mask mask) (Callable.opens_mask orig_mask) with
+          match List.zip (Callable.bound_mask mask) (Callable.bound_mask orig_mask) with
           | Ok pairs ->
               Rewriter.List.fold_left pairs ~init:true ~f:(fun equal (entry, original) ->
                   if not equal then Rewriter.return false
@@ -1333,14 +1334,14 @@ let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_iden
 
 (** A callable that omits its contract -- no `requires`, `ensures` or `opens` -- inherits
     the contract of the interface member it implements, with the interface's parameters
-    renamed to its own. *)
+    renamed to its own. A [depends] bound is not inherited: the realization checks it. *)
 let inherit_contract ~diagnostics
     (symbols_to_check : (qual_ident * Module.symbol) Map.M(Ident).t) = function
   | Module.SymbolDef (CallDef ({ call_decl; _ } as call)) as instr
     when Option.is_none call_decl.call_decl_alias
          && List.is_empty call_decl.call_decl_precond
          && List.is_empty call_decl.call_decl_postcond
-         && Option.is_none call_decl.call_decl_opens -> (
+         && Option.is_none call_decl.call_decl_bound -> (
       match Map.find symbols_to_check call_decl.call_decl_name with
       | Some (interface_ident, (CallDef orig as orig_symbol)) -> (
           let orig_decl = orig.call_decl in
@@ -1375,12 +1376,12 @@ let inherit_contract ~diagnostics
                   call_decl_precond = List.map orig_decl.call_decl_precond ~f:inherit_spec;
                   call_decl_postcond =
                     List.map orig_decl.call_decl_postcond ~f:inherit_spec;
-                  call_decl_opens =
-                    Option.map orig_decl.call_decl_opens ~f:(fun clause ->
+                  call_decl_bound =
+                    Option.map (Callable.opens_clause orig_decl) ~f:(fun clause ->
                         {
                           clause with
-                          opens_entries =
-                            List.map clause.opens_entries ~f:(fun (head, args) ->
+                          bound_entries =
+                            List.map clause.bound_entries ~f:(fun (head, args) ->
                                 (head, List.map args ~f:rename));
                         });
                 }

@@ -3185,8 +3185,19 @@ module Callable = struct
   (** A guaranteed lower bound; an empty result does not prove symbolic disjointness. *)
   let mask_inter = MaskSet.inter
 
-  type opens_clause = { opens_entries : mask_entry list; opens_loc : location }
-  (** An explicit opens clause, retaining trailing wildcards and its source span. *)
+  (** [Opens] bounds the invariants a procedure or lemma may open, [Depends] those the
+      definition of an abstract predicate may depend on. *)
+  type bound_kind = Opens | Depends
+
+  let bound_keyword = function Opens -> "opens" | Depends -> "depends"
+
+  type bound_clause = {
+    bound_kind : bound_kind;
+    bound_entries : mask_entry list;
+    bound_loc : location;
+  }
+  (** An explicit [opens] or [depends] clause, retaining trailing wildcards and its source
+      span. *)
 
   type ancestry_kind = Parent | Within [@@deriving compare]
 
@@ -3203,8 +3214,8 @@ module Callable = struct
   let is_opens_wildcard e =
     Expr.is_ident e && String.equal (Ident.name (Expr.to_ident e)) "_"
 
-  let opens_mask clause : mask =
-    List.map clause.opens_entries ~f:(fun (head, args) ->
+  let bound_mask clause : mask =
+    List.map clause.bound_entries ~f:(fun (head, args) ->
         (head, List.take_while args ~f:(fun e -> not (is_opens_wildcard e))))
 
   type call_decl = {
@@ -3248,9 +3259,10 @@ module Callable = struct
         (** Exact resource mask entries granted by the postcondition, subject to the
             [opens] restrictions. Dependency entries remain symbolic; their upper bounds
             are never granted. Used at callers' call sites. *)
-    call_decl_opens : opens_clause option;
-        (** The user's [opens] clause, if any: replaces the [call_decl_needs_mask]
-            otherwise inferred from [call_decl_precond]. *)
+    call_decl_bound : bound_clause option;
+        (** The user's [opens] clause, if any, replaces the [call_decl_needs_mask]
+            otherwise inferred from [call_decl_precond]; a [depends] clause bounds the
+            dependencies of an abstract predicate, checked where it is implemented. *)
     call_decl_ancestry : ancestry_clause option;
     call_decl_loc : location;  (** source location of declaration *)
     call_decl_loc_params : QualIdent.t list;
@@ -3371,10 +3383,12 @@ module Callable = struct
         | None -> ()
         | Some mask -> fprintf ppf "@\n/* grants mask: %a */" pr_mask_entries mask
       in
-      let pr_call_opens ppf = function
+      let pr_call_bound ppf = function
         | None -> ()
-        | Some { opens_entries = []; _ } -> fprintf ppf "@\nopens {}"
-        | Some { opens_entries = mask; _ } ->
+        | Some { bound_kind; bound_entries = []; _ } ->
+            fprintf ppf "@\n%s {}" (bound_keyword bound_kind)
+        | Some { bound_kind; bound_entries = mask; _ } ->
+            let keyword = bound_keyword bound_kind in
             let pr_entry ppf (head, args) =
               let qi = mask_head_name head in
               match args with
@@ -3382,7 +3396,7 @@ module Callable = struct
               | _ ->
                   fprintf ppf "%a(%a)" QualIdent.pr qi (Print.pr_list_comma Expr.pr) args
             in
-            fprintf ppf "@\nopens @[<0>%a@]" (Print.pr_list_comma pr_entry) mask
+            fprintf ppf "@\n%s @[<0>%a@]" keyword (Print.pr_list_comma pr_entry) mask
       in
       let pr_call_ancestry ppf = function
         | None -> ()
@@ -3397,7 +3411,7 @@ module Callable = struct
         (Print.pr_list_comma Expr.pr_var_decl)
         call_decl.call_decl_formals pr_returns call_decl.call_decl_returns
         pr_call_ancestry call_decl.call_decl_ancestry pr_call_decl_specs call_decl
-        pr_call_opens call_decl.call_decl_opens pr_call_locals call_decl.call_decl_locals
+        pr_call_bound call_decl.call_decl_bound pr_call_locals call_decl.call_decl_locals
         pr_call_needs_mask call_decl.call_decl_needs_mask pr_call_grants_mask
         call_decl.call_decl_grants_mask
     in
@@ -3467,7 +3481,7 @@ module Callable = struct
   let mk_call_decl ~(kind : call_kind) ~(name : ident) ~(loc : location) ?(formals = [])
       ?(returns = []) ?(locals = []) ?(precond = []) ?(postcond = []) ?(contract_ext = [])
       ?(status = NotFree) ?(is_auto = false) ?(is_inline = false)
-      ?(physical_atomic = false) ?(is_loop = false) ?needs_mask ?grants_mask ?opens ?alias
+      ?(physical_atomic = false) ?(is_loop = false) ?needs_mask ?grants_mask ?bound ?alias
       ?ancestry ?(loc_params = []) () : call_decl =
     {
       call_decl_kind = kind;
@@ -3488,11 +3502,17 @@ module Callable = struct
       call_decl_is_loop = is_loop;
       call_decl_needs_mask = needs_mask;
       call_decl_grants_mask = grants_mask;
-      call_decl_opens = opens;
+      call_decl_bound = bound;
       call_decl_ancestry = ancestry;
       call_decl_loc = loc;
       call_decl_loc_params = loc_params;
     }
+
+  (** The [opens] clause of [decl], if it has one. *)
+  let opens_clause decl =
+    match decl.call_decl_bound with
+    | Some { bound_kind = Opens; _ } as clause -> clause
+    | Some { bound_kind = Depends; _ } | None -> None
 
   let is_abstract = function
     | { call_decl = { call_decl_alias = Some _; _ }; _ } -> false
@@ -3669,7 +3689,13 @@ end
 (** Frozen namespace contracts *)
 
 module NamespaceContract = struct
-  type namespace_definition = Abstract | Defined of Callable.mask [@@deriving compare]
+  (** [Bounded mask] is an abstract predicate whose definition depends on no invariant
+      outside [mask]. *)
+  type namespace_definition =
+    | Abstract
+    | Bounded of Callable.mask
+    | Defined of Callable.mask
+  [@@deriving compare]
 
   (** [Root] records a settled absence of ancestry. *)
   type ancestry = Unresolved | Root | Declared of Callable.ancestry_clause
@@ -3699,7 +3725,8 @@ module NamespaceContract = struct
     @
     match declaration.definition with
     | Abstract -> []
-    | Defined mask -> List.map mask ~f:(fun (head, _) -> Callable.mask_head_name head)
+    | Bounded mask | Defined mask ->
+        List.map mask ~f:(fun (head, _) -> Callable.mask_head_name head)
 
   type separation_instances = {
     scope : QualIdent.t;
@@ -3800,6 +3827,9 @@ module NamespaceContract = struct
     let* definition =
       match declaration.definition with
       | Abstract -> State.return Abstract
+      | Bounded mask ->
+          let+ mask = map_state_mask ~name ~expr mask in
+          Bounded mask
       | Defined mask ->
           let+ mask = map_state_mask ~name ~expr mask in
           Defined mask
@@ -3882,11 +3912,14 @@ module NamespaceContract = struct
         (equal_ancestry previous.ancestry
            (map_ancestry ~name:Fn.id ~expr:align_expression incoming.ancestry))
     then fail "Namespace declarations have conflicting ancestry";
+    (* A definition is more precise than a bound, and a bound than none. *)
     let definition =
       match (previous.definition, incoming.definition) with
       | Abstract, Abstract -> Abstract
-      | Defined body, Abstract -> Defined body
-      | Abstract, Defined body -> Defined (align body)
+      | (Defined _ | Bounded _), Abstract | Defined _, Bounded _ -> previous.definition
+      | Abstract, Bounded body -> Bounded (align body)
+      | (Abstract | Bounded _), Defined body -> Defined (align body)
+      | Bounded left, Bounded right -> Bounded (Callable.mask_union left (align right))
       | Defined left, Defined right -> Defined (Callable.mask_union left (align right))
     in
     { previous with definition }

@@ -68,6 +68,7 @@ let keyword_token (keyword : Ast.SourceKeywords.t) : Parser.token =
   | Where -> WHERE
   | With -> WITH
   | Within -> WITHIN
+  | Depends -> DEPENDS
   | While -> WHILE
   | Proph_type -> PROPH
   | Resolve -> RESOLVE

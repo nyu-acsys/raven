@@ -58,7 +58,9 @@ let test_concrete_resource_expansion () =
   in
   begin match (namespace draft [ "leaf" ]).NamespaceContract.definition with
   | NamespaceContract.Defined [] -> ()
-  | NamespaceContract.Abstract | NamespaceContract.Defined _ -> assert false
+  | NamespaceContract.Abstract | NamespaceContract.Bounded _ | NamespaceContract.Defined _
+    ->
+      assert false
   end;
   let wrapper = namespace draft [ "wrapper" ] in
   let x = argument symbols [ "wrapper" ] in
@@ -66,7 +68,7 @@ let test_concrete_resource_expansion () =
   | Defined body ->
       assert (has_mask_entry body (own [ "leaf" ] [ x ]));
       assert (has_mask_entry body (dependency [ "leaf" ] [ x ]))
-  | NamespaceContract.Abstract -> assert false
+  | NamespaceContract.Abstract | NamespaceContract.Bounded _ -> assert false
   end;
   let x = argument symbols [ "use" ] in
   let use = callable draft [ "use" ] in

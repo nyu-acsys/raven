@@ -2007,12 +2007,12 @@ module Callable = struct
           let+ mask = rewrite_mask mask in
           Some mask
     in
-    let* call_decl_opens =
-      match callable.call_decl.call_decl_opens with
+    let* call_decl_bound =
+      match callable.call_decl.call_decl_bound with
       | None -> return None
       | Some clause ->
-          let+ opens_entries = rewrite_mask_entries clause.opens_entries in
-          Some { clause with opens_entries }
+          let+ bound_entries = rewrite_mask_entries clause.bound_entries in
+          Some { clause with bound_entries }
     in
     (* Location parameters name a field of the callable's own module, so a
        substitution has to reach them too -- otherwise a call through an instance
@@ -2033,7 +2033,7 @@ module Callable = struct
             callable.call_decl with
             call_decl_needs_mask;
             call_decl_grants_mask;
-            call_decl_opens;
+            call_decl_bound;
             call_decl_loc_params;
             call_decl_ancestry;
             call_decl_alias = Base.Option.map callable.call_decl.call_decl_alias ~f;

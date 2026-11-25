@@ -27,14 +27,14 @@ let validate ~regions ~namespaces program =
   let check symbol =
     begin match symbol with
     | Module.CallDef call ->
-        Option.iter call.call_decl.call_decl_opens ~f:(fun clause ->
-            List.iter (Callable.opens_mask clause) ~f:(fun (head, args) ->
+        Option.iter call.call_decl.call_decl_bound ~f:(fun clause ->
+            List.iter (Callable.bound_mask clause) ~f:(fun (head, args) ->
                 let name = Callable.mask_head_name head in
                 match NamespaceRegions.declaration regions name with
                 | Some declaration
                   when Callable.is_invariant_head head
                        && List.length args > List.length declaration.formals ->
-                    Error.type_error clause.opens_loc
+                    Error.type_error clause.bound_loc
                       "An opens entry for a region may specify only identity parameters"
                 | _ -> ()))
     | _ -> ()

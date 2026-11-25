@@ -127,6 +127,9 @@ let canonical_declaration ?(rename = Fn.id) declaration =
   let open Rewriter.Syntax in
   let definition = function
     | Abstract -> Rewriter.return Abstract
+    | Bounded body ->
+        let+ body = canonical_mask ~rename body in
+        Bounded body
     | Defined body ->
         let+ body = canonical_mask ~rename body in
         Defined body
@@ -137,6 +140,7 @@ let canonical_region_declaration ~rename declaration =
   (* Region coverage ignores bodies; their presence still determines merge precedence. *)
   let definition = function
     | Abstract -> Rewriter.return Abstract
+    | Bounded _ -> Rewriter.return (Bounded [])
     | Defined _ -> Rewriter.return (Defined [])
   in
   canonical_declaration_with ~rename ~physical:true ~definition declaration
@@ -239,7 +243,7 @@ let build ~rename ~overrides ~callables ~sources declarations =
     List.fold overrides ~init:namespaces ~f:(fun map declaration ->
         match declaration.definition with
         | Abstract -> map
-        | Defined _ ->
+        | Bounded _ | Defined _ ->
             Map.update map declaration.name ~f:(function
               | Some existing -> { existing with definition = declaration.definition }
               | None -> declaration))

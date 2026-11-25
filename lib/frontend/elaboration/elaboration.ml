@@ -505,12 +505,12 @@ let rec rewrite_loops (enclosing : Callable.call_decl) (stmt : Stmt.t) : Stmt.t 
       let* ext_hooks = Rewriter.current_ext_hooks in
 
       (* A loop may open whatever its enclosing callable's [opens] clause allows. *)
-      let loop_opens =
-        Option.map enclosing.call_decl_opens ~f:(fun clause ->
+      let loop_bound =
+        Option.map enclosing.call_decl_bound ~f:(fun clause ->
             {
               clause with
-              opens_entries =
-                List.map clause.opens_entries ~f:(fun (head, args) ->
+              bound_entries =
+                List.map clause.bound_entries ~f:(fun (head, args) ->
                     ( head,
                       List.map args ~f:(fun arg ->
                           Expr.alpha_renaming arg loop_arg_renaming_map) ));
@@ -565,7 +565,7 @@ let rec rewrite_loops (enclosing : Callable.call_decl) (stmt : Stmt.t) : Stmt.t 
           ~kind:(if is_ghost_scope then Lemma else Proc)
           ~name:loop_proc_name ~loc:stmt.stmt_loc ~formals:loop_arg_var_decls
           ~returns:loop_ret_var_decls ~locals:loop_local_var_decls ~precond:loop_precond
-          ~postcond:loop_postcond ~contract_ext:loop_contract_ext ?opens:loop_opens
+          ~postcond:loop_postcond ~contract_ext:loop_contract_ext ?bound:loop_bound
           ~is_loop:true ()
       in
 

@@ -483,7 +483,7 @@ and compatible_unchecked ~checked ~prepared ~owner ~loc environment ~actual_path
       let overrides =
         List.filter expected.namespaces ~f:(fun declaration ->
             match declaration.NamespaceContract.definition with
-            | Defined _ -> true
+            | Bounded _ | Defined _ -> true
             | Abstract -> false)
       in
       (* Without renaming, the canonical forms of the declarations are shared. *)
@@ -530,20 +530,29 @@ and compatible_unchecked ~checked ~prepared ~owner ~loc environment ~actual_path
                 | None -> signature_error loc "a callable summary is missing"
                 | Some provided ->
                     let promised = align_callable provided promised in
-                    let abstract_resource =
-                      List.exists expected.namespaces ~f:(fun declaration ->
+                    let definition =
+                      List.find expected.namespaces ~f:(fun declaration ->
                           QualIdent.equal declaration.name
-                            (QualIdent.append actual_path name)
-                          &&
-                          match declaration.definition with
-                          | Abstract -> true
-                          | Defined _ -> false)
+                            (QualIdent.append actual_path name))
+                    in
+                    (* An abstract resource promises nothing; a bounded one promises its
+                       bound, which its implementation must not resolve. *)
+                    let abstract_resource, allowed_mask =
+                      match definition with
+                      | Some { definition = Abstract; _ } -> (true, promised.requires)
+                      | Some { definition = Bounded bound; formals; _ } ->
+                          ( false,
+                            NamespaceEquations.instantiate formals
+                              (List.map provided.formals ~f:Expr.from_var_decl)
+                              bound )
+                      | Some { definition = Defined _; _ } | None ->
+                          (false, promised.requires)
                     in
                     let* required =
                       Entailment.normalize_mask ~rename context provided.requires
                     in
                     let* allowed =
-                      Entailment.normalize_mask ~rename budget promised.requires
+                      Entailment.normalize_mask ~rename budget allowed_mask
                     in
                     let* grants_ok =
                       grants_cover ~rename context ~assumptions:environment.assumptions
@@ -554,8 +563,14 @@ and compatible_unchecked ~checked ~prepared ~owner ~loc environment ~actual_path
                       && not (Entailment.covered_regions context ~by:allowed required)
                     then
                       signature_error loc
-                        ("the required mask of " ^ Ident.to_string name
-                       ^ " exceeds the promised mask")
+                        begin match promised.kind with
+                        | Pred ->
+                            "the invariants " ^ Ident.to_string name
+                            ^ " depends on exceed its depends clause"
+                        | Proc | Lemma | Invariant | Func ->
+                            "the required mask of " ^ Ident.to_string name
+                            ^ " exceeds the promised mask"
+                        end
                     else if not grants_ok then
                       signature_error loc
                         ("the granted mask of " ^ Ident.to_string name
