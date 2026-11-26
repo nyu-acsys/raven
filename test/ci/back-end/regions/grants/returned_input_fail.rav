@@ -1,0 +1,41 @@
+// A callee that returns an invariant it was given grants no other instance of it.
+module A {
+  free inv v(x: Int)
+  free proc t(x: Int)
+    requires v(x)
+    ensures v(x)
+}
+
+interface P {
+  inv r(x: Int)
+  proc op(x: Int)
+    requires r(x)
+    ensures r(x)
+}
+
+module G[Q: P] {
+  proc m(x: Int)
+    requires Q.r(x)
+    ensures Q.r(x)
+  {
+    Q.op(x);
+  }
+}
+
+module C : P {
+  inv r(x: Int) = A.v
+  proc op(x: Int) {
+    A.t(x);
+  }
+}
+
+module I = G[C]
+module D : P = checked C
+module J = G[D]
+proc client(x: Int)
+  requires A.v(42)
+  ensures A.v(42)
+{
+  I.m(42);
+  I.m(41);
+}

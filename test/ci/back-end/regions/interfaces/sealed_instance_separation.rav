@@ -1,0 +1,52 @@
+// An invariant of a sealed functor instance is separate from one outside it.
+interface CtxSpec {
+  inv released(channel: Ref; payload: Ref)
+
+  atomic proc acquire(channel: Ref, ghost payload: Ref) returns (observed: Ref)
+    requires released(channel, payload)
+    ensures released(channel, payload)
+    opens released(channel, _)
+}
+
+module Ctx :> CtxSpec {
+  field pointer: Ref
+  inv released(channel: Ref; payload: Ref) {
+    own(channel.pointer, payload, 0.5)
+  }
+
+  atomic proc acquire(channel: Ref, ghost payload: Ref) returns (observed: Ref)
+    requires released(channel, payload)
+    ensures released(channel, payload)
+    opens released(channel, _)
+  {
+    unfold released(channel, payload);
+    observed := channel.pointer;
+    fold released(channel, payload);
+  }
+}
+
+interface FieldSpec[E: Library.Type] {
+  inv published(channel: Ref; cell: Ref)
+  atomic proc acquire(channel: Ref, cell: Ref) returns (observed: Ref)
+    requires published(channel, cell)
+    ensures published(channel, cell)
+    opens published(channel, _), Ctx.released(channel, _)
+}
+
+module Field[E: Library.Type] :> FieldSpec[E] {
+  inv published(channel: Ref; cell: Ref) {
+    Ctx.released(channel, cell)
+  }
+
+  atomic proc acquire(channel: Ref, cell: Ref) returns (observed: Ref)
+    requires published(channel, cell)
+    ensures published(channel, cell)
+    opens published(channel, _), Ctx.released(channel, _)
+  {
+    unfold published(channel, cell);
+    observed := Ctx.acquire(channel, cell);
+    fold published(channel, cell);
+  }
+}
+
+module Inst = Field[Int]

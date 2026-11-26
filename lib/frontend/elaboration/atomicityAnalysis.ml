@@ -282,16 +282,28 @@ let certify_grants ~loc ~exact required (state : atomicity_check) =
         if exact then Callable.equal_mask_head (fst entry) (fst grant)
         else within_head state (fst entry) ~ancestor:(fst grant))
   in
-  let promote_candidate ~exact state (grant, extra, cases) =
+  let promote_candidate ~exact candidates state (grant, extra, cases) =
     if not (wanted ~exact state grant) then Rewriter.return state
     else
       let+ conditions = grant_certification ~loc ~exact draft state grant extra in
       match conditions with
       | None -> state
       | Some conditions ->
+          (* The grant needs one of the cases under which it is promised. *)
+          let alternatives =
+            List.filter_map candidates ~f:(fun (other, _, cases) ->
+                Option.some_if (Callable.compare_mask_entry grant other = 0) cases)
+          in
+          let obligations =
+            if List.exists alternatives ~f:List.is_empty then []
+            else
+              match alternatives with
+              | [ _ ] | [] -> cases
+              | _ -> [ Expr.mk_or (List.map alternatives ~f:Expr.mk_and) ]
+          in
           {
             state with
-            case_obligations = cases @ state.case_obligations;
+            case_obligations = obligations @ state.case_obligations;
             mask =
               (if exact then state.mask else Callable.mask_union state.mask [ grant ]);
             exact_mask =
@@ -310,8 +322,9 @@ let certify_grants ~loc ~exact required (state : atomicity_check) =
               List.map footprint ~f:(fun entry -> (entry, conditions, cases))
           | _ -> Rewriter.return [ (grant, conditions, cases) ])
     in
-    Rewriter.List.fold_left (List.concat candidates) ~init:state
-      ~f:(promote_candidate ~exact)
+    let candidates = List.concat candidates in
+    Rewriter.List.fold_left candidates ~init:state
+      ~f:(promote_candidate ~exact candidates)
   in
   let regional =
     List.map state.region_candidates ~f:(fun grant -> (grant, [], []))

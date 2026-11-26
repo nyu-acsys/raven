@@ -512,13 +512,7 @@ let opaque_application table name =
 let rigid table left right =
   match (left, right) with
   | Callable.MaskHead.Invariant left, Callable.MaskHead.Invariant right ->
-      if
-        QualIdent.equal left right
-        || not
-             (Option.equal QualIdent.equal
-                (opaque_application table left)
-                (opaque_application table right))
-      then false
+      if QualIdent.equal left right then false
       else
         begin match
           ( SymbolTbl.resolve_and_find ~implementation:true ~read_only:true left
@@ -527,8 +521,20 @@ let rigid table left right =
               (SymbolTbl.goto right table) )
         with
         | Some (source_left, _, _, _), Some (source_right, _, _, _) ->
-            (concrete_origin table source_left
-            || defined_invariant_origin table source_left)
+            (* An opaque application may alias another application of its module. *)
+            let owners name =
+              if QualIdent.is_qualified name then
+                List.filter (prefixes (QualIdent.pop name)) ~f:QualIdent.is_qualified
+              else []
+            in
+            (Option.equal QualIdent.equal
+               (opaque_application table left)
+               (opaque_application table right)
+            || not
+                 (List.exists (owners source_left) ~f:(fun owner ->
+                      List.mem (owners source_right) owner ~equal:QualIdent.equal)))
+            && (concrete_origin table source_left
+               || defined_invariant_origin table source_left)
             && (concrete_origin table source_right
                || defined_invariant_origin table source_right)
             && ((not (QualIdent.equal source_left source_right))
@@ -800,4 +806,10 @@ let grant_conditions ~exact ~loc state ~exposure grant =
                         Callable.equal_mask_head head other))
             in
             if impossible then Rewriter.return None
-            else Rewriter.return (Some (requirement :: conditions)))
+            else
+              (* Only a condition on module parameters can still be discharged, by an
+                 instantiation. *)
+              let+ symbolic =
+                identity_mentions ~roots:state.roots (requirement.left @ requirement.right)
+              in
+              if symbolic then Some (requirement :: conditions) else None)
