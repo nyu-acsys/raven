@@ -732,15 +732,20 @@ let exact_disjoint state left right =
                          ~ancestor:name))
           | _ -> false))
 
-let available_grants ?(rename = Fn.id) state ~assumptions
+(** The grants of [summary] where [assumptions] hold, and in the [cases] known to hold. *)
+let available_grants ?(rename = Fn.id) ?(cases = []) state ~assumptions
     (summary : NamespaceContract.callable_summary) =
   let open Rewriter.Syntax in
   let+ guarded =
     Rewriter.List.map summary.guarded_grants ~f:(fun grant ->
+        let known =
+          List.for_all grant.cases ~f:(fun case ->
+              List.exists cases ~f:(Expr.alpha_equal case))
+        in
         let+ available =
           Rewriter.List.for_all grant.conditions ~f:(entails ~rename state ~assumptions)
         in
-        if available then grant.grants else [])
+        if known && available then grant.grants else [])
   in
   List.fold guarded ~init:summary.grants ~f:Callable.mask_union
 

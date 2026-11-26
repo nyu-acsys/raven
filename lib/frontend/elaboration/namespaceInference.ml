@@ -22,6 +22,8 @@ type callable_seed = {
   required : Callable.mask;
   inferred : Callable.mask;
   granted : Callable.mask;
+  guarded : (Expr.t list * Callable.mask_entry) list;
+      (** Grants that hold only in the cases they are paired with. *)
   opens : Callable.mask option;
 }
 
@@ -133,41 +135,69 @@ let exposed_expression formals expression =
   let+ latent = latent_dependencies expression in
   Callable.mask_union ordinary latent
 
+(* Extension expressions in their core form, which elaboration produces later. *)
+let rec lower_extensions expression =
+  let open Rewriter.Syntax in
+  match expression with
+  | Expr.App (ExprExt expr_ext, args, attr) ->
+      let* args = Rewriter.List.map args ~f:lower_extensions in
+      let* ext_hooks = Rewriter.current_ext_hooks in
+      ext_hooks.rewrite_expr_ext expr_ext args attr
+  | _ -> Rewriter.Expr.descend expression ~f:lower_extensions
+
+(* The applications [expression] guarantees, each with the pure cases it holds under. *)
+let rec guaranteed cases expression =
+  match expression with
+  | Expr.App (And, args, _) -> List.concat_map args ~f:(guaranteed cases)
+  | Binder (Exists, _, _, body, _) -> guaranteed cases body
+  | App (Ite, [ condition; left; right ], _) ->
+      guaranteed (condition :: cases) left
+      @ guaranteed (Expr.mk_not condition :: cases) right
+  | App (Impl, [ condition; body ], _) -> guaranteed (condition :: cases) body
+  | App (Var _, _, _) -> [ (List.rev cases, expression) ]
+  | _ -> []
+
+(** The grants of [decl]'s postcondition: those it always establishes, and those it
+    establishes only in some cases, with these cases. *)
 let granted_specs decl =
   let open Rewriter.Syntax in
-  let stop () = function
-    | Expr.App (And, _, _) | Expr.Binder (Exists, _, _, _, _) -> None
-    | Expr.App (Var _, _, _) as expression -> Some [ expression ]
-    | _ -> Some []
-  in
-  let positive expression =
-    Expr.map ~stop
-      ~enter:(fun () _ variables -> ((), variables))
-      ~app:(fun () _ children _ -> List.concat children)
-      ~binder:(fun () binder _ _ body _ -> match binder with Exists -> body | _ -> [])
-      () expression
-  in
-  let* masks =
+  let+ grants =
     Rewriter.List.map decl.Callable.call_decl_postcond ~f:(fun spec ->
-        let* applications =
-          Rewriter.List.map (positive spec.spec_form) ~f:Masks.expr_grant_applications
+        let* form =
+          Rewriter.eval_with_user_state ~init:() (lower_extensions spec.Stmt.spec_form)
         in
         let expressible =
           Set.union
             (expressible_formals decl spec.spec_atomic)
             (formal_names decl.call_decl_returns)
         in
-        Rewriter.return
-          (List.filter_map (List.concat applications) ~f:(fun (name, kind, args) ->
-               let prefix = Masks.truncate_to_formal_expressible expressible args in
-               if List.length prefix <> List.length args then None
-               else
-                 match kind with
-                 | Callable.Invariant -> Some (Callable.invariant_mask_entry name args)
-                 | Pred -> Some (Callable.MaskHead.Dependencies name, args)
-                 | Func | Proc | Lemma -> None)))
+        let in_terms_of_contract expression =
+          Set.is_subset (Expr.local_vars expression) ~of_:expressible
+        in
+        let+ grants =
+          Rewriter.List.map (guaranteed [] form) ~f:(fun (cases, application) ->
+              let+ applications = Masks.expr_grant_applications application in
+              List.filter_map applications ~f:(fun (name, kind, args) ->
+                  let prefix = Masks.truncate_to_formal_expressible expressible args in
+                  if
+                    List.length prefix <> List.length args
+                    || not (List.for_all cases ~f:in_terms_of_contract)
+                  then None
+                  else
+                    match kind with
+                    | Callable.Invariant ->
+                        Some (cases, Callable.invariant_mask_entry name args)
+                    | Pred -> Some (cases, (Callable.MaskHead.Dependencies name, args))
+                    | Func | Proc | Lemma -> None))
+        in
+        List.concat grants)
   in
-  Rewriter.return (Callable.mask_canon (List.concat masks))
+  let unconditional, guarded =
+    List.partition_map (List.concat grants) ~f:(function
+      | [], grant -> First grant
+      | cases, grant -> Second (cases, grant))
+  in
+  (Callable.mask_canon unconditional, guarded)
 
 let ancestry (decl : Callable.call_decl) =
   Option.value_map decl.call_decl_ancestry ~default:NamespaceContract.Root
@@ -261,7 +291,7 @@ let collect symbol =
                   ( Callable.MaskHead.Dependencies name,
                     List.map decl.call_decl_formals ~f:Expr.from_var_decl );
                 ],
-                [],
+                ([], []),
                 None )
           | Proc | Lemma ->
               let* inferred = required_specs decl in
@@ -271,7 +301,7 @@ let collect symbol =
                     Masks.resolve_mask (Callable.bound_mask clause))
               in
               (None, inferred, granted, opens)
-          | Func -> Rewriter.return (None, [], [], None)
+          | Func -> Rewriter.return (None, [], ([], []), None)
         in
         let same_modes =
           List.equal (fun left right ->
@@ -334,7 +364,8 @@ let collect symbol =
             returns = decl.call_decl_returns;
             required = Option.value opens ~default:inferred;
             inferred = exposed;
-            granted;
+            granted = fst granted;
+            guarded = snd granted;
             opens;
           }
         in
@@ -367,7 +398,9 @@ let body_resources (state : collection) callables =
                    let names =
                      match Map.find state.seeds original with
                      | Some seed ->
-                         resource_names (seed.required @ seed.inferred @ seed.granted)
+                         resource_names
+                           (seed.required @ seed.inferred @ seed.granted
+                          @ List.map seed.guarded ~f:snd)
                      | None ->
                          Option.value_map (Map.find callables original) ~default:[]
                            ~f:summary_resources
@@ -393,7 +426,8 @@ let complete_namespaces (state : collection) callables =
   let pending =
     List.concat_map (Map.data state.namespaces) ~f:NamespaceContract.references
     @ List.concat_map (Map.data state.seeds) ~f:(fun seed ->
-        resource_names (seed.inferred @ seed.required @ seed.granted))
+        resource_names
+          (seed.inferred @ seed.required @ seed.granted @ List.map seed.guarded ~f:snd))
     @ body_resources
   in
   (* A referenced root can be regional through an otherwise unused child. *)
@@ -497,18 +531,29 @@ let summarize equations seed =
         || List.exists requires ~f:(fun entry -> covers entry grant)
         || List.is_empty omitted)
   in
+  let guard ~cases ((head, _) as grant) =
+    let covered =
+      List.exists requires ~f:(fun entry -> covers entry grant) || List.is_empty omitted
+    in
+    let conditions =
+      if covered then []
+      else
+        List.map omitted ~f:(fun (other, _) ->
+            {
+              NamespaceContract.left = [ (head, []) ];
+              right = [ (other, []) ];
+              loc = QualIdent.to_loc (Callable.mask_head_name head);
+              instances = None;
+            })
+    in
+    { NamespaceContract.grants = [ grant ]; conditions; cases }
+  in
   let guarded_grants =
-    List.map guarded_grants ~f:(fun ((head, _) as grant) ->
-        let conditions =
-          List.map omitted ~f:(fun (other, _) ->
-              {
-                NamespaceContract.left = [ (head, []) ];
-                right = [ (other, []) ];
-                loc = QualIdent.to_loc (Callable.mask_head_name head);
-                instances = None;
-              })
-        in
-        { NamespaceContract.grants = [ grant ]; conditions })
+    List.map guarded_grants ~f:(guard ~cases:[])
+    @
+    match seed.kind with
+    | Callable.Pred -> []
+    | _ -> List.map seed.guarded ~f:(fun (cases, grant) -> guard ~cases grant)
   in
   {
     NamespaceContract.kind = seed.kind;
@@ -639,9 +684,19 @@ let grant_profile context (seed : callable_seed)
       let* exposure =
         NamespaceEntailment.exposure context ~supplied:summary.requires seed.inferred
       in
-      let* candidates = NamespaceEntailment.normalize_predicates context seed.granted in
+      let* unconditional =
+        NamespaceEntailment.normalize_predicates context seed.granted
+      in
+      let* guarded =
+        Rewriter.List.map seed.guarded ~f:(fun (cases, grant) ->
+            let+ grants = NamespaceEntailment.normalize_predicates context [ grant ] in
+            List.map grants ~f:(fun grant -> (cases, grant)))
+      in
+      let candidates =
+        List.map unconditional ~f:(fun grant -> ([], grant)) @ List.concat guarded
+      in
       let* profiles =
-        Rewriter.List.map candidates ~f:(fun ((head, args) as grant) ->
+        Rewriter.List.map candidates ~f:(fun (cases, ((head, args) as grant)) ->
             let loc = QualIdent.to_loc (Callable.mask_head_name head) in
             let supplied =
               NamespaceEntailment.covered_regions context ~by:summary.requires [ grant ]
@@ -682,21 +737,24 @@ let grant_profile context (seed : callable_seed)
                           instances = None;
                         })
             in
-            Rewriter.return (grant, regional, exact, conditions))
+            Rewriter.return (cases, grant, regional, exact, conditions))
+      in
+      (* A grant that holds only in some cases stays guarded by them. *)
+      let unconditional (cases, _, regional, _, _) =
+        List.is_empty cases && Option.exists regional ~f:List.is_empty
       in
       let grants =
-        List.filter_map profiles ~f:(fun (grant, regional, _, _) ->
-            Option.bind regional ~f:(fun conditions ->
-                Option.some_if (List.is_empty conditions) grant))
+        List.filter_map profiles ~f:(fun ((_, grant, _, _, _) as profile) ->
+            Option.some_if (unconditional profile) grant)
       in
       let exact_grants =
-        List.filter_map profiles ~f:(fun (grant, _, exact, _) ->
-            Option.some_if exact grant)
+        List.filter_map profiles ~f:(fun (cases, grant, _, exact, _) ->
+            Option.some_if (exact && List.is_empty cases) grant)
       in
       let guarded_grants =
-        List.filter_map profiles ~f:(fun (grant, regional, _, conditions) ->
-            if Option.exists regional ~f:List.is_empty then None
-            else Some NamespaceContract.{ grants = [ grant ]; conditions })
+        List.filter_map profiles ~f:(fun ((cases, grant, _, _, conditions) as profile) ->
+            if unconditional profile then None
+            else Some NamespaceContract.{ grants = [ grant ]; conditions; cases })
       in
       Rewriter.return { summary with grants; exact_grants; guarded_grants }
 
@@ -750,10 +808,18 @@ let infer ?(namespaces = []) ?(callables = []) program =
             let* inferred =
               NamespaceEntailment.normalize_predicates resource_context seed.inferred
             in
-            let+ granted =
+            let* granted =
               NamespaceEntailment.normalize_predicates resource_context seed.granted
             in
-            (name, { seed with required; inferred; granted }))
+            let+ guarded =
+              Rewriter.List.map seed.guarded ~f:(fun (cases, grant) ->
+                  let+ grants =
+                    NamespaceEntailment.normalize_predicates resource_context [ grant ]
+                  in
+                  List.map grants ~f:(fun grant -> (cases, grant)))
+            in
+            ( name,
+              { seed with required; inferred; granted; guarded = List.concat guarded } ))
   in
   let* callables =
     freeze_budgets ~equations

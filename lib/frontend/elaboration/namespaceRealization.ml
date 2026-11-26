@@ -254,8 +254,10 @@ let align_callable (actual : NamespaceContract.callable_summary)
 
 let grants_cover ?(rename = Fn.id) context ~assumptions provided promised =
   let open Rewriter.Syntax in
-  let check assumptions required =
-    let* available = Entailment.available_grants ~rename context ~assumptions provided in
+  let check ?cases assumptions required =
+    let* available =
+      Entailment.available_grants ~rename ?cases context ~assumptions provided
+    in
     let* available = Entailment.normalize_predicates ~rename context available in
     let+ required = Entailment.normalize_predicates ~rename context required in
     Entailment.covered_regions context ~by:available required
@@ -279,7 +281,10 @@ let grants_cover ?(rename = Fn.id) context ~assumptions provided promised =
           Entailment.impossible_conditions ~rename context grant.conditions
         in
         if impossible then Rewriter.return true
-        else check (Requirements.union assumptions grant.conditions) grant.grants)
+        else
+          check ~cases:grant.cases
+            (Requirements.union assumptions grant.conditions)
+            grant.grants)
 
 let matching_callable actual name kind =
   let candidates =

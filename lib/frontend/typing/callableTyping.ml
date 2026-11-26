@@ -103,22 +103,16 @@ let check_ancestry (callable : Callable.t) (formals : Type.var_decl list)
   in
   let* owner = Rewriter.current_module_name in
   let* owner_symbol = Rewriter.find_absolute owner in
-  (* In a concrete module, the clause declares the invariant's parent. *)
+  (* The clause of a defined invariant of a concrete module declares its parent; any other
+     promises an ancestor. *)
   let ancestry_kind =
     match owner_symbol with
     | Some (Module.ModDef { mod_decl; _ })
       when mod_decl.mod_decl_is_interface
            || Option.is_some mod_decl.mod_decl_sealed_target ->
         Callable.Within
+    | _ when Callable.is_abstract callable -> Within
     | _ -> Parent
-  in
-  let () =
-    match ancestry_kind with
-    | Parent when Callable.is_abstract callable ->
-        fail
-          "A within clause of an invariant in a concrete module requires a definition of \
-           the invariant"
-    | Parent | Within -> ()
   in
   let* child = Rewriter.current_scope_id in
   let* ancestry_target, target =

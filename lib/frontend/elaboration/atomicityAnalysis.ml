@@ -103,6 +103,9 @@ type atomicity_check = {
   exact_candidates : Callable.mask;
   region_candidates : Callable.mask;
   conditional_candidates : NamespaceContract.guarded_grant list;
+  (* The cases of the conditional candidates promoted since the last statement, which
+     must hold where they are used. *)
+  case_obligations : Expr.t list;
   (* Set while analysing the body of a physically atomic block. The block as a
      whole already cost one step in the enclosing context, and no intermediate
      state inside it is observable, so step counting is suspended within.
@@ -248,6 +251,21 @@ let grant_certification ~loc ~exact (draft : NamespaceInference.t)
   | None -> Rewriter.return None
   | Some conditions -> Rewriter.List.fold_left extra ~init:(Some conditions) ~f:add
 
+(* Assertions that the cases of the conditional grants promoted for this statement hold
+   here. *)
+let case_asserts ~loc (state : atomicity_check) =
+  let spec_error =
+    [
+      Stmt.mk_const_spec_error
+        ( Error.Verification Error.Mask,
+          loc,
+          "An invariant region needed here is granted only in a case that may not hold" );
+    ]
+  in
+  ( { state with case_obligations = [] },
+    List.rev_map state.case_obligations ~f:(fun case ->
+        Stmt.mk_assert_expr ~loc ~spec_error case) )
+
 (* Certifies the candidates that supply what [required] lacks: exact credits first if
    [exact], then regions. *)
 let certify_grants ~loc ~exact required (state : atomicity_check) =
@@ -264,7 +282,7 @@ let certify_grants ~loc ~exact required (state : atomicity_check) =
         if exact then Callable.equal_mask_head (fst entry) (fst grant)
         else within_head state (fst entry) ~ancestor:(fst grant))
   in
-  let promote_candidate ~exact state (grant, extra) =
+  let promote_candidate ~exact state (grant, extra, cases) =
     if not (wanted ~exact state grant) then Rewriter.return state
     else
       let+ conditions = grant_certification ~loc ~exact draft state grant extra in
@@ -273,6 +291,7 @@ let certify_grants ~loc ~exact required (state : atomicity_check) =
       | Some conditions ->
           {
             state with
+            case_obligations = cases @ state.case_obligations;
             mask =
               (if exact then state.mask else Callable.mask_union state.mask [ grant ]);
             exact_mask =
@@ -284,27 +303,27 @@ let certify_grants ~loc ~exact required (state : atomicity_check) =
   let promote ~exact candidates state =
     (* A regional dependency grant stands for the invariants of its footprint. *)
     let* candidates =
-      Rewriter.List.map candidates ~f:(fun (grant, conditions) ->
+      Rewriter.List.map candidates ~f:(fun (grant, conditions, cases) ->
           match (exact, fst grant) with
           | false, Callable.MaskHead.Dependencies _ ->
               let+ footprint = NamespaceInference.normalize_required draft [ grant ] in
-              List.map footprint ~f:(fun entry -> (entry, conditions))
-          | _ -> Rewriter.return [ (grant, conditions) ])
+              List.map footprint ~f:(fun entry -> (entry, conditions, cases))
+          | _ -> Rewriter.return [ (grant, conditions, cases) ])
     in
     Rewriter.List.fold_left (List.concat candidates) ~init:state
       ~f:(promote_candidate ~exact)
   in
   let regional =
-    List.map state.region_candidates ~f:(fun grant -> (grant, []))
+    List.map state.region_candidates ~f:(fun grant -> (grant, [], []))
     @ List.concat_map state.conditional_candidates ~f:(fun profile ->
         List.map profile.NamespaceContract.grants ~f:(fun grant ->
-            (grant, profile.conditions)))
+            (grant, profile.conditions, profile.cases)))
   in
   if supplied state required then Rewriter.return state
   else if exact then
     let* state =
       promote ~exact:true
-        (List.map state.exact_candidates ~f:(fun grant -> (grant, [])))
+        (List.map state.exact_candidates ~f:(fun grant -> (grant, [], [])))
         state
     in
     if NamespaceEntailment.covered ~by:state.exact_mask required then
@@ -532,8 +551,10 @@ let call_formal_actual_alignment (formals : Type.var_decl list) (call_args : Exp
 let call_formal_actual_map (formals : Type.var_decl list) (call_args : Expr.t list) =
   fst (call_formal_actual_alignment formals call_args)
 
-(* Omitted inputs and inputs overwritten by a return cannot give exact credit. *)
-let instantiate_grants (decl : Callable.call_decl) (call : Stmt.call_desc) grants =
+(* The renaming of [decl]'s formals and results to [call]'s, and whether an expression
+   is in terms of the call's own values. Omitted inputs and inputs overwritten by a
+   return are not. *)
+let call_instantiation (decl : Callable.call_decl) (call : Stmt.call_desc) =
   let formal_map, resolved =
     call_formal_actual_alignment decl.call_decl_formals call.call_args
   in
@@ -557,15 +578,26 @@ let instantiate_grants (decl : Callable.call_decl) (call : Stmt.call_desc) grant
     | Ok aligned -> aligned
     | Unequal_lengths -> (formal_map, resolved)
   in
+  let instantiable expression =
+    let variables = Expr.local_vars expression in
+    Set.is_empty (Set.inter variables unsafe_inputs)
+    && Set.is_subset variables ~of_:resolved
+  in
+  (renaming, instantiable)
+
+let instantiate_grants (decl : Callable.call_decl) (call : Stmt.call_desc) grants =
+  let renaming, instantiable = call_instantiation decl call in
   List.filter_map grants ~f:(fun (head, args) ->
-      if
-        List.exists args ~f:(fun arg ->
-            not (Set.is_empty (Set.inter (Expr.local_vars arg) unsafe_inputs)))
-        || List.exists args ~f:(fun arg ->
-            not (Set.is_subset (Expr.local_vars arg) ~of_:resolved))
-      then None
+      if not (List.for_all args ~f:instantiable) then None
       else Some (head, List.map args ~f:(fun arg -> Expr.alpha_renaming arg renaming)))
   |> Callable.mask_canon
+
+(* The cases of a grant at [call], unless one is not in terms of the call's values. *)
+let instantiate_cases (decl : Callable.call_decl) (call : Stmt.call_desc) cases =
+  let renaming, instantiable = call_instantiation decl call in
+  Option.some_if
+    (List.for_all cases ~f:instantiable)
+    (List.map cases ~f:(fun case -> Expr.alpha_renaming case renaming))
 
 (* Every parameter before [;], including implicit formals, indexes identity. *)
 let identity_arity (qi : QualIdent.t) ~(default : int) : (int, 'a) Rewriter.t_ext =
@@ -1688,7 +1720,14 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
               let grants =
                 drop_mask_entries_mentioning assigned grant.NamespaceContract.grants
               in
-              Option.some_if (not (List.is_empty grants)) { grant with grants });
+              (* Cases are about the values the call returned. *)
+              let current =
+                List.for_all grant.cases ~f:(fun case ->
+                    Set.is_empty (Set.inter (Expr.local_vars case) assigned))
+              in
+              Option.some_if
+                ((not (List.is_empty grants)) && current)
+                { grant with grants });
         preds_unfolded =
           List.filter state.preds_unfolded ~f:(fun pred -> not (mentions_assigned pred));
       }
@@ -1848,6 +1887,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
         let* atomicity_state =
           certify_grants ~loc ~exact:false required_at_call_site atomicity_state
         in
+        let atomicity_state, grant_case_asserts = case_asserts ~loc atomicity_state in
         (* Calls require subtree authority; exact allocation credits cannot cover
            their footprints. Unresolved key equalities become ground assertions. *)
         let* required_with_arity =
@@ -1899,6 +1939,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
                      ~spec_error:[ Stmt.mk_const_spec_error error ]
                      cond))
         in
+        let availability_asserts = grant_case_asserts @ availability_asserts in
         let atomicity_state =
           require_separation ~loc required_at_call_site atomicity_state
         in
@@ -1944,22 +1985,27 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
             List.filter_map guarded_grants ~f:(fun profile ->
                 let grants = instantiate profile.NamespaceContract.grants in
                 let grants = List.filter grants ~f:(complete_grant atomicity_state) in
-                Option.some_if
-                  (not (List.is_empty grants))
-                  NamespaceContract.
-                    {
-                      grants;
-                      conditions =
-                        List.map profile.conditions ~f:(fun condition ->
-                            {
-                              condition with
-                              left =
-                                List.map condition.left ~f:(fun (head, _) -> (head, []));
-                              right =
-                                List.map condition.right ~f:(fun (head, _) -> (head, []));
-                              instances = None;
-                            });
-                    })
+                Option.bind (instantiate_cases call_decl call_desc profile.cases)
+                  ~f:(fun cases ->
+                    Option.some_if
+                      (not (List.is_empty grants))
+                      NamespaceContract.
+                        {
+                          grants;
+                          cases;
+                          conditions =
+                            List.map profile.conditions ~f:(fun condition ->
+                                {
+                                  condition with
+                                  left =
+                                    List.map condition.left ~f:(fun (head, _) ->
+                                        (head, []));
+                                  right =
+                                    List.map condition.right ~f:(fun (head, _) ->
+                                        (head, []));
+                                  instances = None;
+                                });
+                        }))
         in
         let atomicity_state =
           {
@@ -2215,6 +2261,9 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
                         ]
                         atomicity_state
                     in
+                    let atomicity_state, grant_case_asserts =
+                      case_asserts ~loc atomicity_state
+                    in
                     let atomicity_state, open_asserts =
                       open_inv ~loc ~inv_resource_name:use_desc.use_name
                         ( invariant_name,
@@ -2235,8 +2284,8 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
                        copies the instance's arguments. *)
                     Rewriter.return
                       (Stmt.mk_block_stmt ~loc
-                         (marker_stmts @ bind_stmts @ open_asserts @ flag_stmts @ [ stmt ]
-                        @ snap_stmts))
+                         (marker_stmts @ bind_stmts @ grant_case_asserts @ open_asserts
+                        @ flag_stmts @ [ stmt ] @ snap_stmts))
                 | Fold -> (
                     (* Multiple instances of the same declaration can be open
                        at once, so this needs to identify which one; see
@@ -2864,6 +2913,7 @@ let analyze ~namespace_draft (c : Callable.t) : (namespace_analysis, 'a) Rewrite
         exact_candidates = [];
         region_candidates = [];
         conditional_candidates = [];
+        case_obligations = [];
         namespace_draft;
         separation;
         callees = Set.empty (module QualIdent);

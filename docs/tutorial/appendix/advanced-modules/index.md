@@ -409,10 +409,11 @@ module Actual : Resource {
 
 An invariant instance now stands for a *region*: itself and its descendants. A mask that names
 `shared(x)` covers `cell(x)` too, so `touch`, whose mask is `shared(x)`, may open both, and a
-client of the sealed `Public` needs to know nothing about `cell`. In a module, a `within` clause
-declares the invariant's parent: it names an invariant of the same module, and its arguments
-must be parameters of the child, so each child instance has exactly one parent instance. The
-child needs a definition, and ancestry can't be cyclic. An implementation may place its private
+client of the sealed `Public` needs to know nothing about `cell`. In a module, the `within`
+clause of a defined invariant declares its parent: it names an invariant of the same module, and
+its arguments must be parameters of the child, so each child instance has exactly one parent
+instance. Ancestry can't be cyclic. On an invariant without a definition, the clause is a
+promise, as in an interface. An implementation may place its private
 invariants anywhere, but not give a public invariant an ancestor its interface doesn't declare:
 that is rejected with `Incompatible module namespace contracts: Realization gives invariant ...
 an undeclared ancestor`.

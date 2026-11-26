@@ -45,7 +45,13 @@ let test_collapsing_substitution () =
                 grants = left;
                 exact_grants = [];
                 guarded_grants =
-                  [ { grants = right; conditions = [ requirement left right ] } ];
+                  [
+                    {
+                      grants = right;
+                      conditions = [ requirement left right ];
+                      cases = [];
+                    };
+                  ];
                 separation = [ requirement left right ];
               } );
           ];
@@ -62,7 +68,7 @@ let test_collapsing_substitution () =
       assert (List.length callable.separation = 1);
       assert (same_mask callable.grants separation.left);
       begin match callable.guarded_grants with
-      | [ { grants; conditions = [ condition ] } ] ->
+      | [ { grants; conditions = [ condition ]; _ } ] ->
           assert (same_mask grants separation.left);
           assert (same_mask condition.left condition.right)
       | _ -> assert false
@@ -160,6 +166,7 @@ let higher_order_summary () =
                     {
                       grants = region;
                       conditions = [ requirement region [ own [ "Source"; "I" ] [] ] ];
+                      cases = [];
                     };
                   ];
                 separation = [];
@@ -215,7 +222,7 @@ let check_higher_order = function
               assert (
                 same_mask callable.exact_grants [ own [ "Target"; "I" ] [ expected ] ]);
               begin match callable.guarded_grants with
-              | [ { grants; conditions = [ condition ] } ] ->
+              | [ { grants; conditions = [ condition ]; _ } ] ->
                   assert (same_mask grants expected_mask);
                   assert (same_mask condition.left expected_mask);
                   assert (same_mask condition.right [ own [ "Target"; "I" ] [] ])
@@ -344,7 +351,7 @@ let test_guarded_grants () =
       requires = [];
       grants = plain;
       exact_grants = [];
-      guarded_grants = [ { grants = guarded; conditions = [ condition ] } ];
+      guarded_grants = [ { grants = guarded; conditions = [ condition ]; cases = [] } ];
       separation = [];
     }
   in

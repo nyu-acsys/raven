@@ -1,0 +1,35 @@
+// The outcome is overwritten before the grant is used.
+field value: Int
+
+inv shared(x: Ref) { exists v: Int :: own(x.value, v) }
+
+lemma touch(x: Ref)
+  requires shared(x)
+  ensures shared(x)
+  opens shared(x)
+{
+  unfold shared(x);
+  fold shared(x);
+}
+
+// Allocates the invariant only on success.
+proc make(fail: Bool) returns (result: Ref, raised: Option[Int])
+  ensures match raised { case none => shared(result) case _ => true }
+  opens {}
+{
+  raised := Option.none;
+  if (fail) {
+    raised := Option.some(0);
+  } else {
+    result := new(value: 0);
+    fold shared(result);
+  }
+}
+
+proc client() opens {} {
+  var q: Ref;
+  var raised: Option[Int];
+  q, raised := make(true);
+  raised := Option.none;
+  touch(q);
+}

@@ -3199,8 +3199,8 @@ module Callable = struct
   (** An explicit [opens] or [depends] clause, retaining trailing wildcards and its source
       span. *)
 
-  (** A [within] clause of an invariant of a concrete module declares its [Parent]; one of
-      an interface promises an ancestor, possibly through invariants it doesn't show. *)
+  (** A [within] clause of a defined invariant of a concrete module declares its [Parent];
+      any other promises an ancestor, possibly through invariants it doesn't show. *)
   type ancestry_kind = Parent | Within [@@deriving compare]
 
   type ancestry_clause = {
@@ -3719,6 +3719,9 @@ module NamespaceContract = struct
   type guarded_grant = {
     grants : Callable.mask;
     conditions : separation_requirement list;
+    cases : Expr.t list;
+        (** Pure conditions over the callable's formals and results, such as an outcome,
+            under which its postcondition establishes the grants. *)
   }
   [@@deriving compare]
 
@@ -3827,10 +3830,11 @@ module NamespaceContract = struct
   let map_state_guarded_grant ~name ~expr (grant : guarded_grant) =
     let open State.Syntax in
     let* grants = map_state_mask ~name ~expr grant.grants in
-    let+ conditions =
+    let* conditions =
       State.List.map grant.conditions ~f:(map_state_separation ~name ~expr)
     in
-    { grants; conditions }
+    let+ cases = State.List.map grant.cases ~f:expr in
+    { grants; conditions; cases }
 
   let map_state_callable_summary ~name ~expr ~typ (summary : callable_summary) =
     let open State.Syntax in
