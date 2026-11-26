@@ -7,7 +7,6 @@ proc incr(x: Ref)
   requires own(x.f, 0, 1.0)
   ensures own(x.f, 1, 1.0)
   /*locals ()*/
-  /* mask: <none> */
  {
    x.f := 1;
  }
@@ -20,7 +19,6 @@ proc incr(x: Ref)
   requires own(x.f, 0, 1.0)
   ensures own(x.f, 2, 1.0)
   /*locals ()*/
-  /* mask: <none> */
  {
    x.f := 1;
  }
@@ -36,7 +34,6 @@ proc get(s: S)
   returns (r: Int)
   ensures r == (match s { case some(v) => v case none => 0 })
   /*locals ()*/
-  /* mask: <none> */
  {
    match s {
      case some(v) => {

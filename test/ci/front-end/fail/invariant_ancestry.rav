@@ -1,6 +1,6 @@
 inv base(parent: Ref) { true }
-inv child(parent: Ref) parent base(parent) { true }
+inv child(parent: Ref) within base(parent) { true }
 inv deferred(owner: Ref) within base(owner) { true }
-inv nonformal(owner: Ref) parent base(null) { true }
-inv wrong_type(owner: Int) parent base(owner) { true }
-pred wrong_kind(owner: Ref) parent base(owner) { true }
+inv nonformal(owner: Ref) within base(null) { true }
+inv wrong_type(owner: Int) within base(owner) { true }
+pred wrong_kind(owner: Ref) within base(owner) { true }

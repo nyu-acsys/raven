@@ -5,6 +5,6 @@ interface Family {
 
 module Actual : Family {
   inv root(x: Int, y: Int) { true }
-  inv middle(y: Int, x: Int) parent root(y, x) { true }
-  inv leaf(tag: Int, y: Int, x: Int) parent middle(y, x) { true }
+  inv middle(y: Int, x: Int) within root(y, x) { true }
+  inv leaf(tag: Int, y: Int, x: Int) within middle(y, x) { true }
 }

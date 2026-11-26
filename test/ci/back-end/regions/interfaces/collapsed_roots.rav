@@ -6,5 +6,5 @@ interface Independent {
 module Actual : Independent {
   inv first(x: Int) { true }
   inv second(x: Int) = first
-  inv hidden(x: Int) parent first(x) { true }
+  inv hidden(x: Int) within first(x) { true }
 }

@@ -47,7 +47,6 @@ let keyword_token (keyword : Ast.SourceKeywords.t) : Parser.token =
   | Null -> CONSTVAL Expr.Null
   | Opens -> OPENS
   | Own -> OWN
-  | Parent -> PARENT
   | Pred -> FUNC Pred
   | Proc -> PROC
   | Ref -> CONSTTYPE Type.Ref

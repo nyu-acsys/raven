@@ -437,8 +437,6 @@ let module_ ~loc ~name ~interface ~actual =
                   call_decl_status = NotFree;
                   call_decl_is_sealed = false;
                   call_decl_alias = None;
-                  call_decl_needs_mask = None;
-                  call_decl_grants_mask = None;
                   call_decl_locals = [];
                   call_decl_loc = loc;
                 }

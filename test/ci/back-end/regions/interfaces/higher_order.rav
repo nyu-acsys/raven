@@ -12,7 +12,7 @@ interface Factory() : Family {}
 
 module Fresh() : Factory {
   inv root(x: Int) { true }
-  inv leaf(x: Int) parent root(x) { true }
+  inv leaf(x: Int) within root(x) { true }
 
   lemma step(x: Int) {
     unfold leaf(x);

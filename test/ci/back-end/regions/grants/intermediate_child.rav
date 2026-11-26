@@ -1,5 +1,5 @@
 inv root(x: Int) { child(x) }
-inv child(x: Int) parent root(x) { true }
+inv child(x: Int) within root(x) { true }
 lemma create(x: Int)
   ensures root(x)
   opens {}

@@ -1,5 +1,5 @@
 inv au_root(x: Int) { true }
-inv au_child(x: Int) parent au_root(x) { true }
+inv au_child(x: Int) within au_root(x) { true }
 proc host(host_key: Int)
   atomic requires au_child(host_key)
   atomic ensures au_child(host_key)

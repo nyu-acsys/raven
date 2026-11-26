@@ -11,7 +11,7 @@ interface API {
 }
 module Actual: API {
   inv root(x: Ref) { child(x) }
-  inv child(x: Ref) parent root(x) { exists n: Int :: own(x.value, n) }
+  inv child(x: Ref) within root(x) { exists n: Int :: own(x.value, n) }
   proc create(x: Ref) {
     fold child(x);
     fold root(x);

@@ -14,7 +14,7 @@ interface Family {
 
 module Actual : Family {
   inv root(x: Int) { leaf(x) }
-  inv leaf(x: Int) parent root(x) { true }
+  inv leaf(x: Int) within root(x) { true }
 
   lemma create(x: Int) {
     fold leaf(x);

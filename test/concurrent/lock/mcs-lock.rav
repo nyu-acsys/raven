@@ -22,7 +22,7 @@ module MCSLock[R: LockResource] :> QueueLock[R] {
 
   ghost field token: Frac_Ref_Bool
 
-  inv signal_loc_inv(l: Ref, v: Ref, n: Ref, r: R) parent is_lock(l, r) {
+  inv signal_loc_inv(l: Ref, v: Ref, n: Ref, r: R) within is_lock(l, r) {
     exists b_choice: Bool ::
       b_choice ? own(n.token, frac_chunk((v, false), 1.0)) :
 
@@ -37,7 +37,7 @@ module MCSLock[R: LockResource] :> QueueLock[R] {
       )
   }
 
-  inv waiting_loc_inv(l: Ref, n: Ref, r: R) parent is_lock(l, r) {
+  inv waiting_loc_inv(l: Ref, n: Ref, r: R) within is_lock(l, r) {
     exists b_choice: Bool ::
       b_choice ? own(n.token, frac_chunk((n, true), 1.0)) :
 

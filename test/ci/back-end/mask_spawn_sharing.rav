@@ -22,7 +22,7 @@ proc touch(x: Ref)
   fold p(x);
 }
 
-// `main`'s own `call_decl_needs_mask` is `()` -- the one local `fold` supplies
+// `main`'s own required mask is empty -- the one local `fold` supplies
 // the credit that both the `spawn touch(x)` call site and `main`'s own
 // later `unfold` draw on.
 proc main() {

@@ -1,4 +1,4 @@
 module External {
   inv root(x: Int) { true }
-  inv leaf(x: Int) parent root(x) { true }
+  inv leaf(x: Int) within root(x) { true }
 }

@@ -1,5 +1,5 @@
 inv root() { true }
-inv child(; v: Int) parent root() { v == 0 }
+inv child(; v: Int) within root() { v == 0 }
 lemma bad(ghost v: Int)
   requires child(v)
   opens child(v)

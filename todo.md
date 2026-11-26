@@ -1,5 +1,5 @@
 24 nov, 2026:
-- [ ] Add checked invariant-dependency bounds for opaque predicates, including an
+- [x] Add checked invariant-dependency bounds for opaque predicates, including an
     empty bound for sealed execution contexts, so fresh-region grants need no
     broad caller mask and private context representations can remain hidden.
 - [ ] Recognize specialized functor conformance when passing an opaque `F[X]`
@@ -26,10 +26,10 @@
 26 oct, 2026:
 - [x] Resolve invariant aliases in required, granted, and explicit masks after
     generic module substitution, preserving argument prefixes and fresh identities.
-- [ ] Infer and freeze symbolic invariant namespace contracts and separation requirements
+- [x] Infer and freeze symbolic invariant namespace contracts and separation requirements
     at module boundaries; validate realizations compositionally, including higher-order
     functors. Reproductions are retained in `test/ci/back-end/pending-invariant-namespaces`.
-- [ ] Support invariant-carrying abstract predicates without hiding mask requirements.
+- [x] Support invariant-carrying abstract predicates without hiding mask requirements.
 
 25 oct, 2026:
 - [ ] Requalify interface-defined helper lemmas' atomic token types when inheriting

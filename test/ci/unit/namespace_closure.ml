@@ -237,7 +237,7 @@ let test_prior_exact_grant_compilation_unit () =
   let _, tbl, library =
     parse ~root:(id "Previous")
       "inv root(x: Int) { child(x) }\n\
-       inv child(x: Int) parent root(x) { true }\n\
+       inv child(x: Int) within root(x) { true }\n\
        lemma wrap(ghost x: Int)\n\
        requires child(x) ensures root(x) opens {} { fold root(x); }"
   in
@@ -266,7 +266,7 @@ let test_prior_latent_au_dependency () =
   let _, tbl, library =
     parse ~root:(id "Previous")
       "inv root(x: Int) { true }\n\
-       inv child(x: Int) parent root(x) { true }\n\
+       inv child(x: Int) within root(x) { true }\n\
        free proc host(x: Int)\n\
        atomic requires child(x) atomic ensures child(x) opens child(x)\n\
        pred stored(token: AtomicToken<host>, x: Int) { au<host>(token, x) }\n\

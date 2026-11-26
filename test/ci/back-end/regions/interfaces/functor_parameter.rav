@@ -24,7 +24,7 @@ module Client[P: Inherited] {
 
 module Actual : Inherited {
   inv root(x: Int) { true }
-  inv leaf(x: Int) parent root(x) { true }
+  inv leaf(x: Int) within root(x) { true }
 
   lemma step(x: Int) {
     unfold leaf(x);

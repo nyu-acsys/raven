@@ -384,7 +384,70 @@ the application is rejected with `Incompatible module namespace contracts`.
   verifies against the module directly. Applications inside other functors are always checked
   per declaration.
 - Masks are fixed by the interface. An implementation can't open an invariant its interface's
-  mask doesn't cover, even if no caller would ever have it open. Declaring hidden invariants
-  through a predicate entry makes every caller provide them, for every implementation.
+  mask doesn't cover, even if no caller would ever have it open, unless it places the invariant
+  inside a covered one, as in {{ref sec:invariant-regions}}. Declaring hidden invariants through a
+  predicate entry instead makes every caller provide them, for every implementation.
 - Holding an abstract resource doesn't, by default, let you open the invariants hidden in it;
   that permission has to be requested with a predicate entry, as above.
+
+## Invariant regions {#sec:invariant-regions}
+
+*Also assumes: {{ref sec:module-namespace-contracts}}.*
+
+A predicate entry in an `opens` clause makes every caller provide what an implementation hides.
+An implementation can instead place its private invariants inside a public one, which callers
+provide anyway. In [`invariant_regions.rav`](./invariant_regions.rav), `Actual` declares that
+`cell` lies within `shared`:
+
+```raven
+module Actual : Resource {
+  inv shared(x: Ref) { cell(x) }
+  inv cell(x: Ref) within shared(x) { exists v: Int :: own(x.value, v) }
+  ...
+}
+```
+
+An invariant instance now stands for a *region*: itself and its descendants. A mask that names
+`shared(x)` covers `cell(x)` too, so `touch`, whose mask is `shared(x)`, may open both, and a
+client of the sealed `Public` needs to know nothing about `cell`. In a module, a `within` clause
+declares the invariant's parent: it names an invariant of the same module, and its arguments
+must be parameters of the child, so each child instance has exactly one parent instance. The
+child needs a definition, and ancestry can't be cyclic. An implementation may place its private
+invariants anywhere, but not give a public invariant an ancestor its interface doesn't declare:
+that is rejected with `Incompatible module namespace contracts: Realization gives invariant ...
+an undeclared ancestor`.
+
+Regions also decide which calls are safe while invariants are open. Opening an invariant doesn't
+use up the mask. Instead, Raven records which instances are open, and a call requires that none
+of them lies in the callee's region. A callee whose mask is `child(x)` may run while `root(x)` is
+open, since `root(x)` isn't in that region. The converse is rejected: in
+[`broken/region_reentry.rav`](./broken/region_reentry.rav), `reenter` calls `root_step`, whose
+mask is `root(x)`, while `child(x)` is open, and gets `[Verification Error] Missing fold for
+unfolded invariant child(x)`. Calling `root_step` before unfolding `child(x)` fixes it.
+
+**Promising a region.** In an interface, a `within` clause promises that one invariant lies
+within another:
+
+```raven
+interface Family {
+  inv root(x: Int)
+  inv leaf(x: Int, k: Int) within root(x)
+}
+```
+
+A client may then open any `leaf(x, k)` under the mask `root(x)`, as `visit` does. Each
+implementation keeps the promise through the parents it declares, possibly with private
+invariants in between: `Tree` places `leaf` within a private `branch`, which lies within `root`.
+
+**Bounding what an abstract resource depends on.** When you hold an abstract predicate or
+invariant, Raven doesn't know which invariants its implementations put inside it, so it can't
+tell them apart from the invariants you allocate or open. A `depends` clause bounds them:
+`pred context(self: Ref) depends {}` promises that `context` depends on no invariant, and
+`depends cell(x)` would allow the region of `cell(x)`. In the example, `fresh` holds
+`Hidden.context(self)` and still allocates and opens a `counter` under `opens {}`. Without the
+clause, it is rejected with `Cannot establish invariant namespace separation between counter
+and dependencies(Hidden.context)`. Each implementation is checked against the bound, and one
+whose definition depends on more is rejected with `the invariants context depends on exceed its
+depends clause`. A bound only limits what a resource may depend on: it gives no permission to
+open the invariants it names. Only predicates and invariants without a definition take a
+`depends` clause.

@@ -10,9 +10,12 @@ All notable changes to this project will be documented in this file.
 - The OCaml API can construct one-shot prophecy types, resources, allocations, and resolutions.
 - The OCaml API can select individual backend proof obligations to verify.
 - `cut P` proves `P` and verifies the rest of a procedure from `P` and variables' values alone.
+- Invariants can declare which invariant they lie `within`, so a mask also covers the invariants inside it.
+- Abstract predicates and invariants can bound the invariants they depend on with a checked `depends` clause.
 
 ### Changed
 
+- Opening an invariant no longer uses up the mask; a call requires that no open invariant lies in its region.
 - Infer existential witnesses from comprehensions of resources, such as entries of a map-valued field.
 - Iterated conjunctions of invariant instances no longer need an injective index.
 - A loop may mention invariants unavailable where it starts, such as those it creates; it opens only available ones.

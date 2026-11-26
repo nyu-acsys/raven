@@ -10,7 +10,7 @@ interface Family[E: Library.Type] {
 
 module Actual[E: Library.Type] : Family[E] {
   inv root(x: Int) { true }
-  inv leaf(x: Int) parent root(x) { true }
+  inv leaf(x: Int) within root(x) { true }
 
   lemma step(x: Int) {
     unfold leaf(x);

@@ -3199,6 +3199,8 @@ module Callable = struct
   (** An explicit [opens] or [depends] clause, retaining trailing wildcards and its source
       span. *)
 
+  (** A [within] clause of an invariant of a concrete module declares its [Parent]; one of
+      an interface promises an ancestor, possibly through invariants it doesn't show. *)
   type ancestry_kind = Parent | Within [@@deriving compare]
 
   type ancestry_clause = {
@@ -3208,8 +3210,6 @@ module Callable = struct
     ancestry_loc : location; [@compare.ignore]
   }
   [@@deriving compare]
-
-  let ancestry_keyword = function Parent -> "parent" | Within -> "within"
 
   let is_opens_wildcard e =
     Expr.is_ident e && String.equal (Ident.name (Expr.to_ident e)) "_"
@@ -3251,19 +3251,10 @@ module Callable = struct
     call_decl_is_loop : bool;
         (** Whether this procedure or lemma is the elaboration of a loop: its mask is what
             its loop invariant mentions and its entry point has available. *)
-    call_decl_needs_mask : mask option;
-        (** Invariant mask required from this callable's caller -- computed purely from
-            [call_decl_precond] (see [masks.ml]); also the starting mask for checking this
-            callable's own body. *)
-    call_decl_grants_mask : mask option;
-        (** Exact resource mask entries granted by the postcondition, subject to the
-            [opens] restrictions. Dependency entries remain symbolic; their upper bounds
-            are never granted. Used at callers' call sites. *)
     call_decl_bound : bound_clause option;
-        (** The user's [opens] clause, if any, replaces the [call_decl_needs_mask]
-            otherwise inferred from [call_decl_precond]; a [depends] clause bounds the
-            dependencies of an abstract predicate or invariant, checked where it is
-            implemented. *)
+        (** The user's [opens] clause, if any, replaces the mask otherwise inferred from
+            [call_decl_precond]; a [depends] clause bounds the dependencies of an abstract
+            predicate or invariant, checked where it is implemented. *)
     call_decl_ancestry : ancestry_clause option;
     call_decl_loc : location;  (** source location of declaration *)
     call_decl_loc_params : QualIdent.t list;
@@ -3368,22 +3359,6 @@ module Callable = struct
         (* | [] -> () *)
         | ls -> fprintf ppf "@\n/*locals (@[<0>%a@])*/" Expr.pr_var_decl_list ls
       in
-      let pr_mask_entries ppf mask =
-        let pr_entry ppf (head, args) =
-          match args with
-          | [] -> fprintf ppf "%a" pr_mask_head head
-          | _ -> fprintf ppf "%a(%a)" pr_mask_head head (Print.pr_list_comma Expr.pr) args
-        in
-        fprintf ppf "(@[<0>%a@])" (Print.pr_list_comma pr_entry) mask
-      in
-      let pr_call_needs_mask ppf = function
-        | None -> fprintf ppf "@\n/* mask: <none> */"
-        | Some mask -> fprintf ppf "@\n/* needs mask: %a */" pr_mask_entries mask
-      in
-      let pr_call_grants_mask ppf = function
-        | None -> ()
-        | Some mask -> fprintf ppf "@\n/* grants mask: %a */" pr_mask_entries mask
-      in
       let pr_call_bound ppf = function
         | None -> ()
         | Some { bound_kind; bound_entries = []; _ } ->
@@ -3401,20 +3376,17 @@ module Callable = struct
       in
       let pr_call_ancestry ppf = function
         | None -> ()
-        | Some { ancestry_kind; ancestry_target; ancestry_args; _ } ->
-            fprintf ppf "@\n%s %a(%a)"
-              (ancestry_keyword ancestry_kind)
-              QualIdent.pr ancestry_target (Print.pr_list_comma Expr.pr) ancestry_args
+        | Some { ancestry_target; ancestry_args; _ } ->
+            fprintf ppf "@\nwithin %a(%a)" QualIdent.pr ancestry_target
+              (Print.pr_list_comma Expr.pr) ancestry_args
       in
-      fprintf ppf "@[<2>%s %a(%a)@;%a%a%a%a%a%a%a@]"
+      fprintf ppf "@[<2>%s %a(%a)@;%a%a%a%a%a@]"
         (free_modifier ^ auto_modifier ^ kind)
         Ident.pr call_decl.call_decl_name
         (Print.pr_list_comma Expr.pr_var_decl)
         call_decl.call_decl_formals pr_returns call_decl.call_decl_returns
         pr_call_ancestry call_decl.call_decl_ancestry pr_call_decl_specs call_decl
         pr_call_bound call_decl.call_decl_bound pr_call_locals call_decl.call_decl_locals
-        pr_call_needs_mask call_decl.call_decl_needs_mask pr_call_grants_mask
-        call_decl.call_decl_grants_mask
     in
     let pr ppf def =
       let open Stdlib.Format in
@@ -3482,8 +3454,8 @@ module Callable = struct
   let mk_call_decl ~(kind : call_kind) ~(name : ident) ~(loc : location) ?(formals = [])
       ?(returns = []) ?(locals = []) ?(precond = []) ?(postcond = []) ?(contract_ext = [])
       ?(status = NotFree) ?(is_auto = false) ?(is_inline = false)
-      ?(physical_atomic = false) ?(is_loop = false) ?needs_mask ?grants_mask ?bound ?alias
-      ?ancestry ?(loc_params = []) () : call_decl =
+      ?(physical_atomic = false) ?(is_loop = false) ?bound ?alias ?ancestry
+      ?(loc_params = []) () : call_decl =
     {
       call_decl_kind = kind;
       call_decl_physical_atomic = physical_atomic;
@@ -3501,8 +3473,6 @@ module Callable = struct
       call_decl_is_inline = is_inline;
       call_decl_is_sealed = false;
       call_decl_is_loop = is_loop;
-      call_decl_needs_mask = needs_mask;
-      call_decl_grants_mask = grants_mask;
       call_decl_bound = bound;
       call_decl_ancestry = ancestry;
       call_decl_loc = loc;

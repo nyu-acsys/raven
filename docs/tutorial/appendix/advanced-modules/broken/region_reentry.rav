@@ -1,0 +1,22 @@
+inv root(x: Int) { child(x) }
+inv child(x: Int) within root(x) { true }
+
+lemma root_step(x: Int)
+  requires root(x)
+  ensures root(x)
+  opens root(x)
+{
+  unfold root(x);
+  fold root(x);
+}
+
+// `child(x)` is open, and it lies in the region `root_step` may open.
+lemma reenter(x: Int)
+  requires root(x) && child(x)
+  ensures root(x) && child(x)
+  opens root(x)
+{
+  unfold child(x);
+  root_step(x);
+  fold child(x);
+}

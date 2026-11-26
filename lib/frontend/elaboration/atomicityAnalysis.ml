@@ -109,7 +109,7 @@ type atomicity_check = {
      Invariant and atomic-update tracking continues, so anything opened inside
      must still be closed inside. *)
   in_atomic_block : bool;
-  namespace_draft : NamespaceInference.t option;
+  namespace_draft : NamespaceInference.t;
   separation : NamespaceContract.separation_requirement list;
   callees : QualIdentSet.t;
   (* The masks of the loops this callable enters, cut down to what is available there. *)
@@ -129,9 +129,8 @@ type namespace_analysis = {
 let project_arguments state ~descendant ~ancestor arguments =
   if QualIdent.equal descendant ancestor then Some arguments
   else
-    Option.bind state.namespace_draft ~f:(fun draft ->
-        NamespaceRegions.project_arguments draft.NamespaceInference.regions ~descendant
-          ~ancestor arguments)
+    NamespaceRegions.project_arguments state.namespace_draft.NamespaceInference.regions
+      ~descendant ~ancestor arguments
 
 let related state left right =
   Option.is_some (project_arguments state ~descendant:left ~ancestor:right [])
@@ -147,11 +146,11 @@ let within_head state head ~ancestor =
   | _ -> false
 
 let complete_grant state (head, args) =
-  match (head, state.namespace_draft) with
-  | Callable.MaskHead.Invariant name, Some draft ->
-      Option.exists (NamespaceRegions.declaration draft.regions name)
+  match head with
+  | Callable.MaskHead.Invariant name ->
+      Option.exists (NamespaceRegions.declaration state.namespace_draft.regions name)
         ~f:(fun declaration -> List.length args = List.length declaration.formals)
-  | Invariant _, None | Dependencies _, _ -> true
+  | Dependencies _ -> true
 
 let grant_credit state ~exact ~regions =
   let exact =
@@ -169,53 +168,51 @@ let grant_credit state ~exact ~regions =
 (* An AU token supplies resources, not additional region authority. *)
 let check_au_region_authority ~loc ~proc ~formals state arguments =
   let open Rewriter.Syntax in
-  match state.namespace_draft with
-  | None -> Rewriter.return ()
-  | Some draft when not (NamespaceRegions.has_regions draft.regions) -> Rewriter.return ()
-  | Some draft ->
-      let* symbol = Rewriter.find proc in
-      (* Instantiated callable locals remain in the template's physical scope. *)
-      let scope = Rewriter.Symbol.orig_qid symbol in
-      let decl =
-        match Rewriter.Symbol.orig_symbol symbol with
-        | Module.CallDef { call_decl; _ } -> call_decl
-        | _ -> Error.internal_error loc "Expected an atomic-update callable"
-      in
-      let atomic =
-        {
-          decl with
-          call_decl_precond =
-            List.filter decl.call_decl_precond ~f:(fun spec -> spec.spec_atomic);
-        }
-      in
-      let scope_member =
-        match decl.call_decl_formals with
-        | formal :: _ -> formal.Type.var_name
-        | [] -> ProgUtils.callable_au_token_ident ~loc (QualIdent.unqualify proc)
-      in
-      let* required =
-        Rewriter.in_scope_of
-          (QualIdent.append scope scope_member)
-          (NamespaceInference.required_specs atomic)
-      in
-      let requalify = QualIdent.requalify (Rewriter.Symbol.subst symbol) in
-      let* required =
-        Rewriter.List.map required ~f:(fun (head, args) ->
-            let+ args =
-              Rewriter.List.map args ~f:(Rewriter.Expr.rewrite_qual_idents ~f:requalify)
-            in
-            (Callable.map_mask_head head ~f:requalify, args))
-      in
-      let+ required = NamespaceInference.normalize_required draft required in
-      let required = NamespaceEquations.instantiate formals arguments required in
-      List.iter required ~f:(fun ((head, _) as entry) ->
-          if
-            Callable.is_invariant_head head
-            && not (NamespaceRegions.covers_entry draft.regions ~by:state.mask entry)
-          then
-            Error.type_error loc
-              "Opening this atomic update requires input authority for its invariant \
-               region")
+  let draft = state.namespace_draft in
+  if not (NamespaceRegions.has_regions draft.regions) then Rewriter.return ()
+  else
+    let* symbol = Rewriter.find proc in
+    (* Instantiated callable locals remain in the template's physical scope. *)
+    let scope = Rewriter.Symbol.orig_qid symbol in
+    let decl =
+      match Rewriter.Symbol.orig_symbol symbol with
+      | Module.CallDef { call_decl; _ } -> call_decl
+      | _ -> Error.internal_error loc "Expected an atomic-update callable"
+    in
+    let atomic =
+      {
+        decl with
+        call_decl_precond =
+          List.filter decl.call_decl_precond ~f:(fun spec -> spec.spec_atomic);
+      }
+    in
+    let scope_member =
+      match decl.call_decl_formals with
+      | formal :: _ -> formal.Type.var_name
+      | [] -> ProgUtils.callable_au_token_ident ~loc (QualIdent.unqualify proc)
+    in
+    let* required =
+      Rewriter.in_scope_of
+        (QualIdent.append scope scope_member)
+        (NamespaceInference.required_specs atomic)
+    in
+    let requalify = QualIdent.requalify (Rewriter.Symbol.subst symbol) in
+    let* required =
+      Rewriter.List.map required ~f:(fun (head, args) ->
+          let+ args =
+            Rewriter.List.map args ~f:(Rewriter.Expr.rewrite_qual_idents ~f:requalify)
+          in
+          (Callable.map_mask_head head ~f:requalify, args))
+    in
+    let+ required = NamespaceInference.normalize_required draft required in
+    let required = NamespaceEquations.instantiate formals arguments required in
+    List.iter required ~f:(fun ((head, _) as entry) ->
+        if
+          Callable.is_invariant_head head
+          && not (NamespaceRegions.covers_entry draft.regions ~by:state.mask entry)
+        then
+          Error.type_error loc
+            "Opening this atomic update requires input authority for its invariant region")
 
 let compare_separation left right =
   let compare_mask = List.compare Callable.compare_mask_entry in
@@ -284,121 +281,113 @@ let grant_certification ~loc ~exact (draft : NamespaceInference.t)
   | Some conditions -> Rewriter.List.fold_left extra ~init:(Some conditions) ~f:add
 
 (* Certifies the candidates that supply what [required] lacks: exact credits first if
-   [exact], then regions. Without a namespace draft, no exposure is known and nothing is
-   certified. *)
+   [exact], then regions. *)
 let certify_grants ~loc ~exact required (state : atomicity_check) =
   let open Rewriter.Syntax in
-  match state.namespace_draft with
-  | None -> Rewriter.return state
-  | Some draft ->
-      let supplied state required =
-        NamespaceEntailment.covered_regions draft.entailment ~by:state.mask required
-        || (exact && NamespaceEntailment.covered ~by:state.exact_mask required)
-      in
-      let wanted ~exact state grant =
-        List.exists required ~f:(fun entry ->
-            (not (supplied state [ entry ]))
-            &&
-            if exact then Callable.equal_mask_head (fst entry) (fst grant)
-            else within_head state (fst entry) ~ancestor:(fst grant))
-      in
-      let promote_candidate ~exact state (grant, extra) =
-        if not (wanted ~exact state grant) then Rewriter.return state
-        else
-          let+ conditions = grant_certification ~loc ~exact draft state grant extra in
-          match conditions with
-          | None -> state
-          | Some conditions ->
-              {
-                state with
-                mask =
-                  (if exact then state.mask else Callable.mask_union state.mask [ grant ]);
-                exact_mask =
-                  (if exact then Callable.mask_union state.exact_mask [ grant ]
-                   else state.exact_mask);
-                separation = union_separation state.separation conditions;
-              }
-      in
-      let promote ~exact candidates state =
-        (* A regional dependency grant stands for the invariants of its footprint. *)
-        let* candidates =
-          Rewriter.List.map candidates ~f:(fun (grant, conditions) ->
-              match (exact, fst grant) with
-              | false, Callable.MaskHead.Dependencies _ ->
-                  let+ footprint =
-                    NamespaceInference.normalize_required draft [ grant ]
-                  in
-                  List.map footprint ~f:(fun entry -> (entry, conditions))
-              | _ -> Rewriter.return [ (grant, conditions) ])
-        in
-        Rewriter.List.fold_left (List.concat candidates) ~init:state
-          ~f:(promote_candidate ~exact)
-      in
-      let regional =
-        List.map state.region_candidates ~f:(fun grant -> (grant, []))
-        @ List.concat_map state.conditional_candidates ~f:(fun profile ->
-            List.map profile.NamespaceContract.grants ~f:(fun grant ->
-                (grant, profile.conditions)))
-      in
-      if supplied state required then Rewriter.return state
-      else if exact then
-        let* state =
-          promote ~exact:true
-            (List.map state.exact_candidates ~f:(fun grant -> (grant, [])))
-            state
-        in
-        if NamespaceEntailment.covered ~by:state.exact_mask required then
-          Rewriter.return state
-        else promote ~exact:false regional state
-      else promote ~exact:false regional state
+  let draft = state.namespace_draft in
+  let supplied state required =
+    NamespaceEntailment.covered_regions draft.entailment ~by:state.mask required
+    || (exact && NamespaceEntailment.covered ~by:state.exact_mask required)
+  in
+  let wanted ~exact state grant =
+    List.exists required ~f:(fun entry ->
+        (not (supplied state [ entry ]))
+        &&
+        if exact then Callable.equal_mask_head (fst entry) (fst grant)
+        else within_head state (fst entry) ~ancestor:(fst grant))
+  in
+  let promote_candidate ~exact state (grant, extra) =
+    if not (wanted ~exact state grant) then Rewriter.return state
+    else
+      let+ conditions = grant_certification ~loc ~exact draft state grant extra in
+      match conditions with
+      | None -> state
+      | Some conditions ->
+          {
+            state with
+            mask =
+              (if exact then state.mask else Callable.mask_union state.mask [ grant ]);
+            exact_mask =
+              (if exact then Callable.mask_union state.exact_mask [ grant ]
+               else state.exact_mask);
+            separation = union_separation state.separation conditions;
+          }
+  in
+  let promote ~exact candidates state =
+    (* A regional dependency grant stands for the invariants of its footprint. *)
+    let* candidates =
+      Rewriter.List.map candidates ~f:(fun (grant, conditions) ->
+          match (exact, fst grant) with
+          | false, Callable.MaskHead.Dependencies _ ->
+              let+ footprint = NamespaceInference.normalize_required draft [ grant ] in
+              List.map footprint ~f:(fun entry -> (entry, conditions))
+          | _ -> Rewriter.return [ (grant, conditions) ])
+    in
+    Rewriter.List.fold_left (List.concat candidates) ~init:state
+      ~f:(promote_candidate ~exact)
+  in
+  let regional =
+    List.map state.region_candidates ~f:(fun grant -> (grant, []))
+    @ List.concat_map state.conditional_candidates ~f:(fun profile ->
+        List.map profile.NamespaceContract.grants ~f:(fun grant ->
+            (grant, profile.conditions)))
+  in
+  if supplied state required then Rewriter.return state
+  else if exact then
+    let* state =
+      promote ~exact:true
+        (List.map state.exact_candidates ~f:(fun grant -> (grant, [])))
+        state
+    in
+    if NamespaceEntailment.covered ~by:state.exact_mask required then
+      Rewriter.return state
+    else promote ~exact:false regional state
+  else promote ~exact:false regional state
 
 (* Cross-namespace assumptions are lifted to whole families, without local binders, and
    keep their instances when the callable's precondition determines them. *)
 let require_separation ~loc required (state : atomicity_check) =
-  match state.namespace_draft with
-  | None -> state
-  | Some _ ->
-      let stable args =
-        List.for_all args ~f:(fun arg ->
-            Set.is_subset (Expr.local_vars arg) ~of_:state.stable_formals)
-      in
-      let separation =
-        List.concat_map required ~f:(fun (head, args) ->
-            List.filter_map state.invs_opened ~f:(fun opened ->
-                let opened_head = Callable.MaskHead.Invariant opened.inv_name in
-                if
-                  Callable.equal_mask_head head opened_head
-                  ||
-                  match head with
-                  | Callable.MaskHead.Invariant name -> related state name opened.inv_name
-                  | Dependencies _ -> false
-                then None
-                else
-                  let required = (head, args) in
-                  let opened_entry = (opened_head, opened.inv_args) in
-                  let (left, _), (right, _), instance_left, instance_right =
-                    if Callable.compare_mask_head head opened_head < 0 then
-                      (required, opened_entry, required, opened_entry)
-                    else (opened_entry, required, opened_entry, required)
-                  in
-                  let instances =
-                    Option.some_if
-                      (stable args && stable opened.inv_args)
-                      {
-                        NamespaceContract.scope = state.scope;
-                        instance_left = [ instance_left ];
-                        instance_right = [ instance_right ];
-                      }
-                  in
-                  Some
-                    {
-                      NamespaceContract.left = [ (left, []) ];
-                      right = [ (right, []) ];
-                      loc;
-                      instances;
-                    }))
-      in
-      { state with separation = union_separation state.separation separation }
+  let stable args =
+    List.for_all args ~f:(fun arg ->
+        Set.is_subset (Expr.local_vars arg) ~of_:state.stable_formals)
+  in
+  let separation =
+    List.concat_map required ~f:(fun (head, args) ->
+        List.filter_map state.invs_opened ~f:(fun opened ->
+            let opened_head = Callable.MaskHead.Invariant opened.inv_name in
+            if
+              Callable.equal_mask_head head opened_head
+              ||
+              match head with
+              | Callable.MaskHead.Invariant name -> related state name opened.inv_name
+              | Dependencies _ -> false
+            then None
+            else
+              let required = (head, args) in
+              let opened_entry = (opened_head, opened.inv_args) in
+              let (left, _), (right, _), instance_left, instance_right =
+                if Callable.compare_mask_head head opened_head < 0 then
+                  (required, opened_entry, required, opened_entry)
+                else (opened_entry, required, opened_entry, required)
+              in
+              let instances =
+                Option.some_if
+                  (stable args && stable opened.inv_args)
+                  {
+                    NamespaceContract.scope = state.scope;
+                    instance_left = [ instance_left ];
+                    instance_right = [ instance_right ];
+                  }
+              in
+              Some
+                {
+                  NamespaceContract.left = [ (left, []) ];
+                  right = [ (right, []) ];
+                  loc;
+                  instances;
+                }))
+  in
+  { state with separation = union_separation state.separation separation }
 
 (* Renders an open instance the way the [unfold] named it, e.g. [i(x)]. *)
 let inv_to_string (inv : invs) : string =
@@ -576,8 +565,7 @@ let call_formal_actual_map (formals : Type.var_decl list) (call_args : Expr.t li
   fst (call_formal_actual_alignment formals call_args)
 
 (* Omitted inputs and inputs overwritten by a return cannot give exact credit. *)
-let instantiate_grants ~strict (decl : Callable.call_decl) (call : Stmt.call_desc) grants
-    =
+let instantiate_grants (decl : Callable.call_decl) (call : Stmt.call_desc) grants =
   let formal_map, resolved =
     call_formal_actual_alignment decl.call_decl_formals call.call_args
   in
@@ -605,9 +593,8 @@ let instantiate_grants ~strict (decl : Callable.call_decl) (call : Stmt.call_des
       if
         List.exists args ~f:(fun arg ->
             not (Set.is_empty (Set.inter (Expr.local_vars arg) unsafe_inputs)))
-        || strict
-           && List.exists args ~f:(fun arg ->
-               not (Set.is_subset (Expr.local_vars arg) ~of_:resolved))
+        || List.exists args ~f:(fun arg ->
+            not (Set.is_subset (Expr.local_vars arg) ~of_:resolved))
       then None
       else Some (head, List.map args ~f:(fun arg -> Expr.alpha_renaming arg renaming)))
   |> Callable.mask_canon
@@ -1526,9 +1513,7 @@ let open_inv ~loc ~inv_resource_name
 let call_reentrancy_asserts ~loc (atomicity_state : atomicity_check)
     (required : Callable.mask) : Stmt.t list =
   let required =
-    match atomicity_state.namespace_draft with
-    | None -> required
-    | Some _ -> List.filter required ~f:(fun (head, _) -> Callable.is_invariant_head head)
+    List.filter required ~f:(fun (head, _) -> Callable.is_invariant_head head)
   in
   List.concat_map required ~f:(fun (head, args) ->
       let qi = Callable.invariant_mask_name ~loc head in
@@ -1537,11 +1522,11 @@ let call_reentrancy_asserts ~loc (atomicity_state : atomicity_check)
             if QualIdent.equal inv.inv_name qi then
               Some (inv, List.init (List.length inv.inv_identity_args) ~f:Fn.id)
             else
-              Option.bind atomicity_state.namespace_draft ~f:(fun draft ->
-                  Option.map
-                    (NamespaceRegions.projection draft.NamespaceInference.regions
-                       ~descendant:inv.inv_name ~ancestor:qi) ~f:(fun positions ->
-                      (inv, positions))))
+              Option.map
+                (NamespaceRegions.projection
+                   atomicity_state.namespace_draft.NamespaceInference.regions
+                   ~descendant:inv.inv_name ~ancestor:qi) ~f:(fun positions ->
+                  (inv, positions)))
       in
       (* [args] may be a coarse prefix (e.g. a truncated implicit); an empty
          or matching prefix is rejected as possibly the same instance. *)
@@ -1842,56 +1827,45 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
            surfaces as an ordinary (safe) mask-unavailability check instead
            of crashing the compiler. *)
         let* callee_mask, grants, exact_grants, guarded_grants, atomicity_state =
-          match atomicity_state.namespace_draft with
-          | None ->
-              let* required =
-                Masks.resolve_mask (Option.value_exn call_decl.call_decl_needs_mask)
-              in
-              let+ grants =
-                Masks.resolve_mask
-                  (Option.value call_decl.call_decl_grants_mask ~default:[])
-              in
-              (required, grants, grants, [], atomicity_state)
-          | Some draft ->
-              let* summary = NamespaceInference.find_callable draft call_desc.call_name in
-              let summary =
-                match summary with
-                | Some summary -> summary
-                | None ->
-                    Error.internal_error loc "Missing draft namespace summary for callee"
-              in
-              let+ callee = Rewriter.resolve call_desc.call_name in
-              (* Entering a loop: it may only open what is available here. Entries no
+          let draft = atomicity_state.namespace_draft in
+          let* summary = NamespaceInference.find_callable draft call_desc.call_name in
+          let summary =
+            match summary with
+            | Some summary -> summary
+            | None ->
+                Error.internal_error loc "Missing draft namespace summary for callee"
+          in
+          let+ callee = Rewriter.resolve call_desc.call_name in
+          (* Entering a loop: it may only open what is available here. Entries no
                  invariant of the current mask could cover are dropped; the rest are
                  checked below as for any call. *)
-              let requires, loop_masks =
-                if
-                  call_decl.call_decl_is_loop
-                  && not (QualIdent.equal callee atomicity_state.scope)
-                then
-                  let available =
-                    List.filter summary.requires ~f:(fun (head, _) ->
-                        List.exists
-                          (atomicity_state.mask @ atomicity_state.region_candidates
-                          @ List.concat_map atomicity_state.conditional_candidates
-                              ~f:(fun grant -> grant.NamespaceContract.grants))
-                          ~f:(fun (candidate, _) ->
-                            within_head atomicity_state head ~ancestor:candidate))
-                  in
-                  (available, (callee, available) :: atomicity_state.loop_masks)
-                else (summary.requires, atomicity_state.loop_masks)
+          let requires, loop_masks =
+            if
+              call_decl.call_decl_is_loop
+              && not (QualIdent.equal callee atomicity_state.scope)
+            then
+              let available =
+                List.filter summary.requires ~f:(fun (head, _) ->
+                    List.exists
+                      (atomicity_state.mask @ atomicity_state.region_candidates
+                      @ List.concat_map atomicity_state.conditional_candidates
+                          ~f:(fun grant -> grant.NamespaceContract.grants))
+                      ~f:(fun (candidate, _) ->
+                        within_head atomicity_state head ~ancestor:candidate))
               in
-              ( requires,
-                summary.grants,
-                summary.exact_grants,
-                summary.guarded_grants,
-                {
-                  atomicity_state with
-                  separation =
-                    union_separation atomicity_state.separation summary.separation;
-                  callees = Set.add atomicity_state.callees callee;
-                  loop_masks;
-                } )
+              (available, (callee, available) :: atomicity_state.loop_masks)
+            else (summary.requires, atomicity_state.loop_masks)
+          in
+          ( requires,
+            summary.grants,
+            summary.exact_grants,
+            summary.guarded_grants,
+            {
+              atomicity_state with
+              separation = union_separation atomicity_state.separation summary.separation;
+              callees = Set.add atomicity_state.callees callee;
+              loop_masks;
+            } )
         in
         let needs_substitution =
           List.exists callee_mask ~f:(fun (_, args) -> not (List.is_empty args))
@@ -1980,18 +1954,9 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
            value and must not be dropped by this same step. *)
         let atomicity_state = drop_stale ~qis:call_desc.call_lhs atomicity_state in
 
-        (* Grants-set credit: does calling this callee hand *this* caller
-           local mask credit, the same way a local [fold] would? (See
-           [Callable.call_decl_grants_mask]'s doc comment.) Applied
-           uniformly regardless of which branch below is taken --
-           including logical function and lemma calls, which otherwise
-           never touch [atomicity_state] at all,
-           since a lemma can still fold a fresh invariant and hand its
-           credit onward exactly like a proc can. Substituted through both
-           the actual call arguments (the callee's own formals) and the
-           call's lhs bindings (the callee's own return variables), since
-           a grants-set entry -- unlike [call_decl_needs_mask] -- can be
-           expressed via either. *)
+        (* The callee's grants give this caller credit as a local [fold] would, for
+           lemmas as for procedures. They are instantiated through the call's arguments
+           and its results, since a grant may name either. *)
         let deferred =
           call_desc.call_is_spawn
           || Callable.is_atomic call_decl
@@ -1999,11 +1964,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
              && defers_ordinary_post call_decl atomicity_state
         in
         let retain mask = if deferred then [] else mask in
-        let instantiate =
-          instantiate_grants
-            ~strict:(Option.is_some atomicity_state.namespace_draft)
-            call_decl call_desc
-        in
+        let instantiate = instantiate_grants call_decl call_desc in
         let atomicity_state =
           grant_credit atomicity_state
             ~exact:(instantiate (retain exact_grants))
@@ -2108,12 +2069,10 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
           NamespaceEntailment.canonical_name ~physical:true use_name
         in
         let invariant_name =
-          match atomicity_state.namespace_draft with
-          | None -> invariant_name
-          | Some draft ->
-              Option.value
-                (NamespaceRegions.canonical_name draft.entailment.regions invariant_name)
-                ~default:invariant_name
+          Option.value
+            (NamespaceRegions.canonical_name
+               atomicity_state.namespace_draft.entailment.regions invariant_name)
+            ~default:invariant_name
         in
         let use_desc = { use_desc with use_name } in
         let stmt = { stmt with stmt_desc = Basic (Use use_desc) } in
@@ -2854,7 +2813,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext 
         else
           Error.verification_error ~code:Error.Atomicity stmt.stmt_loc
             "Inconsistent atomicity states in then and else branches"
-    | Loop _ when Option.is_some atomicity_state.namespace_draft ->
+    | Loop _ ->
         Error.internal_error loc
           "Namespace atomicity analysis requires loops to be desugared first"
     | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_au_cmnds
@@ -2885,20 +2844,18 @@ let place_claims (state : atomicity_check) (stmt : Stmt.t) :
   in
   place stmt
 
-let analyze ~namespace_draft:draft (c : Callable.t) :
-    (namespace_analysis, 'a) Rewriter.t_ext =
+let analyze ~namespace_draft (c : Callable.t) : (namespace_analysis, 'a) Rewriter.t_ext =
   let open Rewriter.Syntax in
-  let namespace_draft = Some draft in
   let* scope_id = Rewriter.current_scope_id in
   let* mask, separation =
-    let+ summary = NamespaceInference.find_callable draft scope_id in
+    let+ summary = NamespaceInference.find_callable namespace_draft scope_id in
     let summary = Option.value_exn summary in
     (summary.requires, summary.separation)
   in
   let* exposure =
     let* inferred = NamespaceInference.exposed_specs c.call_decl in
     let+ exposure =
-      NamespaceEntailment.exposure draft.entailment ~supplied:mask inferred
+      NamespaceEntailment.exposure namespace_draft.entailment ~supplied:mask inferred
     in
     List.map exposure ~f:(fun (head, _) -> (head, [])) |> Callable.mask_canon
   in

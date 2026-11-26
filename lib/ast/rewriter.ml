@@ -1975,37 +1975,10 @@ module Callable = struct
         callable
     in
 
-    (* [f] (a QualIdent substitution, e.g. from module/functor instantiation)
-       isn't guaranteed injective on mask entries -- two formerly-distinct
-       entries could collapse into the same one, which would otherwise
-       persist as an un-deduped duplicate (see [Callable.mask_canon]); both
-       [call_decl_needs_mask] and [call_decl_grants_mask] need the same rewrite. *)
     let rewrite_mask_entries entries =
       List.map entries ~f:(fun (head, args) ->
           let+ args = List.map args ~f:(Expr.rewrite_qual_idents ~f) in
           (AstDef.Callable.map_mask_head head ~f, args))
-    in
-    let rewrite_mask mask =
-      let+ mask =
-        List.map mask ~f:(fun (head, args) ->
-            let+ args = List.map args ~f:(Expr.rewrite_qual_idents ~f) in
-            (AstDef.Callable.map_mask_head head ~f, args))
-      in
-      Callable.mask_canon mask
-    in
-    let* call_decl_needs_mask =
-      match callable.call_decl.call_decl_needs_mask with
-      | None -> return None
-      | Some mask ->
-          let+ mask = rewrite_mask mask in
-          Some mask
-    in
-    let* call_decl_grants_mask =
-      match callable.call_decl.call_decl_grants_mask with
-      | None -> return None
-      | Some mask ->
-          let+ mask = rewrite_mask mask in
-          Some mask
     in
     let* call_decl_bound =
       match callable.call_decl.call_decl_bound with
@@ -2031,8 +2004,6 @@ module Callable = struct
         call_decl =
           {
             callable.call_decl with
-            call_decl_needs_mask;
-            call_decl_grants_mask;
             call_decl_bound;
             call_decl_loc_params;
             call_decl_ancestry;

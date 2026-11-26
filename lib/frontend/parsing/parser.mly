@@ -104,7 +104,7 @@ let inline_modifier ~loc (kind : Callable.call_kind) (is_inline : bool) : bool =
 %token <bool> MODULE
 %token <string> STRINGVAL
 %token TYPE IMPORT INCLUDE
-%token RETURNS REQUIRES ENSURES INVARIANT OPENS PARENT WITHIN DEPENDS
+%token RETURNS REQUIRES ENSURES INVARIANT OPENS WITHIN DEPENDS
 %token EOF
 
 %nonassoc IFF
@@ -404,19 +404,16 @@ callable_decl_out_vars:
     ~formals ~returns ~precond ~postcond ~contract_ext ?bound ?ancestry ~loc_params id
 }
 
+(* Type checking makes the clause of an invariant of a concrete module its parent. *)
 ancestry_clause:
-| ancestry_kind = ancestry_keyword; target = qual_ident; ancestry_args = call {
-  Callable.{ ancestry_kind; ancestry_target = Expr.to_qual_ident target;
+| WITHIN; target = qual_ident; ancestry_args = call {
+  Callable.{ ancestry_kind = Within; ancestry_target = Expr.to_qual_ident target;
              ancestry_args; ancestry_loc = Loc.make $symbolstartpos $endpos }
 }
 
 %inline bound_keyword:
 | OPENS { Callable.Opens }
 | DEPENDS { Callable.Depends }
-
-%inline ancestry_keyword:
-| PARENT { Callable.Parent }
-| WITHIN { Callable.Within }
 
 return_params:
 | RETURNS; LPAREN; decls = var_decls_with_modifiers; RPAREN { decls }
@@ -897,7 +894,6 @@ mod_ident:
 %public plain_ident:
 | x = IDENT { x }
 | UNDERSCORE { Ident.make (Loc.make $symbolstartpos $endpos) "_" 0 }
-| PARENT { Ident.make (Loc.make $symbolstartpos $endpos) "parent" 0 }
 | WITHIN { Ident.make (Loc.make $symbolstartpos $endpos) "within" 0 }
 | DEPENDS { Ident.make (Loc.make $symbolstartpos $endpos) "depends" 0 }
 

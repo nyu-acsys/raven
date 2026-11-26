@@ -427,29 +427,6 @@ let freeze ?(refresh = false) ?(requirements = Map.empty (module QualIdent)) dra
       Requirements.union separation
         (Option.value (Map.find requirements owner) ~default:[])
     in
-    let* definitions =
-      Rewriter.List.map definitions ~f:(function
-        | Module.SymbolDef (CallDef call) ->
-            let summary =
-              List.Assoc.find_exn callables call.call_decl.call_decl_name
-                ~equal:Ident.equal
-            in
-            let+ requires =
-              NamespaceInference.normalize_required draft summary.requires
-            in
-            Module.SymbolDef
-              (CallDef
-                 {
-                   call with
-                   call_decl =
-                     {
-                       call.call_decl with
-                       call_decl_needs_mask = Some requires;
-                       call_decl_grants_mask = Some summary.grants;
-                     };
-                 })
-        | definition -> Rewriter.return definition)
-    in
     let modules = List.rev modules in
     let parameter_members =
       List.filter parameters ~f:(fun (name, _) ->

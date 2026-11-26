@@ -266,7 +266,7 @@ let advance st (tok : Parser.token) =
   in
   let last_token_can_end_stmt =
     match tok with
-    | IDENT _ | UNDERSCORE | PARENT | WITHIN | DEPENDS | MODIDENT _ | CONSTVAL _ | CONSTTYPE _ | ATOMICTOKEN
+    | IDENT _ | UNDERSCORE | WITHIN | DEPENDS | MODIDENT _ | CONSTVAL _ | CONSTTYPE _ | ATOMICTOKEN
     | STRINGVAL _ | HASH _
     | RPAREN | RBRACKET | RBRACEPIPE | RBRACKETPIPE | ENUM_CLOSE _ | RENUMBRACE
     (* Unlike every other keyword here, `return` can legally end a statement

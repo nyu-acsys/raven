@@ -1515,8 +1515,7 @@ let rewrite_add_predicate_validity_lemmas (c : Callable.t) : Callable.t Rewriter
           in*)
             let call_decl =
               Callable.mk_call_decl ~kind:Lemma ~name:pred_valid_lemma_ident
-                ~loc:c.call_decl.call_decl_loc ~formals:formal_args ~postcond:postconds
-                ~needs_mask:[] ~grants_mask:[] ()
+                ~loc:c.call_decl.call_decl_loc ~formals:formal_args ~postcond:postconds ()
             in
 
             let* pred_qual_ident = Rewriter.current_scope_id in

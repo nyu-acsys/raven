@@ -11,7 +11,7 @@ open ProgUtils
    `;`; predicate dependency entries may also name implicit parameters after `;`. No
    arguments selects every instance; trailing `_` arguments are preserved. Arguments
    mention only the callable's formals, except, for an atomic callable, its implicit ones
-   (see [Masks.compute_proc_lemma_mask]). *)
+   (see [NamespaceInference.required_specs]). *)
 let check_mask_clause ~keyword (call_decl : Callable.call_decl)
     (formals : Type.var_decl list) (precond : Stmt.spec list) (postcond : Stmt.spec list)
     (disam_tbl : DisambiguationTbl.t) (entries : Callable.mask_entry list) :
@@ -96,28 +96,28 @@ let check_ancestry (callable : Callable.t) (formals : Type.var_decl list)
     Callable.ancestry_clause t =
   let open Rewriter.Syntax in
   let fail message = Error.type_error clause.ancestry_loc message in
-  let keyword = Callable.ancestry_keyword clause.ancestry_kind in
   let () =
     match Callable.kind callable with
-    | Invariant ->
-        if Poly.(clause.ancestry_kind = Parent) && Callable.is_abstract callable then
-          fail "A parent clause requires an invariant with a definition"
-    | Proc | Lemma | Func | Pred ->
-        fail (Printf.sprintf "Only invariants may declare a %s clause" keyword)
+    | Invariant -> ()
+    | Proc | Lemma | Func | Pred -> fail "Only invariants may declare a within clause"
   in
   let* owner = Rewriter.current_module_name in
   let* owner_symbol = Rewriter.find_absolute owner in
-  let owner_is_interface, owner_is_public_schema =
+  (* In a concrete module, the clause declares the invariant's parent. *)
+  let ancestry_kind =
     match owner_symbol with
-    | Some (Module.ModDef { mod_decl; _ }) ->
-        (mod_decl.mod_decl_is_interface, Option.is_some mod_decl.mod_decl_sealed_target)
-    | _ -> (false, false)
+    | Some (Module.ModDef { mod_decl; _ })
+      when mod_decl.mod_decl_is_interface
+           || Option.is_some mod_decl.mod_decl_sealed_target ->
+        Callable.Within
+    | _ -> Parent
   in
   let () =
-    match clause.ancestry_kind with
-    | Parent when owner_is_interface -> fail "A parent clause requires a concrete module"
-    | Within when not (owner_is_interface || owner_is_public_schema) ->
-        fail "A within clause requires an interface invariant"
+    match ancestry_kind with
+    | Parent when Callable.is_abstract callable ->
+        fail
+          "A within clause of an invariant in a concrete module requires a definition of \
+           the invariant"
     | Parent | Within -> ()
   in
   let* child = Rewriter.current_scope_id in
@@ -128,7 +128,7 @@ let check_ancestry (callable : Callable.t) (formals : Type.var_decl list)
     match Rewriter.Symbol.orig_symbol target with
     | Module.CallDef { call_decl = { call_decl_kind = Invariant; _ }; _ } ->
         Rewriter.Symbol.reify_callable_decl target
-    | _ -> fail (Printf.sprintf "A %s clause must name an invariant" keyword)
+    | _ -> fail "A within clause must name an invariant"
   in
   let () =
     let same_module =
@@ -136,21 +136,17 @@ let check_ancestry (callable : Callable.t) (formals : Type.var_decl list)
         (QualIdent.append owner (QualIdent.unqualify ancestry_target))
         ancestry_target
     in
-    match clause.ancestry_kind with
-    | Parent when not same_module ->
-        fail "A parent must name an invariant in the same module"
-    (* An implementation inherits the definition, whose ancestor is then its parent. *)
-    | Within when (not same_module) && not (Callable.is_abstract callable) ->
-        fail
-          "A within clause of an invariant with a definition must name an invariant in \
-           the same module"
-    | Parent | Within -> ()
+    (* An implementation inherits a definition, whose ancestor is then its parent. *)
+    if (not same_module) && not (Callable.is_abstract callable) then
+      fail
+        "A within clause of an invariant with a definition must name an invariant in the \
+         same module"
   in
   let args_and_formals =
     match List.zip clause.ancestry_args target_decl.call_decl_formals with
     | Unequal_lengths ->
         fail
-          (Printf.sprintf "A %s clause requires %d argument(s), but %d are given" keyword
+          (Printf.sprintf "A within clause requires %d argument(s), but %d are given"
              (List.length target_decl.call_decl_formals)
              (List.length clause.ancestry_args))
     | Ok pairs -> pairs
@@ -159,9 +155,7 @@ let check_ancestry (callable : Callable.t) (formals : Type.var_decl list)
     Rewriter.List.map args_and_formals ~f:(fun (arg, target_formal) ->
         let bad_projection () =
           Error.type_error (Expr.to_loc arg)
-            (Printf.sprintf
-               "A %s argument must be an explicit parameter of the child invariant"
-               keyword)
+            "A within argument must be an explicit parameter of the child invariant"
         in
         if (not (Expr.is_ident arg)) || Callable.is_opens_wildcard arg then
           bad_projection ();
@@ -186,7 +180,7 @@ let check_ancestry (callable : Callable.t) (formals : Type.var_decl list)
           type_mismatch_error (Expr.to_loc arg) expected actual;
         arg)
   in
-  { clause with ancestry_target; ancestry_args }
+  { clause with ancestry_kind; ancestry_target; ancestry_args }
 
 let check_alias (callable : Callable.t) target : Module.symbol t =
   let open Rewriter.Syntax in

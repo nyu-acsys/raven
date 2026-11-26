@@ -280,10 +280,9 @@ module Callable = struct
     S.Callable.proc ~atomic kind decl (Option.map body ~f:(S.Stmt.block_stmt ~loc))
 
   type func_kind = Func | Pred | Inv
-  type ancestry = Parent of Name.t * Expr.t list | Within of Name.t * Expr.t list
 
   let func ~loc ?(kind = Func) ?(inline = false) ?formals ?returns ?(requires = [])
-      ?(ensures = []) ?(decreases = []) ?ancestry ?depends name body =
+      ?(ensures = []) ?(decreases = []) ?within ?depends name body =
     let () =
       match (kind, body, depends) with
       | _, _, None | (Pred | Inv), None, Some _ -> ()
@@ -293,19 +292,14 @@ module Callable = struct
              a depends clause"
     in
     let ancestry =
-      Option.map ancestry ~f:(fun ancestry ->
+      Option.map within ~f:(fun (ancestry_target, ancestry_args) ->
           begin match kind with
           | Inv -> ()
           | Func | Pred ->
-              invalid_arg "Raven_api.Callable.func: only invariants have ancestry"
+              invalid_arg "Raven_api.Callable.func: only invariants have a within clause"
           end;
-          let ancestry_kind, ancestry_target, ancestry_args =
-            match ancestry with
-            | Parent (target, args) -> (Ast.Callable.Parent, target, args)
-            | Within (target, args) -> (Ast.Callable.Within, target, args)
-          in
           Ast.Callable.
-            { ancestry_kind; ancestry_target; ancestry_args; ancestry_loc = loc })
+            { ancestry_kind = Within; ancestry_target; ancestry_args; ancestry_loc = loc })
     in
     let kind : Ast.Callable.call_kind =
       match kind with

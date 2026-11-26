@@ -19,9 +19,6 @@ let parse source =
   let check symbol =
     begin match symbol with
     | Module.ModDef m -> assert (Option.is_none m.mod_decl.mod_decl_mask_contract)
-    | CallDef call ->
-        assert (Option.is_none call.call_decl.call_decl_needs_mask);
-        assert (Option.is_none call.call_decl.call_decl_grants_mask)
     | _ -> ()
     end;
     Rewriter.return symbol

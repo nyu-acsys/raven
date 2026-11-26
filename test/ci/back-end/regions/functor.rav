@@ -1,5 +1,5 @@
 inv root(x: Int) { child(x, 0) }
-inv child(x: Int, k: Int) parent root(x) { true }
+inv child(x: Int, k: Int) within root(x) { true }
 interface I {}
 module F[A: I] {
   lemma use(x: Int)

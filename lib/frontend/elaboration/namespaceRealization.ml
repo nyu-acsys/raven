@@ -930,7 +930,7 @@ let obligation_lemma obligation =
           ~loc:obligation.loc ~formals:decl.call_decl_formals
           ~precond:
             (List.filter decl.call_decl_precond ~f:(fun spec -> not spec.spec_atomic))
-          ~needs_mask:[] ~grants_mask:[] ();
+          ();
       call_def =
         ProcDef { proc_body = Some (Stmt.mk_block_stmt ~loc:obligation.loc [ check ]) };
     }

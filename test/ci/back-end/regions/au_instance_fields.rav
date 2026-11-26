@@ -1,5 +1,5 @@
 inv root(key: Int) { true }
-inv child(key: Int) parent root(key) { true }
+inv child(key: Int) within root(key) { true }
 
 module Storage[A: Library.Type] {
   ghost field contents: A.T

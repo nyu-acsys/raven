@@ -1139,7 +1139,7 @@ let rec rewrite_add_func_contract_lemmas (sm : scc_map) (m : Module.t) :
               Callable.mk_call_decl ~kind:Lemma ~name:lemma_ident
                 ~loc:call_decl.call_decl_loc ~formals:call_decl.call_decl_formals
                 ~postcond:lemma_postconds ~status:call_decl.call_decl_status ~is_auto:true
-                ~needs_mask:[] ~grants_mask:[] ()
+                ()
             in
 
             (* A free func's contract is trusted, so its lemma is an axiom. *)

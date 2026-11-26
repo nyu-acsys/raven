@@ -305,7 +305,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants) (conds : co
 
     let call_decl =
       Callable.mk_call_decl ~kind:Func ~name:inv_fn_ident ~loc ~formals:formal_var_decls
-        ~returns:[ ret_var_decl ] ~needs_mask:[] ~grants_mask:[] ()
+        ~returns:[ ret_var_decl ] ()
     in
 
     let* inv_fn_qual_ident =
@@ -339,7 +339,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants) (conds : co
       let call_decl =
         Callable.mk_call_decl ~kind:Func ~name:ident ~loc ~formals
           ~returns:[ fresh_var "$ret" ret ]
-          ~needs_mask:[] ~grants_mask:[] ()
+          ()
       in
       ( ident,
         Module.CallDef Callable.{ call_decl; call_def = FuncDef { func_body = None } } )
@@ -549,7 +549,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants) (conds : co
 
       let call_decl =
         Callable.mk_call_decl ~kind:Lemma ~name:inv_fn_lemma_ident ~loc ~precond:preconds
-          ~postcond:postconds ~is_auto:true ~needs_mask:[] ~grants_mask:[] ()
+          ~postcond:postconds ~is_auto:true ()
       in
 
       let lemma_body =
@@ -608,7 +608,7 @@ let generate_choice_inverse ~loc (universal_quants : universal_quants)
   let call_decl =
     Callable.mk_call_decl ~kind:Func ~name:inv_fn_ident ~loc ~formals
       ~returns:[ fresh_var "$ret" ret_type ]
-      ~needs_mask:[] ~grants_mask:[] ()
+      ()
   in
   let* inv_fn_qual_ident =
     let+ module_qual_ident = Rewriter.current_module_name in
@@ -665,7 +665,7 @@ let generate_choice_inverse ~loc (universal_quants : universal_quants)
              ("choice_valid$" ^ Ident.to_string inv_fn_ident))
         ~loc
         ~postcond:[ Stmt.mk_spec right; Stmt.mk_spec chosen ]
-        ~is_auto:true ~needs_mask:[] ~grants_mask:[] ()
+        ~is_auto:true ()
     in
     (* A choice function satisfies both; nothing is left to prove. *)
     Module.CallDef

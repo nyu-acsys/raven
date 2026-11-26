@@ -14,7 +14,7 @@ module CLHLock[R: LockResource] :> QueueLock[R] {
 
   ghost field agr: ()
 
-  inv queued_loc(l: Ref, q: Ref, r: R) parent is_lock(l, r) {
+  inv queued_loc(l: Ref, q: Ref, r: R) within is_lock(l, r) {
     exists detached: Bool, b: Bool ::
       (detached ? own(q, agr, (), 1.0) :
         own(q, locked, b, 0.5) &&

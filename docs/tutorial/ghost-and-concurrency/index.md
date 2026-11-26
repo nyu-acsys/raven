@@ -117,8 +117,9 @@ irrelevant to the proof.
 instance, and `opens inner(x, _)` names every instance whose first argument is `x`. A predicate
 entry such as `opens resource(x)` explicitly requests permission for its invariant dependency
 footprint, including dependencies hidden behind an opaque declaration. Entries can be combined
-with commas. Raven checks the body against the clause, and callers must provide the specified
-mask.
+with commas. An invariant entry also covers the invariants declared inside it, as
+{{ref sec:invariant-regions}} explains. Raven checks the body against the clause, and callers
+must provide the specified mask.
 
 A method's default mask is inferred at its declaration and retained by its implementations.
 Giving an abstract predicate a concrete body does not enlarge that inherited mask. A method

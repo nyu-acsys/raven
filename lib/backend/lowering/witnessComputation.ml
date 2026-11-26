@@ -164,7 +164,7 @@ let generate_skolem_function (universal_quants : universal_quants) (var_decl : v
 
   let call_decl =
     Callable.mk_call_decl ~kind:Func ~name:skolem_fn_ident ~loc ~formals:formal_var_decls
-      ~returns:[ ret_var_decl ] ~postcond:postconds ~needs_mask:[] ~grants_mask:[] ()
+      ~returns:[ ret_var_decl ] ~postcond:postconds ()
   in
 
   let* skolem_fn_qual_ident =

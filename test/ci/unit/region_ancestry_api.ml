@@ -9,8 +9,8 @@ let formals = [ R.Var.make ~loc (id "x") (R.Type.int ~loc) ]
 let call member = R.Expr.call ~loc (name member) [ x ]
 let resource member = R.Spec.make (call member)
 
-let invariant ?ancestry member body =
-  R.Member.callable (R.Callable.func ~loc ~kind:Inv ~formals ?ancestry (id member) body)
+let invariant ?within member body =
+  R.Member.callable (R.Callable.func ~loc ~kind:Inv ~formals ?within (id member) body)
 
 let visit body =
   R.Member.callable
@@ -40,7 +40,7 @@ let program =
       R.Member.module_ ~loc ~interface:true (id "Public")
         [
           invariant "root" None;
-          invariant ~ancestry:(Within (name "root", [ x ])) "leaf" None;
+          invariant ~within:(name "root", [ x ]) "leaf" None;
           visit None;
         ];
       R.Member.module_ ~loc
@@ -48,10 +48,7 @@ let program =
         (id "Actual")
         [
           invariant "root" (Some (call "leaf"));
-          invariant
-            ~ancestry:(Parent (name "root", [ x ]))
-            "leaf"
-            (Some (R.Expr.bool ~loc true));
+          invariant ~within:(name "root", [ x ]) "leaf" (Some (R.Expr.bool ~loc true));
           visit
             (Some
                [
@@ -65,7 +62,6 @@ let program =
 
 let () =
   let source = R.Program.to_string program in
-  assert (String.is_substring source ~substring:"parent root(x)");
   assert (String.is_substring source ~substring:"within root(x)");
   let result = R.verify program in
   if not result.verified then

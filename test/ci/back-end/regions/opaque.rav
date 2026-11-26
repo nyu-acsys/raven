@@ -7,7 +7,7 @@ interface API {
 module Actual: API {
   field value: Int
   inv stored(x: Ref) { hidden(x) }
-  inv hidden(x: Ref) parent stored(x) { exists n: Int :: own(x.value, n, 1.0) }
+  inv hidden(x: Ref) within stored(x) { exists n: Int :: own(x.value, n, 1.0) }
   proc touch(x: Ref) {
     unfold stored(x);
     unfold hidden(x);

@@ -1,5 +1,5 @@
 inv root(x: Int) { child(x, 0) && child(x, 1) }
-inv child(x: Int, k: Int) parent root(x) { true }
+inv child(x: Int, k: Int) within root(x) { true }
 lemma child_step(x: Int, k: Int)
   requires child(x, k)
   ensures child(x, k)
@@ -30,8 +30,8 @@ lemma root_step(x: Int)
   unfold root(x);
   fold root(x);
 }
-inv middle(k: Int, o: Int) parent root(o) { leaf(0, k, o) }
-inv leaf(s: Int, k: Int, o: Int) parent middle(k, o) { true }
+inv middle(k: Int, o: Int) within root(o) { leaf(0, k, o) }
+inv leaf(s: Int, k: Int, o: Int) within middle(k, o) { true }
 lemma projected(x: Int, y: Int)
   requires leaf(0, 3, x) && root(y) && x != y
   ensures leaf(0, 3, x) && root(y)
@@ -51,7 +51,7 @@ lemma equal_owner(x: Int, y: Int)
   fold child(y, 0);
   fold root(x);
 }
-inv marker(x: Int) parent root(x) { true }
+inv marker(x: Int) within root(x) { true }
 lemma make_marker(x: Int)
   ensures marker(x)
   opens {}
@@ -75,7 +75,7 @@ lemma branch_credit(b: Bool)
 
 field f: Int
 inv parent_cell(x: Ref) { child_cell(x) }
-inv child_cell(x: Ref) parent parent_cell(x) { own(x.f, 0, 1.0) }
+inv child_cell(x: Ref) within parent_cell(x) { own(x.f, 0, 1.0) }
 proc write(x: Ref)
   requires parent_cell(x)
   ensures parent_cell(x)
@@ -88,7 +88,7 @@ proc write(x: Ref)
   fold parent_cell(x);
 }
 inv unit_root() { implicit_cell(0) }
-inv implicit_cell(; k: Int) parent unit_root() { k == 0 }
+inv implicit_cell(; k: Int) within unit_root() { k == 0 }
 lemma omitted_identity(b: Bool)
   requires implicit_cell(0)
   ensures implicit_cell(0)
@@ -99,7 +99,7 @@ lemma omitted_identity(b: Bool)
 }
 
 inv au_root(x: Int) { true }
-inv au_child(x: Int) parent au_root(x) { true }
+inv au_child(x: Int) within au_root(x) { true }
 proc host(host_key: Int)
   atomic requires au_child(host_key)
   atomic ensures au_child(host_key)
