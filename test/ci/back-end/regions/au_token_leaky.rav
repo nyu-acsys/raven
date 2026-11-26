@@ -1,0 +1,44 @@
+// A token whose atomic precondition may contain the invariant the client opens.
+field cell: Int
+
+inv counter(x: Ref) { exists v: Int :: own(x.cell, v) }
+
+// The token yields `resource(x)`, which an implementation may fill with invariants.
+interface Counter {
+  pred resource(x: Ref)
+  proc incr(x: Ref)
+    atomic requires resource(x)
+    atomic ensures resource(x)
+    opens resource(x)
+}
+
+module Client[C: Counter] {
+  lemma touch(y: Ref)
+    requires counter(y)
+    ensures counter(y)
+    opens counter(y)
+  {
+    unfold counter(y);
+    fold counter(y);
+  }
+
+  lemma help(token: AtomicToken<C.incr>, x: Ref, y: Ref)
+    requires au<C.incr>(token, x) && own(y.cell, 0)
+    ensures au<C.incr>(token, x)
+    opens {}
+  {
+    fold counter(y);
+    touch(y);
+  }
+}
+
+module Impl : Counter {
+  pred resource(x: Ref) { counter(x) }
+  proc incr(x: Ref) {
+    ghost var t := bindAU();
+    openAU(t, x);
+    commitAU(t, x, ());
+  }
+}
+
+module U = Client[Impl]

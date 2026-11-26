@@ -171,39 +171,7 @@ let check_au_region_authority ~loc ~proc ~formals state arguments =
   let draft = state.namespace_draft in
   if not (NamespaceRegions.has_regions draft.regions) then Rewriter.return ()
   else
-    let* symbol = Rewriter.find proc in
-    (* Instantiated callable locals remain in the template's physical scope. *)
-    let scope = Rewriter.Symbol.orig_qid symbol in
-    let decl =
-      match Rewriter.Symbol.orig_symbol symbol with
-      | Module.CallDef { call_decl; _ } -> call_decl
-      | _ -> Error.internal_error loc "Expected an atomic-update callable"
-    in
-    let atomic =
-      {
-        decl with
-        call_decl_precond =
-          List.filter decl.call_decl_precond ~f:(fun spec -> spec.spec_atomic);
-      }
-    in
-    let scope_member =
-      match decl.call_decl_formals with
-      | formal :: _ -> formal.Type.var_name
-      | [] -> ProgUtils.callable_au_token_ident ~loc (QualIdent.unqualify proc)
-    in
-    let* required =
-      Rewriter.in_scope_of
-        (QualIdent.append scope scope_member)
-        (NamespaceInference.required_specs atomic)
-    in
-    let requalify = QualIdent.requalify (Rewriter.Symbol.subst symbol) in
-    let* required =
-      Rewriter.List.map required ~f:(fun (head, args) ->
-          let+ args =
-            Rewriter.List.map args ~f:(Rewriter.Expr.rewrite_qual_idents ~f:requalify)
-          in
-          (Callable.map_mask_head head ~f:requalify, args))
-    in
+    let* required = NamespaceInference.atomic_requirements ~loc proc in
     let+ required = NamespaceInference.normalize_required draft required in
     let required = NamespaceEquations.instantiate formals arguments required in
     List.iter required ~f:(fun ((head, _) as entry) ->

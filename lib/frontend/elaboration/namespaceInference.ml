@@ -61,28 +61,77 @@ let required_specs decl =
   in
   Callable.mask_canon (List.concat masks)
 
-let latent_dependencies expression =
+(* The procedures of the atomic-update tokens in [expression]. *)
+let token_procedures expression =
   Expr.map
     ~enter:(fun () _ variables -> ((), variables))
     ~app:(fun () constructor children _ ->
       let nested = List.concat children in
-      match constructor with
-      | Expr.AUPred name -> (Callable.MaskHead.Dependencies name, []) :: nested
-      | _ -> nested)
+      match constructor with Expr.AUPred name -> name :: nested | _ -> nested)
     ~binder:(fun () _ _ _ body _ -> body)
     () expression
-  |> Callable.mask_canon
+
+let symbolic_tokens expression =
+  List.map (token_procedures expression) ~f:(fun name ->
+      (Callable.MaskHead.Dependencies name, []))
+
+(** The requirements of [proc]'s atomic precondition, with symbolic entries for the tokens
+    nested in it, in the names of [proc]'s instance. *)
+let atomic_requirements ~loc proc =
+  let open Rewriter.Syntax in
+  let* symbol = Rewriter.find proc in
+  (* Instantiated callable locals remain in the template's physical scope. *)
+  let scope = Rewriter.Symbol.orig_qid symbol in
+  let decl =
+    match Rewriter.Symbol.orig_symbol symbol with
+    | Module.CallDef { call_decl; _ } -> call_decl
+    | _ -> Util.Error.internal_error loc "Expected an atomic-update callable"
+  in
+  let atomic = List.filter decl.call_decl_precond ~f:(fun spec -> spec.spec_atomic) in
+  let scope_member =
+    match decl.call_decl_formals with
+    | formal :: _ -> formal.Type.var_name
+    | [] -> ProgUtils.callable_au_token_ident ~loc (QualIdent.unqualify proc)
+  in
+  let* required =
+    Rewriter.in_scope_of
+      (QualIdent.append scope scope_member)
+      (required_specs { decl with call_decl_precond = atomic })
+  in
+  let nested =
+    List.concat_map atomic ~f:(fun spec -> symbolic_tokens spec.Stmt.spec_form)
+  in
+  let requalify = QualIdent.requalify (Rewriter.Symbol.subst symbol) in
+  Rewriter.List.map (required @ nested) ~f:(fun (head, args) ->
+      let+ args =
+        Rewriter.List.map args ~f:(Rewriter.Expr.rewrite_qual_idents ~f:requalify)
+      in
+      (Callable.map_mask_head head ~f:requalify, args))
+
+(* A token yields only its procedure's atomic precondition, which implementations share,
+   so that precondition bounds what it exposes. Tokens nested there stay symbolic. *)
+let latent_dependencies expression =
+  let open Rewriter.Syntax in
+  let+ bounds =
+    Rewriter.List.map (token_procedures expression) ~f:(fun name ->
+        let+ required = atomic_requirements ~loc:(QualIdent.to_loc name) name in
+        List.map required ~f:(fun (head, _) -> (head, [])))
+  in
+  Callable.mask_canon (List.concat bounds)
 
 let exposed_specs decl =
   let open Rewriter.Syntax in
-  let+ ordinary = required_specs decl in
-  List.fold decl.Callable.call_decl_precond ~init:ordinary ~f:(fun mask spec ->
-      Callable.mask_union mask (latent_dependencies spec.spec_form))
+  let* ordinary = required_specs decl in
+  Rewriter.List.fold_left decl.Callable.call_decl_precond ~init:ordinary
+    ~f:(fun mask spec ->
+      let+ latent = latent_dependencies spec.spec_form in
+      Callable.mask_union mask latent)
 
 let exposed_expression formals expression =
   let open Rewriter.Syntax in
-  let+ ordinary = required_expression formals expression in
-  Callable.mask_union ordinary (latent_dependencies expression)
+  let* ordinary = required_expression formals expression in
+  let+ latent = latent_dependencies expression in
+  Callable.mask_union ordinary latent
 
 let granted_specs decl =
   let open Rewriter.Syntax in

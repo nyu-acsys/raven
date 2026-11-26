@@ -280,11 +280,12 @@ let test_prior_latent_au_dependency () =
     List.find_exn summary.namespaces ~f:(fun declaration ->
         QualIdent.equal declaration.NamespaceContract.name (previous "stored"))
   in
+  (* The token exposes what [host]'s atomic precondition may contain. *)
   begin match stored.definition with
   | Defined body ->
       assert (
         List.exists body ~f:(fun (head, _) ->
-            Callable.equal_mask_head head (Dependencies (previous "host"))))
+            Callable.equal_mask_head head (Invariant (previous "child"))))
   | Abstract | Bounded _ -> assert false
   end;
   let _, tbl, typed =
@@ -305,13 +306,12 @@ let test_prior_latent_au_dependency () =
   match Rewriter.eval validate tbl with
   | _ -> assert false
   | exception Util.Error.Msg errors ->
+      (* The fresh root overlaps what the token exposes, so it gives no authority. *)
       assert (
         List.exists errors ~f:(function
           | Util.Error.Type, _, message ->
               String.is_substring message
-                ~substring:"Cannot establish invariant namespace separation"
-              && String.is_substring message ~substring:"Previous.root"
-              && String.is_substring message ~substring:"Previous.stored"
+                ~substring:"Opening this atomic update requires input authority"
           | _ -> false))
 
 let test_imported_namespace_merge_aligns_formals () =
