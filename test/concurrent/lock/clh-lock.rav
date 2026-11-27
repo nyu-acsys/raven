@@ -1,118 +1,124 @@
+include "queue_lock.rav"
+
 import Library.Atomics._
 
-interface CLHLock {
+// Each acquisition allocates a fresh private node for its guard.
+module CLHLock[R: LockResource] :> QueueLock[R] {
+  rep type T = Ref
+  type Guard = Ref
+
   field locked: Bool
   field loc: Ref
   field predecessor: Ref
   field tail: Ref
 
   ghost field agr: ()
-  
-  // Resource protected by the lock
-  pred resource()
 
-  inv queued_loc(l: Ref) {
-    exists b_disj: Bool, b: Bool ::
-      (b_disj ? own(l, agr, (), 1.0) : 
-        own(l, locked, b, 0.5) &&
-        (!b ==> resource() && own(l, agr, (), 0.5) && own(l, locked, b, 0.5)))
+  inv queued_loc(l: Ref, q: Ref, r: R) within is_lock(l, r) {
+    exists detached: Bool, b: Bool ::
+      (detached ? own(q, agr, (), 1.0) :
+        own(q, locked, b, 0.5) &&
+        (!b ==> R.resource(r) && own(q, agr, (), 0.5) && own(q, locked, b, 0.5)))
   }
 
-  inv lock_inv(lk: Ref) {
-    exists l: Ref ::
-      own(lk, tail, l, 1.0) &&
-      own(l, agr, (), 0.5) &&
-      queued_loc(l)
+  inv is_lock(l: Ref, r: R) {
+    exists q: Ref ::
+      own(l, tail, q, 1.0) &&
+      own(q, agr, (), 0.5) &&
+      queued_loc(l, q, r)
   }
 
-  inline pred acquired_node(node: Ref) {
+  pred held(l: Ref, guard: Ref, r: R) {
     exists ln: Ref, pn: Ref ::
-      own(node, loc, ln, 1.0) &&
-      queued_loc(ln) && own(ln, agr, (), 0.5) &&
+      own(guard, loc, ln, 1.0) &&
+      queued_loc(l, ln, r) && own(ln, agr, (), 0.5) &&
       own(ln, locked, true, 0.5) &&
-      own(node, predecessor, pn, 1.0) &&
+      own(guard, predecessor, pn, 1.0) &&
       own(pn, locked, false, 1.0) &&
-      queued_loc(pn) &&
-      resource()
+      queued_loc(l, pn, r)
   }
 
-  inline pred free_node(node: Ref) {
+  inline pred free_node(l: Ref, node: Ref, r: R) {
     exists ln: Ref, pn: Ref ::
       own(node, loc, ln, 1.0) &&
       own(ln, locked, false, 1.0) &&
       own(node, predecessor, pn, 1.0) &&
-      queued_loc(ln)
+      queued_loc(l, ln, r)
   }
 
-  proc create_node()
-    returns (node: Ref)
-    ensures free_node(node)
+  proc create_node(l: Ref, ghost r: R) returns (node: Ref)
+    ensures free_node(l, node, r)
+    opens {}
   {
     var newloc := new(locked: false, agr: ());
     node := new(loc: newloc, predecessor: null);
-    fold queued_loc(newloc)[b_disj := true];
+    fold queued_loc(l, newloc, r)[detached := true];
   }
 
-  proc create_lock()
-    returns (lk: Ref)
-    requires resource()
-    ensures lock_inv(lk)
+  proc create(r: R) returns (l: Ref)
+    requires R.resource(r)
+    ensures is_lock(l, r)
+    opens {}
   {
-    var l := new(locked: false, agr: ());
-    lk := new(tail: l);
-    fold queued_loc(l)[b_disj := false];
-    fold lock_inv(lk);
+    var q := new(locked: false, agr: ());
+    l := new(tail: q);
+    fold queued_loc(l, q, r)[detached := false];
+    fold is_lock(l, r);
   }
 
-  proc wait_on(lk: Ref, pn: Ref, ln: Ref, node: Ref)
-    requires lock_inv(lk) && queued_loc(ln) &&
+  proc wait_on(l: Ref, pn: Ref, ln: Ref, node: Ref, ghost r: R)
+    requires is_lock(l, r) && queued_loc(l, ln, r) &&
       own(node, loc, ln, 1.0) &&
       own(node, predecessor, pn, 1.0) &&
       own(ln, agr, (), 0.5) &&
       own(ln, locked, true, 0.5) &&
-      queued_loc(pn) && own(pn, agr, (), 0.5)
-    ensures acquired_node(node)
+      queued_loc(l, pn, r) && own(pn, agr, (), 0.5)
+    ensures held(l, node, r) && R.resource(r)
+    opens is_lock(l, r)
   {
     ghost var branch: Bool;
-    unfold queued_loc(pn)[branch := b_disj];
+    unfold queued_loc(l, pn, r)[branch := detached];
     var b := pn.locked;
-    
-    fold queued_loc(pn)[b := b, b_disj := !b || branch];
-    
+    fold queued_loc(l, pn, r)[b := b, detached := !b || branch];
+
     if (b) {
-      wait_on(lk, pn, ln, node);
-    } 
+      wait_on(l, pn, ln, node, r);
+    } else {
+      fold held(l, node, r);
+    }
   }
 
-  proc acquire(lk: Ref, node: Ref)
-    requires lock_inv(lk) && free_node(node)
-    ensures acquired_node(node)
+  proc acquire(l: Ref, implicit ghost r: R) returns (guard: Ref)
+    requires is_lock(l, r)
+    ensures is_lock(l, r) && held(l, guard, r) && R.resource(r)
+    opens is_lock(l, r)
   {
-    var ln := node.loc;
+    guard := create_node(l, r);
+    var ln := guard.loc;
     ln.locked := true;
 
-    unfold lock_inv(lk);
-    unfold queued_loc(ln);
-    var pn := xchg(lk.tail, ln);
-    fold queued_loc(ln)[b_disj := false];
-    fold lock_inv(lk);
+    unfold is_lock(l, r);
+    unfold queued_loc(l, ln, r);
+    var pn := xchg(l.tail, ln);
+    fold queued_loc(l, ln, r)[detached := false];
+    fold is_lock(l, r);
 
-    // Set new predecessor
-    node.predecessor := pn;
-    // Wait on the predecessor
-    wait_on(lk, pn, ln, node);
+    guard.predecessor := pn;
+    wait_on(l, pn, ln, guard, r);
   }
 
-  proc release(lk: Ref, node: Ref)
-    requires acquired_node(node)
-    ensures free_node(node)
+  proc release(l: Ref, guard: Ref, implicit ghost r: R)
+    requires is_lock(l, r) && held(l, guard, r) && R.resource(r)
+    ensures is_lock(l, r)
+    opens is_lock(l, r)
   {
-    var ln := node.loc;
-    unfold queued_loc(ln);
+    unfold held(l, guard, r);
+    var ln := guard.loc;
+    unfold queued_loc(l, ln, r);
     ln.locked := false;
-    ghost var l: Ref;
-    fold queued_loc(ln)[b_disj := false];
-    var pn := node.predecessor;
-    node.loc := pn;
+    fold queued_loc(l, ln, r)[detached := false];
+
+    var pn := guard.predecessor;
+    guard.loc := pn;
   }
 }

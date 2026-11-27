@@ -31,7 +31,7 @@ let validate source =
   let tbl, collected = Rewriter.eval (Closure.collect typed) tbl in
   let tbl, draft = Rewriter.eval (Closure.close collected) tbl in
   let tbl, frozen = Rewriter.eval (Closure.freeze draft collected.program) tbl in
-  snd (Rewriter.eval (Realization.validate ~draft frozen) tbl)
+  fst (snd (Rewriter.eval (Realization.validate ~draft frozen) tbl))
 
 let module_summary contract =
   match NamespaceContract.view contract with
@@ -190,9 +190,10 @@ let test_required_nested_member_still_checked () =
   let path = qi [ "Empty" ] in
   match
     Rewriter.eval
-      (Rewriter.eval_with_user_state
-         ~init:(Map.empty (module QualIdent))
-         (Realization.compatible ~declarations:[] ~owner:path ~loc:Util.Loc.dummy
+      (Rewriter.eval_with_user_state ~init:Realization.empty_state
+         (let open Rewriter.Syntax in
+          let* prepared = Frontend.NamespaceEntailment.prepare [] in
+          Realization.compatible ~prepared ~owner:path ~loc:Util.Loc.dummy
             Realization.empty_environment ~actual_path:path ~expected_path:path
             ~established:true actual expected))
       tbl

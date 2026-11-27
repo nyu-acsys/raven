@@ -1,0 +1,30 @@
+interface API {
+  inv stored(x: Ref)
+  proc touch(x: Ref)
+    requires stored(x)
+    ensures stored(x)
+}
+module Actual: API {
+  field value: Int
+  inv stored(x: Ref) { hidden(x) }
+  inv hidden(x: Ref) within stored(x) { exists n: Int :: own(x.value, n, 1.0) }
+  proc touch(x: Ref) {
+    unfold stored(x);
+    unfold hidden(x);
+    x.value := 1;
+    fold hidden(x);
+    fold stored(x);
+  }
+}
+module Client[P: API] {
+  proc use(x: Ref)
+    requires P.stored(x)
+    ensures P.stored(x)
+  { P.touch(x); }
+}
+module Use = Client[Actual]
+module Export: API = Actual
+proc client(x: Ref)
+  requires Export.stored(x)
+  ensures Export.stored(x)
+{ Export.touch(x); }

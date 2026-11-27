@@ -26,6 +26,7 @@ let rec map_symbol source target symbol =
   match symbol with
   | Module.CallDef call ->
       let declaration = call.call_decl in
+      let rewrite_expr e = lift (Rewriter.Expr.rewrite_qual_idents ~f e) in
       let parameters =
         Rewriter.List.map ~f:(fun p ->
             let+ var_type = lift (Rewriter.Type.rewrite_qual_idents ~f p.Type.var_type) in
@@ -33,14 +34,9 @@ let rec map_symbol source target symbol =
       in
       let specs =
         Rewriter.List.map ~f:(fun spec ->
-            let* spec_form =
-              lift (Rewriter.Expr.rewrite_qual_idents ~f spec.Stmt.spec_form)
-            in
+            let* spec_form = rewrite_expr spec.Stmt.spec_form in
             let+ spec_trigs =
-              Rewriter.List.map spec.spec_trigs
-                ~f:
-                  (Rewriter.List.map ~f:(fun e ->
-                       lift (Rewriter.Expr.rewrite_qual_idents ~f e)))
+              Rewriter.List.map spec.spec_trigs ~f:(Rewriter.List.map ~f:rewrite_expr)
             in
             { spec with spec_form; spec_trigs })
       in
@@ -48,17 +44,19 @@ let rec map_symbol source target symbol =
       let* call_decl_returns = parameters declaration.call_decl_returns in
       let* call_decl_precond = specs declaration.call_decl_precond in
       let* call_decl_postcond = specs declaration.call_decl_postcond in
-      let+ call_decl_opens =
-        Rewriter.Option.map declaration.call_decl_opens ~f:(fun clause ->
-            let+ opens_entries =
-              Rewriter.List.map clause.Callable.opens_entries ~f:(fun (head, args) ->
-                  let+ args =
-                    Rewriter.List.map args ~f:(fun e ->
-                        lift (Rewriter.Expr.rewrite_qual_idents ~f e))
-                  in
+      let* call_decl_bound =
+        Rewriter.Option.map declaration.call_decl_bound ~f:(fun clause ->
+            let+ bound_entries =
+              Rewriter.List.map clause.Callable.bound_entries ~f:(fun (head, args) ->
+                  let+ args = Rewriter.List.map args ~f:rewrite_expr in
                   (Callable.map_mask_head head ~f, args))
             in
-            { clause with opens_entries })
+            { clause with bound_entries })
+      in
+      let+ call_decl_ancestry =
+        Rewriter.Option.map declaration.call_decl_ancestry ~f:(fun clause ->
+            let+ ancestry_args = Rewriter.List.map clause.ancestry_args ~f:rewrite_expr in
+            { clause with ancestry_target = f clause.ancestry_target; ancestry_args })
       in
       Module.CallDef
         {
@@ -70,7 +68,8 @@ let rec map_symbol source target symbol =
               call_decl_returns;
               call_decl_precond;
               call_decl_postcond;
-              call_decl_opens;
+              call_decl_bound;
+              call_decl_ancestry;
               call_decl_loc_params = List.map declaration.call_decl_loc_params ~f;
             };
         }
@@ -438,8 +437,6 @@ let module_ ~loc ~name ~interface ~actual =
                   call_decl_status = NotFree;
                   call_decl_is_sealed = false;
                   call_decl_alias = None;
-                  call_decl_needs_mask = None;
-                  call_decl_grants_mask = None;
                   call_decl_locals = [];
                   call_decl_loc = loc;
                 }
@@ -459,6 +456,7 @@ let module_ ~loc ~name ~interface ~actual =
                         {
                           declaration with
                           call_decl_alias = Some target;
+                          call_decl_ancestry = None;
                           call_decl_is_inline = false;
                           call_decl_is_auto = false;
                         };
@@ -502,7 +500,7 @@ let module_ ~loc ~name ~interface ~actual =
                           call.call_decl with
                           call_decl_precond = [];
                           call_decl_postcond = [];
-                          call_decl_opens = None;
+                          call_decl_bound = None;
                         };
                     }
               in

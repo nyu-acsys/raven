@@ -1,0 +1,83 @@
+field contents: Int
+
+inv cell(location: Ref; value: Int) {
+  own(location.contents, value)
+}
+
+interface Factory {
+  proc create(value: Int) returns (result: Ref)
+    ensures exists witness: Int :: cell(result, witness) && witness == value
+}
+
+module MakeClient[F: Factory] {
+  proc read(value: Int) returns (result: Int)
+    ensures result == value
+  {
+    var location: Ref := F.create(value);
+    ghost var witness: Int;
+    witness :| cell(location, witness) && witness == value;
+    atomic {
+      unfold cell(location, witness);
+      result := location.contents;
+      fold cell(location, witness);
+    }
+  }
+}
+
+module Concrete : Factory {
+  proc create(value: Int) returns (result: Ref)
+    ensures exists witness: Int :: cell(result, witness) && witness == value
+  {
+    result := new(contents: value);
+    fold cell(result, value);
+  }
+}
+
+module Client = MakeClient[Concrete]
+
+proc direct(value: Int) returns (result: Int)
+  ensures result == value
+{
+  var location: Ref := Concrete.create(value);
+  ghost var witness: Int;
+  witness :| cell(location, witness) && witness == value;
+  atomic {
+    unfold cell(location, witness);
+    result := location.contents;
+    fold cell(location, witness);
+  }
+}
+
+proc seal(location: Ref, value: Int)
+  requires own(location.contents, value)
+  ensures exists witness: Int :: cell(location, witness) && witness == value
+{
+  fold cell(location, value);
+}
+
+proc supplied_location(location: Ref, chosen: Int) returns (result: Int)
+  requires own(location.contents, chosen)
+  ensures result == chosen
+{
+  seal(location, chosen);
+  ghost var witness: Int;
+  witness :| cell(location, witness) && witness == chosen;
+  atomic {
+    unfold cell(location, witness);
+    result := location.contents;
+    fold cell(location, witness);
+  }
+}
+
+pred stored(location: Ref; value: Int) {
+  own(location.contents, value)
+}
+
+proc change(location: Ref)
+  requires stored(location, 0)
+  ensures stored(location, 1)
+{
+  unfold stored(location, 0);
+  location.contents := 1;
+  fold stored(location, 1);
+}

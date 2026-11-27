@@ -1,0 +1,20 @@
+field value: Int
+
+inv published(x: Ref, expected: Int) {
+  own(x.value, expected, 1.0)
+}
+
+proc forge(x: Ref)
+  ensures published(x, 1)
+{
+}
+
+proc false_claim(x: Ref)
+  requires own(x.value, 0, 1.0)
+  ensures false
+{
+  forge(x);
+  unfold published(x, 1);
+  assert false;
+  fold published(x, 1);
+}

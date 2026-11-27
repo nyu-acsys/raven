@@ -778,6 +778,7 @@ and check_field_write (fw_desc : Stmt.field_write_desc) (stmt_loc : location)
         else field_type
     | _ -> not_a_field_error (QualIdent.to_loc fw_desc.field_write_field)
   in
+  let* field_type = Rewriter.in_scope_of field_write_field (TypeExpr.check field_type) in
   let* is_field_an_ra = lift (ProgUtils.is_ra_type field_type) in
   let _ =
     if is_field_an_ra then ra_field_assign_error stmt_loc fw_desc.field_write_field

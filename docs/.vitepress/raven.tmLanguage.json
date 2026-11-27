@@ -63,6 +63,11 @@
 			"patterns": [{
 				"name": "keyword.other.raven",
 				"match": "\\b(requires|ensures|returns|atomic|invariant|decreases|opens)\\b"
+			},
+			{
+				"comment": "Contextual keywords, which remain usable as names.",
+				"name": "keyword.other.raven",
+				"match": "\\b(within|depends)\\b(?=\\s*[{A-Za-z_])"
 			}]
 		},
 		"constants": {

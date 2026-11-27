@@ -1,0 +1,10 @@
+inv root(x: Int) { true }
+inv child(x: Int) within root(x) { true }
+lemma use(x: Int)
+  requires root(x)
+  opens {}
+{
+  fold child(x);
+  unfold child(x);
+  fold child(x);
+}

@@ -1,0 +1,13 @@
+inv root(x: Int) { child(x, 0) }
+inv child(x: Int, k: Int) within root(x) { true }
+lemma bad(ghost x: Int, y: Int)
+  requires root(x) && root(y)
+  opens root(x)
+{
+  ghost var saved: Int := x;
+  unfold root(x);
+  x := y;
+  fold root(saved);
+  unfold child(x, 0);
+  fold child(x, 0);
+}

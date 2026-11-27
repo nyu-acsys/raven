@@ -1,0 +1,12 @@
+// An implementation whose predicate depends on an invariant outside its bound.
+interface Context {
+  pred context(self: Ref) depends {}
+}
+
+module Actual : Context {
+  field level: Int
+
+  inv guard(self: Ref) { exists v: Int :: own(self.level, v) }
+
+  pred context(self: Ref) { guard(self) }
+}

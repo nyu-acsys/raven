@@ -164,7 +164,7 @@ let generate_skolem_function (universal_quants : universal_quants) (var_decl : v
 
   let call_decl =
     Callable.mk_call_decl ~kind:Func ~name:skolem_fn_ident ~loc ~formals:formal_var_decls
-      ~returns:[ ret_var_decl ] ~postcond:postconds ~needs_mask:[] ~grants_mask:[] ()
+      ~returns:[ ret_var_decl ] ~postcond:postconds ()
   in
 
   let* skolem_fn_qual_ident =
@@ -226,6 +226,77 @@ let generate_skolem_functions (skolem_fns : skolem_function_def list) =
   in
 
   ret_exprs
+
+(** Choose a matching element without assuming the set contains one. *)
+let singleton_choice (exists : var_decl list) concrete_set pattern =
+  let open Rewriter.Syntax in
+  let loc = Expr.to_loc pattern in
+  let variable name typ =
+    {
+      Type.var_name = Ident.fresh loc name;
+      var_loc = loc;
+      var_type = typ;
+      var_const = true;
+      var_ghost = true;
+      var_implicit = false;
+    }
+  in
+  let* element_type = !Rewriter.expand_type_expr_ref (Expr.to_type pattern) in
+  let result = variable "$set_element" element_type in
+  let set_arg = variable "$set" (Type.set_typed element_type) in
+  let existential id = List.exists exists ~f:(fun vd -> Ident.equal vd.var_name id) in
+  let rec constraints selected pattern (arguments, occurrences, facts) =
+    if not (Set.exists (Expr.local_vars pattern) ~f:existential) then
+      let arg = variable "$known" (Expr.to_type pattern) in
+      Some
+        ( (arg, pattern) :: arguments,
+          occurrences,
+          Expr.mk_eq selected (Expr.from_var_decl arg) :: facts )
+    else
+      match pattern with
+      | App (Var id, [], _) when existential (QualIdent.unqualify id) ->
+          let id = QualIdent.unqualify id in
+          begin match Map.find occurrences id with
+          | None -> Some (arguments, Map.set occurrences ~key:id ~data:selected, facts)
+          | Some previous ->
+              Some (arguments, occurrences, Expr.mk_eq selected previous :: facts)
+          end
+      | App (Tuple, parts, _) ->
+          List.foldi parts
+            ~init:(Some (arguments, occurrences, facts))
+            ~f:(fun index state part ->
+              Option.bind state ~f:(fun state ->
+                  constraints (Expr.mk_tuple_lookup selected index) part state))
+      | _ -> None
+  in
+  match
+    constraints (Expr.from_var_decl result) pattern ([], Map.empty (module Ident), [])
+  with
+  | None -> Rewriter.return None
+  | Some (arguments, _, facts) ->
+      let condition =
+        Expr.mk_and
+          (Expr.mk_eq
+             (Expr.mk_maplookup (Expr.from_var_decl set_arg) (Expr.from_var_decl result))
+             (Expr.mk_bool true)
+          :: facts)
+      in
+      let existence = Expr.mk_binder ~loc Exists [ result ] condition in
+      let+ choices =
+        generate_skolem_functions
+          [
+            {
+              universal_quants = { univ_vars = []; triggers = [] };
+              var_decl = result;
+              preconds = [ existence ];
+              postconds = [ condition ];
+              optn_args = (set_arg, concrete_set) :: List.rev arguments;
+              skolem_fn_id = Ident.fresh_member loc "$choose_set_element";
+              loc;
+            };
+          ]
+      in
+      List.hd choices
 
 (** Normalized guard literals, with contradictory paths removed syntactically. *)
 let normalize_conditions conditions =
@@ -513,14 +584,14 @@ and elim_a1 ?(fallbacks = []) (univ_vars : universal_quants) (univ_conds : condi
         List.map var_decls ~f:(fun vd -> (vd, ident_to_skolem_fn_ident ~loc vd.var_name))
       in
 
-      let compute_raw ?(fraction_fallback = false) (vars : var_decl list) =
+      let compute_raw ?(resource_fallback = false) (vars : var_decl list) =
         let init_map =
           List.fold vars
             ~init:(Map.empty (module Ident))
             ~f:(fun map var_decl -> Map.add_exn map ~key:var_decl.var_name ~data:[])
         in
 
-        elim_a0 ~fraction_fallback univ_vars vars (univ_conds, []) e init_map
+        elim_a0 ~resource_fallback univ_vars vars (univ_conds, []) e init_map
       in
 
       (* Sanitizing witnesses:
@@ -550,9 +621,8 @@ and elim_a1 ?(fallbacks = []) (univ_vars : universal_quants) (univ_conds : condi
         resolve_dependencies var_decls univ_conds (sanitize raw_witnesses)
       in
 
-      (* An `own` fraction need not equal the available permission. Use that
-         permission as a fallback where primary candidates leave it undetermined;
-         see [core_witness_comp]'s `Frac` case. *)
+      (* Set-member choices and available permissions are guesses, unlike exact
+         values. Use them only where primary candidates leave a witness undetermined. *)
       let* witnesses =
         let unsolved =
           List.filter var_decls ~f:(fun var_decl ->
@@ -563,7 +633,7 @@ and elim_a1 ?(fallbacks = []) (univ_vars : universal_quants) (univ_conds : condi
         in
         if List.is_empty unsolved then Rewriter.return witnesses
         else
-          let+ raw_fallback = compute_raw ~fraction_fallback:true unsolved in
+          let+ raw_fallback = compute_raw ~resource_fallback:true unsolved in
           Map.fold (sanitize raw_fallback) ~init:witnesses ~f:(fun ~key ~data acc ->
               Map.update acc key ~f:(function
                 | None -> data
@@ -971,12 +1041,12 @@ and elim_a1 ?(fallbacks = []) (univ_vars : universal_quants) (univ_conds : condi
       (* No existentials found *)
       Rewriter.return (expr, [], [])
 
-and elim_a0 ?(fraction_fallback = false) (univ_vars : universal_quants)
+and elim_a0 ?(resource_fallback = false) (univ_vars : universal_quants)
     (exist_vars : var_decl list) ((univ_conds, exist_conds) : conditions * conditions)
     (expr : expr) (witness_map : (conditions * expr option) list ident_map) :
     (conditions * expr option) list ident_map Rewriter.t =
   let open Rewriter.Syntax in
-  let elim_a0 = elim_a0 ~fraction_fallback in
+  let elim_a0 = elim_a0 ~resource_fallback in
   match expr with
   | App (And, e_list, _) ->
       let* witness_map =
@@ -1004,7 +1074,9 @@ and elim_a0 ?(fraction_fallback = false) (univ_vars : universal_quants)
       Rewriter.return witness_map
   | App (Eq, [ left; right ], _) ->
       let add_candidates pattern value witness_map =
-        let+ candidates = core_witness_comp exist_vars value pattern true in
+        let+ candidates =
+          core_witness_comp ~resource_fallback exist_vars value pattern true
+        in
         Map.fold candidates ~init:witness_map ~f:(fun ~key ~data witnesses ->
             Map.update witnesses key ~f:(fun existing ->
                 (exist_conds, Some data) :: Option.value existing ~default:[]))
@@ -1053,7 +1125,7 @@ and elim_a0 ?(fraction_fallback = false) (univ_vars : universal_quants)
       in
 
       let* witnesses =
-        core_witness_comp ~ra_hint:field_ra_hint ~fraction_fallback relevant_vars
+        core_witness_comp ~ra_hint:field_ra_hint ~resource_fallback relevant_vars
           concrete_expr val_expr false
       in
 
@@ -1140,7 +1212,8 @@ and elim_a0 ?(fraction_fallback = false) (univ_vars : universal_quants)
             Rewriter.List.fold_left out_args_concrete_exprs ~init:witness_map
               ~f:(fun witness_map (out_arg, concrete_expr) ->
                 let* witnesses =
-                  core_witness_comp exist_vars concrete_expr out_arg true
+                  core_witness_comp ~resource_fallback exist_vars concrete_expr out_arg
+                    true
                 in
 
                 let witness_map =
@@ -1179,7 +1252,7 @@ and elim_a0 ?(fraction_fallback = false) (univ_vars : universal_quants)
       | _ -> Rewriter.return witness_map)
   | _ -> Rewriter.return witness_map
 
-and core_witness_comp ?(ra_hint : qual_ident option = None) ?(fraction_fallback = false)
+and core_witness_comp ?(ra_hint : qual_ident option = None) ?(resource_fallback = false)
     (exists : var_decl list) (concrete_expr : expr) (given_expr : expr) (exact : bool) :
     expr ident_map Rewriter.t =
   let open Rewriter.Syntax in
@@ -1193,230 +1266,512 @@ and core_witness_comp ?(ra_hint : qual_ident option = None) ?(fraction_fallback 
           printers.pr_expr concrete_expr printers.pr_expr given_expr exact)
   in
 
-  match exact with
-  | false ->
-      let ra_name =
-        match Expr.to_type given_expr with
-        | App (Var ra_name, [], _) -> QualIdent.pop ra_name
-        | App (Data (ra_name, _), [], _) -> QualIdent.pop ra_name
-        | tp -> (
-            match ra_hint with
-            | Some ra_name -> ra_name
-            | None ->
-                Error.type_error (Expr.to_loc given_expr)
-                  ("Expected an RA type; found: " ^ Type.to_string tp))
-      in
+  let* expanded =
+    match given_expr with
+    | App (Var f, (_ :: _ as args), _) when not exact ->
+        let* inlined = Rewriter.inline_func_body f args in
+        begin match inlined with
+        | Some _ -> Rewriter.return inlined
+        | None -> lifted_comprehension f args
+        end
+    | _ -> Rewriter.return None
+  in
+  match (exact, expanded, given_expr) with
+  | false, Some body, _ ->
+      core_witness_comp ~ra_hint ~resource_fallback exists concrete_expr body false
+  | false, None, Binder (Compr, [ key ], _, body, _) ->
+      comprehension_witnesses ~resource_fallback exists concrete_expr key body
+  | _ -> (
+      match exact with
+      | false ->
+          let ra_name =
+            match Expr.to_type given_expr with
+            | App (Var ra_name, [], _) -> QualIdent.pop ra_name
+            | App (Data (ra_name, _), [], _) -> QualIdent.pop ra_name
+            | tp -> (
+                match ra_hint with
+                | Some ra_name -> ra_name
+                | None ->
+                    Error.type_error (Expr.to_loc given_expr)
+                      ("Expected an RA type; found: " ^ Type.to_string tp))
+          in
 
-      (* Resolve before the destructor names below are derived from it: the type
+          (* Resolve before the destructor names below are derived from it: the type
          this came from can name the RA through a manifest field's module rather
          than the module the RA was generated in, and the backend keys on the name
          it is given, not on what that name resolves to. *)
-      let* ra_name = Rewriter.resolve ra_name in
+          let* ra_name = Rewriter.resolve ra_name in
 
-      let* orig_name, ra_def, _ = Rewriter.find ra_name in
+          let* orig_name, ra_def, _ = Rewriter.find ra_name in
 
-      if QualIdent.(orig_name = Predefs.lib_auth_mod_qual_ident) then
-        match given_expr with
-        | App (DataConstr constr_ident, exprs, _) | App (Var constr_ident, exprs, _) ->
-            (* #TODO: This exception is added to tackle the case of using AuthRA.auth()/AuthRA.full() functions, which are different from the AuthRA.auth_frag() data constructor. As such, this exception is not added in the explicit calculation which should ideally be fixed. *)
-            if
-              Ident.(
-                QualIdent.unqualify constr_ident = Predefs.lib_auth_frag_constr_ident)
-              || Ident.(QualIdent.unqualify constr_ident = Predefs.lib_auth_fun_ident)
-              || Ident.(
-                   QualIdent.unqualify constr_ident = Predefs.lib_auth_full_fun_ident)
-            then
-              let auth_chunk =
-                Expr.mk_app
-                  ~typ:(Expr.to_type (List.hd_exn exprs))
-                  (Expr.DataDestr
-                     (QualIdent.append ra_name Predefs.lib_auth_frag_destr1_ident))
-                  [ concrete_expr ]
-              in
-              core_witness_comp exists auth_chunk (List.hd_exn exprs) true
-              (* Error.error_simple "unimplemented" *)
-            else Rewriter.return (Map.empty (module Ident))
-        | _ -> Error.type_error (Expr.to_loc given_expr) "Expected a data constructor."
-      else if Predefs.is_lib_frac_mod orig_name then
-        match given_expr with
-        | App (DataConstr constr_ident, exprs, _) -> (
-            if
-              not
-                Ident.(
-                  QualIdent.unqualify constr_ident = Predefs.lib_frac_chunk_constr_ident)
-            then Rewriter.return (Map.empty (module Ident))
-            else
-              (* A `Frac` chunk is `frac_chunk(value, fraction)`, and the two
-                 components are determined to different degrees by what the heap
-                 holds. The *value* is pinned exactly: whatever fraction is held,
-                 `frac_proj1` of it is the value. The *fraction* is not -- the
-                 assertion being exhaled asks for at most what is held, so any
-                 amount up to `frac_proj2` would do, and picking one is a guess.
-
-                 Hence the fraction is only ever solved in [fraction_fallback]
-                 mode, which the caller reserves for existentials that nothing
-                 else determined (see [elim_a1]). The guess is then the total
-                 available: the largest amount that can possibly work, so it
-                 succeeds whenever any choice would for a lower-bound constraint
-                 such as `q > 0.0`, and it is the only choice for `q == 1.0`. A
-                 wrong guess costs a failed proof, never soundness -- the exhale
-                 still asserts the permission is there. *)
-              match (fraction_fallback, exprs) with
-              | false, _ ->
-                  let frac_chunk =
+          if QualIdent.(orig_name = Predefs.lib_auth_mod_qual_ident) then
+            match given_expr with
+            | App (DataConstr constr_ident, exprs, _) | App (Var constr_ident, exprs, _)
+              ->
+                (* #TODO: This exception is added to tackle the case of using AuthRA.auth()/AuthRA.full() functions, which are different from the AuthRA.auth_frag() data constructor. As such, this exception is not added in the explicit calculation which should ideally be fixed. *)
+                if
+                  Ident.(
+                    QualIdent.unqualify constr_ident = Predefs.lib_auth_frag_constr_ident)
+                  || Ident.(QualIdent.unqualify constr_ident = Predefs.lib_auth_fun_ident)
+                  || Ident.(
+                       QualIdent.unqualify constr_ident = Predefs.lib_auth_full_fun_ident)
+                then
+                  let auth_chunk =
                     Expr.mk_app
                       ~typ:(Expr.to_type (List.hd_exn exprs))
                       (Expr.DataDestr
-                         (QualIdent.append ra_name Predefs.lib_frac_chunk_destr1_ident))
+                         (QualIdent.append ra_name Predefs.lib_auth_frag_destr1_ident))
                       [ concrete_expr ]
                   in
-                  core_witness_comp exists frac_chunk (List.hd_exn exprs) true
-              | true, [ _; frac_expr ] ->
-                  let frac_amount =
-                    Expr.mk_app ~typ:(Expr.to_type frac_expr)
-                      (Expr.DataDestr
-                         (QualIdent.append ra_name Predefs.lib_frac_chunk_destr2_ident))
-                      [ concrete_expr ]
-                  in
-                  core_witness_comp exists frac_amount frac_expr true
-              | true, _ -> Rewriter.return (Map.empty (module Ident)))
-        | _ -> Error.type_error (Expr.to_loc given_expr) "Expected a data constructor."
-      else if QualIdent.(orig_name = Predefs.lib_agree_mod_qual_ident) then
-        match given_expr with
-        | App (DataConstr constr_ident, exprs, _) ->
-            if Ident.(QualIdent.unqualify constr_ident = Predefs.lib_agree_constr_ident)
-            then
-              let agree_chunk =
-                Expr.mk_app
-                  ~typ:(Expr.to_type (List.hd_exn exprs))
-                  (Expr.DataDestr
-                     (QualIdent.append ra_name Predefs.lib_agree_destr1_ident))
-                  [ concrete_expr ]
-              in
-              core_witness_comp exists agree_chunk (List.hd_exn exprs) true
-            else Rewriter.return (Map.empty (module Ident))
-        | _ -> Error.type_error (Expr.to_loc given_expr) "Expected a data constructor."
-      else Rewriter.return (Map.empty (module Ident))
-  | true -> (
-      match given_expr with
-      | App (((Plus | Minus) as operator), [ left; right ], attr)
-        when Type.is_num (Expr.to_type concrete_expr) && Type.is_num attr.expr_type ->
-          let invert target other operator first second =
-            let target_vars = Expr.local_vars target in
-            let other_vars = Expr.local_vars other in
-            (* Invert only targets that occur on one side of this operation. *)
-            let vars =
-              List.filter exists ~f:(fun var ->
-                  Set.mem target_vars var.var_name
-                  && not (Set.mem other_vars var.var_name))
-            in
-            let typ = Type.join (Expr.to_type first) (Expr.to_type second) in
-            if List.is_empty vars || not (Type.subtype_of typ (Expr.to_type target)) then
-              Rewriter.return (Map.empty (module Ident))
-            else
-              let inverse =
-                Expr.mk_app ~loc:attr.expr_loc ~typ operator [ first; second ]
-              in
-              core_witness_comp vars inverse target true
-          in
-          let* left_witnesses =
-            match operator with
-            | Plus -> invert left right Minus concrete_expr right
-            | _ -> invert left right Plus concrete_expr right
-          in
-          let* right_witnesses =
-            match operator with
-            | Plus -> invert right left Minus concrete_expr left
-            | _ -> invert right left Minus left concrete_expr
-          in
-          Rewriter.return
-            (Map.merge left_witnesses right_witnesses ~f:(fun ~key:_ -> function
-              | `Both (left, _) | `Left left -> Some left
-              | `Right right -> Some right))
-      | App (Uminus, [ operand ], attr)
-        when Type.is_num (Expr.to_type concrete_expr)
-             && Type.subtype_of (Expr.to_type concrete_expr) (Expr.to_type operand) ->
-          core_witness_comp exists
-            (Expr.mk_app ~loc:attr.expr_loc ~typ:(Expr.to_type concrete_expr) Uminus
-               [ concrete_expr ])
-            operand true
-      | App (Var ident, [], _) ->
-          if
-            List.exists exists ~f:(fun var_decl ->
-                QualIdent.(QualIdent.from_ident var_decl.var_name = ident))
+                  core_witness_comp ~resource_fallback exists auth_chunk
+                    (List.hd_exn exprs) true (* Error.error_simple "unimplemented" *)
+                else if
+                  String.equal (Ident.name (QualIdent.unqualify constr_ident)) "frag"
+                then
+                  begin match exprs with
+                  | [ fragment ] ->
+                      let project member =
+                        Expr.mk_app ~typ:(Expr.to_type fragment)
+                          (Expr.DataDestr
+                             (QualIdent.append ra_name (Ident.make Loc.dummy member 0)))
+                          [ concrete_expr ]
+                      in
+                      let is_fragment =
+                        Expr.mk_app ~typ:Type.bool
+                          (Expr.DataTest
+                             (QualIdent.append ra_name (Ident.make Loc.dummy "frag" 0)))
+                          [ concrete_expr ]
+                      in
+                      (* The fragment's type can be the representation of [M], not [M]. *)
+                      core_witness_comp ~resource_fallback
+                        ~ra_hint:
+                          (Some (QualIdent.append ra_name (Ident.make Loc.dummy "M" 0)))
+                        exists
+                        (Expr.mk_ite is_fragment (project "f_proj1") (project "af_proj2"))
+                        fragment false
+                  | _ -> Rewriter.return (Map.empty (module Ident))
+                  end
+                else Rewriter.return (Map.empty (module Ident))
+            | _ ->
+                Error.type_error (Expr.to_loc given_expr) "Expected a data constructor."
+          else if
+            QualIdent.(
+              orig_name
+              = QualIdent.from_list [ Predefs.lib_ident; Ident.make Loc.dummy "SetRA" 0 ])
           then
-            Rewriter.return
-              (Map.singleton (module Ident) (QualIdent.unqualify ident) concrete_expr)
+            begin match given_expr with
+            | App (DataConstr constructor, [ elements ], _)
+              when String.equal (Ident.name (QualIdent.unqualify constructor)) "set" ->
+                let actual =
+                  Expr.mk_app ~typ:(Expr.to_type elements)
+                    (Expr.DataDestr
+                       (QualIdent.append ra_name (Ident.make Loc.dummy "value" 0)))
+                    [ concrete_expr ]
+                in
+                core_witness_comp ~resource_fallback exists actual elements true
+            | _ -> Rewriter.return (Map.empty (module Ident))
+            end
+          else if Predefs.is_lib_frac_mod orig_name then
+            match given_expr with
+            | App (DataConstr constr_ident, exprs, _) -> (
+                if
+                  not
+                    Ident.(
+                      QualIdent.unqualify constr_ident
+                      = Predefs.lib_frac_chunk_constr_ident)
+                then Rewriter.return (Map.empty (module Ident))
+                else
+                  (* The value must match exactly; the available fraction is only a
+                 fallback. Traverse values in both passes for nested resource choices. *)
+                  match exprs with
+                  | [ value; fraction ] ->
+                      let project destructor typ =
+                        Expr.mk_app ~typ
+                          (Expr.DataDestr (QualIdent.append ra_name destructor))
+                          [ concrete_expr ]
+                      in
+                      let* values =
+                        core_witness_comp ~resource_fallback exists
+                          (project Predefs.lib_frac_chunk_destr1_ident
+                             (Expr.to_type value))
+                          value true
+                      in
+                      if not resource_fallback then Rewriter.return values
+                      else
+                        let+ fractions =
+                          core_witness_comp ~resource_fallback exists
+                            (project Predefs.lib_frac_chunk_destr2_ident
+                               (Expr.to_type fraction))
+                            fraction true
+                        in
+                        Map.merge values fractions ~f:(fun ~key:_ -> function
+                          | `Both (value, _) | `Left value -> Some value
+                          | `Right fraction -> Some fraction)
+                  | _ -> Rewriter.return (Map.empty (module Ident)))
+            | _ ->
+                Error.type_error (Expr.to_loc given_expr) "Expected a data constructor."
+          else if QualIdent.(orig_name = Predefs.lib_agree_mod_qual_ident) then
+            match given_expr with
+            | App (DataConstr constr_ident, exprs, _) ->
+                if
+                  Ident.(
+                    QualIdent.unqualify constr_ident = Predefs.lib_agree_constr_ident)
+                then
+                  let agree_chunk =
+                    Expr.mk_app
+                      ~typ:(Expr.to_type (List.hd_exn exprs))
+                      (Expr.DataDestr
+                         (QualIdent.append ra_name Predefs.lib_agree_destr1_ident))
+                      [ concrete_expr ]
+                  in
+                  core_witness_comp ~resource_fallback exists agree_chunk
+                    (List.hd_exn exprs) true
+                else Rewriter.return (Map.empty (module Ident))
+            | _ ->
+                Error.type_error (Expr.to_loc given_expr) "Expected a data constructor."
           else Rewriter.return (Map.empty (module Ident))
-      | App (Tuple, exprs, _) ->
-          let indexed_exprs = List.mapi exprs ~f:(fun i expr -> (expr, i)) in
-
-          let* witness_map =
-            Rewriter.List.fold_left indexed_exprs
-              ~init:(Map.empty (module Ident))
-              ~f:(fun witness_map (expr, index) ->
-                let* new_witness_map =
-                  core_witness_comp exists
-                    (if Int.(List.length indexed_exprs = 1) then concrete_expr
-                     else Expr.mk_tuple_lookup concrete_expr index)
-                    expr true
+      | true -> (
+          match given_expr with
+          | App (((Plus | Minus) as operator), [ left; right ], attr)
+            when Type.is_num (Expr.to_type concrete_expr) && Type.is_num attr.expr_type ->
+              let invert target other operator first second =
+                let target_vars = Expr.local_vars target in
+                let other_vars = Expr.local_vars other in
+                (* Invert only targets that occur on one side of this operation. *)
+                let vars =
+                  List.filter exists ~f:(fun var ->
+                      Set.mem target_vars var.var_name
+                      && not (Set.mem other_vars var.var_name))
                 in
+                let typ = Type.join (Expr.to_type first) (Expr.to_type second) in
+                if List.is_empty vars || not (Type.subtype_of typ (Expr.to_type target))
+                then Rewriter.return (Map.empty (module Ident))
+                else
+                  let inverse =
+                    Expr.mk_app ~loc:attr.expr_loc ~typ operator [ first; second ]
+                  in
+                  core_witness_comp ~resource_fallback vars inverse target true
+              in
+              let* left_witnesses =
+                match operator with
+                | Plus -> invert left right Minus concrete_expr right
+                | _ -> invert left right Plus concrete_expr right
+              in
+              let* right_witnesses =
+                match operator with
+                | Plus -> invert right left Minus concrete_expr left
+                | _ -> invert right left Minus left concrete_expr
+              in
+              Rewriter.return
+                (Map.merge left_witnesses right_witnesses ~f:(fun ~key:_ -> function
+                  | `Both (left, _) | `Left left -> Some left
+                  | `Right right -> Some right))
+          | App (Uminus, [ operand ], attr)
+            when Type.is_num (Expr.to_type concrete_expr)
+                 && Type.subtype_of (Expr.to_type concrete_expr) (Expr.to_type operand) ->
+              core_witness_comp ~resource_fallback exists
+                (Expr.mk_app ~loc:attr.expr_loc ~typ:(Expr.to_type concrete_expr) Uminus
+                   [ concrete_expr ])
+                operand true
+          | App (Var ident, [], _) ->
+              if
+                List.exists exists ~f:(fun var_decl ->
+                    QualIdent.(QualIdent.from_ident var_decl.var_name = ident))
+              then
+                Rewriter.return
+                  (Map.singleton (module Ident) (QualIdent.unqualify ident) concrete_expr)
+              else Rewriter.return (Map.empty (module Ident))
+          | App (Var singleton, [ pattern ], _)
+            when resource_fallback
+                 && String.equal
+                      (Ident.name (QualIdent.unqualify singleton))
+                      (Expr.enumeration_name "{" ~singleton:true)
+                 && Type.is_set (Expr.to_type concrete_expr)
+                 && List.exists exists ~f:(fun vd ->
+                     Set.mem (Expr.local_vars pattern) vd.var_name) ->
+              let* original, _, _ = Rewriter.find singleton in
+              if
+                QualIdent.(
+                  pop original
+                  = from_list [ Predefs.lib_ident; Ident.make Loc.dummy "Sets" 0 ])
+              then
+                let* chosen = singleton_choice exists concrete_expr pattern in
+                begin match chosen with
+                | None -> Rewriter.return (Map.empty (module Ident))
+                | Some chosen ->
+                    core_witness_comp ~resource_fallback exists chosen pattern true
+                end
+              else Rewriter.return (Map.empty (module Ident))
+          | App (Enumeration "{", [ pattern ], _)
+            when resource_fallback
+                 && Type.is_set (Expr.to_type concrete_expr)
+                 && List.exists exists ~f:(fun vd ->
+                     Set.mem (Expr.local_vars pattern) vd.var_name) ->
+              let* chosen = singleton_choice exists concrete_expr pattern in
+              begin match chosen with
+              | None -> Rewriter.return (Map.empty (module Ident))
+              | Some chosen ->
+                  core_witness_comp ~resource_fallback exists chosen pattern true
+              end
+          | App (Tuple, exprs, _) ->
+              let* concrete_type =
+                !Rewriter.expand_type_expr_ref (Expr.to_type concrete_expr)
+              in
+              let concrete_expr = Expr.set_type concrete_expr concrete_type in
+              let indexed_exprs = List.mapi exprs ~f:(fun i expr -> (expr, i)) in
 
-                let witness_map =
-                  Map.merge witness_map new_witness_map ~f:(fun ~key:_ -> function
-                    | `Both (w1, w2) -> Some w1
-                    | `Left w1 -> Some w1
-                    | `Right w2 -> Some w2)
-                in
+              let* witness_map =
+                Rewriter.List.fold_left indexed_exprs
+                  ~init:(Map.empty (module Ident))
+                  ~f:(fun witness_map (expr, index) ->
+                    let* new_witness_map =
+                      core_witness_comp ~resource_fallback exists
+                        (if Int.(List.length indexed_exprs = 1) then concrete_expr
+                         else Expr.mk_tuple_lookup concrete_expr index)
+                        expr true
+                    in
 
-                Rewriter.return witness_map)
-          in
+                    let witness_map =
+                      Map.merge witness_map new_witness_map ~f:(fun ~key:_ -> function
+                        | `Both (w1, w2) -> Some w1
+                        | `Left w1 -> Some w1
+                        | `Right w2 -> Some w2)
+                    in
 
-          Rewriter.return witness_map
-      | App (DataConstr qual_iden, exprs, _) ->
-          let* destrs = ProgUtils.get_data_destrs_from_constr qual_iden in
+                    Rewriter.return witness_map)
+              in
 
-          let* destrs =
-            Rewriter.List.map destrs ~f:(fun destr ->
-                let+ destr_ret_type =
-                  let* destr_symbol = Rewriter.find_and_reify destr in
-                  match destr_symbol with
-                  | DestrDef destr -> Rewriter.return destr.destr_return_type
-                  | _ ->
-                      Error.internal_error (Expr.to_loc given_expr)
-                        "expected a destructor definition"
-                in
+              Rewriter.return witness_map
+          | App (DataConstr qual_iden, exprs, _) ->
+              let* destrs = ProgUtils.get_data_destrs_from_constr qual_iden in
 
-                (destr, destr_ret_type))
-          in
+              let* destrs =
+                Rewriter.List.map destrs ~f:(fun destr ->
+                    let+ destr_ret_type =
+                      let* destr_symbol = Rewriter.find_and_reify destr in
+                      match destr_symbol with
+                      | DestrDef destr -> Rewriter.return destr.destr_return_type
+                      | _ ->
+                          Error.internal_error (Expr.to_loc given_expr)
+                            "expected a destructor definition"
+                    in
 
-          let destr_concrete_exprs_and_sub_exprs =
-            List.map2_exn destrs exprs ~f:(fun (destr, ret_typ) expr ->
-                (Expr.mk_app ~typ:ret_typ (Expr.DataDestr destr) [ concrete_expr ], expr))
-          in
+                    (destr, destr_ret_type))
+              in
 
-          let* witness_map =
-            Rewriter.List.fold_left destr_concrete_exprs_and_sub_exprs
-              ~init:(Map.empty (module Ident))
-              ~f:(fun witness_map (destr_concrete_expr, sub_expr) ->
-                let* new_witness_map =
-                  core_witness_comp exists destr_concrete_expr sub_expr true
-                in
+              let destr_concrete_exprs_and_sub_exprs =
+                List.map2_exn destrs exprs ~f:(fun (destr, ret_typ) expr ->
+                    ( Expr.mk_app ~typ:ret_typ (Expr.DataDestr destr) [ concrete_expr ],
+                      expr ))
+              in
 
-                let witness_map =
-                  Map.merge witness_map new_witness_map ~f:(fun ~key:_ -> function
-                    | `Both (w1, w2) -> Some w1
-                    | `Left w1 -> Some w1
-                    | `Right w2 -> Some w2)
-                in
+              let* witness_map =
+                Rewriter.List.fold_left destr_concrete_exprs_and_sub_exprs
+                  ~init:(Map.empty (module Ident))
+                  ~f:(fun witness_map (destr_concrete_expr, sub_expr) ->
+                    let* new_witness_map =
+                      core_witness_comp ~resource_fallback exists destr_concrete_expr
+                        sub_expr true
+                    in
 
-                Rewriter.return witness_map)
-          in
-          Rewriter.return witness_map
-      | _ -> Rewriter.return (Map.empty (module Ident)))
+                    let witness_map =
+                      Map.merge witness_map new_witness_map ~f:(fun ~key:_ -> function
+                        | `Both (w1, w2) -> Some w1
+                        | `Left w1 -> Some w1
+                        | `Right w2 -> Some w2)
+                    in
 
-(* Adds the notes on existentials without a witness to the errors [spec] reports if it
+                    Rewriter.return witness_map)
+              in
+              Rewriter.return witness_map
+          | _ ->
+              Rewriter.return (Map.empty (module Ident))
+              (* Adds the notes on existentials without a witness to the errors [spec] reports if it
    fails. A [spec] that reports no error of its own gets them as warnings instead. *)
+          ))
+
+(** The comprehension that [f] applied to [args] is, if [f] is one lifted into a function
+    defined entry by entry, [forall v :: inner == ret[v]]. *)
+and lifted_comprehension f args : expr option Rewriter.t =
+  let open Rewriter.Syntax in
+  let+ callable = Rewriter.find_and_reify_callable f in
+  match callable with
+  | {
+   call_decl =
+     {
+       call_decl_kind = Func;
+       call_decl_formals = formals;
+       call_decl_returns = [ ret ];
+       call_decl_postcond =
+         [
+           {
+             spec_form =
+               Binder
+                 ( Forall,
+                   [ v ],
+                   _,
+                   App
+                     ( Eq,
+                       [
+                         inner;
+                         App (MapLookUp, [ App (Var r, [], _); App (Var w, [], _) ], _);
+                       ],
+                       _ ),
+                   attr );
+             _;
+           };
+         ];
+       _;
+     };
+   call_def = FuncDef { func_body = None };
+  }
+    when QualIdent.equal r (QualIdent.from_ident ret.var_name)
+         && QualIdent.equal w (QualIdent.from_ident v.var_name) ->
+      begin match List.zip formals args with
+      | Unequal_lengths -> None
+      | Ok pairs ->
+          let renaming =
+            List.fold pairs
+              ~init:(Map.empty (module QualIdent))
+              ~f:(fun map (formal, arg) ->
+                Map.set map ~key:(QualIdent.from_ident formal.Type.var_name) ~data:arg)
+          in
+          Some
+            (Expr.Binder
+               ( Compr,
+                 [ v ],
+                 [],
+                 Expr.alpha_renaming inner renaming,
+                 { attr with expr_type = ret.var_type } ))
+      end
+  | _ -> None
+
+(** The witnesses that a map value [concrete_expr] gives the existentials of a pattern
+    [{ key :: body }]: where [body] is [key == i ? p : id], those of [p] at the entry at
+    [i]; where it is [g(key) ? p(key) : id], each map existential [m] read as [m[key]] in
+    [p] is the map of the witnesses of its entries. *)
+and comprehension_witnesses ?(resource_fallback = false) (exists : var_decl list)
+    (concrete_expr : expr) (key : var_decl) (body : expr) : expr ident_map Rewriter.t =
+  let open Rewriter.Syntax in
+  let loc = Expr.to_loc body in
+  let is_key = function
+    | Expr.App (Var x, [], _) -> QualIdent.equal x (QualIdent.from_ident key.var_name)
+    | _ -> false
+  in
+  let mentions_key e = Set.mem (Expr.local_vars e) key.var_name in
+  let entry_at i = Expr.mk_maplookup ~loc concrete_expr i in
+  match body with
+  | App (Ite, [ App (Eq, [ l; r ], _); pattern; _ ], _)
+    when (is_key l && not (mentions_key r)) || (is_key r && not (mentions_key l)) ->
+      let i = if is_key l then r else l in
+      let pattern =
+        Expr.alpha_renaming pattern
+          (Map.singleton (module QualIdent) (QualIdent.from_ident key.var_name) i)
+      in
+      core_witness_comp ~resource_fallback exists (entry_at i) pattern false
+  | App (Ite, [ _; pattern; _ ], _) ->
+      Rewriter.List.fold_left exists
+        ~init:(Map.empty (module Ident))
+        ~f:(fun witnesses map_var ->
+          match map_var.var_type with
+          | App (Map, [ _; value_type ], _) ->
+              let entry =
+                {
+                  map_var with
+                  var_name = Ident.fresh loc "$entry";
+                  var_type = value_type;
+                }
+              in
+              let rec replace e =
+                match e with
+                | Expr.App (MapLookUp, [ App (Var x, [], _); k ], _)
+                  when QualIdent.equal x (QualIdent.from_ident map_var.var_name)
+                       && is_key k ->
+                    (Expr.from_var_decl entry, true)
+                | App (c, args, attr) ->
+                    let args, changed = List.unzip (List.map args ~f:replace) in
+                    (App (c, args, attr), List.exists changed ~f:Fn.id)
+                | Binder _ -> (e, false)
+              in
+              let replaced, changed = replace pattern in
+              if not changed then Rewriter.return witnesses
+              else
+                let* inner =
+                  core_witness_comp ~resource_fallback [ entry ]
+                    (entry_at (Expr.from_var_decl key))
+                    replaced false
+                in
+                begin match Map.find inner entry.var_name with
+                | Some witness
+                  when not
+                         (List.exists exists ~f:(fun vd ->
+                              Set.mem (Expr.local_vars witness) vd.var_name)) ->
+                    let+ map = entry_map ~loc map_var key witness in
+                    Map.set witnesses ~key:map_var.var_name ~data:map
+                | _ -> Rewriter.return witnesses
+                end
+          | _ -> Rewriter.return witnesses)
+  | _ -> Rewriter.return (Map.empty (module Ident))
+
+(** The map of type that of [map_var] whose entry at each [key] is [value]: a function of
+    what [value] reads, defined entry by entry. *)
+and entry_map ~loc (map_var : var_decl) (key : var_decl) (value : expr) : expr Rewriter.t
+    =
+  let open Rewriter.Syntax in
+  let* arguments =
+    Rewriter.List.map
+      (Set.to_list (Set.remove (Expr.local_vars value) key.var_name))
+      ~f:(fun ident ->
+        let* symbol = Rewriter.find (QualIdent.from_ident ident) in
+        let+ actual = Rewriter.Symbol.reify_var_decl symbol in
+        let formal =
+          {
+            actual with
+            var_name = Ident.fresh loc (Ident.name ident);
+            var_const = true;
+            var_ghost = true;
+            var_implicit = false;
+          }
+        in
+        (ident, formal, Expr.from_var_decl actual))
+  in
+  let renaming =
+    List.fold arguments
+      ~init:(Map.empty (module QualIdent))
+      ~f:(fun map (ident, formal, _) ->
+        Map.set map ~key:(QualIdent.from_ident ident) ~data:(Expr.from_var_decl formal))
+  in
+  let result =
+    {
+      map_var with
+      var_name = Ident.fresh loc "$map";
+      var_ghost = true;
+      var_implicit = false;
+    }
+  in
+  let entry_of_result =
+    Expr.mk_maplookup ~loc (Expr.from_var_decl result) (Expr.from_var_decl key)
+  in
+  let definition =
+    Expr.mk_binder ~loc ~trigs:[ [ entry_of_result ] ] Forall [ key ]
+      (Expr.mk_eq ~loc entry_of_result (Expr.alpha_renaming value renaming))
+  in
+  let+ witnesses =
+    generate_skolem_functions
+      [
+        {
+          universal_quants = { univ_vars = []; triggers = [] };
+          var_decl = result;
+          preconds = [];
+          postconds = [ definition ];
+          optn_args = List.map arguments ~f:(fun (_, formal, actual) -> (formal, actual));
+          skolem_fn_id = Ident.fresh_member loc "$map_witness";
+          loc;
+        };
+      ]
+  in
+  List.hd_exn witnesses
+
 let with_witness_notes (notes : Error.t list) (spec : Stmt.spec) : Stmt.spec =
   match spec.spec_error with
   | [] ->

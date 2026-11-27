@@ -25,7 +25,7 @@ proc create()
 }
 
 // `make_and_bump`'s own `requires` mentions nothing about `p` -- its
-// `call_decl_needs_mask` is `()`, and the `unfold p(x)` below succeeds purely off
+// required mask is empty, and the `unfold p(x)` below succeeds purely off
 // `create()`'s grants-set credit, not off anything supplied externally.
 proc make_and_bump() {
   var x: Ref := create();

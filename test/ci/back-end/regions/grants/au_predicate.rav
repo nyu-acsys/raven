@@ -1,0 +1,31 @@
+inv root(x: Int) { true }
+inv child(x: Int) within root(x) { true }
+proc host(x: Int)
+  atomic requires child(x)
+  atomic ensures child(x)
+  opens child(x)
+{
+  ghost var token := bindAU();
+  openAU(token, x);
+  commitAU(token, x, ());
+}
+pred stored(token: AtomicToken<host>, x: Int) { au<host>(token, x) }
+lemma step(x: Int)
+  requires root(x)
+  ensures root(x)
+  opens root(x)
+{ unfold root(x); fold root(x); }
+lemma bad(token: AtomicToken<host>, x: Int)
+  requires stored(token, x)
+  ensures stored(token, x)
+  opens {}
+{
+  unfold stored(token, x);
+  fold root(x);
+  step(x);
+  openAU(token, x);
+  unfold child(x);
+  fold child(x);
+  abortAU(token, x);
+  fold stored(token, x);
+}

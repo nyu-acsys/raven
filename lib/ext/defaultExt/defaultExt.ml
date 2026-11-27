@@ -13,6 +13,10 @@ module DefaultExt = struct
     Error.internal_error Loc.dummy
       "unhandled type extension (no active extension recognizes this type)"
 
+  let pr_type_ext ~names ~pr ppf type_ext args =
+    Error.internal_error Loc.dummy
+      "unhandled type extension (no active extension recognizes this type)"
+
   let expr_ext_to_string expr_ext =
     Error.internal_error Loc.dummy
       "unhandled expression extension (no active extension recognizes this expression)"

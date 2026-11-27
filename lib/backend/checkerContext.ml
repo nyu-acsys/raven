@@ -24,10 +24,14 @@ type context = {
   auto_dependencies : Dependencies.Graph.t;
   diagnostics : Diagnostics.t;  (** The run's, for the verification errors. *)
   focus : focus option;
+  select_member : (Diagnostics.MemberStatus.procedure -> bool) option;
   counterexamples : bool;  (** Whether failed checks report a counterexample. *)
   fingerprinting : fingerprinting option;
   cache : VerificationCache.t option;
   fingerprints : string qual_ident_map;  (** Those of the obligations, when computed. *)
+  coverage : QualIdentSet.t qual_ident_map;
+      (** The symbols the check of each obligation can use (see [Fingerprints.coverage]).
+      *)
   used_fingerprints : string list;
       (** The fingerprints of the obligations found in the cache or verified. *)
   failed : bool;  (** Whether a check of the procedure being checked failed. *)
@@ -52,8 +56,8 @@ type context = {
 
 type 'a t = context -> context * 'a
 
-let create ?focus ?(counterexamples = false) ?(renew_solver = true) ?fingerprinting ?cache
-    ?on_scheduled ?on_progress ~diagnostics session =
+let create ?focus ?select_member ?(counterexamples = false) ?(renew_solver = true)
+    ?fingerprinting ?cache ?on_scheduled ?on_progress ~diagnostics session =
   {
     session;
     renew_solver;
@@ -61,10 +65,12 @@ let create ?focus ?(counterexamples = false) ?(renew_solver = true) ?fingerprint
     auto_dependencies = Dependencies.Graph.empty;
     diagnostics;
     focus;
+    select_member;
     counterexamples;
     fingerprinting;
     cache;
     fingerprints = Map.empty (module QualIdent);
+    coverage = Map.empty (module QualIdent);
     used_fingerprints = [];
     failed = false;
     on_scheduled;
@@ -77,11 +83,22 @@ let create ?focus ?(counterexamples = false) ?(renew_solver = true) ?fingerprint
     next_branch = 0;
   }
 
-(** Resets the solver for the next procedure, if each is checked in a reset solver. *)
-let renew_solver : unit t =
+(** Resets the solver for checking the obligation [qual_name], if each is checked in a
+    reset solver, with only the symbols the check can use. *)
+let renew_solver qual_name : unit t =
  fun context ->
-  if context.renew_solver then Session.renew context.session;
+  if context.renew_solver then begin
+    let keep =
+      Option.map (Map.find context.coverage qual_name) ~f:(fun covered q ->
+          QualIdent.equal q qual_name || Set.mem covered q)
+    in
+    Session.renew ?keep context.session
+  end;
   (context, ())
+
+(** Writes the commands of [m] as those of the symbols [owners]. *)
+let with_owners owners (m : 'a t) : 'a t =
+ fun context -> Session.with_owners context.session owners ~f:(fun () -> m context)
 
 (** Forgets the conditionals of the procedure checked before. *)
 let start_procedure : unit t =
@@ -100,15 +117,14 @@ let in_arm id arm (m : 'a t) : 'a t =
   let context', a = m { context with arms = (id, arm) :: context.arms } in
   ({ context' with arms = context.arms }, a)
 
-(** Whether the procedure declared at [loc] is checked. *)
-let in_focus (loc : Loc.t) : bool t =
+(** Whether [proc] is checked. *)
+let in_focus (proc : Diagnostics.MemberStatus.procedure) : bool t =
  fun context ->
   ( context,
-    match context.focus with
-    | None -> true
-    | Some focus ->
+    Option.for_all context.select_member ~f:(fun select -> select proc)
+    && Option.for_all context.focus ~f:(fun focus ->
         List.exists focus.extents ~f:(fun extent ->
-            Diagnostics.MemberStatus.contains extent loc) )
+            Diagnostics.MemberStatus.contains extent proc.proc_loc)) )
 
 (** Whether the assertion named [name], if it is named, is checked; [None] if every
     assertion is. *)
@@ -186,6 +202,28 @@ let write_comment comment : unit t =
 let with_scope (computation : 'a t) : 'a t =
  fun context -> Session.with_scope context.session ~f:(fun () -> computation context)
 
+(** Runs [computation] in a scope of its own, and returns its result with the commands it
+    wrote there. *)
+let in_scope_of_branch (computation : 'a t) : ('a * Session.entry list) t =
+ fun context ->
+  let (context, result), commands =
+    Session.scoped_commands context.session ~f:(fun () -> computation context)
+  in
+  (context, (result, commands))
+
+(** Starts a new epoch: the assertions made so far are retired until the current scope is
+    closed. A procedure with cuts starts its first epoch on entry. *)
+let new_epoch : unit t =
+ fun context ->
+  Session.new_epoch context.session;
+  (context, ())
+
+(** Writes the [commands] again, in the current scope. *)
+let rewrite commands : unit t =
+ fun context ->
+  Session.rewrite context.session commands;
+  (context, ())
+
 let push_path_condn term =
   let open State.Syntax in
   map_state ~f:(fun context ->
@@ -206,6 +244,13 @@ let assume_expr ?name expr : unit t =
   let+ context = get_state in
   let expr = under_path_conditions context expr |> Expr.drop_trivially_true in
   Session.assert_expr ?name context.session expr
+
+(** Assumes the definition of a variable's value, which cuts keep. *)
+let assume_definition expr : unit t =
+  let open State.Syntax in
+  let+ context = get_state in
+  let expr = under_path_conditions context expr |> Expr.drop_trivially_true in
+  Session.keeping context.session ~f:(fun () -> Session.assert_expr context.session expr)
 
 let check_valid ?name expr : SmtSolver.validity_result t =
   let open State.Syntax in

@@ -1,0 +1,35 @@
+field value: Int
+
+inline pred leaf(cell: Ref) {
+  exists witness: Int :: own(cell.value, witness)
+}
+
+inline pred pair(left: Ref, right: Ref) {
+  exists anchor: Int :: anchor == 0 &&
+    (exists witness: Int :: own(left.value, witness)) && leaf(right)
+}
+
+inline pred shadow(cell: Ref, expected: Int) {
+  exists witness: Int :: witness == expected &&
+    (exists witness: Int :: witness == expected + 1 && own(cell.value, witness))
+}
+
+proc independent(left: Ref, right: Ref)
+  requires own(left.value, 1) && own(right.value, 2)
+  ensures pair(left, right)
+{}
+
+proc siblings(left: Ref, right: Ref)
+  requires own(left.value, 1) && own(right.value, 2)
+  ensures exists anchor: Int :: anchor == 0 && leaf(left) && leaf(right)
+{}
+
+proc shadowed(left: Ref, right: Ref)
+  requires own(left.value, 1) && own(right.value, 2)
+  ensures shadow(left, 0) && shadow(right, 1)
+{}
+
+proc caller_name(witness: Int, cell: Ref)
+  requires witness == 7 && own(cell.value, 42)
+  ensures exists anchor: Int :: anchor == witness && leaf(cell)
+{}

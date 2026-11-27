@@ -16,7 +16,10 @@ module Ident = struct
         Only generated modules have one. *)
 
     type t = {
-      ident_name : string;
+      ident_name : string; [@hash.ignore]
+      ident_name_hash : int;
+          (** The hash of [ident_name], which hashes use for it, as names can be long.
+              [compare] must not ignore it, or [ppx_hash] ignores it too. *)
       ident_num : int;
       ident_loc : Loc.t; [@compare.ignore] [@hash.ignore]
       ident_display : display option; [@compare.ignore] [@hash.ignore]
@@ -68,7 +71,17 @@ module Ident = struct
   let make loc name num =
     let name = sanitized_name name in
 
-    { ident_name = name; ident_num = num; ident_loc = loc; ident_display = None }
+    {
+      ident_name = name;
+      ident_name_hash = String.hash name;
+      ident_num = num;
+      ident_loc = loc;
+      ident_display = None;
+    }
+
+  (** [id] with the name [name]. *)
+  let with_name id name =
+    { id with ident_name = name; ident_name_hash = String.hash name }
 
   let name id = id.ident_name
 
@@ -176,7 +189,7 @@ module Ident = struct
   let restore_selection depth =
     selected := List.drop !selected (List.length !selected - depth)
 
-  let sanitize subst id = { id with ident_name = String.map ~f:subst id.ident_name }
+  let sanitize subst id = with_name id (String.map ~f:subst id.ident_name)
 end
 
 type ident = Ident.t
@@ -474,11 +487,27 @@ module Type = struct
 
   let to_name t = make_to_name ~type_ext_to_name:default_type_ext_to_name t
 
-  (** Builds the mutually-recursive printer family, parameterized by how to render
-      [TypeExt] leaves. [make_printers ~type_ext_to_name:default_type_ext_to_name] below
-      is what every caller gets by default; an extension-aware set is built the same way
-      from the extension's own [type_ext_to_name]. *)
-  let make_printers_with ~names ~qual_ident_to_string ~type_ext_to_name =
+  type pr_type_ext =
+    names:SourceNames.t ->
+    pr:(Stdlib.Format.formatter -> t -> unit) ->
+    Stdlib.Format.formatter ->
+    type_ext ->
+    t list ->
+    unit
+
+  (** Prints the extension constructor with its type arguments in source form. *)
+  let default_pr_type_ext : pr_type_ext =
+   fun ~names:_ ~pr ppf extension arguments ->
+    match arguments with
+    | [] -> Stdlib.Format.pp_print_string ppf (default_type_ext_to_name extension)
+    | _ ->
+        Stdlib.Format.fprintf ppf "%s[%a]"
+          (default_type_ext_to_name extension)
+          (Print.pr_list_comma pr) arguments
+
+  (** Builds the recursive printer family using the extension's source printer and its
+      constructor names. *)
+  let make_printers_with ~names ~qual_ident_to_string ~pr_type_ext ~type_ext_to_name =
     let module Ident = struct
       include Ident
 
@@ -494,6 +523,8 @@ module Type = struct
           Stdlib.Format.fprintf ppf "data {@\n  @[%a@]@\n}" pr_variant_decl_list decls
     and pr ppf t =
       match t with
+      | App (TypeExt extension, arguments, _) ->
+          pr_type_ext ~names ~pr ppf extension arguments
       | App (Prod, [], _) -> Stdlib.Format.fprintf ppf "()"
       | App (t1, [], attr) -> Stdlib.Format.fprintf ppf "%a" pr_constr t1
       | App (Map, [ t1; App (Bool, _, _) ], _) ->
@@ -535,13 +566,13 @@ module Type = struct
       pr_list,
       to_string )
 
-  let make_printers_with_names ~names ~type_ext_to_name =
+  let make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name =
     make_printers_with ~names
       ~qual_ident_to_string:(SourceNames.qual_ident_to_string names)
-      ~type_ext_to_name
+      ~pr_type_ext ~type_ext_to_name
 
-  let make_printers ~type_ext_to_name =
-    make_printers_with_names ~names:SourceNames.default ~type_ext_to_name
+  let make_printers ~pr_type_ext ~type_ext_to_name =
+    make_printers_with_names ~names:SourceNames.default ~pr_type_ext ~type_ext_to_name
 
   let ( pr_constr,
         pr,
@@ -553,13 +584,14 @@ module Type = struct
         pr_arg_list,
         pr_list,
         to_string ) =
-    make_printers ~type_ext_to_name:default_type_ext_to_name
+    make_printers ~pr_type_ext:default_pr_type_ext
+      ~type_ext_to_name:default_type_ext_to_name
 
   (** [t] as written in the program, with generated modules shown in their source form. *)
   let to_string_user t =
     let _, _, _, _, _, _, _, _, _, to_string =
       make_printers_with ~names:SourceNames.default
-        ~qual_ident_to_string:QualIdent.to_string_user
+        ~qual_ident_to_string:QualIdent.to_string_user ~pr_type_ext:default_pr_type_ext
         ~type_ext_to_name:default_type_ext_to_name
     in
     to_string t
@@ -569,7 +601,8 @@ module Type = struct
   let dummy_attr = { type_loc = Loc.dummy; type_ghost = false }
 
   let mk_attr ?(ghost = false) loc =
-    if Loc.(loc = dummy) then dummy_attr else { type_loc = loc; type_ghost = ghost }
+    if Loc.(loc = dummy) && not ghost then dummy_attr
+    else { type_loc = loc; type_ghost = ghost }
 
   let mk_app ?(loc = Loc.dummy) ?(ghost = false) t ts = App (t, ts, mk_attr ~ghost loc)
   let mk_int loc = App (Int, [], mk_attr loc)
@@ -1120,7 +1153,8 @@ module Expr = struct
       [TypeExt]/[ExprExt] leaves. [make_printers] applied to the default stubs (below) is
       what every caller gets by default; an extension-aware set is built the same way from
       the extension's own hooks. *)
-  let make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext =
+  let make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name ~expr_ext_to_string
+      ~pr_expr_ext =
     let module QualIdent = struct
       include QualIdent
 
@@ -1133,7 +1167,7 @@ module Expr = struct
         ~expr_ext_to_string
     in
     let _, type_pr, _, _, _, _, type_pr_ident, _, _, _ =
-      Type.make_printers_with_names ~names ~type_ext_to_name
+      Type.make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name
     in
     let module Type = struct
       include Type
@@ -1329,8 +1363,8 @@ module Expr = struct
       pr_var_decl_list,
       to_string )
 
-  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext =
-    make_printers_with_names ~names:SourceNames.default ~type_ext_to_name
+  let make_printers ~pr_type_ext ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext =
+    make_printers_with_names ~names:SourceNames.default ~pr_type_ext ~type_ext_to_name
       ~expr_ext_to_string ~pr_expr_ext
 
   let ( pr_constr,
@@ -1345,7 +1379,8 @@ module Expr = struct
         pr_var_decl,
         pr_var_decl_list,
         to_string ) =
-    make_printers ~type_ext_to_name:Type.default_type_ext_to_name
+    make_printers ~pr_type_ext:Type.default_pr_type_ext
+      ~type_ext_to_name:Type.default_type_ext_to_name
       ~expr_ext_to_string:default_expr_ext_to_string ~pr_expr_ext:default_pr_expr_ext
 
   (** Like [to_string], but with the freshening numbers the disambiguation pass gives a
@@ -1484,6 +1519,15 @@ module Expr = struct
   let from_var_decl (var_decl : var_decl) =
     mk_var ~typ:var_decl.var_type (QualIdent.from_ident var_decl.var_name)
 
+  (** The renaming of each first formal of [pairs] to its second. *)
+  let formal_renaming (pairs : (var_decl * var_decl) list) =
+    List.fold pairs
+      ~init:(Map.empty (module QualIdent))
+      ~f:(fun renaming ((source : var_decl), target) ->
+        Map.set renaming
+          ~key:(QualIdent.from_ident source.var_name)
+          ~data:(from_var_decl target))
+
   (** Auxiliary functions *)
 
   let to_qual_ident expr =
@@ -1511,68 +1555,104 @@ module Expr = struct
   let unfold_tuple_for_arity arity expr =
     if arity = 1 then [ expr ] else unfold_tuple expr
 
-  (** Map all identifiers occuring in expression [e] to new identifiers according to
-      function [fct] *)
-  let map_idents fct e =
-    let rec sub = function
-      | App (constr, args, expr_attr) ->
-          let args = List.map args ~f:sub in
-          let constr =
-            match constr with
-            | Var qual_ident -> Var (fct qual_ident)
-            | DataConstr qual_ident -> DataConstr (fct qual_ident)
-            | DataDestr qual_ident -> DataDestr (fct qual_ident)
-            | DataTest qual_ident -> DataTest (fct qual_ident)
-            | _ -> constr
-          in
-          App (constr, args, expr_attr)
-      | Binder (b, vars, trgs, e, expr_attr) ->
-          let trgs = List.map trgs ~f:(fun exprs -> List.map exprs ~f:sub) in
-          Binder (b, vars, trgs, sub e, expr_attr)
+  (** Traverse with a threaded accumulator and an arbitrary child-result type. Binder
+      entry supplies the child context and declarations; its algebra sees the outer
+      context. [stop] skips a subtree. Extension payloads remain opaque. *)
+  let fold_map ?(stop = fun _ _ _ -> None) ?(include_triggers = true) ~enter ~app ~binder
+      context acc expr =
+    let rec visit context acc expr =
+      match stop context acc expr with
+      | Some result -> result
+      | None ->
+          begin match expr with
+          | App (constr, arguments, attr) ->
+              let acc, arguments = List.fold_map arguments ~init:acc ~f:(visit context) in
+              app context acc constr arguments attr
+          | Binder (kind, variables, triggers, body, attr) ->
+              let inner, acc, (variables : var_decl list) =
+                enter context acc kind variables
+              in
+              let acc, triggers =
+                if include_triggers then
+                  List.fold_map triggers ~init:acc ~f:(fun acc trigger ->
+                      List.fold_map trigger ~init:acc ~f:(visit inner))
+                else (acc, [])
+              in
+              let acc, body = visit inner acc body in
+              binder context acc kind variables triggers body attr
+          end
     in
-    sub e
+    visit context acc expr
+
+  (** Result-only specialization of [fold_map]; the result need not be an expression. *)
+  let map ?(stop = fun _ _ -> None) ?include_triggers ~enter ~app ~binder context expr =
+    let stop context () expr =
+      Option.map (stop context expr) ~f:(fun result -> ((), result))
+    in
+    let enter context () kind variables =
+      let inner, variables = enter context kind variables in
+      (inner, (), variables)
+    in
+    let app context () constr arguments attr = ((), app context constr arguments attr) in
+    let binder context () kind variables triggers body attr =
+      ((), binder context kind variables triggers body attr)
+    in
+    snd (fold_map ~stop ?include_triggers ~enter ~app ~binder context () expr)
+
+  (** Map expression identifiers without rewriting binder declarations or types. *)
+  let map_idents fct e =
+    let app () constr args attr =
+      let constr =
+        match constr with
+        | Var name -> Var (fct name)
+        | DataConstr name -> DataConstr (fct name)
+        | DataDestr name -> DataDestr (fct name)
+        | DataTest name -> DataTest (fct name)
+        | _ -> constr
+      in
+      App (constr, args, attr)
+    in
+    map
+      ~enter:(fun () _ variables -> ((), variables))
+      ~app
+      ~binder:(fun () kind variables triggers body attr ->
+        Binder (kind, variables, triggers, body, attr))
+      () e
 
   (** Rewrite names in both expressions and their type annotations. *)
-  let rec map_qual_idents ~f = function
-    | App (constr, arguments, attr) ->
-        let constr =
-          match constr with
-          | Var name -> Var (f name)
-          | DataConstr name -> DataConstr (f name)
-          | DataDestr name -> DataDestr (f name)
-          | DataTest name -> DataTest (f name)
-          | AUPred name -> AUPred (f name)
-          | AUPredCommit name -> AUPredCommit (f name)
-          | constr -> constr
-        in
-        App
-          ( constr,
-            List.map arguments ~f:(map_qual_idents ~f),
+  let map_qual_idents ~f expr =
+    let attr a =
+      {
+        a with
+        expr_type = Type.map_qual_idents ~f a.expr_type;
+        expr_type_annot = Option.map a.expr_type_annot ~f:(Type.map_qual_idents ~f);
+      }
+    in
+    let enter () _ variables =
+      ( (),
+        List.map variables ~f:(fun variable ->
             {
-              attr with
-              expr_type = Type.map_qual_idents ~f attr.expr_type;
-              expr_type_annot =
-                Option.map attr.expr_type_annot ~f:(Type.map_qual_idents ~f);
-            } )
-    | Binder (kind, variables, triggers, body, attr) ->
-        let variables =
-          List.map variables ~f:(fun variable ->
-              {
-                variable with
-                Type.var_type = Type.map_qual_idents ~f variable.Type.var_type;
-              })
-        in
-        Binder
-          ( kind,
-            variables,
-            List.map triggers ~f:(List.map ~f:(map_qual_idents ~f)),
-            map_qual_idents ~f body,
-            {
-              attr with
-              expr_type = Type.map_qual_idents ~f attr.expr_type;
-              expr_type_annot =
-                Option.map attr.expr_type_annot ~f:(Type.map_qual_idents ~f);
-            } )
+              variable with
+              Type.var_type = Type.map_qual_idents ~f variable.Type.var_type;
+            }) )
+    in
+    let app () constr args a =
+      let constr =
+        match constr with
+        | Var name -> Var (f name)
+        | DataConstr name -> DataConstr (f name)
+        | DataDestr name -> DataDestr (f name)
+        | DataTest name -> DataTest (f name)
+        | AUPred name -> AUPred (f name)
+        | AUPredCommit name -> AUPredCommit (f name)
+        | _ -> constr
+      in
+      App (constr, args, attr a)
+    in
+    map ~enter ~app
+      ~binder:(fun () kind variables triggers body a ->
+        Binder (kind, variables, triggers, body, attr a))
+      () expr
 
   (** Substitutes all identifiers in expression [e] with other identifiers according to
       substitution map [subst_map]. ** This operation is not capture avoiding. *)
@@ -1615,104 +1695,166 @@ module Expr = struct
     eq sm e1 e2
 
   (** Adds to [acc] the variables that [expr] mentions without qualification, free or
-      bound. *)
-  let rec mentioned_vars acc (expr : t) =
-    match expr with
-    | App (Var qual_ident, args, _) ->
-        let acc =
-          if List.is_empty (QualIdent.path qual_ident) then
-            Set.add acc (QualIdent.unqualify qual_ident)
-          else acc
-        in
-        List.fold args ~init:acc ~f:mentioned_vars
-    | App (_, args, _) -> List.fold args ~init:acc ~f:mentioned_vars
-    | Binder (_, _, trgs, body, _) ->
-        List.fold (List.concat trgs) ~init:(mentioned_vars acc body) ~f:mentioned_vars
+      bound. Unused declarations are not occurrences. *)
+  let mentioned_vars acc expr =
+    let app () acc constr _ _ =
+      let acc =
+        match constr with
+        | Var name when List.is_empty (QualIdent.path name) ->
+            Set.add acc (QualIdent.unqualify name)
+        | _ -> acc
+      in
+      (acc, ())
+    in
+    fst
+      (fold_map
+         ~enter:(fun () acc _ variables -> ((), acc, variables))
+         ~app
+         ~binder:(fun () acc _ _ _ () _ -> (acc, ()))
+         () acc expr)
+
+  (* Reserve both occurrences and declarations before allocating replacement identities. *)
+  let reserve_names expr =
+    let enter () _ variables =
+      List.iter variables ~f:(fun variable -> Ident.declare variable.Type.var_name);
+      ((), variables)
+    in
+    let app () constr _ _ =
+      match constr with
+      | Var name when List.is_empty (QualIdent.path name) ->
+          Ident.declare (QualIdent.unqualify name)
+      | _ -> ()
+    in
+    map ~enter ~app ~binder:(fun () _ _ _ () _ -> ()) () expr
 
   (** [expr] with each variable in [map] replaced by its image. A binder that rebinds a
       variable of [map] hides it, and a bound variable that an image mentions is renamed
-      so that it does not capture it. *)
-  let alpha_renaming (expr : t) (map : t qual_ident_map) : t =
-    (* The variables the images mention, which no binder may capture. *)
+      so that it does not capture it. Expressions and images must be type-checked and have
+      compatible types. Each occurrence retains its type and type annotation. *)
+  let alpha_renaming expr substitution =
     let mentioned =
       lazy
-        (Map.fold map
+        (Map.fold substitution
            ~init:(Set.empty (module Ident))
            ~f:(fun ~key:_ ~data acc -> mentioned_vars acc data))
     in
-    let rec rename map expr =
-      if Map.is_empty map then expr
-      else
-        match expr with
-        | App (constr, expr_list, expr_attr) -> (
-            let expr_list = List.map expr_list ~f:(rename map) in
-            match constr with
-            | Var qual_ident -> (
-                match Map.find map qual_ident with
-                | None -> App (Var qual_ident, expr_list, expr_attr)
-                | Some expr' ->
-                    (* TODO: Potentially dropping expr_list here *)
-                    expr')
-            | _ -> App (constr, expr_list, expr_attr))
-        | Binder (binder, var_decl_list, trgs, body, expr_attr) ->
-            let map =
-              List.fold var_decl_list ~init:map ~f:(fun map (var : var_decl) ->
-                  Map.remove map (QualIdent.from_ident var.var_name))
-            in
-            let map, var_decl_list =
-              List.fold_map var_decl_list ~init:map ~f:(fun map (var : var_decl) ->
-                  if Map.is_empty map || not (Set.mem (Lazy.force mentioned) var.var_name)
-                  then (map, var)
-                  else
-                    (* Numbered above every variable of the same name in sight, which
-                       [Ident.fresh] alone does not guarantee for names it did not make. *)
-                    let in_sight =
-                      mentioned_vars (Lazy.force mentioned)
-                        (Binder (binder, var_decl_list, trgs, body, expr_attr))
-                    in
-                    let above =
-                      Set.fold in_sight ~init:var.var_name.ident_num ~f:(fun n id ->
-                          if String.equal (Ident.name id) (Ident.name var.var_name) then
-                            max n id.ident_num
-                          else n)
-                    in
-                    let fresh =
-                      {
-                        var with
-                        var_name =
-                          Ident.fresh ~id:(above + 1) var.var_loc
-                            (Ident.name var.var_name);
-                      }
-                    in
-                    ( Map.set map
-                        ~key:(QualIdent.from_ident var.var_name)
-                        ~data:(from_var_decl fresh),
-                      fresh ))
-            in
-            Binder
-              ( binder,
-                var_decl_list,
-                List.map trgs ~f:(List.map ~f:(rename map)),
-                rename map body,
-                expr_attr )
+    let reserved =
+      lazy
+        (reserve_names expr;
+         Map.iter substitution ~f:reserve_names)
     in
-    rename map expr
+    let enter map _ variables =
+      let map =
+        List.fold variables ~init:map ~f:(fun map variable ->
+            Map.remove map (QualIdent.from_ident variable.Type.var_name))
+      in
+      List.fold_map variables ~init:map ~f:(fun map variable ->
+          if
+            Map.is_empty map
+            || not (Set.mem (Lazy.force mentioned) variable.Type.var_name)
+          then (map, variable)
+          else
+            let () = Lazy.force reserved in
+            let fresh =
+              {
+                variable with
+                Type.var_name =
+                  Ident.fresh variable.Type.var_loc (Ident.name variable.Type.var_name);
+              }
+            in
+            ( Map.set map
+                ~key:(QualIdent.from_ident variable.Type.var_name)
+                ~data:(from_var_decl fresh),
+              fresh ))
+    in
+    let app map constr arguments attr =
+      match constr with
+      | Var name ->
+          begin match Map.find map name with
+          | Some replacement ->
+              let replacement_attr = attr_of replacement in
+              if
+                Type.equal attr.expr_type replacement_attr.expr_type
+                && Option.equal Type.equal attr.expr_type_annot
+                     replacement_attr.expr_type_annot
+              then replacement
+              else
+                let replacement_attr =
+                  {
+                    replacement_attr with
+                    expr_type = attr.expr_type;
+                    expr_type_annot = attr.expr_type_annot;
+                  }
+                in
+                begin match replacement with
+                | App (constr, arguments, _) -> App (constr, arguments, replacement_attr)
+                | Binder (kind, variables, triggers, body, _) ->
+                    Binder (kind, variables, triggers, body, replacement_attr)
+                end
+          | None -> App (constr, arguments, attr)
+          end
+      | _ -> App (constr, arguments, attr)
+    in
+    map
+      ~stop:(fun map expr -> Option.some_if (Map.is_empty map) expr)
+      ~enter ~app
+      ~binder:(fun _ kind variables triggers body attr ->
+        Binder (kind, variables, triggers, body, attr))
+      substitution expr
 
-  (** Extends [acc] with the signature of the free variables occuring in expression [e].
-  *)
-  let signature ?(acc = Map.empty (module QualIdent)) e =
-    let rec fv bv vars = function
-      | App (Var id, [], attr) ->
-          if Set.mem bv id then vars else Map.set vars ~key:id ~data:attr.expr_type
-      | App (_, ts, _) -> List.fold_left ts ~f:(fv bv) ~init:vars
-      | Binder (_, vs, trgs, e, _) ->
-          let bv =
-            List.fold_left vs ~init:bv ~f:(fun bv var_decl ->
-                Set.add bv (QualIdent.from_ident var_decl.var_name))
+  (** Gives a copied expression's core binders fresh identities, preserving free names. *)
+  let freshen_bound_vars expr =
+    reserve_names expr;
+    let enter renaming _ variables =
+      List.fold_map variables ~init:renaming ~f:(fun renaming variable ->
+          let fresh =
+            {
+              variable with
+              Type.var_name =
+                Ident.fresh variable.Type.var_loc (Ident.name variable.Type.var_name);
+            }
           in
-          fv bv vars e
+          ( Map.set renaming
+              ~key:(QualIdent.from_ident variable.Type.var_name)
+              ~data:(QualIdent.from_ident fresh.Type.var_name),
+            fresh ))
     in
-    fv (Set.empty (module QualIdent)) acc e
+    let app renaming constr arguments attr =
+      let constr =
+        match constr with
+        | Var name -> Var (Option.value (Map.find renaming name) ~default:name)
+        | _ -> constr
+      in
+      App (constr, arguments, attr)
+    in
+    map ~enter ~app
+      ~binder:(fun _ kind variables triggers body attr ->
+        Binder (kind, variables, triggers, body, attr))
+      (Map.empty (module QualIdent))
+      expr
+
+  (** Extends [acc] with the signature of free value variables, excluding triggers. *)
+  let signature ?(acc = Map.empty (module QualIdent)) expr =
+    let enter bound acc _ variables =
+      ( List.fold variables ~init:bound ~f:(fun bound variable ->
+            Set.add bound (QualIdent.from_ident variable.Type.var_name)),
+        acc,
+        variables )
+    in
+    let app bound acc constr arguments attr =
+      let acc =
+        match (constr, arguments) with
+        | Var name, [] when not (Set.mem bound name) ->
+            Map.set acc ~key:name ~data:attr.expr_type
+        | _ -> acc
+      in
+      (acc, ())
+    in
+    fst
+      (fold_map ~include_triggers:false ~enter ~app
+         ~binder:(fun _ acc _ _ _ () _ -> (acc, ()))
+         (Set.empty (module QualIdent))
+         acc expr)
 
   (** Extends [acc] with the set of all symbols occuring free in expression [e]. *)
   let symbols ?(acc = Set.empty (module QualIdent)) e =
@@ -1985,18 +2127,27 @@ module Stmt = struct
     fpu_new_val : expr;
   }
 
-  type spec_kind = Assume | Assert | Inhale | Exhale
+  type spec_kind =
+    | Assume
+    | Assert
+    | Inhale
+    | Exhale
+    | Cut
+        (** [cut P]: exhales [P], forgets everything known except the values of variables,
+            and inhales [P], so that the rest is verified from [P] alone. *)
 
   let assume_string = "assume"
   let assert_string = "assert"
   let inhale_string = "inhale"
   let exhale_string = "exhale"
+  let cut_string = "cut"
 
   let spec_kind_to_string = function
     | Assume -> assume_string
     | Assert -> assert_string
     | Inhale -> inhale_string
     | Exhale -> exhale_string
+    | Cut -> cut_string
 
   type use_kind = Fold | Unfold
 
@@ -2148,8 +2299,8 @@ module Stmt = struct
 
   (** Builds the mutually-recursive statement printer family, parameterized by how to
       render [TypeExt]/[ExprExt]/[StmtExt]/[contract_ext] leaves. *)
-  let make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext
-      ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
+  let make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name ~expr_ext_to_string
+      ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
     let module Ident = struct
       include Ident
 
@@ -2162,7 +2313,7 @@ module Stmt = struct
       let pr_list ppf ids = Print.pr_list_comma pr ppf ids
     end in
     let _, type_pr, _, _, _, _, _, _, _, _ =
-      Type.make_printers_with_names ~names ~type_ext_to_name
+      Type.make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name
     in
     let module Type = struct
       include Type
@@ -2170,8 +2321,8 @@ module Stmt = struct
       let pr = type_pr
     end in
     let _, _, _, expr_pr, expr_pr_list, _, _, _, _, _, _, _ =
-      Expr.make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string
-        ~pr_expr_ext
+      Expr.make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name
+        ~expr_ext_to_string ~pr_expr_ext
     in
     let module Expr = struct
       include Expr
@@ -2390,14 +2541,15 @@ module Stmt = struct
     let print chan s = Print.print_of_format pr s chan in
     (pr_var_def, pr_spec_list, pr_basic_stmt, pr, pr_block, to_string, print)
 
-  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext
-      ~pr_stmt_ext ~contract_ext_to_string =
-    make_printers_with_names ~names:SourceNames.default ~type_ext_to_name
+  let make_printers ~pr_type_ext ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext
+      ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
+    make_printers_with_names ~names:SourceNames.default ~pr_type_ext ~type_ext_to_name
       ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext
       ~contract_ext_to_string
 
   let pr_var_def, pr_spec_list, pr_basic_stmt, pr, pr_block, to_string, print =
-    make_printers ~type_ext_to_name:Type.default_type_ext_to_name
+    make_printers ~pr_type_ext:Type.default_pr_type_ext
+      ~type_ext_to_name:Type.default_type_ext_to_name
       ~expr_ext_to_string:Expr.default_expr_ext_to_string
       ~pr_expr_ext:Expr.default_pr_expr_ext ~pr_basic_stmt_ext:default_pr_basic_stmt_ext
       ~pr_stmt_ext:default_pr_stmt_ext
@@ -2971,6 +3123,10 @@ module Callable = struct
   let equal_mask_head left right = compare_mask_head left right = 0
   let mask_head_name = function MaskHead.Invariant name | Dependencies name -> name
 
+  let is_invariant_head = function
+    | MaskHead.Invariant _ -> true
+    | Dependencies _ -> false
+
   let map_mask_head head ~f =
     match head with
     | MaskHead.Invariant name -> MaskHead.Invariant (f name)
@@ -3029,14 +3185,37 @@ module Callable = struct
   (** A guaranteed lower bound; an empty result does not prove symbolic disjointness. *)
   let mask_inter = MaskSet.inter
 
-  type opens_clause = { opens_entries : mask_entry list; opens_loc : location }
-  (** An explicit opens clause, retaining trailing wildcards and its source span. *)
+  (** [Opens] bounds the invariants a procedure or lemma may open, [Depends] those the
+      definition of an abstract predicate or invariant may depend on. *)
+  type bound_kind = Opens | Depends
+
+  let bound_keyword = function Opens -> "opens" | Depends -> "depends"
+
+  type bound_clause = {
+    bound_kind : bound_kind;
+    bound_entries : mask_entry list;
+    bound_loc : location;
+  }
+  (** An explicit [opens] or [depends] clause, retaining trailing wildcards and its source
+      span. *)
+
+  (** A [within] clause of a defined invariant of a concrete module declares its [Parent];
+      any other promises an ancestor, possibly through invariants it doesn't show. *)
+  type ancestry_kind = Parent | Within [@@deriving compare]
+
+  type ancestry_clause = {
+    ancestry_kind : ancestry_kind;
+    ancestry_target : QualIdent.t;
+    ancestry_args : Expr.t list;
+    ancestry_loc : location; [@compare.ignore]
+  }
+  [@@deriving compare]
 
   let is_opens_wildcard e =
     Expr.is_ident e && String.equal (Ident.name (Expr.to_ident e)) "_"
 
-  let opens_mask clause : mask =
-    List.map clause.opens_entries ~f:(fun (head, args) ->
+  let bound_mask clause : mask =
+    List.map clause.bound_entries ~f:(fun (head, args) ->
         (head, List.take_while args ~f:(fun e -> not (is_opens_wildcard e))))
 
   type call_decl = {
@@ -3069,17 +3248,14 @@ module Callable = struct
         (** Whether this procedure or lemma has a body that is not available here: freeing
             it (see [Callable.set_status]) dropped the body, which is not checked again.
         *)
-    call_decl_needs_mask : mask option;
-        (** Invariant mask required from this callable's caller -- computed purely from
-            [call_decl_precond] (see [masks.ml]); also the starting mask for checking this
-            callable's own body. *)
-    call_decl_grants_mask : mask option;
-        (** Exact resource mask entries granted by the postcondition, subject to the
-            [opens] restrictions. Dependency entries remain symbolic; their upper bounds
-            are never granted. Used at callers' call sites. *)
-    call_decl_opens : opens_clause option;
-        (** The user's [opens] clause, if any: replaces the [call_decl_needs_mask]
-            otherwise inferred from [call_decl_precond]. *)
+    call_decl_is_loop : bool;
+        (** Whether this procedure or lemma is the elaboration of a loop: its mask is what
+            its loop invariant mentions and its entry point has available. *)
+    call_decl_bound : bound_clause option;
+        (** The user's [opens] clause, if any, replaces the mask otherwise inferred from
+            [call_decl_precond]; a [depends] clause bounds the dependencies of an abstract
+            predicate or invariant, checked where it is implemented. *)
+    call_decl_ancestry : ancestry_clause option;
     call_decl_loc : location;  (** source location of declaration *)
     call_decl_loc_params : QualIdent.t list;
         (** Fields of the formals written as *locations*, `x.A.f`, in order. Those formals
@@ -3102,8 +3278,8 @@ module Callable = struct
   (** Builds the printer family, parameterized by how to render [TypeExt]/[ExprExt]/
       [StmtExt] leaves (see [Type.make_printers]/[Expr.make_printers]/
       [Stmt.make_printers], which this composes). *)
-  let make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext
-      ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
+  let make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name ~expr_ext_to_string
+      ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
     let module Ident = struct
       include Ident
 
@@ -3116,8 +3292,8 @@ module Callable = struct
       let pr_list ppf ids = Print.pr_list_comma pr ppf ids
     end in
     let _, _, _, expr_pr, _, _, _, _, _, expr_pr_var_decl, expr_pr_var_decl_list, _ =
-      Expr.make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string
-        ~pr_expr_ext
+      Expr.make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name
+        ~expr_ext_to_string ~pr_expr_ext
     in
     let module Expr = struct
       include Expr
@@ -3127,8 +3303,9 @@ module Callable = struct
       let pr_var_decl_list = expr_pr_var_decl_list
     end in
     let _, stmt_pr_spec_list, _, stmt_pr, _, _, _ =
-      Stmt.make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string
-        ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string
+      Stmt.make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name
+        ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext
+        ~contract_ext_to_string
     in
     let module Stmt = struct
       include Stmt
@@ -3182,26 +3359,12 @@ module Callable = struct
         (* | [] -> () *)
         | ls -> fprintf ppf "@\n/*locals (@[<0>%a@])*/" Expr.pr_var_decl_list ls
       in
-      let pr_mask_entries ppf mask =
-        let pr_entry ppf (head, args) =
-          match args with
-          | [] -> fprintf ppf "%a" pr_mask_head head
-          | _ -> fprintf ppf "%a(%a)" pr_mask_head head (Print.pr_list_comma Expr.pr) args
-        in
-        fprintf ppf "(@[<0>%a@])" (Print.pr_list_comma pr_entry) mask
-      in
-      let pr_call_needs_mask ppf = function
-        | None -> fprintf ppf "@\n/* mask: <none> */"
-        | Some mask -> fprintf ppf "@\n/* needs mask: %a */" pr_mask_entries mask
-      in
-      let pr_call_grants_mask ppf = function
+      let pr_call_bound ppf = function
         | None -> ()
-        | Some mask -> fprintf ppf "@\n/* grants mask: %a */" pr_mask_entries mask
-      in
-      let pr_call_opens ppf = function
-        | None -> ()
-        | Some { opens_entries = []; _ } -> fprintf ppf "@\nopens {}"
-        | Some { opens_entries = mask; _ } ->
+        | Some { bound_kind; bound_entries = []; _ } ->
+            fprintf ppf "@\n%s {}" (bound_keyword bound_kind)
+        | Some { bound_kind; bound_entries = mask; _ } ->
+            let keyword = bound_keyword bound_kind in
             let pr_entry ppf (head, args) =
               let qi = mask_head_name head in
               match args with
@@ -3209,16 +3372,21 @@ module Callable = struct
               | _ ->
                   fprintf ppf "%a(%a)" QualIdent.pr qi (Print.pr_list_comma Expr.pr) args
             in
-            fprintf ppf "@\nopens @[<0>%a@]" (Print.pr_list_comma pr_entry) mask
+            fprintf ppf "@\n%s @[<0>%a@]" keyword (Print.pr_list_comma pr_entry) mask
       in
-      fprintf ppf "@[<2>%s %a(%a)@;%a%a%a%a%a%a@]"
+      let pr_call_ancestry ppf = function
+        | None -> ()
+        | Some { ancestry_target; ancestry_args; _ } ->
+            fprintf ppf "@\nwithin %a(%a)" QualIdent.pr ancestry_target
+              (Print.pr_list_comma Expr.pr) ancestry_args
+      in
+      fprintf ppf "@[<2>%s %a(%a)@;%a%a%a%a%a@]"
         (free_modifier ^ auto_modifier ^ kind)
         Ident.pr call_decl.call_decl_name
         (Print.pr_list_comma Expr.pr_var_decl)
         call_decl.call_decl_formals pr_returns call_decl.call_decl_returns
-        pr_call_decl_specs call_decl pr_call_opens call_decl.call_decl_opens
-        pr_call_locals call_decl.call_decl_locals pr_call_needs_mask
-        call_decl.call_decl_needs_mask pr_call_grants_mask call_decl.call_decl_grants_mask
+        pr_call_ancestry call_decl.call_decl_ancestry pr_call_decl_specs call_decl
+        pr_call_bound call_decl.call_decl_bound pr_call_locals call_decl.call_decl_locals
     in
     let pr ppf def =
       let open Stdlib.Format in
@@ -3254,14 +3422,15 @@ module Callable = struct
     in
     (pr_call_decl_specs, pr_call_decl, pr)
 
-  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext
-      ~pr_stmt_ext ~contract_ext_to_string =
-    make_printers_with_names ~names:SourceNames.default ~type_ext_to_name
+  let make_printers ~pr_type_ext ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext
+      ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
+    make_printers_with_names ~names:SourceNames.default ~pr_type_ext ~type_ext_to_name
       ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext
       ~contract_ext_to_string
 
   let pr_call_decl_specs, pr_call_decl, pr =
-    make_printers ~type_ext_to_name:Type.default_type_ext_to_name
+    make_printers ~pr_type_ext:Type.default_pr_type_ext
+      ~type_ext_to_name:Type.default_type_ext_to_name
       ~expr_ext_to_string:Expr.default_expr_ext_to_string
       ~pr_expr_ext:Expr.default_pr_expr_ext
       ~pr_basic_stmt_ext:Stmt.default_pr_basic_stmt_ext
@@ -3285,8 +3454,8 @@ module Callable = struct
   let mk_call_decl ~(kind : call_kind) ~(name : ident) ~(loc : location) ?(formals = [])
       ?(returns = []) ?(locals = []) ?(precond = []) ?(postcond = []) ?(contract_ext = [])
       ?(status = NotFree) ?(is_auto = false) ?(is_inline = false)
-      ?(physical_atomic = false) ?needs_mask ?grants_mask ?opens ?alias ?(loc_params = [])
-      () : call_decl =
+      ?(physical_atomic = false) ?(is_loop = false) ?bound ?alias ?ancestry
+      ?(loc_params = []) () : call_decl =
     {
       call_decl_kind = kind;
       call_decl_physical_atomic = physical_atomic;
@@ -3303,12 +3472,18 @@ module Callable = struct
       call_decl_is_auto = is_auto;
       call_decl_is_inline = is_inline;
       call_decl_is_sealed = false;
-      call_decl_needs_mask = needs_mask;
-      call_decl_grants_mask = grants_mask;
-      call_decl_opens = opens;
+      call_decl_is_loop = is_loop;
+      call_decl_bound = bound;
+      call_decl_ancestry = ancestry;
       call_decl_loc = loc;
       call_decl_loc_params = loc_params;
     }
+
+  (** The [opens] clause of [decl], if it has one. *)
+  let opens_clause decl =
+    match decl.call_decl_bound with
+    | Some { bound_kind = Opens; _ } as clause -> clause
+    | Some { bound_kind = Depends; _ } | None -> None
 
   let is_abstract = function
     | { call_decl = { call_decl_alias = Some _; _ }; _ } -> false
@@ -3348,6 +3523,12 @@ module Callable = struct
         ~f:(fun syms spec -> Expr.symbols ~acc:syms spec.spec_form)
         ~init:symbols_w_locals
         (callable.call_decl.call_decl_precond @ callable.call_decl.call_decl_postcond)
+    in
+    let symbols_w_locals_and_spec =
+      Option.fold callable.call_decl.call_decl_ancestry ~init:symbols_w_locals_and_spec
+        ~f:(fun symbols clause ->
+          List.fold clause.ancestry_args ~init:(Set.add symbols clause.ancestry_target)
+            ~f:(fun symbols expression -> Expr.symbols ~acc:symbols expression))
     in
 
     List.fold
@@ -3466,6 +3647,11 @@ module Callable = struct
       List.fold (d.call_decl_precond @ d.call_decl_postcond) ~init:acc ~f:of_spec
     in
     let acc = Option.fold d.call_decl_alias ~init:acc ~f:of_qi in
+    let acc =
+      Option.fold d.call_decl_ancestry ~init:acc
+        ~f:(fun acc { ancestry_target; ancestry_args; _ } ->
+          of_exprs (of_qi acc ancestry_target) ancestry_args)
+    in
     match c.call_def with
     | ProcDef { proc_body } -> Option.fold proc_body ~init:acc ~f:of_stmt
     | FuncDef { func_body } -> Option.fold func_body ~init:acc ~f:of_expr
@@ -3474,25 +3660,68 @@ end
 (** Frozen namespace contracts *)
 
 module NamespaceContract = struct
-  type namespace_definition = Abstract | Defined of Callable.mask [@@deriving compare]
+  (** [Bounded mask] is an abstract resource whose definition depends on no invariant
+      outside [mask]. *)
+  type namespace_definition =
+    | Abstract
+    | Bounded of Callable.mask
+    | Defined of Callable.mask
+  [@@deriving compare]
+
+  (** [Root] records a settled absence of ancestry. *)
+  type ancestry = Unresolved | Root | Declared of Callable.ancestry_clause
+  [@@deriving compare]
+
+  let equal_ancestry left right = compare_ancestry left right = 0
+
+  (** The declared ancestor of [ancestry], if any. *)
+  let ancestor_of = function Declared clause -> Some clause | Unresolved | Root -> None
 
   type namespace_decl = {
     name : QualIdent.t;
     formals : Type.var_decl list;
     definition : namespace_definition;
+    ancestry : ancestry;
+    alias : QualIdent.t option;
   }
   [@@deriving compare]
+
+  (** The names [declaration] refers to: its alias target, its ancestor, and those of its
+      definition. *)
+  let references declaration =
+    Option.to_list declaration.alias
+    @ Option.to_list
+        (Option.map (ancestor_of declaration.ancestry) ~f:(fun clause ->
+             clause.Callable.ancestry_target))
+    @
+    match declaration.definition with
+    | Abstract -> []
+    | Bounded mask | Defined mask ->
+        List.map mask ~f:(fun (head, _) -> Callable.mask_head_name head)
+
+  type separation_instances = {
+    scope : QualIdent.t;
+    instance_left : Callable.mask;
+    instance_right : Callable.mask;
+  }
+  [@@deriving compare]
+  (** The instances of a requirement, over formals that the body of [scope] never writes,
+      so that its precondition determines them. *)
 
   type separation_requirement = {
     left : Callable.mask;
     right : Callable.mask;
     loc : Loc.t;
+    instances : separation_instances option;
   }
   [@@deriving compare]
 
   type guarded_grant = {
     grants : Callable.mask;
     conditions : separation_requirement list;
+    cases : Expr.t list;
+        (** Pure conditions over the callable's formals and results, such as an outcome,
+            under which its postcondition establishes the grants. *)
   }
   [@@deriving compare]
 
@@ -3501,7 +3730,8 @@ module NamespaceContract = struct
     formals : Type.var_decl list;
     returns : Type.var_decl list;
     requires : Callable.mask;
-    grants : Callable.mask;
+    grants : Callable.mask;  (** Regional output authority. *)
+    exact_grants : Callable.mask;  (** Complete singleton identities. *)
     guarded_grants : guarded_grant list;
     separation : separation_requirement list;
   }
@@ -3554,32 +3784,57 @@ module NamespaceContract = struct
         let+ var_type = typ binder.Type.var_type in
         { binder with Type.var_type })
 
+  let map_state_ancestry ~name ~expr ancestry =
+    let open State.Syntax in
+    match ancestry with
+    | Unresolved -> State.return Unresolved
+    | Root -> State.return Root
+    | Declared clause ->
+        let* ancestry_target = name clause.Callable.ancestry_target in
+        let+ ancestry_args = State.List.map clause.ancestry_args ~f:expr in
+        Declared { clause with ancestry_target; ancestry_args }
+
   let map_state_namespace_decl ~name ~expr ~typ (declaration : namespace_decl) =
     let open State.Syntax in
     let* rewritten_name = name declaration.name in
     let* formals = map_state_binders ~typ declaration.formals in
-    let+ definition =
+    let* definition =
       match declaration.definition with
       | Abstract -> State.return Abstract
+      | Bounded mask ->
+          let+ mask = map_state_mask ~name ~expr mask in
+          Bounded mask
       | Defined mask ->
           let+ mask = map_state_mask ~name ~expr mask in
           Defined mask
     in
-    { name = rewritten_name; formals; definition }
+    let* ancestry = map_state_ancestry ~name ~expr declaration.ancestry in
+    let+ alias = State.Option.map declaration.alias ~f:name in
+    { name = rewritten_name; formals; definition; ancestry; alias }
 
   let map_state_separation ~name ~expr (requirement : separation_requirement) =
     let open State.Syntax in
     let* left = map_state_mask ~name ~expr requirement.left in
-    let+ right = map_state_mask ~name ~expr requirement.right in
-    { requirement with left; right }
+    let* right = map_state_mask ~name ~expr requirement.right in
+    let+ instances =
+      match requirement.instances with
+      | None -> State.return None
+      | Some instances ->
+          let* scope = name instances.scope in
+          let* instance_left = map_state_mask ~name ~expr instances.instance_left in
+          let+ instance_right = map_state_mask ~name ~expr instances.instance_right in
+          Some { scope; instance_left; instance_right }
+    in
+    { requirement with left; right; instances }
 
   let map_state_guarded_grant ~name ~expr (grant : guarded_grant) =
     let open State.Syntax in
     let* grants = map_state_mask ~name ~expr grant.grants in
-    let+ conditions =
+    let* conditions =
       State.List.map grant.conditions ~f:(map_state_separation ~name ~expr)
     in
-    { grants; conditions }
+    let+ cases = State.List.map grant.cases ~f:expr in
+    { grants; conditions; cases }
 
   let map_state_callable_summary ~name ~expr ~typ (summary : callable_summary) =
     let open State.Syntax in
@@ -3587,6 +3842,7 @@ module NamespaceContract = struct
     let* returns = map_state_binders ~typ summary.returns in
     let* requires = map_state_mask ~name ~expr summary.requires in
     let* grants = map_state_mask ~name ~expr summary.grants in
+    let* exact_grants = map_state_mask ~name ~expr summary.exact_grants in
     let* guarded_grants =
       State.List.map summary.guarded_grants ~f:(map_state_guarded_grant ~name ~expr)
     in
@@ -3599,11 +3855,49 @@ module NamespaceContract = struct
       returns;
       requires;
       grants;
+      exact_grants;
       guarded_grants;
       separation;
     }
 
   let lift f value state = (state, f value)
+
+  let map_ancestry ~name ~expr ancestry =
+    snd (map_state_ancestry ~name:(lift name) ~expr:(lift expr) ancestry ())
+
+  (** Two declarations of the same namespace as one, in the formals of [previous]: they
+      must agree on alias and ancestry, and their definitions are united. Both are frozen
+      from the same source declaration, so a disagreement is an inconsistency between
+      headers, an internal error. *)
+  let merge_declarations (previous : namespace_decl) (incoming : namespace_decl) =
+    let fail message = Error.internal_error (QualIdent.to_loc incoming.name) message in
+    if not (Option.equal QualIdent.equal previous.alias incoming.alias) then
+      fail "Namespace declarations have conflicting aliases";
+    let renaming =
+      match List.zip incoming.formals previous.formals with
+      | Ok pairs -> Expr.formal_renaming pairs
+      | Unequal_lengths -> fail "Namespace declarations have different formal arities"
+    in
+    let align_expression arg = Expr.alpha_renaming arg renaming in
+    let align body =
+      List.map body ~f:(fun (head, args) -> (head, List.map args ~f:align_expression))
+    in
+    if
+      not
+        (equal_ancestry previous.ancestry
+           (map_ancestry ~name:Fn.id ~expr:align_expression incoming.ancestry))
+    then fail "Namespace declarations have conflicting ancestry";
+    (* A definition is more precise than a bound, and a bound than none. *)
+    let definition =
+      match (previous.definition, incoming.definition) with
+      | Abstract, Abstract -> Abstract
+      | (Defined _ | Bounded _), Abstract | Defined _, Bounded _ -> previous.definition
+      | Abstract, Bounded body -> Bounded (align body)
+      | (Abstract | Bounded _), Defined body -> Defined (align body)
+      | Bounded left, Bounded right -> Bounded (Callable.mask_union left (align right))
+      | Defined left, Defined right -> Defined (Callable.mask_union left (align right))
+    in
+    { previous with definition }
 
   let map_namespace_decl ~name ~expr ~typ declaration =
     snd
@@ -3912,8 +4206,8 @@ module Module = struct
   (** Builds the printer family, parameterized by how to render [TypeExt]/[ExprExt]/
       [StmtExt] leaves (see [Type.make_printers]/[Expr.make_printers]/
       [Stmt.make_printers]/[Callable.make_printers], which this composes). *)
-  let make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext
-      ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
+  let make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name ~expr_ext_to_string
+      ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
     let module Ident = struct
       include Ident
 
@@ -3926,7 +4220,7 @@ module Module = struct
       let pr_list ppf ids = Print.pr_list_comma pr ppf ids
     end in
     let _, type_pr, _, _, _, _, _, _, type_pr_list, _ =
-      Type.make_printers_with_names ~names ~type_ext_to_name
+      Type.make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name
     in
     let module Type = struct
       include Type
@@ -3935,8 +4229,9 @@ module Module = struct
       let pr_list = type_pr_list
     end in
     let stmt_pr_var_def, _, _, _, _, _, _ =
-      Stmt.make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string
-        ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string
+      Stmt.make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name
+        ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext
+        ~contract_ext_to_string
     in
     let module Stmt = struct
       include Stmt
@@ -3944,8 +4239,9 @@ module Module = struct
       let pr_var_def = stmt_pr_var_def
     end in
     let _, _, callable_pr =
-      Callable.make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string
-        ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string
+      Callable.make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name
+        ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext
+        ~contract_ext_to_string
     in
     let module Callable = struct
       include Callable
@@ -4091,14 +4387,15 @@ module Module = struct
     in
     (pr, pr_instr, pr_instr_list, pr_symbol)
 
-  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext
-      ~pr_stmt_ext ~contract_ext_to_string =
-    make_printers_with_names ~names:SourceNames.default ~type_ext_to_name
+  let make_printers ~pr_type_ext ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext
+      ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
+    make_printers_with_names ~names:SourceNames.default ~pr_type_ext ~type_ext_to_name
       ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext
       ~contract_ext_to_string
 
   let pr, pr_instr, pr_instr_list, pr_symbol =
-    make_printers ~type_ext_to_name:Type.default_type_ext_to_name
+    make_printers ~pr_type_ext:Type.default_pr_type_ext
+      ~type_ext_to_name:Type.default_type_ext_to_name
       ~expr_ext_to_string:Expr.default_expr_ext_to_string
       ~pr_expr_ext:Expr.default_pr_expr_ext
       ~pr_basic_stmt_ext:Stmt.default_pr_basic_stmt_ext
@@ -4326,23 +4623,25 @@ module Symbol = struct
 
   let set_free = Module.set_symbol_free
 
-  let make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext
-      ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
+  let make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name ~expr_ext_to_string
+      ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
     let _, _, _, pr_symbol =
-      Module.make_printers_with_names ~names ~type_ext_to_name ~expr_ext_to_string
-        ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string
+      Module.make_printers_with_names ~names ~pr_type_ext ~type_ext_to_name
+        ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext
+        ~contract_ext_to_string
     in
     let to_string m = Print.string_of_format pr_symbol m in
     (pr_symbol, to_string)
 
-  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext
-      ~pr_stmt_ext ~contract_ext_to_string =
-    make_printers_with_names ~names:SourceNames.default ~type_ext_to_name
+  let make_printers ~pr_type_ext ~type_ext_to_name ~expr_ext_to_string ~pr_expr_ext
+      ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
+    make_printers_with_names ~names:SourceNames.default ~pr_type_ext ~type_ext_to_name
       ~expr_ext_to_string ~pr_expr_ext ~pr_basic_stmt_ext ~pr_stmt_ext
       ~contract_ext_to_string
 
   let pr, to_string =
-    make_printers ~type_ext_to_name:Type.default_type_ext_to_name
+    make_printers ~pr_type_ext:Type.default_pr_type_ext
+      ~type_ext_to_name:Type.default_type_ext_to_name
       ~expr_ext_to_string:Expr.default_expr_ext_to_string
       ~pr_expr_ext:Expr.default_pr_expr_ext
       ~pr_basic_stmt_ext:Stmt.default_pr_basic_stmt_ext
@@ -4463,8 +4762,8 @@ module Predefs = struct
   let lowering_heap_utils_mod_qual_ident =
     QualIdent.from_list [ lowering_ident; Ident.make Loc.dummy "HeapUtils" 0 ]
 
-  let lowering_unit_inv_ra_mod_qual_ident =
-    QualIdent.from_list [ lowering_ident; Ident.make Loc.dummy "UnitInvRA" 0 ]
+  let lowering_unit_agree_mod_qual_ident =
+    QualIdent.from_list [ lowering_ident; Ident.make Loc.dummy "UnitAgree" 0 ]
 
   let lowering_frac_heap_utils_mod_qual_ident =
     QualIdent.from_list [ lowering_ident; Ident.make Loc.dummy "FracHeapUtils" 0 ]

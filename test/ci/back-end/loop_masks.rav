@@ -1,0 +1,23 @@
+// A loop may mention invariants that are not available where it starts, as the
+// ones it creates itself; it can then open only those that are.
+
+field f: Int
+
+inv counter(x: Ref) { exists v: Int :: own(x.f, v) }
+
+proc make(n: Int) returns (xs: Set[Ref])
+  requires 0 <= n
+  ensures forall x: Ref :: x in xs ==> counter(x)
+{
+  var i: Int := 0;
+  xs := {};
+  while (i < n)
+    invariant forall x: Ref :: x in xs ==> counter(x)
+  {
+    var x: Ref;
+    x := new(f: 0);
+    fold counter(x);
+    xs := xs ++ {x};
+    i := i + 1;
+  }
+}

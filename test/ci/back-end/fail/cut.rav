@@ -1,0 +1,32 @@
+field f: Int
+
+// The resources a cut leaves out are gone.
+proc left_behind(x: Ref, y: Ref)
+  requires own(x.f, 1, 1.0) && own(y.f, 2, 1.0)
+{
+  cut own(x.f, 1, 1.0);
+  y.f := 0;
+}
+
+// So are the facts about the heap, even through a variable read from it.
+proc heap_value(x: Ref)
+  requires own(x.f, 1, 1.0)
+{
+  var v := x.f;
+  cut true;
+  assert v == 1;
+}
+
+// And assumptions that are not about the values of variables.
+proc assumption(c: Bool)
+{
+  assume c;
+  cut true;
+  assert c;
+}
+
+proc unproved(x: Ref)
+  requires own(x.f, 1, 1.0)
+{
+  cut own(x.f, 2, 1.0);
+}

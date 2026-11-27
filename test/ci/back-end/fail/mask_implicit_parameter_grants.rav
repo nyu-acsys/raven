@@ -1,0 +1,38 @@
+field contents: Int
+
+inv cell(location: Ref; value: Int) {
+  own(location.contents, value)
+}
+
+proc create(value: Int) returns (location: Ref)
+  ensures exists witness: Int :: cell(location, witness) && witness == value
+{
+  location := new(contents: value);
+  fold cell(location, value);
+}
+
+proc wrong_implicit() {
+  var location := create(7);
+  atomic {
+    unfold cell(location, 9);
+    fold cell(location, 9);
+  }
+}
+
+lemma guess_implicit(location: Ref)
+  requires exists witness: Int :: cell(location, witness)
+  ensures cell(location, 0)
+{}
+
+pred stored(location: Ref; value: Int) {
+  own(location.contents, value)
+}
+
+proc changing_is_consistent() {
+  var location := new(contents: 0);
+  fold stored(location, 0);
+  unfold stored(location, 0);
+  location.contents := 1;
+  fold stored(location, 1);
+  assert false;
+}

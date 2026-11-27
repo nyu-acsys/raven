@@ -1,0 +1,19 @@
+// The within clause of a free invariant without a definition promises an ancestor, as in an
+// interface: a mask covering the ancestor covers the invariant.
+module Lib {
+  free inv root(x: Int)
+  free inv leaf(x: Int, k: Int) within root(x)
+
+  free axiom step(x: Int, k: Int)
+    requires leaf(x, k)
+    ensures leaf(x, k)
+    opens leaf(x, k)
+}
+
+lemma use(x: Int, k: Int)
+  requires Lib.leaf(x, k)
+  ensures Lib.leaf(x, k)
+  opens Lib.root(x)
+{
+  Lib.step(x, k);
+}

@@ -1,0 +1,9 @@
+include "included/external_family.rav"
+
+interface Family {
+  inv leaf(x: Int) within External.root(x)
+}
+
+module Actual : Family {
+  inv leaf(x: Int) = External.root
+}

@@ -37,8 +37,8 @@ asserts. What it asserts is exactly the representation-specific detail that no c
 Both need the body to check what they're consuming or producing, so neither one can be used on
 `valid` outside of a module that has actually supplied that body. Folding or unfolding it only
 becomes possible once a `module M : Counter` gives `valid` a real definition (see
-{{ref sec:implementing-interface}}, next), and then only *inside* `M`, since the body is not in
-scope anywhere else.
+{{ref sec:implementing-interface}}, next), and then only for `M.valid`: inside `M`, or in code
+that names `M` directly. Code that only knows a `Counter` still can't fold or unfold its `valid`.
 
 ## Implementing an interface {#sec:implementing-interface}
 

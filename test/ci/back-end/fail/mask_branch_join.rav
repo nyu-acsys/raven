@@ -1,7 +1,7 @@
 // Regression test: mask credit established on only one arm of a
 // conditional must not survive to the join -- the forward-credit dataflow
 // for a fresh `fold` joins by intersection, not union. `q`'s own
-// `call_decl_needs_mask` is `()` (nothing in `requires`, and it's never called
+// required mask is empty (nothing in `requires`, and it's never called
 // from anywhere else, so nothing to transitively propagate either), so the
 // only possible source of credit
 // for the `unfold q(x)` below is the `fold q(x)` inside the `then` branch

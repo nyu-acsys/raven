@@ -648,7 +648,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
           Callable.mk_call_decl ~kind:Func ~name:sum_func_name ~loc
             ~formals:sum_func_arg_var_decls
             ~returns:[ Type.mk_var_decl ~loc (Ident.fresh loc "ret") Type.real ]
-            ~needs_mask:[] ~grants_mask:[] ()
+            ()
         in
 
         (* Define function body *)

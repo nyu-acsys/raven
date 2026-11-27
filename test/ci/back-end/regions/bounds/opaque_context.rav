@@ -1,0 +1,59 @@
+// An opaque execution context whose predicate depends on no invariant: a callable
+// holding it may allocate and open a fresh invariant without reserving anything else.
+interface Context {
+  pred context(self: Ref) depends {}
+
+  lemma keep(self: Ref)
+    requires context(self)
+    ensures context(self)
+}
+
+module Actual : Context {
+  field level: Int
+
+  pred context(self: Ref) { own(self.level, 0) }
+
+  lemma keep(self: Ref) {}
+}
+
+module Hidden :> Context = Actual
+
+// A predicate that forwards to a bounded one inherits its bound.
+module Wrap[C: Context] : Context {
+  pred context(self: Ref) { C.context(self) }
+
+  lemma keep(self: Ref) {
+    unfold context(self);
+    C.keep(self);
+    fold context(self);
+  }
+}
+
+module Wrapped = Wrap[Hidden]
+
+field value: Int
+
+inv cell(x: Ref) { exists v: Int :: own(x.value, v) }
+
+lemma touch(x: Ref)
+  requires cell(x)
+  ensures cell(x)
+  opens cell(x)
+{
+  unfold cell(x);
+  fold cell(x);
+}
+
+proc fresh(self: Ref)
+  requires Hidden.context(self) && Wrapped.context(self)
+  ensures Hidden.context(self) && Wrapped.context(self)
+  opens {}
+{
+  var x: Ref;
+  x := new(value: 0);
+  fold cell(x);
+  touch(x);
+}
+
+// `depends` remains an ordinary name outside a declaration's header.
+func depends(depends: Int) returns (r: Int) { depends + 1 }

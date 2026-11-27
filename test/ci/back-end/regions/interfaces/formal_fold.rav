@@ -1,0 +1,15 @@
+interface Family {
+  inv root(x: Int) { true }
+  lemma touch(x: Int)
+    requires root(x)
+    ensures root(x)
+    opens root(x)
+}
+module Client[P: Family] {
+  lemma use()
+    opens {}
+  {
+    fold P.root(0);
+    P.touch(0);
+  }
+}

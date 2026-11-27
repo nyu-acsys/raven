@@ -51,12 +51,14 @@ let binop_of_constr : Expr.constr -> Surface.Expr.binop = function
   | Minus -> Minus
   | _ -> assert false
 
-(* A callable has at most one `opens` clause. *)
-let single_opens_clause = function
+(* A callable has at most one `opens` or `depends` clause. *)
+let single_bound_clause = function
   | [] -> None
-  | [ (loc, entries) ] -> Some Callable.{ opens_entries = entries; opens_loc = loc }
-  | _ :: (loc, _) :: _ ->
-      Error.syntax_error loc "A callable may have at most one opens clause"
+  | [ clause ] -> Some clause
+  | _ :: Callable.{ bound_kind; bound_loc; _ } :: _ ->
+      Error.syntax_error bound_loc
+        (Printf.sprintf "A callable may have at most one %s clause"
+           (Callable.bound_keyword bound_kind))
 
 (* Checks that `inline`, if given, is applied to a function or predicate. *)
 let inline_modifier ~loc (kind : Callable.call_kind) (is_inline : bool) : bool =
@@ -102,7 +104,7 @@ let inline_modifier ~loc (kind : Callable.call_kind) (is_inline : bool) : bool =
 %token <bool> MODULE
 %token <string> STRINGVAL
 %token TYPE IMPORT INCLUDE
-%token RETURNS REQUIRES ENSURES INVARIANT OPENS
+%token RETURNS REQUIRES ENSURES INVARIANT OPENS WITHIN DEPENDS
 %token EOF
 
 %nonassoc IFF
@@ -382,23 +384,36 @@ func_decl:
 }
 
 callable_decl:
-  id = callable_name; LPAREN; formals = formals_with_loc; RPAREN; returns = return_params; cs = contracts {
-  let precond, postcond, contract_ext, opens = cs in
-  let opens = single_opens_clause opens in
+  id = callable_name; LPAREN; formals = formals_with_loc; RPAREN; returns = return_params;
+  ancestry = option(ancestry_clause); cs = contracts {
+  let precond, postcond, contract_ext, bounds = cs in
+  let bound = single_bound_clause bounds in
   let loc_params, formals = formals in
   Surface.Callable.decl ~kind:Func ~loc:(Loc.make $startpos(id) $endpos(id))
-    ~formals ~returns ~precond ~postcond ~contract_ext ?opens ~loc_params id
+    ~formals ~returns ~precond ~postcond ~contract_ext ?bound ?ancestry ~loc_params id
 }
 
 callable_decl_out_vars:
-  id = callable_name; LPAREN; formals = formals_with_loc; SEMICOLON; returns = var_decls_with_modifiers; RPAREN; cs = contracts {
-  let precond, postcond, contract_ext, opens = cs in
-  let opens = single_opens_clause opens in
+  id = callable_name; LPAREN; formals = formals_with_loc; SEMICOLON;
+  returns = var_decls_with_modifiers; RPAREN; ancestry = option(ancestry_clause);
+  cs = contracts {
+  let precond, postcond, contract_ext, bounds = cs in
+  let bound = single_bound_clause bounds in
   let loc_params, formals = formals in
   Surface.Callable.decl ~kind:Func ~loc:(Loc.make $startpos(id) $endpos(id))
-    ~formals ~returns ~precond ~postcond ~contract_ext ?opens ~loc_params id
+    ~formals ~returns ~precond ~postcond ~contract_ext ?bound ?ancestry ~loc_params id
 }
 
+(* Type checking makes the clause of an invariant of a concrete module its parent. *)
+ancestry_clause:
+| WITHIN; target = qual_ident; ancestry_args = call {
+  Callable.{ ancestry_kind = Within; ancestry_target = Expr.to_qual_ident target;
+             ancestry_args; ancestry_loc = Loc.make $symbolstartpos $endpos }
+}
+
+%inline bound_keyword:
+| OPENS { Callable.Opens }
+| DEPENDS { Callable.Depends }
 
 return_params:
 | RETURNS; LPAREN; decls = var_decls_with_modifiers; RPAREN { decls }
@@ -488,11 +503,13 @@ contract:
 | ce = contract_ext {
   ([], [], [ce], [])
 }
-| OPENS; LBRACE; RBRACE {
-  ([], [], [], [ (Loc.make $symbolstartpos $endpos, []) ])
+| bound_kind = bound_keyword; LBRACE; RBRACE {
+  ([], [], [], [ Callable.{ bound_kind; bound_entries = [];
+                            bound_loc = Loc.make $symbolstartpos $endpos } ])
 }
-| OPENS; es = separated_nonempty_list(COMMA, opens_entry) {
-  ([], [], [], [ (Loc.make $symbolstartpos $endpos, es) ])
+| bound_kind = bound_keyword; es = separated_nonempty_list(COMMA, opens_entry) {
+  ([], [], [], [ Callable.{ bound_kind; bound_entries = es;
+                            bound_loc = Loc.make $symbolstartpos $endpos } ])
 }
 ;
 
@@ -877,6 +894,8 @@ mod_ident:
 %public plain_ident:
 | x = IDENT { x }
 | UNDERSCORE { Ident.make (Loc.make $symbolstartpos $endpos) "_" 0 }
+| WITHIN { Ident.make (Loc.make $symbolstartpos $endpos) "within" 0 }
+| DEPENDS { Ident.make (Loc.make $symbolstartpos $endpos) "depends" 0 }
 
 %public decl_name:
 | x = plain_ident { x }

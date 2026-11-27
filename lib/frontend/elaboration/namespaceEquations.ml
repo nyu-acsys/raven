@@ -94,7 +94,7 @@ let solve declarations =
     Map.fold by_name ~init:graph ~f:(fun ~key ~data:declaration graph ->
         match declaration.definition with
         | Abstract -> graph
-        | Defined body ->
+        | Bounded body | Defined body ->
             List.fold body ~init:graph ~f:(fun graph (head, _) ->
                 match head with
                 | Callable.MaskHead.Dependencies dependency
@@ -110,7 +110,7 @@ let solve declarations =
           ( Callable.MaskHead.Dependencies name,
             List.map declaration.formals ~f:Expr.from_var_decl );
         ]
-    | Defined body -> expand by_name upper_bounds body
+    | Bounded body | Defined body -> expand by_name upper_bounds body
   in
   let solve_component upper_bounds component =
     match component with

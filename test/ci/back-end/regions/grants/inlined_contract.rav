@@ -1,0 +1,12 @@
+interface Resource {
+  pred valid(x: Int)
+  lemma create(x: Int) ensures valid(x)
+}
+module Actual: Resource {
+  inline pred valid(x: Int) { true }
+  lemma create(x: Int) {}
+}
+module Client[P: Resource] {
+  lemma use(x: Int) { P.create(x); }
+}
+module Use = Client[Actual]

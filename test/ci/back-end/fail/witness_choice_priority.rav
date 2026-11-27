@@ -1,0 +1,23 @@
+module Entry : Library.Type { rep type T = Int }
+module Entries : Library.SetRA = Library.SetRA[Entry]
+module Journal : Library.Auth = Library.Auth[Entries]
+ghost field journal: Journal
+field expected: Int
+
+lemma absent_equality(cell: Ref)
+  requires own(cell.journal, Journal.frag(Entries.set({1, 2})))
+  ensures exists chosen: Int :: chosen == 3 &&
+    own(cell.journal, Journal.frag(Entries.set({chosen})))
+{}
+
+lemma contradictory_equalities(cell: Ref)
+  requires own(cell.journal, Journal.frag(Entries.set({1, 2})))
+  ensures exists chosen: Int :: chosen == 1 && chosen == 2 &&
+    own(cell.journal, Journal.frag(Entries.set({chosen})))
+{}
+
+lemma unavailable_field_value(cell: Ref)
+  requires own(cell.expected, 3) && own(cell.journal, Journal.frag(Entries.set({1, 2})))
+  ensures exists chosen: Int :: own(cell.expected, chosen) &&
+    own(cell.journal, Journal.frag(Entries.set({chosen})))
+{}

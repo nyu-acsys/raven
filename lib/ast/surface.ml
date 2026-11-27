@@ -138,8 +138,8 @@ module Expr = struct
   let au_commit ~loc (proc : QualIdent.t) (args : t list) : t =
     Expr.mk_app ~typ:AstDef.Type.perm ~loc (AUPredCommit proc) args
 
-  (** The enumeration [opener e1, ..., en closer], as the set [{e1, ..., en}] for the
-      opener ["{"] and the sequence [[e1, ..., en]] for ["["]. *)
+  (** The enumeration [opener e1, ..., en closer]: the set [{e1, ..., en}] if [opener] is
+      a brace, and the sequence [[e1, ..., en]] if it is a bracket. *)
   let enumeration ~loc (opener : string) (es : t list) : t =
     app ~loc (Enumeration opener) es
 
@@ -450,11 +450,11 @@ module Callable = struct
       [loc_params] name the fields of leading location parameters, its results and its
       contract. *)
   let decl ~loc ~(kind : Callable.call_kind) ?(is_inline = false) ?(formals = [])
-      ?(returns = []) ?(precond = []) ?(postcond = []) ?(contract_ext = []) ?opens
-      ?(loc_params = []) (name : Ident.t) : Callable.call_decl =
+      ?(returns = []) ?(precond = []) ?(postcond = []) ?(contract_ext = []) ?bound
+      ?ancestry ?(loc_params = []) (name : Ident.t) : Callable.call_decl =
     let decl =
       Callable.mk_call_decl ~kind ~name ~loc ~formals ~returns ~precond ~postcond
-        ~contract_ext ?opens ~loc_params ()
+        ~contract_ext ?bound ?ancestry ~loc_params ()
     in
     { decl with call_decl_is_inline = is_inline }
 

@@ -1,5 +1,5 @@
 // Regression test for the interface/implementation asymmetry
-// `call_decl_grants_mask` used to have: since it was computed purely from
+// the granted mask used to have: since it was computed purely from
 // a callable's own body (a fold/unfold simulation), an interface's
 // abstract, bodyless declaration always got an empty grants set, even
 // when a concrete implementation of the same member would get something

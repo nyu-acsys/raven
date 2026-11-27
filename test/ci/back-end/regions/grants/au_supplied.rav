@@ -1,0 +1,21 @@
+inv root(x: Int) { true }
+inv child(x: Int) within root(x) { true }
+proc host(x: Int)
+  atomic requires child(x)
+  atomic ensures child(x)
+  opens child(x)
+{
+  ghost var token := bindAU();
+  openAU(token, x);
+  commitAU(token, x, ());
+}
+lemma use(token: AtomicToken<host>, x: Int)
+  requires root(x) && au<host>(token, x)
+  ensures root(x) && au<host>(token, x)
+  opens root(x)
+{
+  openAU(token, x);
+  unfold child(x);
+  fold child(x);
+  abortAU(token, x);
+}

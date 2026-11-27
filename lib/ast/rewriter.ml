@@ -169,11 +169,31 @@ type isc_template = {
 
 module IscCacheTbl = Hashtbl.M (IscCacheKey)
 
+(* Every cached ISC by the shape of its inverted expression, so that ISCs inverting the
+   same expression under the same guard share one inverse function. *)
+module IscShapeTbl = Hashtbl.M (String)
+
 (* [ext_hooks] bundles every function an active language extension contributes to the
    core pipeline (see docs/ext/README.md). It has to be defined mutually with [state]/[t]
    because several of its fields return [_ t]. A value of this type is installed once,
    by [eval] below, and threaded through the rest of the pipeline as ordinary monadic
    state -- there is no global mutable reference standing in for "the active extension". *)
+type printers = {
+  pr_type : Stdlib.Format.formatter -> type_expr -> unit;
+  pr_type_var_decl : Stdlib.Format.formatter -> var_decl -> unit;
+  pr_type_var_decl_list : Stdlib.Format.formatter -> var_decl list -> unit;
+  pr_expr : Stdlib.Format.formatter -> expr -> unit;
+  pr_expr_list : Stdlib.Format.formatter -> expr list -> unit;
+  pr_stmt : Stdlib.Format.formatter -> Stmt.t -> unit;
+  pr_stmt_basic : Stdlib.Format.formatter -> Stmt.basic_stmt_desc -> unit;
+  pr_stmt_spec_list : string -> Stdlib.Format.formatter -> Stmt.spec list -> unit;
+  pr_callable : Stdlib.Format.formatter -> Callable.t -> unit;
+  pr_module : Stdlib.Format.formatter -> Module.t -> unit;
+  pr_module_instrs : Stdlib.Format.formatter -> Module.module_instr list -> unit;
+  pr_symbol : Stdlib.Format.formatter -> Module.symbol -> unit;
+  symbol_to_string : Module.symbol -> string;
+}
+
 type 'a state = {
   state_table : SymbolTbl.t;
   state_update_table : bool;
@@ -184,6 +204,7 @@ type 'a state = {
   state_relaxed_lookup : bool list;
   state_user_data : 'a;
   state_ext_hooks : ext_hooks;
+  state_printers : printers Lazy.t;  (** Those of [state_ext_hooks]. *)
   state_cli_config : cli_config;
   (* Cache of already-compiled ISCs, keyed by [IscCacheKey.t]. A single [Hashtbl.t]
      instance threaded (not rebuilt) through every state copy for the run -- mutated in
@@ -191,6 +212,7 @@ type 'a state = {
      [heapsExplicitTrnsl.ml], never exposed outside this module as a global/mutable
      reference. *)
   state_isc_cache : isc_template IscCacheTbl.t;
+  state_isc_shapes : isc_template list IscShapeTbl.t;
   (* The run's errors recorded at recovery points (see [recover]), warnings and editor
      annotations. *)
   state_diagnostics : Diagnostics.t;
@@ -256,6 +278,7 @@ and type_check_stmt_functs = {
 
 and ext_hooks = {
   type_ext_to_name : Type.type_ext -> string;
+  pr_type_ext : Type.pr_type_ext;
   expr_ext_to_string : Expr.expr_ext -> string;
   pr_expr_ext : Expr.pr_expr_ext;
   expr_ext_is_literal : Expr.expr_ext -> bool;
@@ -474,6 +497,7 @@ let default_cli_config : cli_config = { cli_strict = false }
 let default_ext_hooks : ext_hooks =
   {
     type_ext_to_name = Type.default_type_ext_to_name;
+    pr_type_ext = Type.default_pr_type_ext;
     expr_ext_to_string = Expr.default_expr_ext_to_string;
     pr_expr_ext = Expr.default_pr_expr_ext;
     expr_ext_is_literal = (fun _ -> false);
@@ -601,6 +625,64 @@ let check_stmt_ref :
 
 include State
 
+(** The extension-aware sibling of AstDef's default printers ([Type.pr], [Stmt.pr], etc.):
+    built from the given extension hooks. Use this (rather than the bare
+    [Type.pr]/[Stmt.pr]/...) in debug logging or error messages that might run over an AST
+    that can still contain [*_ext] nodes, i.e. before [Elaboration.elaborate_module] has
+    rewritten them away. Most callers want [current_printers] below, which reads the hooks
+    out of the active [Rewriter.t] state; this pure version exists for the handful of call
+    sites (e.g. [lib/driver/driver.ml]) that only have an [ext_hooks] value, not a running
+    computation, in scope. *)
+let printers_of_ext_hooks ?(names = SourceNames.default) (h : ext_hooks) : printers =
+  let _, pr_type, pr_type_var_decl, pr_type_var_decl_list, _, _, _, _, _, _ =
+    Type.make_printers_with_names ~names ~pr_type_ext:h.pr_type_ext
+      ~type_ext_to_name:h.type_ext_to_name
+  in
+  let _, _, _, pr_expr, pr_expr_list, _, _, _, _, _, _, _ =
+    Expr.make_printers_with_names ~names ~pr_type_ext:h.pr_type_ext
+      ~type_ext_to_name:h.type_ext_to_name ~expr_ext_to_string:h.expr_ext_to_string
+      ~pr_expr_ext:h.pr_expr_ext
+  in
+  let _, pr_stmt_spec_list, pr_stmt_basic, pr_stmt, _, _, _ =
+    Stmt.make_printers_with_names ~names ~pr_type_ext:h.pr_type_ext
+      ~type_ext_to_name:h.type_ext_to_name ~expr_ext_to_string:h.expr_ext_to_string
+      ~pr_expr_ext:h.pr_expr_ext ~pr_basic_stmt_ext:h.pr_basic_stmt_ext
+      ~pr_stmt_ext:h.pr_stmt_ext ~contract_ext_to_string:h.contract_ext_to_string
+  in
+  let _, _, pr_callable =
+    Callable.make_printers_with_names ~names ~pr_type_ext:h.pr_type_ext
+      ~type_ext_to_name:h.type_ext_to_name ~expr_ext_to_string:h.expr_ext_to_string
+      ~pr_expr_ext:h.pr_expr_ext ~pr_basic_stmt_ext:h.pr_basic_stmt_ext
+      ~pr_stmt_ext:h.pr_stmt_ext ~contract_ext_to_string:h.contract_ext_to_string
+  in
+  let pr_module, _, pr_module_instrs, _ =
+    Module.make_printers_with_names ~names ~pr_type_ext:h.pr_type_ext
+      ~type_ext_to_name:h.type_ext_to_name ~expr_ext_to_string:h.expr_ext_to_string
+      ~pr_expr_ext:h.pr_expr_ext ~pr_basic_stmt_ext:h.pr_basic_stmt_ext
+      ~pr_stmt_ext:h.pr_stmt_ext ~contract_ext_to_string:h.contract_ext_to_string
+  in
+  let pr_symbol, symbol_to_string =
+    Symbol.make_printers_with_names ~names ~pr_type_ext:h.pr_type_ext
+      ~type_ext_to_name:h.type_ext_to_name ~expr_ext_to_string:h.expr_ext_to_string
+      ~pr_expr_ext:h.pr_expr_ext ~pr_basic_stmt_ext:h.pr_basic_stmt_ext
+      ~pr_stmt_ext:h.pr_stmt_ext ~contract_ext_to_string:h.contract_ext_to_string
+  in
+  {
+    pr_type;
+    pr_type_var_decl;
+    pr_type_var_decl_list;
+    pr_expr;
+    pr_expr_list;
+    pr_stmt;
+    pr_stmt_basic;
+    pr_stmt_spec_list;
+    pr_callable;
+    pr_module;
+    pr_module_instrs;
+    pr_symbol;
+    symbol_to_string;
+  }
+
 (** Runs [m] on [tbl]. It records in [diagnostics], the run's, and fails at the end if [m]
     recorded errors, with all of them. *)
 let eval ?(update = true) ?(ext_hooks = default_ext_hooks)
@@ -615,8 +697,10 @@ let eval ?(update = true) ?(ext_hooks = default_ext_hooks)
       state_relaxed_lookup = [];
       state_user_data = ();
       state_ext_hooks = ext_hooks;
+      state_printers = lazy (printers_of_ext_hooks ext_hooks);
       state_cli_config = cli_config;
       state_isc_cache = Hashtbl.create (module IscCacheKey);
+      state_isc_shapes = Hashtbl.create (module String);
       state_diagnostics = diagnostics;
       state_record_references = false;
     }
@@ -806,82 +890,10 @@ let get_table s = (s, s.state_table)
 let current_ext_hooks s = (s, s.state_ext_hooks)
 let current_cli_config s = (s, s.state_cli_config)
 
-type printers = {
-  pr_type : Stdlib.Format.formatter -> type_expr -> unit;
-  pr_type_var_decl : Stdlib.Format.formatter -> var_decl -> unit;
-  pr_type_var_decl_list : Stdlib.Format.formatter -> var_decl list -> unit;
-  pr_expr : Stdlib.Format.formatter -> expr -> unit;
-  pr_expr_list : Stdlib.Format.formatter -> expr list -> unit;
-  pr_stmt : Stdlib.Format.formatter -> Stmt.t -> unit;
-  pr_stmt_basic : Stdlib.Format.formatter -> Stmt.basic_stmt_desc -> unit;
-  pr_stmt_spec_list : string -> Stdlib.Format.formatter -> Stmt.spec list -> unit;
-  pr_callable : Stdlib.Format.formatter -> Callable.t -> unit;
-  pr_module : Stdlib.Format.formatter -> Module.t -> unit;
-  pr_module_instrs : Stdlib.Format.formatter -> Module.module_instr list -> unit;
-  pr_symbol : Stdlib.Format.formatter -> Module.symbol -> unit;
-  symbol_to_string : Module.symbol -> string;
-}
-
-(** The extension-aware sibling of AstDef's default printers ([Type.pr], [Stmt.pr], etc.):
-    built from the given extension hooks. Use this (rather than the bare
-    [Type.pr]/[Stmt.pr]/...) in debug logging or error messages that might run over an AST
-    that can still contain [*_ext] nodes, i.e. before [Elaboration.elaborate_module] has
-    rewritten them away. Most callers want [current_printers] below, which reads the hooks
-    out of the active [Rewriter.t] state; this pure version exists for the handful of call
-    sites (e.g. [lib/driver/driver.ml]) that only have an [ext_hooks] value, not a running
-    computation, in scope. *)
-let printers_of_ext_hooks ?(names = SourceNames.default) (h : ext_hooks) : printers =
-  let _, pr_type, pr_type_var_decl, pr_type_var_decl_list, _, _, _, _, _, _ =
-    Type.make_printers_with_names ~names ~type_ext_to_name:h.type_ext_to_name
-  in
-  let _, _, _, pr_expr, pr_expr_list, _, _, _, _, _, _, _ =
-    Expr.make_printers_with_names ~names ~type_ext_to_name:h.type_ext_to_name
-      ~expr_ext_to_string:h.expr_ext_to_string ~pr_expr_ext:h.pr_expr_ext
-  in
-  let _, pr_stmt_spec_list, pr_stmt_basic, pr_stmt, _, _, _ =
-    Stmt.make_printers_with_names ~names ~type_ext_to_name:h.type_ext_to_name
-      ~expr_ext_to_string:h.expr_ext_to_string ~pr_expr_ext:h.pr_expr_ext
-      ~pr_basic_stmt_ext:h.pr_basic_stmt_ext ~pr_stmt_ext:h.pr_stmt_ext
-      ~contract_ext_to_string:h.contract_ext_to_string
-  in
-  let _, _, pr_callable =
-    Callable.make_printers_with_names ~names ~type_ext_to_name:h.type_ext_to_name
-      ~expr_ext_to_string:h.expr_ext_to_string ~pr_expr_ext:h.pr_expr_ext
-      ~pr_basic_stmt_ext:h.pr_basic_stmt_ext ~pr_stmt_ext:h.pr_stmt_ext
-      ~contract_ext_to_string:h.contract_ext_to_string
-  in
-  let pr_module, _, pr_module_instrs, _ =
-    Module.make_printers_with_names ~names ~type_ext_to_name:h.type_ext_to_name
-      ~expr_ext_to_string:h.expr_ext_to_string ~pr_expr_ext:h.pr_expr_ext
-      ~pr_basic_stmt_ext:h.pr_basic_stmt_ext ~pr_stmt_ext:h.pr_stmt_ext
-      ~contract_ext_to_string:h.contract_ext_to_string
-  in
-  let pr_symbol, symbol_to_string =
-    Symbol.make_printers_with_names ~names ~type_ext_to_name:h.type_ext_to_name
-      ~expr_ext_to_string:h.expr_ext_to_string ~pr_expr_ext:h.pr_expr_ext
-      ~pr_basic_stmt_ext:h.pr_basic_stmt_ext ~pr_stmt_ext:h.pr_stmt_ext
-      ~contract_ext_to_string:h.contract_ext_to_string
-  in
-  {
-    pr_type;
-    pr_type_var_decl;
-    pr_type_var_decl_list;
-    pr_expr;
-    pr_expr_list;
-    pr_stmt;
-    pr_stmt_basic;
-    pr_stmt_spec_list;
-    pr_callable;
-    pr_module;
-    pr_module_instrs;
-    pr_symbol;
-    symbol_to_string;
-  }
-
-(** [current_printers] reads the active extension's hooks out of the [Rewriter.t] state --
-    see [printers_of_ext_hooks] for the pure/no-state version. *)
+(** [current_printers] are the printers of the active extension, built once per run -- see
+    [printers_of_ext_hooks] for the pure/no-state version. *)
 let current_printers (s : 'a state) : 'a state * printers =
-  (s, printers_of_ext_hooks s.state_ext_hooks)
+  (s, Lazy.force s.state_printers)
 
 (* Captured before [Logs] is shadowed below, for the rest of this file to use when
    logging something that doesn't need [printers] (plain values, no AST fragments). *)
@@ -897,7 +909,7 @@ module Stdlib_logs = Logs
 module Logs = struct
   let lift (log : ('a, unit) Stdlib_logs.msgf -> unit)
       (f : printers -> ('a, unit) Stdlib_logs.msgf) (s : 'st state) : 'st state * unit =
-    log (fun m -> f (printers_of_ext_hooks s.state_ext_hooks) m);
+    log (fun m -> f (Lazy.force s.state_printers) m);
     (s, ())
 
   let debug f = lift Stdlib_logs.debug f
@@ -929,6 +941,9 @@ let set_user_state user_data s = ({ s with state_user_data = user_data }, ())
    [Hashtbl.find]/[Hashtbl.add] into it directly -- the table is mutated in place, not
    rebuilt, so no "set" counterpart is needed the way [state_user_data] has one. *)
 let current_isc_cache s : 'a state * isc_template IscCacheTbl.t = (s, s.state_isc_cache)
+
+let current_isc_shapes s : 'a state * isc_template list IscShapeTbl.t =
+  (s, s.state_isc_shapes)
 
 let current_module_name s : 'a state * qual_ident =
   let s, curr_scope = current_scope s in
@@ -1879,11 +1894,18 @@ module Callable = struct
     let* _ = add_call_decl_locals call_decl
     and* new_preconds = rewrite_specs call_decl.call_decl_precond
     and* new_postconds = rewrite_specs call_decl.call_decl_postcond in
+    (* The target is a name, not an expression: [rewrite_qual_idents] maps it. *)
+    let* call_decl_ancestry =
+      Option.map call_decl.call_decl_ancestry ~f:(fun clause ->
+          let+ ancestry_args = List.map clause.ancestry_args ~f:fe in
+          { clause with ancestry_args })
+    in
     let call_decl =
       {
         call_decl with
         call_decl_precond = new_preconds;
         call_decl_postcond = new_postconds;
+        call_decl_ancestry;
       }
     in
     match callable.call_def with
@@ -1953,59 +1975,38 @@ module Callable = struct
         callable
     in
 
-    (* [f] (a QualIdent substitution, e.g. from module/functor instantiation)
-       isn't guaranteed injective on mask entries -- two formerly-distinct
-       entries could collapse into the same one, which would otherwise
-       persist as an un-deduped duplicate (see [Callable.mask_canon]); both
-       [call_decl_needs_mask] and [call_decl_grants_mask] need the same rewrite. *)
     let rewrite_mask_entries entries =
       List.map entries ~f:(fun (head, args) ->
           let+ args = List.map args ~f:(Expr.rewrite_qual_idents ~f) in
           (AstDef.Callable.map_mask_head head ~f, args))
     in
-    let rewrite_mask mask =
-      let+ mask =
-        List.map mask ~f:(fun (head, args) ->
-            let+ args = List.map args ~f:(Expr.rewrite_qual_idents ~f) in
-            (AstDef.Callable.map_mask_head head ~f, args))
-      in
-      Callable.mask_canon mask
-    in
-    let* call_decl_needs_mask =
-      match callable.call_decl.call_decl_needs_mask with
-      | None -> return None
-      | Some mask ->
-          let+ mask = rewrite_mask mask in
-          Some mask
-    in
-    let* call_decl_grants_mask =
-      match callable.call_decl.call_decl_grants_mask with
-      | None -> return None
-      | Some mask ->
-          let+ mask = rewrite_mask mask in
-          Some mask
-    in
-    let* call_decl_opens =
-      match callable.call_decl.call_decl_opens with
+    let* call_decl_bound =
+      match callable.call_decl.call_decl_bound with
       | None -> return None
       | Some clause ->
-          let+ opens_entries = rewrite_mask_entries clause.opens_entries in
-          Some { clause with opens_entries }
+          let+ bound_entries = rewrite_mask_entries clause.bound_entries in
+          Some { clause with bound_entries }
     in
     (* Location parameters name a field of the callable's own module, so a
        substitution has to reach them too -- otherwise a call through an instance
        would still see the functor's abstract field. *)
     let call_decl_loc_params = Base.List.map callable.call_decl.call_decl_loc_params ~f in
+    let* call_decl_ancestry =
+      Option.map callable.call_decl.call_decl_ancestry ~f:(fun clause ->
+          let+ ancestry_args =
+            List.map clause.ancestry_args ~f:(Expr.rewrite_qual_idents ~f)
+          in
+          { clause with ancestry_target = f clause.ancestry_target; ancestry_args })
+    in
     let callable =
       {
         callable with
         call_decl =
           {
             callable.call_decl with
-            call_decl_needs_mask;
-            call_decl_grants_mask;
-            call_decl_opens;
+            call_decl_bound;
             call_decl_loc_params;
+            call_decl_ancestry;
             call_decl_alias = Base.Option.map callable.call_decl.call_decl_alias ~f;
           };
       }
@@ -2381,13 +2382,19 @@ module Symbol = struct
               CallDef { callable with call_def = ProcDef { proc_body = None } }
           | _ -> symbol
         in
+        (* A substituted name may lead through an alias of the argument, such as the
+           instance of a generic type that the argument's interface declares. *)
+        let requalify qid =
+          let requalified = QualIdent.requalify (SymbolTbl.qid_subst subst) qid in
+          if QualIdent.equal requalified qid then qid
+          else SymbolTbl.follow_transparent requalified tbl
+        in
         let _, symbol1 =
           eval
             (Module.rewrite_qual_idents_in_symbol
                ~transformations:
                  [ AstDef.NamespaceContract.Substitute (SymbolTbl.qid_subst subst) ]
-               ~f:(subst |> SymbolTbl.qid_subst |> QualIdent.requalify)
-               symbol0)
+               ~f:requalify symbol0)
             tbl_scope
         in
 
@@ -2664,7 +2671,9 @@ let inline_func_body name args : (AstDef.expr option, 'a) t_ext =
                   ~key:(QualIdent.from_ident parameter.AstDef.Type.var_name)
                   ~data:arg)
           in
-          Some (AstDef.Expr.alpha_renaming body substitutions)
+          Some
+            (AstDef.Expr.freshen_bound_vars
+               (AstDef.Expr.alpha_renaming body substitutions))
       end
   | _ -> None
 

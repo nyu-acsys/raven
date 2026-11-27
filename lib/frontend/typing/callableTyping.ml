@@ -1,4 +1,4 @@
-(** Type checking of callables, their contracts and opens clauses. *)
+(** Type checking of callables and their clauses. *)
 
 open Base
 open Ast
@@ -7,21 +7,16 @@ open TypingMonad
 open TypingErrors
 open ProgUtils
 
-(* Checks an `opens` clause. Each entry names a predicate or invariant, with no arguments
-   (any instance) or one per parameter, implicit ones included, of which a trailing run
-   may be `_` and is preserved. Arguments may mention only the callable's formals,
-   except, for an atomic callable, its implicit ones (see [Masks.compute_proc_lemma_mask]). *)
-let check_opens (call_decl : Callable.call_decl) (formals : Type.var_decl list)
-    (precond : Stmt.spec list) (postcond : Stmt.spec list)
+(* Checks an `opens` or `depends` clause. Invariant entries name only parameters before
+   `;`; predicate dependency entries may also name implicit parameters after `;`. No
+   arguments selects every instance; trailing `_` arguments are preserved. Arguments
+   mention only the callable's formals, except, for an atomic callable, its implicit ones
+   (see [NamespaceInference.required_specs]). *)
+let check_mask_clause ~keyword (call_decl : Callable.call_decl)
+    (formals : Type.var_decl list) (precond : Stmt.spec list) (postcond : Stmt.spec list)
     (disam_tbl : DisambiguationTbl.t) (entries : Callable.mask_entry list) :
     Callable.mask_entry list t =
   let open Rewriter.Syntax in
-  let () =
-    match call_decl.call_decl_kind with
-    | Proc | Lemma -> ()
-    | Func | Pred | Invariant ->
-        opens_on_pure_callable_error call_decl.call_decl_loc call_decl.call_decl_name
-  in
   let is_atomic =
     List.exists (precond @ postcond) ~f:(fun spec -> spec.Stmt.spec_atomic)
   in
@@ -44,10 +39,24 @@ let check_opens (call_decl : Callable.call_decl) (formals : Type.var_decl list)
             (inv_decl, Callable.MaskHead.Invariant qi)
         | CallDef { call_decl = { call_decl_kind = Pred; _ } as pred_decl; _ } ->
             (pred_decl, Callable.MaskHead.Dependencies qi)
-        | _ -> opens_not_resource_error loc (Symbol.kind symbol) qi
+        | _ -> opens_not_resource_error loc ~keyword (Symbol.kind symbol) qi
       in
       let resource_params =
-        resource_decl.call_decl_formals @ resource_decl.call_decl_returns
+        match head with
+        | Callable.MaskHead.Invariant _ -> resource_decl.call_decl_formals
+        | Dependencies _ ->
+            resource_decl.call_decl_formals @ resource_decl.call_decl_returns
+      in
+      let args =
+        match head with
+        | Callable.MaskHead.Invariant _
+          when List.length args
+               = List.length resource_params + List.length resource_decl.call_decl_returns
+               && List.for_all
+                    (List.drop args (List.length resource_params))
+                    ~f:Callable.is_opens_wildcard ->
+            List.take args (List.length resource_params)
+        | Invariant _ | Dependencies _ -> args
       in
       let () =
         if (not (List.is_empty args)) && List.length args <> List.length resource_params
@@ -75,11 +84,97 @@ let check_opens (call_decl : Callable.call_decl) (formals : Type.var_decl list)
             let () =
               match Set.choose (Set.diff (Expr.local_vars arg) allowed) with
               | None -> ()
-              | Some ident -> opens_non_formal_error (Expr.to_loc arg) ident ~is_atomic
+              | Some ident ->
+                  opens_non_formal_error (Expr.to_loc arg) ~keyword ident ~is_atomic
             in
             arg)
       in
       (head, prefix @ List.drop args (List.length prefix)))
+
+let check_ancestry (callable : Callable.t) (formals : Type.var_decl list)
+    (disam_tbl : DisambiguationTbl.t) (clause : Callable.ancestry_clause) :
+    Callable.ancestry_clause t =
+  let open Rewriter.Syntax in
+  let fail message = Error.type_error clause.ancestry_loc message in
+  let () =
+    match Callable.kind callable with
+    | Invariant -> ()
+    | Proc | Lemma | Func | Pred -> fail "Only invariants may declare a within clause"
+  in
+  let* owner = Rewriter.current_module_name in
+  let* owner_symbol = Rewriter.find_absolute owner in
+  (* The clause of a defined invariant of a concrete module declares its parent; any other
+     promises an ancestor. *)
+  let ancestry_kind =
+    match owner_symbol with
+    | Some (Module.ModDef { mod_decl; _ })
+      when mod_decl.mod_decl_is_interface
+           || Option.is_some mod_decl.mod_decl_sealed_target ->
+        Callable.Within
+    | _ when Callable.is_abstract callable -> Within
+    | _ -> Parent
+  in
+  let* child = Rewriter.current_scope_id in
+  let* ancestry_target, target =
+    Rewriter.in_scope_of child (Rewriter.resolve_and_find clause.ancestry_target)
+  in
+  let* target_decl =
+    match Rewriter.Symbol.orig_symbol target with
+    | Module.CallDef { call_decl = { call_decl_kind = Invariant; _ }; _ } ->
+        Rewriter.Symbol.reify_callable_decl target
+    | _ -> fail "A within clause must name an invariant"
+  in
+  let () =
+    let same_module =
+      QualIdent.equal
+        (QualIdent.append owner (QualIdent.unqualify ancestry_target))
+        ancestry_target
+    in
+    (* An implementation inherits a definition, whose ancestor is then its parent. *)
+    if (not same_module) && not (Callable.is_abstract callable) then
+      fail
+        "A within clause of an invariant with a definition must name an invariant in the \
+         same module"
+  in
+  let args_and_formals =
+    match List.zip clause.ancestry_args target_decl.call_decl_formals with
+    | Unequal_lengths ->
+        fail
+          (Printf.sprintf "A within clause requires %d argument(s), but %d are given"
+             (List.length target_decl.call_decl_formals)
+             (List.length clause.ancestry_args))
+    | Ok pairs -> pairs
+  in
+  let+ ancestry_args =
+    Rewriter.List.map args_and_formals ~f:(fun (arg, target_formal) ->
+        let bad_projection () =
+          Error.type_error (Expr.to_loc arg)
+            "A within argument must be an explicit parameter of the child invariant"
+        in
+        if (not (Expr.is_ident arg)) || Callable.is_opens_wildcard arg then
+          bad_projection ();
+        let* arg =
+          StmtTyping.disambiguate_and_check_expr arg
+            (Type.set_ghost true Type.any)
+            disam_tbl
+        in
+        if
+          (not (Expr.is_ident arg))
+          || not
+               (List.exists formals ~f:(fun formal ->
+                    (not formal.var_implicit)
+                    && Ident.equal formal.var_name (Expr.to_ident arg)))
+        then bad_projection ();
+        let+ target_formal =
+          Rewriter.in_scope_of ancestry_target (TypeExpr.check_var_decl target_formal)
+        in
+        let expected = target_formal.var_type in
+        let actual = Expr.to_type arg in
+        if not (Type.equal expected actual) then
+          type_mismatch_error (Expr.to_loc arg) expected actual;
+        arg)
+  in
+  { clause with ancestry_kind; ancestry_target; ancestry_args }
 
 let check_alias (callable : Callable.t) target : Module.symbol t =
   let open Rewriter.Syntax in
@@ -91,11 +186,13 @@ let check_alias (callable : Callable.t) target : Module.symbol t =
     | Proc | Lemma | Func -> fail "Only predicates and invariants may be resource aliases"
   in
   let () =
+    Option.iter decl.call_decl_ancestry ~f:(fun clause ->
+        Error.type_error clause.ancestry_loc "A resource alias cannot declare ancestry");
     if
       (not (List.is_empty decl.call_decl_precond))
       || (not (List.is_empty decl.call_decl_postcond))
       || (not (List.is_empty decl.call_decl_contract_ext))
-      || Option.is_some decl.call_decl_opens
+      || Option.is_some decl.call_decl_bound
       || (not (List.is_empty decl.call_decl_locals))
       || (not (List.is_empty decl.call_decl_loc_params))
       || decl.call_decl_physical_atomic || decl.call_decl_is_inline
@@ -246,6 +343,11 @@ let check_definition (callable : Callable.t) : Module.symbol t =
 
   let* _ = Rewriter.add_locals call_decl_locals in
 
+  let* call_decl_ancestry =
+    Rewriter.Option.map call_decl.call_decl_ancestry
+      ~f:(check_ancestry callable call_decl_formals disam_tbl)
+  in
+
   let* call_decl_precond =
     Rewriter.List.map call_decl.call_decl_precond ~f:(StmtTyping.check_spec disam_tbl)
   and* call_decl_postcond =
@@ -321,14 +423,26 @@ let check_definition (callable : Callable.t) : Module.symbol t =
              }))
   in
 
-  (* The invariants that the callable opens. *)
-  let* call_decl_opens =
-    Rewriter.Option.map call_decl.call_decl_opens ~f:(fun clause ->
-        let+ opens_entries =
-          check_opens call_decl call_decl_formals call_decl_precond call_decl_postcond
-            disam_tbl clause.Callable.opens_entries
+  (* What a procedure or lemma may open, or an abstract resource may depend on. *)
+  let* call_decl_bound =
+    Rewriter.Option.map call_decl.call_decl_bound
+      ~f:(fun (clause : Callable.bound_clause) ->
+        begin match (clause.bound_kind, call_decl.call_decl_kind) with
+        | Opens, (Proc | Lemma) -> ()
+        | Opens, (Func | Pred | Invariant) ->
+            opens_on_pure_callable_error call_decl.call_decl_loc call_decl.call_decl_name
+        | Depends, (Pred | Invariant) when Callable.is_abstract callable -> ()
+        | Depends, (Pred | Invariant) -> depends_on_definition_error clause.bound_loc
+        | Depends, (Proc | Lemma | Func) ->
+            depends_on_non_resource_error call_decl.call_decl_loc call_decl.call_decl_name
+        end;
+        let+ bound_entries =
+          check_mask_clause
+            ~keyword:(Callable.bound_keyword clause.bound_kind)
+            call_decl call_decl_formals call_decl_precond call_decl_postcond disam_tbl
+            clause.bound_entries
         in
-        { clause with opens_entries })
+        { clause with bound_entries })
   in
 
   let call_decl =
@@ -340,7 +454,8 @@ let check_definition (callable : Callable.t) : Module.symbol t =
       call_decl_precond;
       call_decl_postcond;
       call_decl_contract_ext;
-      call_decl_opens;
+      call_decl_bound;
+      call_decl_ancestry;
       call_decl_loc_params;
     }
   in

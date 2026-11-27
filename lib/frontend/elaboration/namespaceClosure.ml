@@ -17,38 +17,6 @@ type collected = {
   analyses : AtomicityAnalysis.namespace_analysis Map.M(QualIdent).t;
 }
 
-let merge_imported_namespace (previous : NamespaceContract.namespace_decl)
-    (incoming : NamespaceContract.namespace_decl) =
-  let open NamespaceContract in
-  let pairs =
-    match List.zip incoming.formals previous.formals with
-    | Ok pairs -> pairs
-    | Unequal_lengths ->
-        Error.internal_error
-          (QualIdent.to_loc incoming.name)
-          "Imported namespace declarations have different formal arities"
-  in
-  let renaming =
-    List.fold pairs
-      ~init:(Map.empty (module QualIdent))
-      ~f:(fun renaming (source, target) ->
-        Map.set renaming
-          ~key:(QualIdent.from_ident source.Type.var_name)
-          ~data:(Expr.from_var_decl target))
-  in
-  let align body =
-    List.map body ~f:(fun (head, args) ->
-        (head, List.map args ~f:(fun arg -> Expr.alpha_renaming arg renaming)))
-  in
-  let definition =
-    match (previous.definition, incoming.definition) with
-    | Abstract, Abstract -> Abstract
-    | Defined body, Abstract -> Defined body
-    | Abstract, Defined body -> Defined (align body)
-    | Defined left, Defined right -> Defined (Callable.mask_union left (align right))
-  in
-  { previous with definition }
-
 (* Imported summaries are read from headers, never reconstructed from lowered bodies. *)
 let imported_summaries () =
   let open Rewriter.Syntax in
@@ -63,7 +31,8 @@ let imported_summaries () =
               ~f:(fun namespaces declaration ->
                 Map.update namespaces declaration.NamespaceContract.name ~f:(function
                   | None -> declaration
-                  | Some previous -> merge_imported_namespace previous declaration))
+                  | Some previous ->
+                      NamespaceContract.merge_declarations previous declaration))
           in
           let callables =
             List.fold summary.callables ~init:callables
@@ -79,43 +48,129 @@ let imported_summaries () =
               gather (QualIdent.append owner name) contract state)
       | Requalified _ -> assert false
   in
-  Map.fold table.tbl_symbols
-    ~init:(Map.empty (module QualIdent), Map.empty (module QualIdent))
-    ~f:(fun ~key:owner ~data state ->
-      match data with
-      | Module.ModDef { mod_decl = { mod_decl_mask_contract = Some contract; _ }; _ }
+  let roots =
+    Map.to_alist table.tbl_symbols
+    |> List.filter_map ~f:(function
+      | ( owner,
+          Module.ModDef { mod_decl = { mod_decl_mask_contract = Some contract; _ }; _ } )
         when QualIdent.is_local owner ->
-          gather owner contract state
-      | _ -> state)
+          Some (owner, contract)
+      | _ -> None)
+  in
+  let rec headers checked namespaces contract =
+    if List.exists checked ~f:(phys_equal contract) then (checked, namespaces)
+    else
+      let checked = contract :: checked in
+      let visit (checked, namespaces) (_, contract) =
+        headers checked namespaces contract
+      in
+      match contract with
+      | NamespaceContract.Requalified { original; _ } ->
+          headers checked namespaces original
+      | Module summary ->
+          let namespaces =
+            List.fold summary.namespaces ~init:namespaces ~f:(fun map decl ->
+                Map.update map decl.NamespaceContract.name ~f:(function
+                  | None -> decl
+                  | Some previous -> NamespaceContract.merge_declarations previous decl))
+          in
+          List.fold summary.modules ~init:(checked, namespaces) ~f:visit
+      | Functor summary ->
+          let checked, namespaces =
+            List.fold summary.parameters ~init:(checked, namespaces) ~f:visit
+          in
+          headers checked namespaces summary.result
+  in
+  let _, namespaces =
+    List.fold roots
+      ~init:([], Map.empty (module QualIdent))
+      ~f:(fun (checked, namespaces) (_, contract) -> headers checked namespaces contract)
+  in
+  List.fold roots
+    ~init:(namespaces, Map.empty (module QualIdent))
+    ~f:(fun state (owner, contract) -> gather owner contract state)
+
+(* A loop's summary once its entry has cut its mask down to [available]. *)
+let enter_loop (summary : NamespaceContract.callable_summary) available =
+  {
+    summary with
+    requires = available;
+    grants =
+      List.filter summary.grants ~f:(fun grant ->
+          List.exists available ~f:(fun entry -> NamespaceInference.covers entry grant));
+    exact_grants =
+      List.filter summary.exact_grants ~f:(fun grant ->
+          List.exists available ~f:(fun entry -> NamespaceInference.covers entry grant));
+    guarded_grants =
+      List.filter_map summary.guarded_grants ~f:(fun profile ->
+          let grants =
+            List.filter profile.NamespaceContract.grants ~f:(fun grant ->
+                List.exists available ~f:(fun entry ->
+                    NamespaceInference.covers entry grant))
+          in
+          Option.some_if (not (List.is_empty grants)) { profile with grants });
+  }
 
 let collect program =
   let open Rewriter.Syntax in
   let* namespaces, callables = imported_summaries () in
-  let* draft =
+  let* initial =
     NamespaceInference.infer ~namespaces:(Map.data namespaces)
       ~callables:(Map.to_alist callables) program
   in
-  let collect_callable call =
+  (* Loops are analyzed after the callable that enters them, whose analysis fixes
+     their masks. *)
+  let collect_callable ~loops ?(unentered = false) call =
     match call.Callable.call_def with
     | FuncDef _ | ProcDef { proc_body = None } -> Rewriter.return call
     | ProcDef { proc_body = Some _ } ->
         let* name = Rewriter.current_scope_id in
-        let* analysis = AtomicityAnalysis.collect_namespace_requirements draft call in
-        let* analyses = Rewriter.current_user_state in
-        let analyses =
-          match Map.add analyses ~key:name ~data:analysis with
-          | `Ok analyses -> analyses
-          | `Duplicate ->
-              Error.internal_error call.call_decl.call_decl_loc
-                "A callable was analyzed twice for namespace requirements"
+        let* analyses, draft = Rewriter.current_user_state in
+        let entered () =
+          Map.exists analyses ~f:(fun analysis ->
+              List.Assoc.mem analysis.AtomicityAnalysis.loop_masks name
+                ~equal:QualIdent.equal)
         in
-        let+ () = Rewriter.set_user_state analyses in
-        analysis.callable
+        if
+          Bool.( <> ) call.call_decl.call_decl_is_loop loops
+          || Map.mem analyses name
+          || (loops && (not unentered) && not (entered ()))
+        then Rewriter.return call
+        else
+          let* analysis = AtomicityAnalysis.collect_namespace_requirements draft call in
+          let callables =
+            List.fold analysis.loop_masks ~init:draft.NamespaceInference.callables
+              ~f:(fun callables (loop, available) ->
+                Map.change callables loop
+                  ~f:(Option.map ~f:(fun summary -> enter_loop summary available)))
+          in
+          let+ () =
+            Rewriter.set_user_state
+              (Map.set analyses ~key:name ~data:analysis, { draft with callables })
+          in
+          analysis.callable
+  in
+  let rec loops program =
+    let* analyzed = Rewriter.current_user_state in
+    let* program =
+      Rewriter.Module.rewrite_callables ~f:(collect_callable ~loops:true) program
+    in
+    let* analyses = Rewriter.current_user_state in
+    if Map.length (fst analyses) = Map.length (fst analyzed) then Rewriter.return program
+    else loops program
   in
   Rewriter.eval_with_user_state
-    ~init:(Map.empty (module QualIdent))
-    (let* program = Rewriter.Module.rewrite_callables ~f:collect_callable program in
-     let+ analyses = Rewriter.current_user_state in
+    ~init:(Map.empty (module QualIdent), initial)
+    (let* program =
+       Rewriter.Module.rewrite_callables ~f:(collect_callable ~loops:false) program
+     in
+     let* program = loops program in
+     let* program =
+       Rewriter.Module.rewrite_callables
+         ~f:(collect_callable ~loops:true ~unentered:true)
+         program
+     in
+     let+ analyses, draft = Rewriter.current_user_state in
      { program; draft; analyses })
 
 (** Close only summary edges; the transformed bodies are retained unchanged. *)
@@ -371,29 +426,6 @@ let freeze ?(refresh = false) ?(requirements = Map.empty (module QualIdent)) dra
     let separation =
       Requirements.union separation
         (Option.value (Map.find requirements owner) ~default:[])
-    in
-    let* definitions =
-      Rewriter.List.map definitions ~f:(function
-        | Module.SymbolDef (CallDef call) ->
-            let summary =
-              List.Assoc.find_exn callables call.call_decl.call_decl_name
-                ~equal:Ident.equal
-            in
-            let+ requires =
-              NamespaceInference.normalize_required draft summary.requires
-            in
-            Module.SymbolDef
-              (CallDef
-                 {
-                   call with
-                   call_decl =
-                     {
-                       call.call_decl with
-                       call_decl_needs_mask = Some requires;
-                       call_decl_grants_mask = Some summary.grants;
-                     };
-                 })
-        | definition -> Rewriter.return definition)
     in
     let modules = List.rev modules in
     let parameter_members =

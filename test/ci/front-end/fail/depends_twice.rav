@@ -1,0 +1,3 @@
+interface I {
+  pred p(x: Ref) depends {} depends {}
+}

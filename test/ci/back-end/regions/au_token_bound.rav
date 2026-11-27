@@ -1,0 +1,71 @@
+// An atomic-update token yields only its procedure's atomic precondition. A client
+// holding one may allocate and open an invariant its precondition cannot contain.
+field cell: Int
+
+inv counter(x: Ref) { exists v: Int :: own(x.cell, v) }
+
+lemma touch(y: Ref)
+  requires counter(y)
+  ensures counter(y)
+  opens counter(y)
+{
+  unfold counter(y);
+  fold counter(y);
+}
+
+// The atomic precondition owns only a field.
+interface Plain {
+  field value: Int
+  proc incr(x: Ref)
+    atomic requires own(x.value, 0)
+    atomic ensures own(x.value, 1)
+}
+
+// The atomic precondition is a resource bounded to depend on no invariant.
+interface Bounded {
+  pred resource(x: Ref) depends {}
+  proc step(x: Ref)
+    atomic requires resource(x)
+    atomic ensures resource(x)
+}
+
+module Client[P: Plain, B: Bounded] {
+  lemma plain(token: AtomicToken<P.incr>, x: Ref, y: Ref)
+    requires au<P.incr>(token, x) && own(y.cell, 0)
+    ensures au<P.incr>(token, x)
+    opens {}
+  {
+    fold counter(y);
+    touch(y);
+  }
+
+  lemma bounded(token: AtomicToken<B.step>, x: Ref, y: Ref)
+    requires au<B.step>(token, x) && own(y.cell, 0)
+    ensures au<B.step>(token, x)
+    opens {}
+  {
+    fold counter(y);
+    touch(y);
+  }
+}
+
+module PlainImpl : Plain {
+  proc incr(x: Ref) {
+    ghost var t := bindAU();
+    openAU(t, x);
+    x.value := 1;
+    commitAU(t, x, ());
+  }
+}
+
+module BoundedImpl : Bounded {
+  field level: Int
+  pred resource(x: Ref) { own(x.level, 0) }
+  proc step(x: Ref) {
+    ghost var t := bindAU();
+    openAU(t, x);
+    commitAU(t, x, ());
+  }
+}
+
+module Used = Client[PlainImpl, BoundedImpl]

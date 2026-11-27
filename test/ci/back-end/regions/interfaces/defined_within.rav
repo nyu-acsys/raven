@@ -1,0 +1,20 @@
+// A defined interface invariant keeps its ancestor in the implementations that inherit it.
+
+interface Family {
+  inv root(x: Int) { true }
+  inv leaf(x: Int, k: Int) within root(x) { true }
+}
+
+module Actual : Family {
+}
+
+module Public :> Family = Actual
+
+lemma use(x: Int, k: Int)
+  requires Public.leaf(x, k)
+  ensures Public.leaf(x, k)
+  opens Public.root(x)
+{
+  unfold Public.leaf(x, k);
+  fold Public.leaf(x, k);
+}

@@ -1,0 +1,40 @@
+inv root(key: Int) { true }
+inv child(key: Int) within root(key) { true }
+
+module Storage[A: Library.Type] {
+  ghost field contents: A.T
+}
+
+module Family[A: Library.Type] {
+  module Shared = Storage[A]
+  field value: A.T
+
+  inline pred contents(cell: Ref, expected: A.T) {
+    own(cell.Shared.contents, expected)
+  }
+
+  proc read(cell: Ref, ghost expected: A.T) returns (result: A.T)
+    atomic requires own(cell.value, expected) && contents(cell, expected)
+    atomic ensures own(cell.value, expected) && contents(cell, expected) && result == expected
+    opens {}
+  {
+    ghost val token := bindAU()
+    atomic {
+      openAU(token, (cell, expected))
+      result := cell.value
+      commitAU(token, (cell, expected), result)
+    }
+  }
+}
+
+module Integers = Family[Int]
+
+lemma inspect(token: AtomicToken<Integers.read>, cell: Ref, expected: Int)
+  requires root(0) && au<Integers.read>(token, (cell, expected))
+  ensures root(0) && au<Integers.read>(token, (cell, expected))
+  opens root(0)
+{
+  openAU(token, (cell, expected))
+  assert own(cell.Integers.value, expected)
+  abortAU(token, (cell, expected))
+}

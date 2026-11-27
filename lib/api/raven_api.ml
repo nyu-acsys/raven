@@ -90,6 +90,7 @@ module Expr = struct
   let set = S.Expr.set
   let seq = S.Expr.seq
   let set_compr = S.Expr.set_compr
+  let compr = S.Expr.set_compr
   let map_literal = S.Expr.map_literal
   let index = S.Expr.index
   let update = S.Expr.update
@@ -197,6 +198,7 @@ module Stmt = struct
   let assume = spec_stmt Assume
   let inhale = spec_stmt Inhale
   let exhale = spec_stmt Exhale
+  let cut = spec_stmt Cut
   let return ~loc es = S.Stmt.at ~loc (S.Stmt.return ~loc es)
 
   let fold ~loc ?witnesses name args =
@@ -220,16 +222,35 @@ module Stmt = struct
     S.Stmt.at ~loc (S.Stmt.while_ ~loc ?invariants test (S.Stmt.block_stmt ~loc body))
 end
 
+module Prophecy = struct
+  module P = Ext.ProphecyExtInstance
+
+  let type_ ~loc typ = P.proph_id_type ~loc ~one_shot:true typ
+
+  let owns ~loc prophecy value =
+    Ast.Expr.mk_app ~loc ~typ:Ast.Type.any
+      (ExprExt (P.ProphResource (true, Ast.Type.any)))
+      [ prophecy; value ]
+
+  let create ~loc typ prophecy value =
+    S.Stmt.at ~loc (Basic (BasicStmtExt (P.NewProph (true, typ), [ prophecy; value ])))
+
+  let resolve ~loc prophecy value =
+    S.Stmt.at ~loc
+      (Basic (BasicStmtExt (P.ResolveProph (true, Ast.Type.any), [ prophecy; value ])))
+end
+
 module Callable = struct
   type t = Ast.Callable.t
   type proc_kind = Proc | Lemma | Axiom
 
-  let opens_clause (loc, entries) : Ast.Callable.opens_clause =
+  let bound_clause bound_kind (loc, entries) : Ast.Callable.bound_clause =
     {
-      opens_entries =
+      bound_kind;
+      bound_entries =
         List.map entries ~f:(fun (name, args) ->
             Ast.Callable.invariant_mask_entry name args);
-      opens_loc = loc;
+      bound_loc = loc;
     }
 
   let decreases_clause = function
@@ -253,7 +274,7 @@ module Callable = struct
     let decl =
       S.Callable.decl ~loc ~kind:Func ?formals ?returns ~precond:requires
         ~postcond:ensures
-        ?opens:(Option.map opens ~f:opens_clause)
+        ?bound:(Option.map opens ~f:(bound_clause Opens))
         ~contract_ext:(decreases_clause decreases) name
     in
     S.Callable.proc ~atomic kind decl (Option.map body ~f:(S.Stmt.block_stmt ~loc))
@@ -261,7 +282,25 @@ module Callable = struct
   type func_kind = Func | Pred | Inv
 
   let func ~loc ?(kind = Func) ?(inline = false) ?formals ?returns ?(requires = [])
-      ?(ensures = []) ?(decreases = []) name body =
+      ?(ensures = []) ?(decreases = []) ?within ?depends name body =
+    let () =
+      match (kind, body, depends) with
+      | _, _, None | (Pred | Inv), None, Some _ -> ()
+      | Func, _, Some _ | (Pred | Inv), Some _, Some _ ->
+          invalid_arg
+            "Raven_api.Callable.func: only predicates and invariants without a body have \
+             a depends clause"
+    in
+    let ancestry =
+      Option.map within ~f:(fun (ancestry_target, ancestry_args) ->
+          begin match kind with
+          | Inv -> ()
+          | Func | Pred ->
+              invalid_arg "Raven_api.Callable.func: only invariants have a within clause"
+          end;
+          Ast.Callable.
+            { ancestry_kind = Within; ancestry_target; ancestry_args; ancestry_loc = loc })
+    in
     let kind : Ast.Callable.call_kind =
       match kind with
       | Func -> Func
@@ -273,7 +312,9 @@ module Callable = struct
     in
     let decl =
       S.Callable.decl ~loc ~kind ~is_inline:inline ?formals ?returns ~precond:requires
-        ~postcond:ensures ~contract_ext:(decreases_clause decreases) name
+        ~postcond:ensures ~contract_ext:(decreases_clause decreases) ?ancestry
+        ?bound:(Option.map depends ~f:(bound_clause Depends))
+        name
     in
     S.Callable.func decl body
 
@@ -636,7 +677,7 @@ end
 (* A top-level handler, as the executable's: the errors that end a run are returned as
    diagnostics, never raised. *)
 let verify ?(options = default_options) ?(includes = []) ?cache_dir ?on_progress
-    (program : Program.t) : result =
+    ?select_member (program : Program.t) : result =
   let notify = on_progress in
   let config = { (config_of options) with cache_dir } in
   let diagnostics =
@@ -654,13 +695,23 @@ let verify ?(options = default_options) ?(includes = []) ?cache_dir ?on_progress
   let on_progress =
     Option.map on_progress ~f:(fun send pending -> send (report Progress pending))
   in
+  let select_member =
+    Option.map select_member ~f:(fun select (proc : Diagnostics.MemberStatus.procedure) ->
+        select
+          {
+            Progress.name = proc.proc_name;
+            kind = proc.proc_kind;
+            loc = proc.proc_loc;
+            outcome = Pending;
+          })
+  in
   let run () =
     Ast.Ident.restore ();
     let included =
       Driver.parse_program ~free:true ~includes:include_sites ~diagnostics config includes
     in
-    Driver.check_program ?on_typed ?on_scheduled ?on_progress ~includes:include_sites
-      ~extension_mode:(`Explicit extension) ~diagnostics config
+    Driver.check_program ?on_typed ?on_scheduled ?on_progress ?select_member
+      ~includes:include_sites ~extension_mode:(`Explicit extension) ~diagnostics config
       (Ast.merge_prog included program)
   in
   let errors =

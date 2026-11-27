@@ -19,9 +19,6 @@ let parse source =
   let check symbol =
     begin match symbol with
     | Module.ModDef m -> assert (Option.is_none m.mod_decl.mod_decl_mask_contract)
-    | CallDef call ->
-        assert (Option.is_none call.call_decl.call_decl_needs_mask);
-        assert (Option.is_none call.call_decl.call_decl_grants_mask)
     | _ -> ()
     end;
     Rewriter.return symbol
@@ -58,7 +55,9 @@ let test_concrete_resource_expansion () =
   in
   begin match (namespace draft [ "leaf" ]).NamespaceContract.definition with
   | NamespaceContract.Defined [] -> ()
-  | NamespaceContract.Abstract | NamespaceContract.Defined _ -> assert false
+  | NamespaceContract.Abstract | NamespaceContract.Bounded _ | NamespaceContract.Defined _
+    ->
+      assert false
   end;
   let wrapper = namespace draft [ "wrapper" ] in
   let x = argument symbols [ "wrapper" ] in
@@ -66,14 +65,15 @@ let test_concrete_resource_expansion () =
   | Defined body ->
       assert (has_mask_entry body (own [ "leaf" ] [ x ]));
       assert (has_mask_entry body (dependency [ "leaf" ] [ x ]))
-  | NamespaceContract.Abstract -> assert false
+  | NamespaceContract.Abstract | NamespaceContract.Bounded _ -> assert false
   end;
   let x = argument symbols [ "use" ] in
   let use = callable draft [ "use" ] in
   assert (has_mask_entry use.requires (own [ "leaf" ] [ x ]));
   assert (not (has_mask_entry use.requires (dependency [ "leaf" ] [ x ])));
   assert (has_mask_entry use.grants (own [ "leaf" ] [ x ]));
-  assert (has_mask_entry use.grants (dependency [ "leaf" ] [ x ]))
+  assert (not (has_mask_entry use.grants (dependency [ "leaf" ] [ x ])));
+  assert (has_mask_entry use.exact_grants (own [ "leaf" ] [ x ]))
 
 let test_forwarding_namespaces () =
   let symbols, draft =
@@ -81,6 +81,7 @@ let test_forwarding_namespaces () =
       "free pred target(x: Int) returns (implicit ghost y: Int)\n\
        pred wrapper(x: Int) returns (implicit ghost y: Int) { target(x, y) }\n\
        pred shifted(x: Int) returns (implicit ghost y: Int) { target(x + 1, y) }\n\
+       pred fixed(x: Int) returns (implicit ghost y: Int) { target(0, y) }\n\
        pred changed_output(x: Int) returns (implicit ghost y: Int) { target(x, 0) }\n\
        pred different_partition(x: Int, ghost y: Int) { target(x, y) }\n\
        pred different_mode(ghost x: Int) returns (implicit ghost y: Int) { target(x, y) }\n\
@@ -105,6 +106,7 @@ let test_forwarding_namespaces () =
     [
       "target";
       "shifted";
+      "fixed";
       "changed_output";
       "different_partition";
       "different_mode";
@@ -157,7 +159,12 @@ let test_alias_does_not_create_identity () =
   let _, draft =
     parse "inv leaf(x: Int) { true }\nmodule Alias { inv shared(x: Int) = leaf }"
   in
-  assert (Option.is_none (Inference.namespace draft (qi [ "Alias"; "shared" ])));
+  let alias = Option.value_exn (Inference.namespace draft (qi [ "Alias"; "shared" ])) in
+  assert (Option.equal QualIdent.equal alias.alias (Some (qi [ "leaf" ])));
+  assert (
+    Option.equal QualIdent.equal
+      (Frontend.NamespaceRegions.canonical_name draft.regions (qi [ "Alias"; "shared" ]))
+      (Some (qi [ "leaf" ])));
   assert (Option.is_some (Inference.namespace draft (qi [ "leaf" ])))
 
 let test_instantiated_equation_alias () =
@@ -173,8 +180,7 @@ let test_instantiated_equation_alias () =
   let x = argument symbols [ "use" ] in
   let use = callable draft [ "use" ] in
   assert (Callable.mask_equal use.requires [ own [ "leaf" ] [ x ] ]);
-  assert (
-    Callable.mask_equal use.grants [ own [ "leaf" ] [ x ]; dependency [ "leaf" ] [ x ] ])
+  assert (Callable.mask_equal use.grants [ own [ "leaf" ] [ x ] ])
 
 let test_existential_required_prefix () =
   let symbols, draft =
@@ -195,9 +201,7 @@ let test_grants_never_widen () =
        proc returned() returns (x: Int) ensures leaf(x) {}"
   in
   let x = argument symbols [ "exact" ] in
-  assert (
-    Callable.mask_equal (callable draft [ "exact" ]).grants
-      [ own [ "leaf" ] [ x ]; dependency [ "leaf" ] [ x ] ]);
+  assert (Callable.mask_equal (callable draft [ "exact" ]).grants [ own [ "leaf" ] [ x ] ]);
   assert (List.is_empty (callable draft [ "hidden" ]).grants);
   let x =
     let _, call =
@@ -206,8 +210,7 @@ let test_grants_never_widen () =
     Expr.from_var_decl (List.hd_exn call.call_decl.call_decl_returns)
   in
   assert (
-    Callable.mask_equal (callable draft [ "returned" ]).grants
-      [ own [ "leaf" ] [ x ]; dependency [ "leaf" ] [ x ] ])
+    Callable.mask_equal (callable draft [ "returned" ]).grants [ own [ "leaf" ] [ x ] ])
 
 let test_opens_does_not_restore_omitted_credit () =
   let _, draft =
@@ -279,14 +282,12 @@ let test_atomic_implicit_and_resource_outputs () =
        proc logical(implicit ghost x: Int)\n\
        atomic requires leaf(x, 0) atomic ensures leaf(x, 0) {}"
   in
-  let _, exact =
-    Rewriter.eval (Rewriter.find_and_reify_callable (qi [ "exact" ])) symbols
-  in
-  let args = List.map exact.call_decl.call_decl_formals ~f:Expr.from_var_decl in
-  assert (
-    Callable.mask_equal (callable draft [ "exact" ]).grants
-      [ own [ "leaf" ] args; dependency [ "leaf" ] args ]);
-  assert (List.is_empty (callable draft [ "hidden" ]).grants);
+  (* Invariant grants are indexed by the formals before `;`, so hiding the others is
+     no loss. *)
+  List.iter [ "exact"; "hidden" ] ~f:(fun name ->
+      let x = argument symbols [ name ] in
+      assert (
+        Callable.mask_equal (callable draft [ name ]).grants [ own [ "leaf" ] [ x ] ]));
   assert (
     Callable.mask_equal (callable draft [ "logical" ]).requires [ own [ "leaf" ] [] ]);
   assert (List.is_empty (callable draft [ "logical" ]).grants)

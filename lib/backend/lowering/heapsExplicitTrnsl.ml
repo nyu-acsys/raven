@@ -44,28 +44,18 @@ let unsupported_expr_error (expr : Expr.t) : 'a =
   Error.error (Expr.to_loc expr)
     ("Unsupported expression under inhale/exhale: " ^ Expr.to_source_string expr)
 
-(* The chunk value stored in a predicate/invariant's heap for one occurrence.
-
-   For an `inv` with no return (out) args, rewrite_add_pred_utils backs PredHeapRA$P
-   with `UnitInvRA` instead of Agree, so there's no RA-level constructor to apply
-   here: the chunk is just the (empty) out-args tuple itself. Unfolding an `inv` never consumes it (Agree's frame
-   doesn't decrement), so this changes nothing observable.
-
-   For a `pred` with no return args, rewrite_add_pred_utils backs PredHeapRA$P with
-   `Library.Nat` instead of CountAgree[()] -- same reasoning, minus the data
-   constructor, but a `pred` *is* consumed by unfolding, so the count itself has to
-   stay real: it's what makes folding a pred once and then unfolding it twice a
-   genuine error rather than silently accepted. The chunk is just the literal `1`
-   (one more fold), with no DataConstr wrapping since Nat's `T` is already `Int`.
-
-   A `pred`/`inv` with return args always goes through CountAgree/Agree, wrapping the
-   out-args in the RA's data constructor as before. *)
+(* UnitAgree uses a nullary presence chunk for invariants without output values.
+   Ordinary predicates still count folds, including when their output tuple is empty. *)
 let mk_pred_new_chunk ~loc (call_decl_kind : Callable.call_kind)
     (heap_elem_type : type_expr) (pred_ra_constr : qual_ident) (out_args : expr list) :
     expr =
   match call_decl_kind with
   | Invariant when List.is_empty out_args ->
-      Expr.set_type (Expr.mk_tuple ~loc out_args) heap_elem_type
+      let constructor =
+        QualIdent.append Predefs.lowering_unit_agree_mod_qual_ident
+          Predefs.lib_agree_constr_ident
+      in
+      Expr.mk_app ~loc ~typ:heap_elem_type (Expr.DataConstr constructor) []
   | Pred when List.is_empty out_args -> Expr.set_type (Expr.mk_int ~loc 1) heap_elem_type
   | Pred ->
       Expr.mk_app ~loc ~typ:heap_elem_type (Expr.DataConstr pred_ra_constr)
@@ -315,7 +305,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants) (conds : co
 
     let call_decl =
       Callable.mk_call_decl ~kind:Func ~name:inv_fn_ident ~loc ~formals:formal_var_decls
-        ~returns:[ ret_var_decl ] ~needs_mask:[] ~grants_mask:[] ()
+        ~returns:[ ret_var_decl ] ()
     in
 
     let* inv_fn_qual_ident =
@@ -349,7 +339,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants) (conds : co
       let call_decl =
         Callable.mk_call_decl ~kind:Func ~name:ident ~loc ~formals
           ~returns:[ fresh_var "$ret" ret ]
-          ~needs_mask:[] ~grants_mask:[] ()
+          ()
       in
       ( ident,
         Module.CallDef Callable.{ call_decl; call_def = FuncDef { func_body = None } } )
@@ -559,7 +549,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants) (conds : co
 
       let call_decl =
         Callable.mk_call_decl ~kind:Lemma ~name:inv_fn_lemma_ident ~loc ~precond:preconds
-          ~postcond:postconds ~is_auto:true ~needs_mask:[] ~grants_mask:[] ()
+          ~postcond:postconds ~is_auto:true ()
       in
 
       let lemma_body =
@@ -586,6 +576,215 @@ let generate_inv_function ~loc (universal_quants : universal_quants) (conds : co
 
     inverted_expr
   end
+
+(** A choice inverse of the index [inv_expr] of an iterated conjunction of invariant
+    instances [forall x :: p(x) ==> inv(l(x); v(x))]: [inv(r)] is some [x] with
+    [l(x) == r] within the guard, which exists whether or not [l] is injective. Its
+    application to [arg_expr]. *)
+let generate_choice_inverse ~loc (universal_quants : universal_quants)
+    (conds : conditions) (inv_expr : expr) ~(arg_expr : expr) : expr Rewriter.t =
+  let open Rewriter.Syntax in
+  let* env_local_var_decls =
+    compute_env_local_var_decls ~loc inv_expr conds universal_quants
+  in
+  let* arg_type = !Rewriter.expand_type_expr_ref (Expr.to_type arg_expr) in
+  let univ_vars = List.map universal_quants.univ_vars ~f:snd in
+  let ret_type = Type.mk_prod loc (List.map univ_vars ~f:(fun vd -> vd.var_type)) in
+  let fresh_var name typ =
+    {
+      Type.var_name = Ident.fresh loc name;
+      var_loc = loc;
+      var_type = typ |> Type.set_ghost false;
+      var_const = true;
+      var_ghost = false;
+      var_implicit = false;
+    }
+  in
+  let inv_fn_ident =
+    Ident.fresh_member loc ("$choice_" ^ ProgUtils.serialize (Expr.to_string inv_expr))
+  in
+  let res = fresh_var "res" arg_type in
+  let formals = res :: env_local_var_decls in
+  let call_decl =
+    Callable.mk_call_decl ~kind:Func ~name:inv_fn_ident ~loc ~formals
+      ~returns:[ fresh_var "$ret" ret_type ]
+      ()
+  in
+  let* inv_fn_qual_ident =
+    let+ module_qual_ident = Rewriter.current_module_name in
+    QualIdent.append module_qual_ident inv_fn_ident
+  in
+  let env_exprs = List.map env_local_var_decls ~f:Expr.from_var_decl in
+  let inverse_of r =
+    Expr.mk_app ~loc ~typ:ret_type (Var inv_fn_qual_ident) (r :: env_exprs)
+  in
+  (* x ~> e#i, for the components of [e] *)
+  let at e =
+    match univ_vars with
+    | [ vd ] -> Map.singleton (module QualIdent) (QualIdent.from_ident vd.var_name) e
+    | _ ->
+        List.foldi univ_vars
+          ~init:(Map.empty (module QualIdent))
+          ~f:(fun i map vd ->
+            Map.set map
+              ~key:(QualIdent.from_ident vd.var_name)
+              ~data:(Expr.mk_tuple_lookup ~loc e i))
+  in
+  let image_of e = Expr.alpha_renaming inv_expr (at e) in
+  let guard_at e =
+    Expr.mk_and ~loc (List.map conds ~f:(fun c -> Expr.alpha_renaming c (at e)))
+  in
+  (* forall r :: p(inv(r)) ==> l(inv(r)) == r *)
+  let right =
+    let inv_res = inverse_of (Expr.from_var_decl res) in
+    Expr.mk_binder Forall ~loc formals ~trigs:[ [ inv_res ] ]
+      (Expr.mk_impl ~loc (guard_at inv_res)
+         (Expr.mk_eq ~loc (image_of inv_res) (Expr.from_var_decl res)))
+  in
+  (* forall x :: p(x) ==> p(inv(l(x))) && l(inv(l(x))) == l(x) *)
+  let chosen =
+    let xs =
+      List.map univ_vars ~f:(fun vd -> fresh_var vd.var_name.ident_name vd.var_type)
+    in
+    let x =
+      match xs with
+      | [ vd ] -> Expr.from_var_decl vd
+      | _ -> Expr.mk_tuple ~loc (List.map xs ~f:Expr.from_var_decl)
+    in
+    let l_x = image_of x in
+    let inv_l = inverse_of l_x in
+    Expr.mk_binder Forall ~loc (xs @ env_local_var_decls) ~trigs:[ [ inv_l ] ]
+      (Expr.mk_impl ~loc (guard_at x)
+         (Expr.mk_and ~loc [ guard_at inv_l; Expr.mk_eq ~loc (image_of inv_l) l_x ]))
+  in
+  let lemma =
+    let call_decl =
+      Callable.mk_call_decl ~kind:Lemma
+        ~name:
+          (Ident.fresh_member ~owned:false loc
+             ("choice_valid$" ^ Ident.to_string inv_fn_ident))
+        ~loc
+        ~postcond:[ Stmt.mk_spec right; Stmt.mk_spec chosen ]
+        ~is_auto:true ()
+    in
+    (* A choice function satisfies both; nothing is left to prove. *)
+    Module.CallDef
+      Callable.
+        {
+          call_decl;
+          call_def =
+            ProcDef
+              { proc_body = Some (Stmt.mk_assume_expr ~loc (Expr.mk_bool ~loc false)) };
+        }
+  in
+  let* _ =
+    Rewriter.introduce_symbol
+      (Module.CallDef Callable.{ call_decl; call_def = FuncDef { func_body = None } })
+  in
+  let+ _ = Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.check_symbol lemma in
+  inverse_of arg_expr
+
+(** The heaps of the predicate [pred_name] and its element type. *)
+let pred_heaps ~loc pred_name =
+  let open Rewriter.Syntax in
+  let+ elem = ProgUtils.get_pred_utils_rep_type pred_name in
+  let heap_elem_type = Type.mk_var elem in
+  let heap name =
+    Expr.mk_var ~typ:(Type.mk_map loc Type.ref heap_elem_type) (QualIdent.from_ident name)
+  in
+  (heap_elem_type, heap (pred_heap_name pred_name), heap (pred_heap_name2 pred_name))
+
+(** Inhales [forall x :: conds(x) ==> pred(ins(x); outs(x))] for an invariant [pred]:
+    instances are persistent, so each adds its chunk where it is indexed, and a choice of
+    index for each location, which needs no injectivity, leaves the other locations as
+    they are. Instances that disagree at a location make the heap invalid. *)
+let inhale_iterated_invariant ~loc ~comment (universal_quants : universal_quants)
+    (conds : conditions) (c : Callable.t) pred_name args =
+  let open Rewriter.Syntax in
+  let univ_vars_list = List.map universal_quants.univ_vars ~f:snd in
+  let* heap_elem_type, heap, heap2 = pred_heaps ~loc pred_name in
+  let* comp = ProgUtils.get_pred_utils_comp pred_name in
+  let* valid_inhale = ProgUtils.get_pred_utils_valid_inhale loc pred_name in
+  let* in_types = ProgUtils.pred_in_types pred_name in
+  let* ra_constr = ProgUtils.pred_ra_constr_qual_ident loc pred_name in
+  let in_vars =
+    List.map in_types ~f:(fun tp ->
+        Type.mk_var_decl ~loc (Ident.fresh loc "in") (tp |> Type.set_ghost false))
+  in
+  let in_tuple = Expr.mk_tuple (List.map in_vars ~f:Expr.from_var_decl) in
+  let ins = Expr.mk_tuple (List.take args (List.length in_types)) in
+  let chunk =
+    mk_pred_new_chunk ~loc c.call_decl.call_decl_kind heap_elem_type ra_constr
+      (List.drop args (List.length in_types))
+  in
+  let+ choice =
+    generate_choice_inverse ~loc universal_quants conds ins ~arg_expr:in_tuple
+  in
+  let at_choice e =
+    Expr.alpha_renaming e
+      (List.foldi univ_vars_list
+         ~init:(Map.empty (module QualIdent))
+         ~f:(fun index map var_decl ->
+           Map.set map
+             ~key:(QualIdent.from_ident var_decl.var_name)
+             ~data:
+               (if Int.(List.length univ_vars_list = 1) then choice
+                else Expr.mk_tuple_lookup ~loc choice index)))
+  in
+  let lookup h l = Expr.mk_maplookup ~loc h l in
+  let added =
+    Expr.mk_binder ~loc ~typ:Type.bool
+      ~trigs:[ [ lookup heap2 ins ] ]
+      Forall univ_vars_list
+      (Expr.mk_impl ~loc (Expr.mk_and ~loc conds)
+         (Expr.mk_eq ~loc (lookup heap2 ins)
+            (Expr.mk_app ~loc ~typ:heap_elem_type (Expr.Var comp)
+               [ lookup heap ins; chunk ])))
+  in
+  let unchanged =
+    Expr.mk_binder ~loc ~typ:Type.bool
+      ~trigs:[ [ lookup heap2 in_tuple ]; [ lookup heap in_tuple ] ]
+      Forall in_vars
+      (Expr.mk_or ~loc
+         [
+           Expr.mk_and ~loc
+             (Expr.mk_eq ~loc (at_choice ins) in_tuple :: List.map conds ~f:at_choice);
+           Expr.mk_eq ~loc (lookup heap2 in_tuple) (lookup heap in_tuple);
+         ])
+  in
+  Stmt.mk_block_stmt ~loc
+    [
+      Stmt.mk_havoc ~loc (Expr.to_qual_ident heap2);
+      Stmt.mk_assume_expr ~loc ~cmnt:comment added;
+      Stmt.mk_assume_expr ~loc unchanged;
+      Stmt.mk_assign ~loc [ Expr.to_qual_ident heap ] heap2;
+      Stmt.mk_assume_expr ~loc
+        (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var valid_inhale) [ heap ]);
+    ]
+
+(** Exhales [forall x :: conds(x) ==> pred(ins(x); outs(x))] for an invariant [pred]:
+    instances are persistent, so this checks that each is held and leaves the heap as it
+    is, which needs no inverse. *)
+let exhale_iterated_invariant ~loc ~comment ~spec_error
+    (universal_quants : universal_quants) (conds : conditions) (c : Callable.t) pred_name
+    args =
+  let open Rewriter.Syntax in
+  let univ_vars_list = List.map universal_quants.univ_vars ~f:snd in
+  let* heap_elem_type, heap, _ = pred_heaps ~loc pred_name in
+  let* compare = ProgUtils.get_pred_utils_heapchunk_compare pred_name in
+  let* in_types = ProgUtils.pred_in_types pred_name in
+  let+ ra_constr = ProgUtils.pred_ra_constr_qual_ident loc pred_name in
+  let held =
+    Expr.mk_maplookup ~loc heap (Expr.mk_tuple (List.take args (List.length in_types)))
+  in
+  let chunk =
+    mk_pred_new_chunk ~loc c.call_decl.call_decl_kind heap_elem_type ra_constr
+      (List.drop args (List.length in_types))
+  in
+  Stmt.mk_assert_expr ~loc ~cmnt:comment ~spec_error
+    (Expr.mk_binder ~loc ~typ:Type.bool ~trigs:[ [ held ] ] Forall univ_vars_list
+       (Expr.mk_impl ~loc (Expr.mk_and ~loc conds)
+          (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var compare) [ held; chunk ])))
 
 (* `forall v :: heap[v] == id`: [heap] is the unit [id] everywhere. *)
 let empty_heap (heap : var_decl) (v : var_decl) (id : expr) : expr =
@@ -649,16 +848,13 @@ let rewrite_add_pred_utils (c : Callable.t) : Callable.t Rewriter.t =
           Poly.(c.call_decl.call_decl_kind = Invariant)
           && List.is_empty c.call_decl.call_decl_returns
         then
-          (* An `inv` with no return args owns only the fact that it holds, so there is
-             nothing for two copies to disagree on: `UnitInvRA` rather than Agree,
-             whose datatype rep costs case splits in the backend. Not sound for `pred`:
-             see mk_pred_new_chunk. *)
+          (* Preserve invariant presence without a generic unit payload. *)
           let unit_pred_ra =
             Module.ModInst
               (Module.mk_mod_inst
                  ~name:(ProgUtils.pred_to_ra_mod_ident ~loc c.call_decl.call_decl_name)
-                 ~typ:Predefs.lowering_unit_inv_ra_mod_qual_ident
-                 ~def:(Predefs.lowering_unit_inv_ra_mod_qual_ident, [])
+                 ~typ:Predefs.lowering_unit_agree_mod_qual_ident
+                 ~def:(Predefs.lowering_unit_agree_mod_qual_ident, [])
                  ~loc ())
           in
           Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.check_symbol unit_pred_ra
@@ -1088,7 +1284,41 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
         assume_stmt1 :: assume_stmt2 :: assumes)
   in
 
-  Rewriter.return (Stmt.mk_block_stmt ~loc (init_assumes @ [ body ]))
+  (* After a cut, the heaps hold only what the cut inhales. *)
+  let heap_vars =
+    List.concat_map
+      (field_heap_var_defs @ pred_heap_var_defs @ au_heap_var_defs)
+      ~f:(fun (h1, h2, _, _) -> [ h1.Stmt.var_decl; h2.Stmt.var_decl ])
+  in
+  let reset_heaps loc =
+    List.map heap_vars ~f:(fun (h : var_decl) ->
+        Stmt.mk_havoc ~loc (QualIdent.from_ident h.var_name))
+    @ init_assumes
+  in
+  let rec after_cuts (stmt : Stmt.t) : Stmt.t =
+    match stmt.stmt_desc with
+    | Block block ->
+        {
+          stmt with
+          stmt_desc =
+            Block { block with block_body = List.map block.block_body ~f:after_cuts };
+        }
+    | Cond cond ->
+        {
+          stmt with
+          stmt_desc =
+            Cond
+              {
+                cond with
+                cond_then = after_cuts cond.cond_then;
+                cond_else = after_cuts cond.cond_else;
+              };
+        }
+    | Basic (Spec (Cut, _)) ->
+        Stmt.mk_block_stmt ~loc:stmt.stmt_loc (stmt :: reset_heaps stmt.stmt_loc)
+    | Basic _ | Loop _ | StmtExt _ -> stmt
+  in
+  Rewriter.return (Stmt.mk_block_stmt ~loc (init_assumes @ [ after_cuts body ]))
 
 (* The heaps of the given fields, predicates and atomic updates, each with the utils
    module of its chunks. *)
@@ -1198,6 +1428,94 @@ let eliminate_perm_vars ~loc ~fields_list ~preds_list ~au_preds_list
     | _ -> Rewriter.Stmt.descend stmt ~f:rewrite
   in
   rewrite body
+
+(* Drops the validity check of a heap framed by a copy of itself: in
+   [c := h; ...; h := frameHeap(h, c); assert valid(h)] with no write to [h] in between,
+   valid(frame(a, a)) follows from valid(a) by the axiom weak_frameCompInv of every
+   resource algebra. Runs once all heap updates are explicit assignments. *)
+let drop_unchanged_frame_checks (body : Stmt.t) : Stmt.t Rewriter.t =
+  let open Rewriter.Syntax in
+  let local (qi : qual_ident) = Option.some_if (QualIdent.is_local qi) qi.qual_base in
+  (* [copies] maps each local last assigned another local's value to that local, while
+     neither has been written since. *)
+  let forget copies writes =
+    Map.filteri copies ~f:(fun ~key ~data ->
+        not (Set.mem writes key || Set.mem writes data))
+  in
+  let note copies (stmt : Stmt.t) =
+    let writes = Set.of_list (module Ident) (Stmt.stmt_local_vars_modified stmt) in
+    let copies = forget copies writes in
+    match stmt.stmt_desc with
+    | Basic (Assign { assign_lhs = [ lhs ]; assign_rhs = App (Var rhs, [], _); _ }) -> (
+        match (local lhs, local rhs) with
+        | Some c, Some h -> Map.set copies ~key:c ~data:h
+        | _ -> copies)
+    | _ -> copies
+  in
+  let framed_by_own_copy copies (stmt : Stmt.t) =
+    match stmt.stmt_desc with
+    | Basic
+        (Assign
+           {
+             assign_lhs = [ lhs ];
+             assign_rhs =
+               App (Var frame, [ App (Var arg, [], _); App (Var copy, [], _) ], _);
+             _;
+           })
+      when String.equal (Ident.name frame.qual_base) "frameHeap"
+           && QualIdent.equal lhs arg -> (
+        match (local lhs, local copy) with
+        | Some h, Some c when Option.equal Ident.equal (Map.find copies c) (Some h) ->
+            Some h
+        | _ -> None)
+    | _ -> None
+  in
+  let is_validity_check heap (stmt : Stmt.t) =
+    match stmt.stmt_desc with
+    | Basic
+        (Spec (Assert, { spec_form = App (Var valid, [ App (Var arg, [], _) ], _); _ }))
+      ->
+        String.equal (Ident.name valid.qual_base)
+          (Ident.name (ProgUtils.heap_utils_valid_ident stmt.stmt_loc))
+        && Option.equal Ident.equal (local arg) (Some heap)
+    | _ -> false
+  in
+  let join copies1 copies2 =
+    Map.merge copies1 copies2 ~f:(fun ~key:_ -> function
+      | `Both (h1, h2) when Ident.equal h1 h2 -> Some h1
+      | _ -> None)
+  in
+  let no_copies = Map.empty (module Ident) in
+  let rec rewrite copies (stmt : Stmt.t) : (Stmt.t * Ident.t Map.M(Ident).t) Rewriter.t =
+    match stmt.stmt_desc with
+    | Basic _ -> Rewriter.return (stmt, note copies stmt)
+    | Block block ->
+        let rec walk copies acc = function
+          | [] -> Rewriter.return (List.rev acc, copies)
+          | s :: rest -> (
+              let* s, copies' = rewrite copies s in
+              match (framed_by_own_copy copies s, rest) with
+              | Some heap, next :: rest when is_validity_check heap next ->
+                  walk copies' (s :: acc) rest
+              | _ -> walk copies' (s :: acc) rest)
+        in
+        let+ body, copies = walk copies [] block.block_body in
+        ({ stmt with stmt_desc = Block { block with block_body = body } }, copies)
+    | Cond cond ->
+        let* cond_then, copies_then = rewrite copies cond.cond_then in
+        let+ cond_else, copies_else = rewrite copies cond.cond_else in
+        ( { stmt with stmt_desc = Cond { cond with cond_then; cond_else } },
+          join copies_then copies_else )
+    | Loop _ | StmtExt _ ->
+        let+ stmt =
+          Rewriter.Stmt.descend stmt ~f:(fun s ->
+              let+ s, _ = rewrite no_copies s in
+              s)
+        in
+        (stmt, no_copies)
+  in
+  let+ body, _ = rewrite no_copies body in
+  body
 
 let rec rewrite_fpu (stmt : Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
@@ -1348,7 +1666,9 @@ type expr_match = { var_decl : var_decl; expr : expr option }
 
 let match_up_expr ~(printers : Rewriter.printers) (expr1 : expr) (expr2 : expr)
     (vars : var_decl list) : (var_decl * expr) ident_map option =
-  (* expr1 is the expr with vars; expr2 is the one to be matched against. So expr1 is allowed to have more existentials than expr2. For first implementation, expr2 is not allowed to have any existentials for now *)
+  (* expr1 is the expr with vars; expr2 is the one to be matched against. An existential
+     of expr1 binding vars is matched by its body; any other only by an existential of
+     expr2. *)
 
   (* Return value of None represents that the expressions did not match up *)
 
@@ -1369,42 +1689,13 @@ let match_up_expr ~(printers : Rewriter.printers) (expr1 : expr) (expr2 : expr)
          None)
        else *)
     match (expr1, expr2) with
+    | Binder (Exists, v_d1, _, e1, _), _
+      when List.for_all v_d1 ~f:(fun vd -> Map.mem var_map vd.var_name) ->
+        match_up_expr e1 expr2 var_map
+    | Binder (Exists, v_d1, _, e1, _), Binder (Exists, v_d2, _, e2, _)
     | Binder (Compr, v_d1, _, e1, _), Binder (Compr, v_d2, _, e2, _)
     | Binder (Forall, v_d1, _, e1, _), Binder (Forall, v_d2, _, e2, _) ->
-        if not (Int.equal (List.length v_d1) (List.length v_d2)) then None
-        else
-          let typ_check =
-            List.for_all2_exn v_d1 v_d2 ~f:(fun vd1 vd2 ->
-                Type.equal vd1.var_type vd2.var_type)
-          in
-
-          if not typ_check then None
-          else
-            let renaming_map =
-              List.fold2_exn v_d1 v_d2
-                ~init:(Map.empty (module QualIdent))
-                ~f:(fun renam_map vd1 vd2 ->
-                  Map.add_exn renam_map
-                    ~key:(QualIdent.from_ident vd2.var_name)
-                    ~data:(Expr.from_var_decl vd1))
-            in
-
-            (* renaming expr2 to use the same universal quants as expr1 *)
-            let e2 = Expr.alpha_renaming e2 renaming_map in
-
-            match_up_expr e1 e2 var_map
-    | Binder (Exists, v_d1, _, e1, _), e2 ->
-        let var_map =
-          List.fold v_d1 ~init:var_map ~f:(fun var_map vd1 ->
-              match Map.find var_map vd1.var_name with
-              | Some _ -> var_map
-              | None ->
-                  Error.internal_error (Expr.to_loc expr1)
-                    "unexpected existential quantifier in expr1; expected all \
-                     existentials to be declared in var_map")
-        in
-
-        match_up_expr e1 e2 var_map
+        match_binders v_d1 e1 v_d2 e2 var_map
     | App (constr1, exprs1, _), App (constr2, exprs2, _) -> (
         match constr1 with
         | Var qual_ident
@@ -1441,6 +1732,29 @@ let match_up_expr ~(printers : Rewriter.printers) (expr1 : expr) (expr2 : expr)
               (* Logs.debug (fun m -> m "HeapsExplicitTrnsl.match_up_expr: Constructor mismatch: %a; %a" Expr.pr expr1 Expr.pr expr2); *)
               None)
     | _ -> None
+  and match_binders v_d1 e1 v_d2 e2 var_map =
+    if not (Int.equal (List.length v_d1) (List.length v_d2)) then None
+    else
+      let typ_check =
+        List.for_all2_exn v_d1 v_d2 ~f:(fun vd1 vd2 ->
+            Type.equal vd1.var_type vd2.var_type)
+      in
+
+      if not typ_check then None
+      else
+        let renaming_map =
+          List.fold2_exn v_d1 v_d2
+            ~init:(Map.empty (module QualIdent))
+            ~f:(fun renam_map vd1 vd2 ->
+              Map.add_exn renam_map
+                ~key:(QualIdent.from_ident vd2.var_name)
+                ~data:(Expr.from_var_decl vd1))
+        in
+
+        (* renaming expr2 to use the same universal quants as expr1 *)
+        let e2 = Expr.alpha_renaming e2 renaming_map in
+
+        match_up_expr e1 e2 var_map
   in
 
   let var_map_optn =
@@ -1462,20 +1776,17 @@ let match_up_expr ~(printers : Rewriter.printers) (expr1 : expr) (expr2 : expr)
                    "expected all variables to be matched up"))
   | None -> None
 
-(* Looks up an already-compiled inverse function for the ISC identified by
-   [spec_source]/[conjunct_idx] (the [clause_idx]-th clause of the callable [decl_qi],
-   [conjunct_idx]-th ISC within that clause -- see [Rewriter.state_isc_cache]), reusing it
-   if the current occurrence's [(universal_quants, conds, inv_expr)] matches (via
-   [match_up_expr]) the template recorded for the first occurrence seen for that key.
-   Falls back to [generate_inv_function] (minting a fresh function, exactly as before)
-   whenever there's no [spec_source], this is the first occurrence for the key, or -- as a
-   pure safety net -- matching against a cached template unexpectedly fails.
+(* Looks up an already-compiled inverse function for this ISC, reusing it if the current
+   occurrence's [(universal_quants, conds, inv_expr)] matches (via [match_up_expr]) a
+   recorded template: first the one for [spec_source]/[conjunct_idx] (the
+   [conjunct_idx]-th ISC of the [clause_idx]-th clause of the callable [decl_qi]), then
+   any template of the same shape, so that ISCs inverting the same expression under the
+   same guard share one inverse. Otherwise mints a fresh one with [generate_inv_function].
 
    Returns the same [expr] [generate_inv_function] would (the inverse function applied to
    [arg_expr]), plus the "env" actual expressions to substitute for [inv_expr]'s free
    locals when a caller needs to reapply the same inverse function to [inv_expr] itself
-   (e.g. for forward-trigger assertions) -- previously recomputed there via a second,
-   independent [compute_env_local_var_decls] call. *)
+   (e.g. for forward-trigger assertions). *)
 let get_or_generate_inv_function ~loc (universal_quants : universal_quants)
     (conds : conditions) (inv_expr : expr) ~(arg_expr : expr)
     ~(spec_source : (qual_ident * int) option) ~(conjunct_idx : int) :
@@ -1485,73 +1796,79 @@ let get_or_generate_inv_function ~loc (universal_quants : universal_quants)
   else
     (* The template includes the context, as the inverse function's conditions do. *)
     let template_conds = conds @ injectivity_context universal_quants inv_expr in
-    let mint_fresh () =
-      let* inv_fn_expr =
-        generate_inv_function ~loc universal_quants conds inv_expr ~arg_expr
-      in
-      let+ env_local_var_decls =
-        compute_env_local_var_decls ~loc inv_expr template_conds universal_quants
-      in
-      (inv_fn_expr, env_local_var_decls)
+    let* printers = Rewriter.current_printers in
+    let* isc_cache = Rewriter.current_isc_cache in
+    let* isc_shapes = Rewriter.current_isc_shapes in
+    let* inv_type = !Rewriter.expand_type_expr_ref (Expr.to_type inv_expr) in
+    let shape =
+      Stdlib.Format.asprintf "%a(%a)" Type.pr inv_type (Print.pr_list_comma Type.pr)
+        (List.map universal_quants.univ_vars ~f:(fun (_, vd) -> vd.var_type))
     in
-    match spec_source with
+    let cache_key =
+      Option.map spec_source ~f:(fun (decl_qi, clause_idx) ->
+          (decl_qi, clause_idx, conjunct_idx))
+    in
+    let occurrence_forall =
+      Expr.mk_binder Forall
+        (List.map universal_quants.univ_vars ~f:snd)
+        (Expr.mk_tuple (template_conds @ [ inv_expr ]))
+    in
+    let instantiate (tmpl : Rewriter.isc_template) =
+      let template_forall =
+        Expr.mk_binder Forall
+          (List.map tmpl.isc_univ_vars ~f:snd)
+          (Expr.mk_tuple (tmpl.isc_conds @ [ tmpl.isc_inv_expr ]))
+      in
+      match_up_expr ~printers template_forall occurrence_forall tmpl.isc_env_var_decls
+      |> Option.map ~f:(fun var_map ->
+          let env_actual_exprs =
+            List.map tmpl.isc_env_var_decls ~f:(fun vd ->
+                snd (Map.find_exn var_map vd.var_name))
+          in
+          let ret_type =
+            Type.mk_prod loc
+              (List.map universal_quants.univ_vars ~f:(fun (_, vd) -> vd.var_type))
+          in
+          ( tmpl,
+            Expr.mk_app ~loc ~typ:ret_type (Var tmpl.isc_inv_fn_qual_ident)
+              (arg_expr :: env_actual_exprs),
+            env_actual_exprs ))
+    in
+    let keyed = Option.bind cache_key ~f:(Hashtbl.find isc_cache) in
+    let reused =
+      match Option.bind keyed ~f:instantiate with
+      | Some _ as found -> found
+      | None -> List.find_map (Hashtbl.find_multi isc_shapes shape) ~f:instantiate
+    in
+    match reused with
+    | Some (tmpl, inv_fn_expr, env_actual_exprs) ->
+        Option.iter cache_key ~f:(fun key ->
+            if Option.is_none keyed then Hashtbl.set isc_cache ~key ~data:tmpl);
+        Rewriter.return (inv_fn_expr, env_actual_exprs)
     | None ->
-        let+ inv_fn_expr, env_local_var_decls = mint_fresh () in
+        let* inv_fn_expr =
+          generate_inv_function ~loc universal_quants conds inv_expr ~arg_expr
+        in
+        let+ env_local_var_decls =
+          compute_env_local_var_decls ~loc inv_expr template_conds universal_quants
+        in
+        (match inv_fn_expr with
+        | App (Var inv_fn_qual_ident, _, _) ->
+            let tmpl =
+              Rewriter.
+                {
+                  isc_inv_fn_qual_ident = inv_fn_qual_ident;
+                  isc_univ_vars = universal_quants.univ_vars;
+                  isc_conds = template_conds;
+                  isc_inv_expr = inv_expr;
+                  isc_env_var_decls = env_local_var_decls;
+                }
+            in
+            Hashtbl.add_multi isc_shapes ~key:shape ~data:tmpl;
+            Option.iter cache_key ~f:(fun key ->
+                if Option.is_none keyed then Hashtbl.set isc_cache ~key ~data:tmpl)
+        | _ -> ());
         (inv_fn_expr, List.map env_local_var_decls ~f:Expr.from_var_decl)
-    | Some (decl_qi, clause_idx) -> (
-        let* isc_cache = Rewriter.current_isc_cache in
-        let cache_key = (decl_qi, clause_idx, conjunct_idx) in
-        match Hashtbl.find isc_cache cache_key with
-        | None ->
-            let* inv_fn_expr, env_local_var_decls = mint_fresh () in
-            (match inv_fn_expr with
-            | App (Var inv_fn_qual_ident, _, _) ->
-                Hashtbl.set isc_cache ~key:cache_key
-                  ~data:
-                    Rewriter.
-                      {
-                        isc_inv_fn_qual_ident = inv_fn_qual_ident;
-                        isc_univ_vars = universal_quants.univ_vars;
-                        isc_conds = template_conds;
-                        isc_inv_expr = inv_expr;
-                        isc_env_var_decls = env_local_var_decls;
-                      }
-            | _ -> ());
-            Rewriter.return
-              (inv_fn_expr, List.map env_local_var_decls ~f:Expr.from_var_decl)
-        | Some tmpl -> (
-            let* printers = Rewriter.current_printers in
-            let template_forall =
-              Expr.mk_binder Forall
-                (List.map tmpl.isc_univ_vars ~f:snd)
-                (Expr.mk_tuple (tmpl.isc_conds @ [ tmpl.isc_inv_expr ]))
-            in
-            let occurrence_forall =
-              Expr.mk_binder Forall
-                (List.map universal_quants.univ_vars ~f:snd)
-                (Expr.mk_tuple (template_conds @ [ inv_expr ]))
-            in
-            match
-              match_up_expr ~printers template_forall occurrence_forall
-                tmpl.isc_env_var_decls
-            with
-            | Some var_map ->
-                let env_actual_exprs =
-                  List.map tmpl.isc_env_var_decls ~f:(fun vd ->
-                      snd (Map.find_exn var_map vd.var_name))
-                in
-                let ret_type =
-                  Type.mk_prod loc
-                    (List.map universal_quants.univ_vars ~f:(fun (_, vd) -> vd.var_type))
-                in
-                let inv_fn_expr =
-                  Expr.mk_app ~loc ~typ:ret_type (Var tmpl.isc_inv_fn_qual_ident)
-                    (arg_expr :: env_actual_exprs)
-                in
-                Rewriter.return (inv_fn_expr, env_actual_exprs)
-            | None ->
-                let+ inv_fn_expr, env_local_var_decls = mint_fresh () in
-                (inv_fn_expr, List.map env_local_var_decls ~f:Expr.from_var_decl)))
 
 module ParseAssertionLang = struct
   let rec parse_a ?cmnt ?spec_error ?spec_source ~loc
@@ -1631,13 +1948,7 @@ module ScalarResource = struct
     amount_first : bool;
   }
 
-  type encoding =
-    | Generic
-    | Lattice
-    | Counted of counted
-    | Counter
-    | Persistent of expr
-    | Unit
+  type encoding = Generic | Lattice | Counted of counted | Counter | Persistent of expr
 
   type t = {
     encoding : encoding;
@@ -1777,7 +2088,6 @@ module ScalarResource = struct
             let* ra = ProgUtils.pred_get_ra_qual_iden name in
             let* encoding =
               match (c.call_decl.call_decl_kind, outs) with
-              | Invariant, [] -> Rewriter.return Unit
               | Invariant, _ ->
                   Rewriter.return
                     (Persistent
@@ -1839,7 +2149,6 @@ module ScalarResource = struct
     | Generic | Lattice ->
         (* Abstract lattice proofs need the frameCompInv trigger. *)
         apply ~loc r.compare [ entry; r.chunk ]
-    | Unit -> Expr.mk_bool ~loc true
     | Persistent _ -> Expr.mk_eq ~loc entry r.chunk
     | Counter ->
         Expr.mk_and ~loc
@@ -1862,7 +2171,7 @@ module ScalarResource = struct
     match r.encoding with
     | Generic ->
         Expr.mk_app ~loc ~typ:(Expr.to_type entry) (Var r.frame) [ entry; r.chunk ]
-    | Lattice | Persistent _ | Unit -> entry
+    | Lattice | Persistent _ -> entry
     | Counter -> arithmetic ~loc Minus entry r.chunk
     | Counted c ->
         let value, amount = projections ~loc c entry in
@@ -1876,7 +2185,6 @@ module ScalarResource = struct
     | Generic | Lattice ->
         ( Expr.mk_bool ~loc true,
           Expr.mk_app ~loc ~typ:(Expr.to_type entry) (Var r.comp) [ entry; r.chunk ] )
-    | Unit -> (Expr.mk_bool ~loc true, entry)
     | Persistent empty ->
         ( Expr.mk_or ~loc [ Expr.mk_eq ~loc entry empty; Expr.mk_eq ~loc entry r.chunk ],
           r.chunk )
@@ -1958,12 +2266,12 @@ module ScalarResource = struct
   let translate ?cmnt ?(spec_error = []) ?spec_source ~loc kind conds expr r =
     match r.encoding with
     | Generic -> translate_generic ?cmnt ~spec_error ?spec_source ~loc kind conds expr r
-    | Lattice | Counted _ | Counter | Persistent _ | Unit ->
+    | Lattice | Counted _ | Counter | Persistent _ ->
         let guard = Expr.mk_and ~loc conds in
         let entry = Expr.mk_maplookup ~loc r.heap r.key in
         let updates chunk =
           match (r.encoding, kind) with
-          | Unit, _ | (Lattice | Persistent _), Exhale -> []
+          | (Lattice | Persistent _), Exhale -> []
           | _ -> [ assign_entry ~loc r guard chunk ]
         in
         let statements =
@@ -2008,9 +2316,7 @@ module ScalarResource = struct
     let lookup = Expr.mk_maplookup ~loc r.heap r.key in
     let condition, composed = composition ~loc r lookup in
     let intermediate =
-      match r.encoding with
-      | Unit -> r.heap
-      | _ -> Expr.mk_ite ~loc guard (Expr.mk_mapupdate ~loc r.heap r.key composed) r.heap
+      Expr.mk_ite ~loc guard (Expr.mk_mapupdate ~loc r.heap r.key composed) r.heap
     in
     let assumptions =
       [
@@ -2025,7 +2331,7 @@ module ScalarResource = struct
     (* weak_frameCompInv discharges consumption after a valid composition. *)
     let updates =
       match r.encoding with
-      | Counted _ | Counter | Unit -> []
+      | Counted _ | Counter -> []
       | Generic when r.cancellative -> []
       | Generic | Lattice | Persistent _ ->
           [ assign_entry ~loc r guard (remainder ~loc r composed) ]
@@ -2103,7 +2409,7 @@ module ScalarResource = struct
                 ]
               in
               match (r.encoding, s.encoding) with
-              | Persistent _, Persistent _ | Unit, Unit -> assumptions
+              | Persistent _, Persistent _ -> assumptions
               | _ -> assumptions @ [ assign_entry ~loc r guard_in chunk ]
           in
           let assume_stmt =
@@ -2860,6 +3166,19 @@ module TrnslInhale = struct
           | App (Var qual_ident, args, _) -> (
               let* symbol = Rewriter.find qual_ident in
               match Rewriter.Symbol.orig_symbol symbol with
+              | CallDef c
+                when Poly.(c.call_decl.call_decl_kind = Invariant)
+                     && not (List.is_empty univ_vars_list) ->
+                  let _ = next_conjunct_idx () in
+                  let comment =
+                    (match cmnt with None -> "" | Some cmnt -> cmnt)
+                    ^ "\ninhale: "
+                    ^ Stdlib.Format.asprintf "%a" Expr.pr
+                        (Expr.mk_binder Forall univ_vars_list
+                           (Expr.mk_impl (Expr.mk_and conds) expr))
+                  in
+                  inhale_iterated_invariant ~loc ~comment universal_quants conds c
+                    qual_ident args
               | CallDef c
                 when Poly.(
                        c.call_decl.call_decl_kind = Pred
@@ -4015,6 +4334,27 @@ module TrnslExhale = struct
               let* symbol = Rewriter.find qual_ident in
               match Rewriter.Symbol.orig_symbol symbol with
               | CallDef c
+                when Poly.(c.call_decl.call_decl_kind = Invariant)
+                     && not (List.is_empty univ_vars_list) ->
+                  let _ = next_conjunct_idx () in
+                  let comment =
+                    (match cmnt with None -> "" | Some cmnt -> cmnt)
+                    ^ "\nexhale: "
+                    ^ Stdlib.Format.asprintf "%a" Expr.pr
+                        (Expr.mk_binder Forall univ_vars_list
+                           (Expr.mk_impl (Expr.mk_and conds) expr))
+                  in
+                  exhale_iterated_invariant ~loc ~comment
+                    ~spec_error:
+                      (spec_error
+                      @ [
+                          Stmt.mk_const_spec_error
+                            ( Error.RelatedLoc,
+                              Expr.to_loc e,
+                              "This predicate may not hold" );
+                        ])
+                    universal_quants conds c qual_ident args
+              | CallDef c
                 when Poly.(
                        c.call_decl.call_decl_kind = Pred
                        || c.call_decl.call_decl_kind = Invariant) ->
@@ -4386,6 +4726,7 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
       | Spec (spec_kind, spec) ->
           let* translated =
             match spec_kind with
+            | Cut -> Rewriter.return s
             | Inhale ->
                 let expr = spec.spec_form in
 

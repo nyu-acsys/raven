@@ -1,0 +1,28 @@
+field f: Int
+inv cell(x: Ref) { own(x.f, 0, 1.0) }
+
+interface Sig {
+  inv shared(x: Ref)
+  lemma touch(x: Ref)
+    requires shared(x)
+}
+
+module Actual : Sig {
+  inv shared(x: Ref) = cell
+  lemma touch(x: Ref) {
+    unfold shared(x);
+    fold shared(x);
+  }
+}
+
+module Worker[P: Sig] {
+  lemma work(x: Ref, y: Ref)
+    requires cell(y) && P.shared(x) && x != y
+  {
+    ghost var w: Ref := y;
+    unfold cell(w);
+    P.touch(x);
+    fold cell(w);
+  }
+}
+module Applied = Worker[Actual]

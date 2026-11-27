@@ -4,7 +4,7 @@
 
 The module chapter introduces the common forms. This appendix covers the additional inference
 rules, type identities, generative factories, and sealing forms that matter when building
-reusable libraries.
+reusable libraries, and how Raven keeps invariant masks sound across module boundaries.
 
 ## Determining parameters {#sec:module-inference-details}
 
@@ -284,3 +284,171 @@ that the interface defines, for nested modules that it defines concretely, for c
 added by extensions, or for public signatures that expose atomic-update tokens; adapt those
 members explicitly. These restrictions do not apply when the target already declares that it
 implements the interface.
+
+## Invariant masks across module boundaries {#sec:module-namespace-contracts}
+
+*Also assumes: {{ref sec:shared-invariants}}.*
+
+Within a single program, Raven checks masks precisely: it knows the body of every invariant a
+callable might open, and checks with the solver that two instances open at the same time are
+distinct. Modules break that view. A callable is verified once, against an interface whose
+invariants and predicates may be abstract, but it must be sound for every implementation of
+that interface, including implementations written later. Raven therefore summarizes each
+module's use of invariants in a *namespace contract*: the invariants it declares, the mask each
+of its callables requires and grants, and the separation its generic code assumes from its
+parameters. Raven infers these contracts, so you don't write them, and fixes each one when its
+module is declared. Instances, sealed views and checked views carry their module's contract, and
+every implementation and module argument is checked against the contract it is meant to
+satisfy. The contract prevents two kinds of unsoundness, each a way to open the same invariant
+twice and so to duplicate the resources it protects.
+
+**Implementations reaching back.** In
+[`broken/namespace_reach_back.rav`](./broken/namespace_reach_back.rav), the interface
+`Resource` declares an abstract invariant `shared` and a lemma `touch` that requires it. From the
+interface, `touch`'s mask is just `shared`. The implementation `Actual` defines `shared` to
+contain another invariant, `cell(root)`, and its `touch` opens both:
+
+```raven
+module Actual : Resource {
+  inv shared(x: Ref) { cell(root) }
+  lemma touch(x: Ref) {
+    unfold shared(x);
+    unfold cell(root);
+    fold cell(root);
+    fold shared(x);
+  }
+}
+```
+
+A client that has `cell(root)` open can call `touch`, since `cell` isn't in `touch`'s mask. If
+`touch` could then open `cell(root)` a second time, the client would hold `root.value` twice.
+So an implementation keeps its interface's masks, and `unfold cell(root)` is rejected with
+`[Verification Error] Invariant cell is not in the current mask`. The fix belongs in the
+interface: it states which invariants `touch` may open, including the hidden ones. An `opens`
+clause with a predicate entry asks for everything an implementation hides behind the
+predicate's body, as in [`namespace_contracts.rav`](./namespace_contracts.rav):
+
+```raven
+interface Resource {
+  inv shared(x: Ref)
+  pred footprint(x: Ref) { shared(x) }
+  lemma touch(x: Ref) requires shared(x) ensures shared(x) opens footprint(x)
+}
+```
+
+Callers of `touch` now have to provide that whole footprint, which, for `Actual`, includes
+`cell(root)`.
+
+**Generic code assuming separation.** A functor's body is verified once for all of its
+arguments. `Worker` in [`namespace_contracts.rav`](./namespace_contracts.rav) holds `cell(y)`
+open while calling its parameter:
+
+```raven
+module Worker[P: Resource] {
+  lemma work(x: Ref, y: Ref)
+    requires cell(y) && P.shared(x)
+    ensures cell(y) && P.shared(x)
+    opens cell(y), P.footprint(x)
+  {
+    unfold cell(y);
+    P.touch(x);
+    fold cell(y);
+  }
+}
+```
+
+This is sound only if `P.touch` can't open `cell(y)`, which depends on `P`. Raven records the
+assumption in `Worker`'s contract, as a requirement that `P`'s namespaces be disjoint from
+`cell`'s, and checks it at every application. `Worker[Separate]`, whose `shared` contains no
+invariants, is accepted. With `Actual`, `touch` opens `cell(root)`, so the two instances are
+distinct only if `y != root`. Since `work` names both instances by formals that its body never
+assigns, Raven checks this for the instances, as an assertion under `work`'s precondition.
+Nothing there rules out `y == root`, so `Worker[Actual]`, in
+[`broken/namespace_separation.rav`](./broken/namespace_separation.rav), is rejected at the
+application with `[Verification Error] Cannot establish invariant namespace separation between
+cell(y) and cell(root)`, with the call in `Worker` that made the assumption as a Related
+Location. In [`namespace_instances.rav`](./namespace_instances.rav), the parameter's
+`shared(x)` is `cell(x)`, and the generic lemma requires `x != y`, so the application verifies.
+In the same way, a module passed for a parameter must satisfy the parameter's
+contract. In particular, a callable that the parameter's interface promises grants its caller a
+mask, like a constructor that allocates an invariant, must grant at least that mask. Otherwise
+the application is rejected with `Incompatible module namespace contracts`.
+
+**Limitations.** Contracts are conservative in three ways:
+
+- Across a module boundary, instances are told apart only by the precondition of the generic
+  callable, and only if they are named by formals that its body never assigns. Otherwise,
+  separation is a property of invariant declarations. In
+  [`broken/namespace_instances.rav`](./broken/namespace_instances.rav), the functor opens
+  `cell(y)` through a local copy of `y`, so its application is rejected, although the same code
+  verifies against the module directly. Applications inside other functors are always checked
+  per declaration.
+- Masks are fixed by the interface. An implementation can't open an invariant its interface's
+  mask doesn't cover, even if no caller would ever have it open, unless it places the invariant
+  inside a covered one, as in {{ref sec:invariant-regions}}. Declaring hidden invariants through a
+  predicate entry instead makes every caller provide them, for every implementation.
+- Holding an abstract resource doesn't, by default, let you open the invariants hidden in it;
+  that permission has to be requested with a predicate entry, as above.
+
+## Invariant regions {#sec:invariant-regions}
+
+*Also assumes: {{ref sec:module-namespace-contracts}}.*
+
+A predicate entry in an `opens` clause makes every caller provide what an implementation hides.
+An implementation can instead place its private invariants inside a public one, which callers
+provide anyway. In [`invariant_regions.rav`](./invariant_regions.rav), `Actual` declares that
+`cell` lies within `shared`:
+
+```raven
+module Actual : Resource {
+  inv shared(x: Ref) { cell(x) }
+  inv cell(x: Ref) within shared(x) { exists v: Int :: own(x.value, v) }
+  ...
+}
+```
+
+An invariant instance now stands for a *region*: itself and its descendants. A mask that names
+`shared(x)` covers `cell(x)` too, so `touch`, whose mask is `shared(x)`, may open both, and a
+client of the sealed `Public` needs to know nothing about `cell`. In a module, the `within`
+clause of a defined invariant declares its parent: it names an invariant of the same module, and
+its arguments must be parameters of the child, so each child instance has exactly one parent
+instance. Ancestry can't be cyclic. On an invariant without a definition, the clause is a
+promise, as in an interface. An implementation may place its private
+invariants anywhere, but not give a public invariant an ancestor its interface doesn't declare:
+that is rejected with `Incompatible module namespace contracts: Realization gives invariant ...
+an undeclared ancestor`.
+
+Regions also decide which calls are safe while invariants are open. Opening an invariant doesn't
+use up the mask. Instead, Raven records which instances are open, and a call requires that none
+of them lies in the callee's region. A callee whose mask is `child(x)` may run while `root(x)` is
+open, since `root(x)` isn't in that region. The converse is rejected: in
+[`broken/region_reentry.rav`](./broken/region_reentry.rav), `reenter` calls `root_step`, whose
+mask is `root(x)`, while `child(x)` is open, and gets `[Verification Error] Missing fold for
+unfolded invariant child(x)`. Calling `root_step` before unfolding `child(x)` fixes it.
+
+**Promising a region.** In an interface, a `within` clause promises that one invariant lies
+within another:
+
+```raven
+interface Family {
+  inv root(x: Int)
+  inv leaf(x: Int, k: Int) within root(x)
+}
+```
+
+A client may then open any `leaf(x, k)` under the mask `root(x)`, as `visit` does. Each
+implementation keeps the promise through the parents it declares, possibly with private
+invariants in between: `Tree` places `leaf` within a private `branch`, which lies within `root`.
+
+**Bounding what an abstract resource depends on.** When you hold an abstract predicate or
+invariant, Raven doesn't know which invariants its implementations put inside it, so it can't
+tell them apart from the invariants you allocate or open. A `depends` clause bounds them:
+`pred context(self: Ref) depends {}` promises that `context` depends on no invariant, and
+`depends cell(x)` would allow the region of `cell(x)`. In the example, `fresh` holds
+`Hidden.context(self)` and still allocates and opens a `counter` under `opens {}`. Without the
+clause, it is rejected with `Cannot establish invariant namespace separation between counter
+and dependencies(Hidden.context)`. Each implementation is checked against the bound, and one
+whose definition depends on more is rejected with `the invariants context depends on exceed its
+depends clause`. A bound only limits what a resource may depend on: it gives no permission to
+open the invariants it names. Only predicates and invariants without a definition take a
+`depends` clause.

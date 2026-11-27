@@ -1,0 +1,10 @@
+interface InvalidRegion {
+  inv root(x: Ref)
+  pred other(x: Ref)
+
+  inv nonformal(x: Ref) within root(null)
+  inv implicit_arg(; x: Ref) within root(x)
+  inv wrong_type(x: Int) within root(x)
+  inv wrong_target(x: Ref) within other(x)
+  pred wrong_kind(x: Ref) within root(x)
+}

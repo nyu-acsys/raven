@@ -1,0 +1,31 @@
+// Quantified invariant instances need no injective index: instances are persistent and
+// agree on their implicit parameters, so no distinctness of the tagged objects is
+// stated.
+
+field label: (Ref, Int)
+
+inv tag(x: Ref; implicit ghost k: (Ref, Int)) { own(x.label, k, 0.5) }
+
+proc make(c: Ref, n: Int) returns (xs: Map[Int, Ref])
+  requires 0 <= n
+  ensures forall j: Int :: 0 <= j && j < n ==> tag(xs[j], (c, j))
+{
+  var i: Int := 0;
+  while (i < n)
+    invariant 0 <= i && i <= n
+    invariant forall j: Int :: 0 <= j && j < i ==> tag(xs[j], (c, j))
+  {
+    var x: Ref;
+    x := new(label: (c, i));
+    fold tag(x, (c, i));
+    xs := xs[i := x];
+    i := i + 1;
+  }
+}
+
+proc keep(c: Ref, n: Int, xs: Map[Int, Ref])
+  requires forall j: Int :: 0 <= j && j < n ==> tag(xs[j], (c, j))
+  ensures forall j: Int :: 0 <= j && j < n ==> tag(xs[j], (c, j))
+{
+  keep(c, n, xs);
+}

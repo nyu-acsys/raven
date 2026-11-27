@@ -2,6 +2,58 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.7.0] - 2026-11-26
+
+### Added
+
+- The OCaml API can construct map comprehensions.
+- The OCaml API can construct one-shot prophecy types, resources, allocations, and resolutions.
+- The OCaml API can select individual backend proof obligations to verify.
+- `cut P` proves `P` and verifies the rest of a procedure from `P` and variables' values alone.
+- Invariants can declare which invariant they lie `within`, so a mask also covers the invariants inside it.
+- Abstract predicates and invariants can bound the invariants they depend on with a checked `depends` clause.
+
+### Changed
+
+- Opening an invariant no longer uses up the mask; a call requires that no open invariant lies in its region.
+- Infer existential witnesses from comprehensions of resources, such as entries of a map-valued field.
+- Iterated conjunctions of invariant instances no longer need an injective index.
+- A loop may mention invariants unavailable where it starts, such as those it creates; it opens only available ones.
+- Infer existential witnesses from singleton-set tuple patterns and Auth/SetRA fragments.
+- Infer invariant mask grants when only their implicit parameters are hidden, while retaining every formal before `;`.
+- Check atomic-update token and argument identity with proof obligations, including aliases established by contracts.
+- Separate invariant instances that generic code holds open from its functor arguments' by the generic callable's precondition.
+- Iterated ownership of the same locations under the same guard shares one inverse function, speeding up verification.
+- Atomic-update aborts skip validity checks of heaps unchanged since the update was opened, speeding up verification.
+- Each proof obligation's solver gets only the declarations and axioms its proof can use, speeding up verification.
+- Checking the separation of invariant namespaces resolves each module name once, speeding up elaboration.
+- Contract compatibility checks share the canonical forms of namespace declarations, speeding up elaboration.
+- Building namespace entailment contexts no longer re-canonicalizes declarations already in canonical form, speeding up elaboration.
+- Verifying only selected members no longer lowers the bodies of the others, speeding up focused checks.
+- Pretty-printers are built once per run instead of for every expression and statement checked, speeding up type checking.
+- Editor annotations read each source file once per run instead of once per inherited clause, speeding up type checking.
+- Identifiers carry the hash of their names, speeding up name resolution for long generated names.
+- Symbol resolution also caches lookups of module implementations and read-only lookups, speeding up elaboration.
+- Namespace validation reuses one entailment context for the compatibility checks that add no namespace declarations, speeding up elaboration.
+- Each arm of a conditional is checked without the facts of the other arm, speeding up verification of procedures with many branches.
+- Validity checks assume the negated goal under a fresh tag instead of in a solver scope of their own, so the solver keeps what it learned between checks, speeding up verification.
+
+### Fixed
+
+- Verification cache fingerprints no longer depend on the numbering of unrelated identifiers.
+- Functor instances can use the generic type instances that their argument's interface declares, such as `List[T]`.
+- Match-bound variables in loop invariants remain local to their match arms during loop extraction.
+- Loop headers containing match expressions preserve multiline invariants when parsed.
+- Types constructed without a source location retain their ghost flag.
+- Printed one-shot prophecy types retain their resolution limit when reparsed.
+- Resolve forward resource-algebra field types in their declaration scope before checking ownership or assignment.
+- Substitution preserves checked expression types and annotations, including match-arm projections.
+- Inlined predicates and functions keep independent quantified witnesses without capturing caller variables.
+- Constructor tests retain the correct datatype family when generic predicates are instantiated.
+- Preserve invariant presence when no implicit parameters are declared, preventing proofs from fabricating unestablished invariant facts.
+- Refresh implicit witnesses returned by opening an atomic update, including when assigning to existing ghost variables.
+- Report invariant namespace separation errors at the functor application that violates them.
+
 ## [1.6.1] - 2026-11-06
 
 ### Added

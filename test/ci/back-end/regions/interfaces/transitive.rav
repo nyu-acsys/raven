@@ -1,0 +1,30 @@
+interface Family {
+  inv root(x: Int, y: Int)
+  inv leaf(tag: Int, y: Int, x: Int) within root(x, y)
+
+  lemma step(tag: Int, y: Int, x: Int)
+    requires leaf(tag, y, x)
+    ensures leaf(tag, y, x)
+    opens leaf(tag, y, x)
+}
+
+module Actual : Family {
+  inv root(x: Int, y: Int) { true }
+  inv middle(y: Int, x: Int) within root(x, y) { true }
+  inv leaf(tag: Int, y: Int, x: Int) within middle(y, x) { true }
+
+  lemma step(tag: Int, y: Int, x: Int) {
+    unfold leaf(tag, y, x);
+    fold leaf(tag, y, x);
+  }
+}
+
+module Public :> Family = Actual
+
+lemma use(tag: Int, x: Int, y: Int)
+  requires Public.leaf(tag, y, x)
+  ensures Public.leaf(tag, y, x)
+  opens Public.root(x, y)
+{
+  Public.step(tag, y, x);
+}

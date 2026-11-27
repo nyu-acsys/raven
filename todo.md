@@ -1,3 +1,23 @@
+24 nov, 2026:
+- [x] Add checked invariant-dependency bounds for opaque predicates, including an
+    empty bound for sealed execution contexts, so fresh-region grants need no
+    broad caller mask and private context representations can remain hidden.
+- [ ] Recognize specialized functor conformance when passing an opaque `F[X]`
+    instance to a parameter constrained by a named interface alias `I[X]`, where
+    `F[A] :> I[A]`. Passing the functor itself to an `I` parameter works.
+
+18 nov, 2026:
+- [ ] Investigate a symbol-resolution cache result that differs from an uncached
+    lookup in `test/ci/front-end/merge_inherited_members.rav`: `K`, both an
+    interface and a functor parameter (`module P[K: K]`), resolves differently
+    when looked up through `scope_cache`. The test passes; check whether the cache
+    can return a stale result here and whether some other program observes it.
+
+10 nov, 2026:
+- [ ] Handle explicit quantifier triggers that become invalid after expanding inline
+    functions: conditionals and Boolean connectives are rejected as SMT patterns,
+    and an inline wrapper can erase a quantified variable from a multi-pattern.
+
 1 nov, 2026:
 - [ ] Audit extension-type identity: core type comparison and canonical type keys omit
     extension payloads such as ProphId's one-shot flag; generated adapter reuse
@@ -6,10 +26,10 @@
 26 oct, 2026:
 - [x] Resolve invariant aliases in required, granted, and explicit masks after
     generic module substitution, preserving argument prefixes and fresh identities.
-- [ ] Infer and freeze symbolic invariant namespace contracts and separation requirements
+- [x] Infer and freeze symbolic invariant namespace contracts and separation requirements
     at module boundaries; validate realizations compositionally, including higher-order
     functors. Reproductions are retained in `test/ci/back-end/pending-invariant-namespaces`.
-- [ ] Support invariant-carrying abstract predicates without hiding mask requirements.
+- [x] Support invariant-carrying abstract predicates without hiding mask requirements.
 
 25 oct, 2026:
 - [ ] Requalify interface-defined helper lemmas' atomic token types when inheriting

@@ -92,6 +92,14 @@ let procedure fully_qual_name (call_decl : Ast.Callable.call_decl) :
     proc_kind = (match call_decl.call_decl_kind with Lemma -> "lemma" | _ -> "proc");
   }
 
+(** Whether [stmt] has a cut, which retires what is known before it. *)
+let rec has_cut (stmt : Stmt.t) =
+  match stmt.stmt_desc with
+  | Block block -> List.exists block.block_body ~f:has_cut
+  | Cond cond -> has_cut cond.cond_then || has_cut cond.cond_else
+  | Basic (Spec (Cut, _)) -> true
+  | Basic _ | Loop _ | StmtExt _ -> false
+
 (** The named assertions of [stmt], with their statements. *)
 let rec named_assertions (stmt : Stmt.t) : (Stmt.spec * string * Stmt.t) list =
   match stmt.stmt_desc with
@@ -112,20 +120,32 @@ let rec check_stmt ~proc curr_callable (stmt : Stmt.t) : unit t =
       State.return ()
   | Cond ({ cond_test = Some test; _ } as cond_desc) ->
       let* id = enter_branch ~loc:(Stmt.to_loc stmt) test in
-      let* _ = push_path_condn test in
-      let* _ = in_arm id true (check_stmt ~proc curr_callable cond_desc.cond_then) in
-      let* _ = pop_path_condn in
-
-      let* _ = push_path_condn (Expr.mk_not test) in
-      let* _ = in_arm id false (check_stmt ~proc curr_callable cond_desc.cond_else) in
-      let* _ = pop_path_condn in
-
-      State.return ()
+      (* Each arm is checked without the facts of the other, which its path contradicts;
+         both arms' facts, under their path conditions, then hold after the conditional. *)
+      let arm condition branch body =
+        in_scope_of_branch
+          (let* _ = push_path_condn condition in
+           let* _ = in_arm id branch (check_stmt ~proc curr_callable body) in
+           pop_path_condn)
+      in
+      let* _, then_commands = arm test true cond_desc.cond_then in
+      let* _, else_commands = arm (Expr.mk_not test) false cond_desc.cond_else in
+      rewrite (then_commands @ else_commands)
   | Cond cond_desc ->
       Error.unsupported_error (Stmt.to_loc stmt)
         "Non-deterministic choice is currently not supported."
   | Basic basic_stmt -> (
       match basic_stmt with
+      | Assign { assign_lhs; assign_rhs; _ } ->
+          (* A variable's definition, which cuts keep. *)
+          let types =
+            match (assign_lhs, Expr.to_type assign_rhs) with
+            | [ _ ], typ -> [ typ ]
+            | _, App (Prod, types, _) -> types
+            | _ -> Error.internal_error stmt.stmt_loc "An assignment of mismatched arity"
+          in
+          let lhs = List.map2_exn assign_lhs types ~f:(fun x typ -> Expr.mk_var ~typ x) in
+          assume_definition (Expr.mk_eq (Expr.mk_tuple lhs) assign_rhs)
       | Spec (spec_kind, spec) -> (
           let* _ =
             match spec.spec_comment with
@@ -135,6 +155,7 @@ let rec check_stmt ~proc curr_callable (stmt : Stmt.t) : unit t =
 
           match spec_kind with
           | Assume -> assume_expr ?name:spec.spec_name spec.spec_form
+          | Cut -> new_epoch
           | Assert ->
               let* focused = focused_assertion in
               (* With an assertion in focus, the others are assumed, and only its outcome
@@ -223,7 +244,7 @@ let rec check_stmt ~proc curr_callable (stmt : Stmt.t) : unit t =
 let check_procedure fully_qual_name (callable : Ast.Callable.t) stmt proc : unit t =
   let open State.Syntax in
   let call_decl = callable.call_decl in
-  let* () = renew_solver in
+  let* () = renew_solver fully_qual_name in
   with_scope
   @@
   let* () = start_procedure in
@@ -239,6 +260,7 @@ let check_procedure fully_qual_name (callable : Ast.Callable.t) stmt proc : unit
         write (mk_declare_const (QualIdent.from_ident local.var_name) local.var_type))
   in
 
+  let* () = if has_cut stmt then new_epoch else State.return () in
   let* () = check_stmt ~proc fully_qual_name stmt in
   let* focused = focused_assertion in
   if Option.is_none focused then record_result proc Verified else State.return ()
@@ -371,8 +393,8 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) : 
   | ProcDef proc_def -> (
       match proc_def.proc_body with
       | Some stmt when not (is_free callable.call_decl.call_decl_status) ->
-          let* in_focus = in_focus call_decl.call_decl_loc in
           let proc = procedure fully_qual_name call_decl in
+          let* in_focus = in_focus proc in
           let* fingerprint = fingerprint fully_qual_name in
           let* focused = focused_assertion in
           if not in_focus then State.return ()
@@ -485,7 +507,7 @@ let record_cached tbl qual_name fingerprint : unit t =
   let open State.Syntax in
   match reify tbl qual_name with
   | Module.CallDef { call_def = ProcDef { proc_body = Some stmt }; call_decl } ->
-      let* in_focus = in_focus call_decl.call_decl_loc in
+      let* in_focus = in_focus (procedure qual_name call_decl) in
       let* focused = focused_assertion in
       if not in_focus then State.return ()
       else
@@ -510,7 +532,7 @@ let scheduled tbl qual_name : Diagnostics.MemberStatus.procedure list t =
   match reify tbl qual_name with
   | Module.CallDef { call_def = ProcDef { proc_body = Some stmt }; call_decl }
     when not (is_free call_decl.call_decl_status) ->
-      let* in_focus = in_focus call_decl.call_decl_loc in
+      let* in_focus = in_focus (procedure qual_name call_decl) in
       let+ focused = focused_assertion in
       if not in_focus then []
       else
@@ -591,7 +613,8 @@ let declare_and_check_dep (tbl : SymbolTbl.t) (g : Dependencies.Graph.t)
   in
 
   let* _ =
-    State.List.iter dep_sym_fn ~f:(fun (qual_name, sym) -> declare_fn qual_name sym)
+    State.List.iter dep_sym_fn ~f:(fun (qual_name, sym) ->
+        with_owners [ qual_name ] (declare_fn qual_name sym))
   in
 
   let data_types =
@@ -606,7 +629,7 @@ let declare_and_check_dep (tbl : SymbolTbl.t) (g : Dependencies.Graph.t)
   let* _ =
     if List.is_empty data_types then Rewriter.return ()
     else
-      let+ _ = define_datatypes data_types in
+      let+ _ = with_owners (List.map data_types ~f:fst) (define_datatypes data_types) in
       ()
   in
 
@@ -623,6 +646,8 @@ let declare_and_check_dep (tbl : SymbolTbl.t) (g : Dependencies.Graph.t)
     | ready, pending ->
         let* _ =
           State.List.iter ready ~f:(fun (qual_name, (callable : Ast.Callable.t)) ->
+              with_owners [ qual_name ]
+              @@
               match (callable.call_def, callable.call_decl.call_decl_returns) with
               | FuncDef { func_body = Some body }, [ ret ] ->
                   write
@@ -666,7 +691,7 @@ let declare_and_check_dep (tbl : SymbolTbl.t) (g : Dependencies.Graph.t)
     in
     let+ _ =
       State.List.iter ready ~f:(fun (qual_name, callable, _) ->
-          assume_auto_lemma qual_name callable)
+          with_owners [ qual_name ] (assume_auto_lemma qual_name callable))
     in
     pending
   in
@@ -677,7 +702,7 @@ let declare_and_check_dep (tbl : SymbolTbl.t) (g : Dependencies.Graph.t)
         let* _ =
           (* A macro's definition already says everything its axiom would. *)
           if is_macro_name qual_name then Rewriter.return ()
-          else check_member qual_name sym
+          else with_owners [ qual_name ] (check_member qual_name sym)
         in
         let checked = Set.add checked qual_name in
         let+ pending = assume_ready checked pending in
@@ -781,6 +806,12 @@ let check_module (module_defs : Ast.Module.t list) (lemma_calls : Dependencies.G
   let context =
     {
       context with
+      coverage =
+        Map.of_alist_reduce
+          (module QualIdent)
+          (Fingerprints.coverage ~reify:(reify tbl) ~deps:deps_graph ~auto:auto_graph
+             dependencies)
+          ~f:Fn.const;
       fingerprints =
         Map.of_alist_reduce
           (module QualIdent)

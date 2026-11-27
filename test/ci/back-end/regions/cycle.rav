@@ -1,0 +1,2 @@
+inv a(x: Int) within b(x) { true }
+inv b(x: Int) within a(x) { true }

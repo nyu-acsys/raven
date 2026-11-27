@@ -1,0 +1,18 @@
+inv root(x: Int) { child(x) }
+inv child(x: Int) within root(x) { true }
+interface Resource { pred p(x: Int) }
+module Hidden: Resource { pred p(x: Int) { child(x) } }
+module Client[R: Resource] {
+  lemma bad(x: Int)
+    requires R.p(x)
+    opens {}
+  {
+    fold child(x);
+    fold root(x);
+    unfold root(x);
+    unfold child(x);
+    fold child(x);
+    fold root(x);
+  }
+}
+module Risk = Client[Hidden]

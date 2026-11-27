@@ -1,0 +1,22 @@
+field contents: Int
+
+inv cell(location: Ref, implicit ghost key: Int) {
+  own(location.contents, key)
+}
+
+proc create() returns (location: Ref)
+  ensures exists key: Int :: cell(location, key)
+{
+  location := new(contents: 0);
+  fold cell(location, 0);
+}
+
+proc client() {
+  var location: Ref := create();
+  ghost var key: Int;
+  key :| cell(location, key);
+  atomic {
+    unfold cell(location, key);
+    fold cell(location, key);
+  }
+}

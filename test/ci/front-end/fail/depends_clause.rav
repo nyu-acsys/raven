@@ -1,0 +1,17 @@
+field value: Int
+
+inv cell(x: Ref) { exists v: Int :: own(x.value, v) }
+
+pred defined(x: Ref) depends {} { cell(x) }
+
+proc procedure(x: Ref) depends {} {}
+
+inv shared(x: Ref) depends {} { cell(x) }
+
+interface I {
+  pred other(x: Ref) depends cell(y)
+
+  func value_of(x: Ref) returns (r: Int)
+
+  pred not_resource(x: Ref) depends value_of(x)
+}

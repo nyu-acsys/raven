@@ -59,7 +59,7 @@ let sealed_impl_suffix = AstDef.Module.sealed_impl_suffix
     the definitions of a sealed module [M]. *)
 let source_module_name (name : ident) : ident =
   match String.chop_suffix name.ident_name ~suffix:sealed_impl_suffix with
-  | Some base -> { name with ident_name = base }
+  | Some base -> Ident.with_name name base
   | None -> name
 
 let serialize (s : string) : string =
@@ -996,6 +996,7 @@ let canonical_type_key =
   let _, _, _, _, _, _, _, _, _, to_string =
     AstDef.Type.make_printers_with ~names:AstDef.SourceNames.default
       ~qual_ident_to_string:structural_qid_key
+      ~pr_type_ext:AstDef.Type.default_pr_type_ext
       ~type_ext_to_name:AstDef.Type.default_type_ext_to_name
   in
   to_string

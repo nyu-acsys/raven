@@ -86,6 +86,12 @@ module ProphecyExt (Cont : Ext) = struct
   let proph_id_type ~loc ~one_shot typ =
     Type.mk_app ~loc ~ghost:true (TypeExt (ProphId one_shot)) [ typ ]
 
+  let pr_type_ext ~names ~pr ppf type_ext args =
+    match (type_ext, args) with
+    | ProphId one_shot, [ typ ] ->
+        Stdlib.Format.fprintf ppf "Proph[%a%s]" pr typ (if one_shot then ", 1" else "")
+    | _ -> Cont.pr_type_ext ~names ~pr ppf type_ext args
+
   let source_expr = function
     | CheckedProphResource (one_shot, typ) -> ProphResource (one_shot, typ)
     | ext -> ext

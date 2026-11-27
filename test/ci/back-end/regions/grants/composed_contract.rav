@@ -1,0 +1,21 @@
+interface Resource {
+  pred valid(x: Int)
+  lemma advance(x: Int)
+    requires valid(x)
+    ensures valid(x + 1)
+}
+module Implementation[A: Resource, B: Resource] : Resource {
+  pred valid(x: Int) { A.valid(x) && B.valid(x) }
+  lemma advance(x: Int)
+    requires valid(x)
+    ensures valid(x + 1)
+  {
+    unfold valid(x);
+    A.advance(x);
+    B.advance(x);
+    fold valid(x + 1);
+  }
+}
+module Client[A: Resource, B: Resource] {
+  module Combined = Implementation[A, B]
+}

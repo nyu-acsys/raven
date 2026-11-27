@@ -19,7 +19,8 @@ let application_loc application =
 
 (** The declaration of [symbol] as written in its source: from the beginning of the line
     of its name to the end of its header, with [{ … }] in place of a body. *)
-let declaration_text (symbol : Module.symbol) : string option =
+let declaration_text ?(source_content = Loc.source_content) (symbol : Module.symbol) :
+    string option =
   let name_loc, end_locs, has_body =
     match symbol with
     | CallDef ({ call_decl = d; _ } as c) ->
@@ -34,7 +35,7 @@ let declaration_text (symbol : Module.symbol) : string option =
           @ spec_locs d.call_decl_precond
           @ spec_locs d.call_decl_postcond
           @ Option.to_list
-              (Option.map d.call_decl_opens ~f:(fun clause -> clause.opens_loc)),
+              (Option.map d.call_decl_bound ~f:(fun clause -> clause.bound_loc)),
           (not (Callable.is_abstract c)) || d.call_decl_is_sealed )
     | TypeDef td -> (td.type_def_loc, [], false)
     | VarDef vd ->
@@ -57,8 +58,11 @@ let declaration_text (symbol : Module.symbol) : string option =
   let line_start =
     { name_loc.Loc.loc_start with pos_cnum = name_loc.Loc.loc_start.pos_bol }
   in
+  let loc = Loc.make line_start last_end in
   Option.map
-    (Loc.source_text (Loc.make line_start last_end))
+    (Option.bind
+       (source_content (Loc.file_name loc))
+       ~f:(fun content -> Loc.text_in content loc))
     ~f:(fun text ->
       let indent = String.length text - String.length (String.lstrip text) in
       let dedent line =

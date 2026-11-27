@@ -1,0 +1,12 @@
+// An implementation whose invariant depends on an invariant outside its bound.
+interface Frozen {
+  inv frozen(x: Ref) depends {}
+}
+
+module Cells : Frozen {
+  field contents: Int
+
+  inv guard(x: Ref) { exists v: Int :: own(x.contents, v) }
+
+  inv frozen(x: Ref) { guard(x) }
+}

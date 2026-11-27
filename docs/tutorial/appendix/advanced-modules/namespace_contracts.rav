@@ -1,0 +1,44 @@
+field value: Int
+free val root: Ref
+
+inv cell(x: Ref) { own(x.value, 0, 1.0) }
+
+// `touch` may open whatever invariants an implementation hides behind `shared`.
+interface Resource {
+  inv shared(x: Ref)
+  pred footprint(x: Ref) { shared(x) }
+  lemma touch(x: Ref) requires shared(x) ensures shared(x) opens footprint(x)
+}
+
+module Actual : Resource {
+  inv shared(x: Ref) { cell(root) }
+  lemma touch(x: Ref) {
+    unfold shared(x);
+    unfold cell(root);
+    fold cell(root);
+    fold shared(x);
+  }
+}
+
+module Separate : Resource {
+  inv shared(x: Ref) { true }
+  lemma touch(x: Ref) {
+    unfold shared(x);
+    fold shared(x);
+  }
+}
+
+// Verified once; sound only for parameters whose namespaces are disjoint from `cell`'s.
+module Worker[P: Resource] {
+  lemma work(x: Ref, y: Ref)
+    requires cell(y) && P.shared(x)
+    ensures cell(y) && P.shared(x)
+    opens cell(y), P.footprint(x)
+  {
+    unfold cell(y);
+    P.touch(x);
+    fold cell(y);
+  }
+}
+
+module Applied = Worker[Separate]

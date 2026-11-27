@@ -388,12 +388,23 @@ let opens_on_pure_callable_error loc name =
        !"%{Ident#user} may not have an opens clause; only procedures and lemmas can"
        name)
 
-let opens_not_resource_error loc kind qual_ident =
+let depends_on_non_resource_error loc name =
   Error.type_error loc
     (Printf.sprintf
-       !"Expected a predicate or invariant in this opens clause, but found %s \
+       !"%{Ident#user} may not have a depends clause; only predicates and invariants can"
+       name)
+
+let depends_on_definition_error loc =
+  Error.type_error loc
+    "Only a predicate or invariant without a definition may have a depends clause; a \
+     definition determines what it depends on"
+
+let opens_not_resource_error loc ~keyword kind qual_ident =
+  Error.type_error loc
+    (Printf.sprintf
+       !"Expected a predicate or invariant in this %s clause, but found %s \
          %{QualIdent#user}"
-       kind qual_ident)
+       keyword kind qual_ident)
 
 let opens_arity_error loc resource_name ~kind ~expected ~given =
   Error.type_error loc
@@ -402,12 +413,14 @@ let opens_arity_error loc resource_name ~kind ~expected ~given =
          argument left unspecified"
        kind resource_name expected given)
 
-let opens_non_formal_error loc ident ~is_atomic =
+let opens_non_formal_error loc ~keyword ident ~is_atomic =
   Error.type_error loc
     (Printf.sprintf
-       !"%{String} cannot be used in an opens clause; arguments may only mention the \
+       !"%{String} cannot be used in a%s %s clause; arguments may only mention the \
          callable's formals%s"
        (Ident.name ident)
+       (if String.equal keyword "opens" then "n" else "")
+       keyword
        (if is_atomic then ", other than implicit ones" else ""))
 
 let mixfix_not_function_error loc =

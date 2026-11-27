@@ -1,0 +1,10 @@
+; The shared lock sources, so that the tests include them by name.
+
+(copy_files
+ (files %{project_root}/test/concurrent/lock/*.rav))
+
+(cram
+ (deps
+  %{bin:raven}
+  %{project_root}/lib/library/resource_algebra.rav
+  (glob_files *.rav)))

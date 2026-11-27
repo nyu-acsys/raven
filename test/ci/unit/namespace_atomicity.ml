@@ -246,7 +246,7 @@ let test_predicate_credit_through_abstract_calls () =
   assert (Set.mem result.callees (qi [ "Client"; "C"; "increment" ]));
   assert (Set.mem result.callees (qi [ "Client"; "C"; "get" ]))
 
-let test_invariant_dependencies_granted_through_calls () =
+let test_invariant_post_credit_checks_input_exposure () =
   let results =
     run
       "interface S { inv i(x: Int) }\n\
@@ -255,7 +255,25 @@ let test_invariant_dependencies_granted_through_calls () =
        lemma need(ghost x: Int) requires P.i(x) {}\n\
        lemma use(ghost x: Int) { make(x); need(x); } }"
   in
-  assert (List.is_empty (mask_assertions (analysis results [ "F"; "use" ])))
+  assert (List.is_empty (mask_assertions (analysis results [ "F"; "use" ])));
+  let results =
+    run
+      "interface S { inv i(x: Int) }\n\
+       module F[P: S] {\n\
+       lemma make(ghost x: Int) ensures P.i(x) {}\n\
+       lemma need(ghost x: Int) requires P.i(x) {}\n\
+       lemma use(ghost x: Int) opens P.i(x) { make(x); need(x); } }"
+  in
+  assert (List.is_empty (mask_assertions (analysis results [ "F"; "use" ])));
+  let results =
+    run
+      "interface S { inv i(x: Int) }\n\
+       module F[P: S] {\n\
+       lemma make(ghost x: Int) ensures P.i(x) {}\n\
+       lemma need(ghost x: Int) requires P.i(x) {}\n\
+       lemma use(ghost x: Int) requires P.i(x) opens {} { make(x); need(x); } }"
+  in
+  assert (not (List.is_empty (mask_assertions (analysis results [ "F"; "use" ]))))
 
 let test_predicate_credit_dropped_after_assignment () =
   let results =
@@ -394,6 +412,7 @@ let test_summary_substitution_preserves_conflicts () =
                   left = [ (own [ "F"; "P"; "i" ], []) ];
                   right = [ (own [ "F"; "P"; "j" ], []) ];
                   loc = Util.Loc.dummy;
+                  instances = None;
                 };
               ];
           })
@@ -424,7 +443,7 @@ let () =
     test_credit_only_requires_separation_when_used ();
     test_omitted_implicit_does_not_grant_credit ();
     test_predicate_credit_through_abstract_calls ();
-    test_invariant_dependencies_granted_through_calls ();
+    test_invariant_post_credit_checks_input_exposure ();
     test_predicate_credit_dropped_after_assignment ();
     test_predicate_credit_intersects_at_branch_join ();
     test_predicate_credit_needs_implicit_actual ();

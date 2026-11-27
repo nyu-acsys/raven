@@ -187,15 +187,16 @@ let source_content (file : string) : string option =
   | None ->
       if Stdlib.Sys.file_exists file then Some (Stdio.In_channel.read_all file) else None
 
+(** The text that [loc] spans in [content], the contents of its file. *)
+let text_in content loc : string option =
+  let pos = start_index loc and len = end_index loc - start_index loc in
+  if pos >= 0 && len >= 0 && pos + len <= String.length content then
+    Some (String.sub content ~pos ~len)
+  else None
+
 (** The source text that [loc] spans, if it can be read. *)
 let source_text loc : string option =
-  Opt.bind
-    (source_content (file_name loc))
-    ~f:(fun content ->
-      let pos = start_index loc and len = end_index loc - start_index loc in
-      if pos >= 0 && len >= 0 && pos + len <= String.length content then
-        Some (String.sub content ~pos ~len)
-      else None)
+  Opt.bind (source_content (file_name loc)) ~f:(fun content -> text_in content loc)
 
 (** The line of [loc]'s start, with the part [loc] spans underlined; nothing if the source
     cannot be read, as for a location of a program built through the API. *)

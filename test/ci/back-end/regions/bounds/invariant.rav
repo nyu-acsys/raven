@@ -1,0 +1,37 @@
+// An abstract invariant whose definition depends on no invariant: a callable holding
+// an instance may allocate and open a fresh invariant of another module.
+interface Frozen {
+  inv frozen(x: Ref) depends {}
+}
+
+module Cells : Frozen {
+  field contents: Int
+
+  inv frozen(x: Ref) { exists v: Int :: own(x.contents, v) }
+}
+
+module Hidden :> Frozen = Cells
+
+field value: Int
+
+inv cell(x: Ref) { exists v: Int :: own(x.value, v) }
+
+lemma touch(x: Ref)
+  requires cell(x)
+  ensures cell(x)
+  opens cell(x)
+{
+  unfold cell(x);
+  fold cell(x);
+}
+
+proc fresh(y: Ref)
+  requires Hidden.frozen(y)
+  ensures Hidden.frozen(y)
+  opens {}
+{
+  var x: Ref;
+  x := new(value: 0);
+  fold cell(x);
+  touch(x);
+}

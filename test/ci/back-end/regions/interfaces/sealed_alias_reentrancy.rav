@@ -1,0 +1,31 @@
+interface Family {
+  inv root(x: Int)
+  inv leaf(x: Int) within root(x)
+
+  lemma step(x: Int)
+    requires leaf(x)
+    ensures leaf(x)
+    opens leaf(x)
+}
+
+module Actual : Family {
+  inv root(x: Int) { true }
+  inv middle(x: Int) within root(x) { true }
+  inv leaf(x: Int) within middle(x) { true }
+
+  lemma step(x: Int) {
+    unfold leaf(x);
+    fold leaf(x);
+  }
+}
+
+module Public :> Family = Actual
+
+lemma bad(x: Int)
+  requires Actual.leaf(x) && Public.leaf(x)
+  opens Actual.leaf(x), Public.leaf(x)
+{
+  unfold Actual.leaf(x);
+  Public.step(x);
+  fold Actual.leaf(x);
+}

@@ -17,6 +17,7 @@ type t =
   | Case
   | Choose
   | Checked
+  | Cut
   | Data
   | Else
   | Ensures
@@ -66,6 +67,8 @@ type t =
   | Var
   | Where
   | With
+  | Within
+  | Depends
   | While
   | Proph_type
   | Resolve
@@ -98,6 +101,7 @@ let entries =
     ("case", Case);
     ("choose", Choose);
     ("checked", Checked);
+    ("cut", Cut);
     ("data", Data);
     ("else", Else);
     ("ensures", Ensures);
@@ -165,5 +169,7 @@ let entries =
     ("in", In);
   ]
 
+(* These words only act as keywords in a callable header. *)
+let contextual_entries = [ ("within", Within); ("depends", Depends) ]
 let by_name = Map.of_alist_exn (module String) entries
 let is_keyword name = Map.mem by_name name

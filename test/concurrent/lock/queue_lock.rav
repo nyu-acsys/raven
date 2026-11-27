@@ -1,0 +1,24 @@
+include "lock.rav"
+
+interface QueueLock[R: LockResource] {
+  rep type T
+  type Guard
+
+  inv is_lock(l: T, r: R)
+  pred held(l: T, guard: Guard, r: R)
+
+  proc create(r: R) returns (l: T)
+    requires R.resource(r)
+    ensures is_lock(l, r)
+    opens {}
+
+  proc acquire(l: T, implicit ghost r: R) returns (guard: Guard)
+    requires is_lock(l, r)
+    ensures is_lock(l, r) && held(l, guard, r) && R.resource(r)
+    opens is_lock(l, r)
+
+  proc release(l: T, guard: Guard, implicit ghost r: R)
+    requires is_lock(l, r) && held(l, guard, r) && R.resource(r)
+    ensures is_lock(l, r)
+    opens is_lock(l, r)
+}

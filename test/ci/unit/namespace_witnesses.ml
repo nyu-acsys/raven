@@ -64,6 +64,7 @@ let test_generated_instance_identity () =
               NamespaceContract.left = [ Callable.invariant_mask_entry source [] ];
               right = [ Callable.invariant_mask_entry target [] ];
               loc = Util.Loc.dummy;
+              instances = None;
             }
         in
         (actual, expected, separate)
@@ -88,6 +89,7 @@ let test_fixed_constructor_identity () =
       left = own [ "Client"; "F"; "made" ];
       right = own [ "Client"; "local" ];
       loc = Util.Loc.dummy;
+      instances = None;
     }
   in
   let query =

@@ -1,0 +1,32 @@
+// A grant established on either of two outcomes is usable where one of them is known.
+field value: Int
+
+inv shared(x: Ref) { exists v: Int :: own(x.value, v) }
+
+lemma touch(x: Ref)
+  requires shared(x)
+  ensures shared(x)
+  opens shared(x)
+{
+  unfold shared(x);
+  fold shared(x);
+}
+
+proc make(fail: Bool) returns (result: Ref, raised: Option[Int])
+  ensures match raised { case none => shared(result) case _ => true }
+  ensures raised == Option.some(1) ==> shared(result)
+  opens {}
+{
+  result := new(value: 0);
+  fold shared(result);
+  raised := fail ? Option.some(1) : Option.none;
+}
+
+proc client() opens {} {
+  var q: Ref;
+  var raised: Option[Int];
+  q, raised := make(true);
+  if (raised == Option.some(1)) {
+    touch(q);
+  }
+}

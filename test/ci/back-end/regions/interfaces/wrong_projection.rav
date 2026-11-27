@@ -1,0 +1,10 @@
+interface Family {
+  inv root(x: Int, y: Int)
+  inv leaf(tag: Int, y: Int, x: Int) within root(x, y)
+}
+
+module Actual : Family {
+  inv root(x: Int, y: Int) { true }
+  inv middle(y: Int, x: Int) within root(y, x) { true }
+  inv leaf(tag: Int, y: Int, x: Int) within middle(y, x) { true }
+}

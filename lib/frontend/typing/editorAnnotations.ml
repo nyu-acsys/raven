@@ -122,7 +122,11 @@ let record_inherited_members ~diagnostics ~(module_ident : qual_ident)
         Diagnostics.set_origin diagnostics
           ~member:(QualIdent.to_string module_ident ^ "." ^ name)
           origin;
-        Option.map (SymbolReference.declaration_text symbol) ~f:(fun text ->
+        Option.map
+          (SymbolReference.declaration_text
+             ~source_content:(Diagnostics.source_content diagnostics)
+             symbol)
+          ~f:(fun text ->
             let member_loc =
               match symbol with
               | CallDef { call_decl; _ } -> Ident.to_loc call_decl.call_decl_name
@@ -142,7 +146,7 @@ let record_inherited_contract ~diagnostics ~(member : ident) ~(source : qual_ide
   let clause keyword (spec : Stmt.spec) =
     let form_loc = Expr.to_loc spec.spec_form in
     Option.bind
-      (Loc.source_content (Loc.file_name form_loc))
+      (Diagnostics.source_content diagnostics (Loc.file_name form_loc))
       ~f:(fun content ->
         (* A clause with triggers starts at the brace before the first one. *)
         let span_start =
@@ -162,13 +166,13 @@ let record_inherited_contract ~diagnostics ~(member : ident) ~(source : qual_ide
               in
               Some { Diagnostics.Annotations.keyword; text; clause_loc = form_loc }))
   in
-  let opens_clause =
-    Option.bind orig_decl.call_decl_opens ~f:(fun clause ->
-        let clause_loc = clause.opens_loc in
+  let bound_clause =
+    Option.bind (Callable.opens_clause orig_decl) ~f:(fun clause ->
+        let clause_loc = clause.bound_loc in
         Option.map
-          (Loc.source_content (Loc.file_name clause_loc))
+          (Diagnostics.source_content diagnostics (Loc.file_name clause_loc))
           ~f:(fun content ->
-            let exprs = List.concat_map clause.opens_entries ~f:snd in
+            let exprs = List.concat_map clause.bound_entries ~f:snd in
             let text =
               renamed_clause_text ~content
                 ~span_start:(Loc.start_index clause_loc + String.length "opens")
@@ -180,7 +184,7 @@ let record_inherited_contract ~diagnostics ~(member : ident) ~(source : qual_ide
   let clauses =
     List.filter_map orig_decl.call_decl_precond ~f:(clause "requires")
     @ List.filter_map orig_decl.call_decl_postcond ~f:(clause "ensures")
-    @ Option.to_list opens_clause
+    @ Option.to_list bound_clause
   in
   if not (List.is_empty clauses) then
     Diagnostics.record_annotation diagnostics

@@ -486,11 +486,12 @@ let check_implements_callable (call_def : Callable.t) (orig_call_def : Callable.
         Expr.mk_app ~typ:Type.bool (Var name) args
       in
       match
-        (call_def.call_decl.call_decl_opens, orig_call_def.call_decl.call_decl_opens)
+        ( Callable.opens_clause call_def.call_decl,
+          Callable.opens_clause orig_call_def.call_decl )
       with
       | None, None -> Rewriter.return true
       | Some mask, Some orig_mask -> (
-          match List.zip (Callable.opens_mask mask) (Callable.opens_mask orig_mask) with
+          match List.zip (Callable.bound_mask mask) (Callable.bound_mask orig_mask) with
           | Ok pairs ->
               Rewriter.List.fold_left pairs ~init:true ~f:(fun equal (entry, original) ->
                   if not equal then Rewriter.return false
@@ -976,7 +977,27 @@ let inherit_member ~(m : Module.t) ~parent_status ~parent_is_interface parent_id
     | symbol -> symbol
   in
   Logs.debug (fun m -> m !"Inheriting symbol %{Ident}" parent_symbol_ident);
-  match un_free_inherited ~m ~parent_status ~parent_is_interface parent_symbol with
+  let symbol = un_free_inherited ~m ~parent_status ~parent_is_interface parent_symbol in
+  let symbol =
+    match symbol with
+    | CallDef
+        ({
+           call_decl =
+             { call_decl_ancestry = Some ({ ancestry_kind = Within; _ } as clause); _ };
+           _;
+         } as call)
+      when not m.mod_decl.mod_decl_is_interface ->
+        (* A defined invariant keeps its definition, so its ancestor is its parent. The
+           parent's contract retains the promise to check against the implementation. *)
+        let ancestry =
+          if Callable.is_abstract call then None
+          else Some { clause with ancestry_kind = Parent }
+        in
+        Module.CallDef
+          { call with call_decl = { call.call_decl with call_decl_ancestry = ancestry } }
+    | _ -> symbol
+  in
+  match symbol with
   | CallDef call when not @@ Callable.is_abstract call ->
       Module.CallDef (Callable.set_machine_free call)
   | CallDef ({ call_decl = { call_decl_kind = Lemma; _ }; _ } as call)
@@ -1005,6 +1026,53 @@ let inherit_member ~(m : Module.t) ~parent_status ~parent_is_interface parent_id
         (Module.set_machine_free
            { mod_def with mod_def = remove_generated_datatype_members mod_def.mod_def })
   | symbol -> annotate_error_msg symbol
+
+let inherit_within expected = function
+  | Module.SymbolDef
+      (CallDef
+         ({
+            call_decl =
+              {
+                call_decl_kind = Invariant;
+                call_decl_ancestry = None;
+                call_decl_alias = None;
+                _;
+              } as decl;
+            _;
+          } as call)) as instr ->
+      begin match Map.find expected decl.call_decl_name with
+      | Some
+          (Module.CallDef
+             {
+               call_decl =
+                 {
+                   call_decl_ancestry = Some ({ ancestry_kind = Within; _ } as clause);
+                   call_decl_formals;
+                   _;
+                 };
+               _;
+             }) ->
+          begin match List.zip call_decl_formals decl.call_decl_formals with
+          | Ok pairs ->
+              let map = Expr.formal_renaming pairs in
+              let clause =
+                {
+                  clause with
+                  ancestry_args =
+                    List.map clause.ancestry_args ~f:(fun e -> Expr.alpha_renaming e map);
+                }
+              in
+              Module.SymbolDef
+                (CallDef
+                   {
+                     call with
+                     call_decl = { decl with call_decl_ancestry = Some clause };
+                   })
+          | Unequal_lengths -> instr
+          end
+      | _ -> instr
+      end
+  | instr -> instr
 
 (** Merges the members of the interface [parent_ident] into [mod_def], the members of [m]:
     a member of the interface that [m] neither defines nor has as a formal is inherited.
@@ -1053,6 +1121,10 @@ let merge_defs ~(m : Module.t) ~(mod_qual_ident : qual_ident)
     List.filter mod_def ~f:(function
       | Module.SymbolDef (ConstrDef _ | DestrDef _) -> false
       | _ -> true)
+  in
+  let fixed =
+    if m.mod_decl.mod_decl_is_interface then List.map fixed ~f:(inherit_within to_check)
+    else fixed
   in
   Rewriter.return
     ( order_members ~mod_qual_ident ~fixed ~others:(List.map inherited ~f:inherited_instr),
@@ -1262,14 +1334,14 @@ let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_iden
 
 (** A callable that omits its contract -- no `requires`, `ensures` or `opens` -- inherits
     the contract of the interface member it implements, with the interface's parameters
-    renamed to its own. *)
+    renamed to its own. A [depends] bound is not inherited: the realization checks it. *)
 let inherit_contract ~diagnostics
     (symbols_to_check : (qual_ident * Module.symbol) Map.M(Ident).t) = function
   | Module.SymbolDef (CallDef ({ call_decl; _ } as call)) as instr
     when Option.is_none call_decl.call_decl_alias
          && List.is_empty call_decl.call_decl_precond
          && List.is_empty call_decl.call_decl_postcond
-         && Option.is_none call_decl.call_decl_opens -> (
+         && Option.is_none call_decl.call_decl_bound -> (
       match Map.find symbols_to_check call_decl.call_decl_name with
       | Some (interface_ident, (CallDef orig as orig_symbol)) -> (
           let orig_decl = orig.call_decl in
@@ -1281,14 +1353,7 @@ let inherit_contract ~diagnostics
           match renaming with
           | Unequal_lengths -> instr
           | Ok pairs ->
-              let map =
-                List.fold pairs
-                  ~init:(Map.empty (module QualIdent))
-                  ~f:(fun map ((orig_var : var_decl), (var : var_decl)) ->
-                    Map.set map
-                      ~key:(QualIdent.from_ident orig_var.var_name)
-                      ~data:(Expr.from_var_decl var))
-              in
+              let map = Expr.formal_renaming pairs in
               let rename e = Expr.alpha_renaming e map in
               let inherited =
                 ( Error.RelatedLoc,
@@ -1311,12 +1376,12 @@ let inherit_contract ~diagnostics
                   call_decl_precond = List.map orig_decl.call_decl_precond ~f:inherit_spec;
                   call_decl_postcond =
                     List.map orig_decl.call_decl_postcond ~f:inherit_spec;
-                  call_decl_opens =
-                    Option.map orig_decl.call_decl_opens ~f:(fun clause ->
+                  call_decl_bound =
+                    Option.map (Callable.opens_clause orig_decl) ~f:(fun clause ->
                         {
                           clause with
-                          opens_entries =
-                            List.map clause.opens_entries ~f:(fun (head, args) ->
+                          bound_entries =
+                            List.map clause.bound_entries ~f:(fun (head, args) ->
                                 (head, List.map args ~f:rename));
                         });
                 }

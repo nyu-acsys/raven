@@ -1,0 +1,14 @@
+inv item(owner: Int, implicit ghost key: Int) { true }
+lemma need(owner: Int, key: Int)
+  requires item(owner, key)
+  opens item(owner, key)
+{
+  unfold item(owner, key);
+  fold item(owner, key);
+}
+lemma bad(owner: Int, key: Int)
+  opens {}
+{
+  fold item(owner);
+  need(owner, key);
+}

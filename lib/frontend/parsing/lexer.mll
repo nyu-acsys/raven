@@ -170,7 +170,8 @@ let advance st (tok : Parser.token) =
     | LBRACE when st.next_brace_is_trigger -> Trigger :: st.scopes
     | LBRACE ->
         (match st.scopes with
-         | Loop_header :: rest when st.last_token_can_end_stmt ->
+         | Loop_header :: rest
+           when st.last_token_can_end_stmt && st.next_brace_kinds = [] ->
              (* A complete-looking token (the last invariant's expression, or the bare condition
                 if there are none) just precedes this brace: it's the loop's own body. A trigger
                 pattern nested in an invariant's expression is never preceded by such a token (::
@@ -226,7 +227,7 @@ let advance st (tok : Parser.token) =
     | RBRACE, (depth, _) :: rest when depth = List.length st.scopes -> rest
     | _ -> st.brace_kind_restorations
   in
-  let next_brace_is_opens = match tok with OPENS -> true | _ -> false in
+  let next_brace_is_opens = match tok with OPENS | DEPENDS -> true | _ -> false in
   let next_brace_is_trigger =
     match tok, st.scopes with
     | COLONCOLON, _ -> st.in_quantifier_vars
@@ -265,7 +266,7 @@ let advance st (tok : Parser.token) =
   in
   let last_token_can_end_stmt =
     match tok with
-    | IDENT _ | UNDERSCORE | MODIDENT _ | CONSTVAL _ | CONSTTYPE _ | ATOMICTOKEN
+    | IDENT _ | UNDERSCORE | WITHIN | DEPENDS | MODIDENT _ | CONSTVAL _ | CONSTTYPE _ | ATOMICTOKEN
     | STRINGVAL _ | HASH _
     | RPAREN | RBRACKET | RBRACEPIPE | RBRACKETPIPE | ENUM_CLOSE _ | RENUMBRACE
     (* Unlike every other keyword here, `return` can legally end a statement
@@ -273,6 +274,7 @@ let advance st (tok : Parser.token) =
        clause. A `return` with values is always followed by at least one more
        token before the next newline, so this can't misfire on those. *)
     | RETURN -> true
+    | RBRACE when (match st.scopes with Group :: _ -> true | _ -> false) -> true
     (* The closing '>' of [AtomicToken<P>] -- see [in_atomic_token_brackets]'s doc comment.
        [st], not the freshly-computed [in_atomic_token_brackets] above, since what matters is
        whether *this* '>' was the closing one, i.e. the state as of just before it. *)

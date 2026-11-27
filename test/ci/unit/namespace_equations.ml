@@ -12,7 +12,7 @@ let own name args = Callable.invariant_mask_entry (qi name) args
 let dependencies name args = (Callable.MaskHead.Dependencies (qi name), args)
 
 let declaration ?(formals = []) name definition : NamespaceContract.namespace_decl =
-  { name = qi name; formals; definition }
+  { name = qi name; formals; definition; ancestry = Root; alias = None }
 
 let expect actual expected =
   assert (Callable.mask_equal actual (Callable.mask_canon expected))
@@ -117,7 +117,7 @@ let test_recursive_widening () =
   assert (Poly.equal (Equations.declarations equations) declarations);
   match (List.hd_exn (Equations.declarations equations)).definition with
   | Defined body -> expect body original
-  | Abstract -> assert false
+  | Abstract | Bounded _ -> assert false
 
 let test_recursive_opaque_leaf () =
   let equations =

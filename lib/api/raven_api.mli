@@ -119,6 +119,10 @@ module Expr : sig
   val set_compr : loc:Loc.t -> Var.t -> t -> t
   (** The set comprehension [{x: T :: e}]. *)
 
+  val compr : loc:Loc.t -> Var.t -> t -> t
+  (** The comprehension [{x: T :: e}]: a set if [e] is a Boolean, else the map from each
+      [x] to [e]. *)
+
   val map_literal : loc:Loc.t -> (t * t) list -> t -> t
   (** The map literal [{k1 := v1, ..., else default}]. *)
 
@@ -220,6 +224,11 @@ module Stmt : sig
   val assume : loc:Loc.t -> Spec.t -> t
   val inhale : loc:Loc.t -> Spec.t -> t
   val exhale : loc:Loc.t -> Spec.t -> t
+
+  val cut : loc:Loc.t -> Spec.t -> t
+  (** [cut P]: proves [P], and verifies the rest from [P] and the values of variables
+      alone. *)
+
   val return : loc:Loc.t -> Expr.t list -> t
 
   val fold : loc:Loc.t -> ?witnesses:(Ident.t * Expr.t) list -> Name.t -> Expr.t list -> t
@@ -239,6 +248,14 @@ module Stmt : sig
       [e]'s data type, or end with [Default]. *)
 
   val while_ : loc:Loc.t -> ?invariants:Spec.t list -> Expr.t -> t list -> t
+end
+
+(** One-shot prophecy resources, interpreted by Raven's prophecy extension. *)
+module Prophecy : sig
+  val type_ : loc:Loc.t -> Type.t -> Type.t
+  val owns : loc:Loc.t -> Expr.t -> Expr.t -> Expr.t
+  val create : loc:Loc.t -> Type.t -> Expr.t -> Expr.t -> Stmt.t
+  val resolve : loc:Loc.t -> Expr.t -> Expr.t -> Stmt.t
 end
 
 module Callable : sig
@@ -277,12 +294,16 @@ module Callable : sig
     ?requires:Spec.t list ->
     ?ensures:Spec.t list ->
     ?decreases:Expr.t list ->
+    ?within:Name.t * Expr.t list ->
+    ?depends:Loc.t * (Name.t * Expr.t list) list ->
     Ident.t ->
     Expr.t option ->
     t
   (** The function, predicate or invariant [name] and its body; [inline] has its uses
       replaced by its body; [decreases] is the measure that its recursive calls decrease.
-  *)
+      [within] gives an invariant's ancestor: its parent in a concrete module, a promise
+      in an interface. [depends] bounds the invariants a predicate or invariant without a
+      body depends on, like [opens] of {!proc}. *)
 
   type resource_kind = Predicate | Invariant
 
@@ -493,6 +514,7 @@ val verify :
   ?includes:string list ->
   ?cache_dir:string ->
   ?on_progress:(Progress.t -> unit) ->
+  ?select_member:(Progress.check -> bool) ->
   Program.t ->
   result
 (** Type-checks and verifies [program], together with Raven's library and the files
@@ -500,4 +522,12 @@ val verify :
     persistent cache of successful verification fingerprints. [on_progress] receives a
     [Typed] snapshot after successful type checking, [Scheduled] once the remaining checks
     are known, [Progress] after each procedure finishes, and [Final] with all recorded
-    outcomes and final diagnostics, including after an aborted run. *)
+    outcomes and final diagnostics, including after an aborted run.
+
+    [select_member] selects backend procedures and lemmas to verify, including generated
+    proof obligations. It receives their progress descriptor with outcome [Pending], never
+    a named assertion; all assertions within a selected procedure are checked. The
+    predicate must be stable across calls. Unselected procedures are neither scheduled nor
+    recorded as verified or cached. The complete program still undergoes frontend checks.
+    Callers can select by backend name even when locations are [Loc.none], or attribute
+    locations to their own source members to include generated obligations. *)

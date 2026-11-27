@@ -200,6 +200,35 @@ let elaborate_cu ~ext_hooks ~diagnostics config tbl (md : Ast.Module.t) front_en
           "%a\n" printers.pr_module md);
     (tbl, Some md)
 
+(** [md] without the bodies of its procedures and lemmas that are not checked: those
+    outside the [focus], or that [select_member] does not select. They are used by their
+    contracts, so their bodies need not be lowered. *)
+let drop_unchecked_bodies ?focus ?select_member (md : Ast.Module.t) =
+  let checked path (call_decl : Ast.Callable.call_decl) =
+    let proc =
+      Backend.Checker.procedure
+        (Ast.QualIdent.from_list (List.rev (call_decl.call_decl_name :: path)))
+        call_decl
+    in
+    Option.for_all select_member ~f:(fun select -> select proc)
+    && Option.for_all focus ~f:(fun (focus : Backend.CheckerContext.focus) ->
+        List.exists focus.extents ~f:(fun extent ->
+            Diagnostics.MemberStatus.contains extent proc.proc_loc))
+  in
+  let rec drop path (md : Ast.Module.t) : Ast.Module.t =
+    let path = md.mod_decl.mod_decl_name :: path in
+    let instr : Ast.Module.module_instr -> Ast.Module.module_instr = function
+      | SymbolDef
+          (CallDef ({ call_def = ProcDef { proc_body = Some _ }; call_decl } as callable))
+        when not (checked path call_decl) ->
+          SymbolDef (CallDef { callable with call_def = ProcDef { proc_body = None } })
+      | SymbolDef (ModDef m) -> SymbolDef (ModDef (drop path m))
+      | instr -> instr
+    in
+    { md with mod_def = List.map md.mod_def ~f:instr }
+  in
+  drop [] md
+
 (** Lowers an elaborated compilation unit (see [Lowering.lower_module]), returning it
     together with its lemma call graph. This is kept separate from the actual backend/SMT
     checking ([backend_check_cu] below) so that the full set of tuple sorts a program
@@ -481,8 +510,8 @@ let parse_program ?(free = false) ~includes ~diagnostics config file_names : Ast
     [library_snapshots], the type-checked library is kept there and reused by later runs.
     [cancellation] is how the solver learns that the run is cancelled. The sites of the
     library's includes are recorded in [includes]. *)
-let check_program ?on_typed ?on_scheduled ?on_progress ?library_snapshots ?cancellation
-    ~includes ~extension_mode ~diagnostics config (md : Ast.Module.t) =
+let check_program ?on_typed ?on_scheduled ?on_progress ?select_member ?library_snapshots
+    ?cancellation ~includes ~extension_mode ~diagnostics config (md : Ast.Module.t) =
   (* Variable which controls whether the
     - `front_end_output.log` (the elaborated program)
     - `lowered_output.log` (the lowered program)
@@ -626,8 +655,17 @@ let check_program ?on_typed ?on_scheduled ?on_progress ?library_snapshots ?cance
     List.fold_map typed ~init:tbl ~f:(fun tbl md ->
         elaborate_cu ~ext_hooks ~diagnostics config tbl md front_end_out_chan)
   in
+  (* Of the program, only what is checked has its bodies lowered. *)
+  let elaborated =
+    let elaborated = List.filter_opt elaborated in
+    if Option.is_none focus && Option.is_none select_member then elaborated
+    else
+      let last = List.length elaborated - 1 in
+      List.mapi elaborated ~f:(fun i md ->
+          if i = last then drop_unchecked_bodies ?focus ?select_member md else md)
+  in
   let tbl, processed =
-    List.fold_map (List.filter_opt elaborated) ~init:tbl ~f:(fun tbl md ->
+    List.fold_map elaborated ~init:tbl ~f:(fun tbl md ->
         lower_cu ~ext_hooks ~diagnostics tbl md lowered_out_chan)
   in
 
@@ -655,9 +693,9 @@ let check_program ?on_typed ?on_scheduled ?on_progress ?library_snapshots ?cance
       in
       let cache = Option.map config.cache_dir ~f:Backend.VerificationCache.load in
       let context =
-        Backend.CheckerContext.create ?focus ~counterexamples:config.counterexamples
-          ~renew_solver:(not config.shared_solver) ?fingerprinting ?cache ?on_scheduled
-          ?on_progress ~diagnostics solver_session
+        Backend.CheckerContext.create ?focus ?select_member
+          ~counterexamples:config.counterexamples ~renew_solver:(not config.shared_solver)
+          ?fingerprinting ?cache ?on_scheduled ?on_progress ~diagnostics solver_session
       in
       let (_ : Backend.CheckerContext.context) = backend_check_cu tbl context processed in
       ()

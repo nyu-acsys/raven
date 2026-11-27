@@ -1,0 +1,6 @@
+interface I { inv item(x: Int) }
+module Local {
+  inv root(x: Int) { child(x) }
+  inv child(x: Int) within root(x) { true }
+}
+module Export: I { inv item(x: Int) = Local.root }

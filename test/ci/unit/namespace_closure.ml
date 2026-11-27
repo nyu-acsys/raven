@@ -151,6 +151,56 @@ let test_prior_compilation_unit () =
              (Callable.mask_head_name head)
              (QualIdent.from_list [ id "Previous"; id "wrapper" ]))))
 
+let test_imported_ancestry_reference () =
+  let namespace : NamespaceContract.namespace_decl =
+    {
+      name = qi [ "hidden" ];
+      formals = [];
+      definition = Abstract;
+      alias = None;
+      ancestry =
+        Declared
+          {
+            ancestry_kind = Parent;
+            ancestry_target = qi [ "root" ];
+            ancestry_args = [];
+            ancestry_loc = Util.Loc.dummy;
+          };
+    }
+  in
+  let inner =
+    NamespaceContract.Module
+      { namespaces = [ namespace ]; callables = []; modules = []; separation = [] }
+  in
+  let outer =
+    NamespaceContract.Module
+      {
+        namespaces = [];
+        callables = [];
+        modules = [ (id "Hidden", NamespaceContract.reference inner) ];
+        separation = [];
+      }
+  in
+  let imported =
+    Module.ModDef
+      {
+        mod_decl =
+          {
+            Module.empty_decl with
+            mod_decl_name = id "Imported";
+            mod_decl_mask_contract = Some (NamespaceContract.reference outer);
+          };
+        mod_def = [];
+      }
+  in
+  let table =
+    SymbolTbl.add_symbol ~diagnostics:(Util.Diagnostics.create ()) imported
+      (SymbolTbl.create ())
+  in
+  let _, (namespaces, _) = Rewriter.eval (Closure.imported_summaries ()) table in
+  let imported = Map.find_exn namespaces namespace.name in
+  assert (NamespaceContract.equal_ancestry imported.ancestry namespace.ancestry)
+
 let test_prior_instantiated_compilation_unit () =
   let _, tbl, library =
     parse ~root:(id "Previous")
@@ -183,11 +233,93 @@ let rec assertions statement =
   | Loop loop -> assertions loop.loop_prebody @ assertions loop.loop_postbody
   | Basic _ | StmtExt _ -> []
 
+let test_prior_exact_grant_compilation_unit () =
+  let _, tbl, library =
+    parse ~root:(id "Previous")
+      "inv root(x: Int) { child(x) }\n\
+       inv child(x: Int) within root(x) { true }\n\
+       lemma wrap(ghost x: Int)\n\
+       requires child(x) ensures root(x) opens {} { fold root(x); }"
+  in
+  let tbl, frozen = Rewriter.eval (Closure.elaborate library) tbl in
+  let wrap = call (module_summary (contract frozen)) "wrap" in
+  let previous_root = QualIdent.from_list [ id "Previous"; id "root" ] in
+  let entry =
+    Callable.invariant_mask_entry previous_root
+      [ Expr.from_var_decl (List.hd_exn wrap.formals) ]
+  in
+  let contains mask =
+    List.exists mask ~f:(fun candidate -> Callable.mask_equal [ candidate ] [ entry ])
+  in
+  assert (contains wrap.exact_grants);
+  assert (not (contains wrap.grants));
+  let _, tbl, typed =
+    parse ~tbl
+      "lemma use(ghost x: Int) requires Previous.child(x) opens {} {\n\
+       Previous.wrap(x); unfold Previous.root(x); fold Previous.root(x); }"
+  in
+  let _, frozen = Rewriter.eval (Closure.elaborate typed) tbl in
+  let use = call (module_summary (contract frozen)) "use" in
+  assert (List.is_empty use.requires)
+
+let test_prior_latent_au_dependency () =
+  let _, tbl, library =
+    parse ~root:(id "Previous")
+      "inv root(x: Int) { true }\n\
+       inv child(x: Int) within root(x) { true }\n\
+       free proc host(x: Int)\n\
+       atomic requires child(x) atomic ensures child(x) opens child(x)\n\
+       pred stored(token: AtomicToken<host>, x: Int) { au<host>(token, x) }\n\
+       lemma step(ghost x: Int) requires root(x) ensures root(x) opens root(x) {\n\
+       unfold root(x); fold root(x); }"
+  in
+  let tbl, frozen = Rewriter.eval (Closure.elaborate library) tbl in
+  let summary = module_summary (contract frozen) in
+  let previous name = QualIdent.from_list [ id "Previous"; id name ] in
+  let stored =
+    List.find_exn summary.namespaces ~f:(fun declaration ->
+        QualIdent.equal declaration.NamespaceContract.name (previous "stored"))
+  in
+  (* The token exposes what [host]'s atomic precondition may contain. *)
+  begin match stored.definition with
+  | Defined body ->
+      assert (
+        List.exists body ~f:(fun (head, _) ->
+            Callable.equal_mask_head head (Invariant (previous "child"))))
+  | Abstract | Bounded _ -> assert false
+  end;
+  let _, tbl, typed =
+    parse ~tbl
+      "lemma bad(token: AtomicToken<Previous.host>, ghost x: Int)\n\
+       requires Previous.stored(token, x) ensures Previous.stored(token, x) opens {} {\n\
+       unfold Previous.stored(token, x); fold Previous.root(x); Previous.step(x);\n\
+       openAU(token, x); unfold Previous.child(x); fold Previous.child(x);\n\
+       abortAU(token, x); fold Previous.stored(token, x); }"
+  in
+  let validate =
+    let open Rewriter.Syntax in
+    let* collected = Closure.collect typed in
+    let* draft = Closure.close collected in
+    let* frozen = Closure.freeze draft collected.program in
+    Frontend.NamespaceRealization.validate ~draft frozen
+  in
+  match Rewriter.eval validate tbl with
+  | _ -> assert false
+  | exception Util.Error.Msg errors ->
+      (* The fresh root overlaps what the token exposes, so it gives no authority. *)
+      assert (
+        List.exists errors ~f:(function
+          | Util.Error.Type, _, message ->
+              String.is_substring message
+                ~substring:"Opening this atomic update requires input authority"
+          | _ -> false))
+
 let test_imported_namespace_merge_aligns_formals () =
+  let open NamespaceContract in
   let x = Type.mk_var_decl ~loc:Util.Loc.dummy (id "x") Type.int in
   let y = Type.mk_var_decl ~loc:Util.Loc.dummy (id "y") Type.int in
-  let declaration formal definition : NamespaceContract.namespace_decl =
-    { name = qi [ "shared" ]; formals = [ formal ]; definition }
+  let declaration ?(ancestry = Root) formal definition : namespace_decl =
+    { name = qi [ "shared" ]; formals = [ formal ]; definition; ancestry; alias = None }
   in
   let left = (own [ "left" ], [ Expr.from_var_decl x ]) in
   let right_with_y = (own [ "right" ], [ Expr.from_var_decl y ]) in
@@ -198,11 +330,47 @@ let test_imported_namespace_merge_aligns_formals () =
   let expect merged entries =
     match merged.NamespaceContract.definition with
     | Defined body -> assert (Callable.mask_equal body entries)
-    | Abstract -> assert false
+    | Abstract | Bounded _ -> assert false
   in
-  expect (Closure.merge_imported_namespace defined other_defined) [ left; right_with_x ];
-  expect (Closure.merge_imported_namespace defined (declaration y Abstract)) [ left ];
-  expect (Closure.merge_imported_namespace abstract other_defined) [ right_with_x ]
+  expect
+    (NamespaceContract.merge_declarations defined other_defined)
+    [ left; right_with_x ];
+  expect (NamespaceContract.merge_declarations defined (declaration y Abstract)) [ left ];
+  expect (NamespaceContract.merge_declarations abstract other_defined) [ right_with_x ];
+  let parent formal =
+    NamespaceContract.Declared
+      {
+        ancestry_kind = Within;
+        ancestry_target = qi [ "outer" ];
+        ancestry_args = [ Expr.from_var_decl formal ];
+        ancestry_loc = Util.Loc.dummy;
+      }
+  in
+  let left = { defined with ancestry = parent x } in
+  let right = { other_defined with ancestry = parent y } in
+  let merged = NamespaceContract.merge_declarations left right in
+  assert (compare_ancestry merged.ancestry left.ancestry = 0);
+  match NamespaceContract.merge_declarations left other_defined with
+  | _ -> assert false
+  | exception Util.Error.Msg [ (Util.Error.Internal, _, message) ] ->
+      assert (String.is_substring message ~substring:"conflicting ancestry")
+
+let test_imported_namespace_identity_metadata () =
+  let open NamespaceContract in
+  let declaration : namespace_decl =
+    {
+      name = qi [ "exported" ];
+      formals = [];
+      definition = Abstract;
+      ancestry = Root;
+      alias = Some (qi [ "target" ]);
+    }
+  in
+  let different = { declaration with alias = Some (qi [ "other" ]) } in
+  match NamespaceContract.merge_declarations declaration different with
+  | _ -> assert false
+  | exception Util.Error.Msg [ (Util.Error.Internal, _, message) ] ->
+      assert (String.is_substring message ~substring:"conflicting aliases")
 
 let test_imported_projection_preserves_concrete_namespace () =
   let _, tbl, library =
@@ -222,7 +390,7 @@ let test_imported_projection_preserves_concrete_namespace () =
     (Map.find_exn collected.draft.namespaces actual_p).NamespaceContract.definition
   with
   | Defined [] -> ()
-  | Abstract | Defined _ -> assert false
+  | Abstract | Bounded _ | Defined _ -> assert false
   end;
   let use = Map.find_exn collected.analyses (qi [ "use" ]) in
   let body =
@@ -310,7 +478,7 @@ let test_realization_preserves_bodies () =
       (Map.empty (module QualIdent))
   in
   let before = bodies frozen in
-  let _, validated =
+  let _, (validated, _) =
     Rewriter.eval (Frontend.NamespaceRealization.validate ~draft frozen) tbl
   in
   assert (Map.equal phys_equal before (bodies validated))
@@ -332,7 +500,7 @@ let test_conditional_interface_requirements () =
   assert (not (List.is_empty conditional.separation));
   ignore
     (Rewriter.eval (Frontend.NamespaceRealization.validate ~draft frozen) tbl
-      : SymbolTbl.t * Module.t)
+      : SymbolTbl.t * (Module.t * Frontend.NamespaceRealization.obligation list))
 
 let test_standard_library_headers () =
   let ext_hooks = Ext.to_ext_hooks (Ext.module_map Ext.DefaultExt) in
@@ -438,8 +606,12 @@ let () =
     test_reflexive_instantiation ();
     test_nested_and_unit_signatures ();
     test_prior_compilation_unit ();
+    test_imported_ancestry_reference ();
     test_prior_instantiated_compilation_unit ();
+    test_prior_exact_grant_compilation_unit ();
+    test_prior_latent_au_dependency ();
     test_imported_namespace_merge_aligns_formals ();
+    test_imported_namespace_identity_metadata ();
     test_imported_projection_preserves_concrete_namespace ();
     test_module_binding_signatures ();
     test_forward_header_dependency ();

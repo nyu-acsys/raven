@@ -148,6 +148,111 @@ let test_scope_cleanup_failure ~body_fails =
         | _ -> false);
       assert (match read_response session with Error Session_closed -> true | _ -> false))
 
+(* What the pipe [fd] holds, read up to a marker written behind it through [writer]:
+   reads that would not block need sockets on Windows. *)
+let drain ~writer fd =
+  let marker = "; drained\n" in
+  write_all writer marker 0;
+  let buffer = Bytes.create 65536 in
+  let rec go acc =
+    match String.substr_index acc ~pattern:marker with
+    | Some index -> String.prefix acc index
+    | None -> (
+        match Unix.read fd buffer 0 (Bytes.length buffer) with
+        | 0 -> acc
+        | count -> go (acc ^ Bytes.To_string.sub buffer ~pos:0 ~len:count))
+  in
+  go ""
+
+(* A reset that keeps the commands of some symbols only gives the solver the others
+   again before a later query, and holds back the commands after the check it was for
+   until then. *)
+let test_pruned_renew () =
+  let query_read, query_write = Unix.pipe ~cloexec:true () in
+  let response_read, response_write = Unix.pipe ~cloexec:true () in
+  let session =
+    of_owned_descriptors ~response_timeout:(Some 1.) ~input:response_read
+      ~output:query_write ()
+  in
+  Stdlib.Fun.protect
+    ~finally:(fun () ->
+      stop session;
+      best_effort (fun () -> Unix.close response_write);
+      best_effort (fun () -> Unix.close query_read))
+    (fun () ->
+      let symbol name = Ast.QualIdent.from_ident (Ast.Ident.make Util.Loc.dummy name 0) in
+      let declare name =
+        with_owners session
+          [ symbol name ]
+          ~f:(fun () -> write session (Smt.SmtLibAst.mk_declare_sort (symbol name) 0))
+      in
+      let has sent name = String.is_substring sent ~substring:("." ^ name ^ " 0)") in
+      declare "A";
+      declare "B";
+      ignore (drain ~writer:query_write query_read);
+      renew ~keep:(Ast.QualIdent.equal (symbol "A")) session;
+      let sent = drain ~writer:query_write query_read in
+      assert (has sent "A" && not (has sent "B"));
+      with_scope session ~f:(fun () -> declare "D");
+      declare "C";
+      assert (not (has (drain ~writer:query_write query_read) "C"));
+      write_all response_write "sat\n" 0;
+      ignore (check_sat session);
+      let sent = drain ~writer:query_write query_read in
+      assert (has sent "A" && has sent "B" && has sent "C" && not (has sent "D")))
+
+(* The commands written in a branch's scope are returned, and writing them again puts
+   them in the enclosing scope, which a reset then replays. *)
+let test_branch_commands () =
+  let query_read, query_write = Unix.pipe ~cloexec:true () in
+  let response_read, response_write = Unix.pipe ~cloexec:true () in
+  let session =
+    of_owned_descriptors ~response_timeout:(Some 1.) ~input:response_read
+      ~output:query_write ()
+  in
+  Stdlib.Fun.protect
+    ~finally:(fun () ->
+      stop session;
+      best_effort (fun () -> Unix.close response_write);
+      best_effort (fun () -> Unix.close query_read))
+    (fun () ->
+      let symbol name = Ast.QualIdent.from_ident (Ast.Ident.make Util.Loc.dummy name 0) in
+      let declare name = write session (Smt.SmtLibAst.mk_declare_sort (symbol name) 0) in
+      let has sent name = String.is_substring sent ~substring:("." ^ name ^ " 0)") in
+      let (), commands = scoped_commands session ~f:(fun () -> declare "A") in
+      assert (List.length commands = 1);
+      ignore (drain ~writer:query_write query_read);
+      rewrite session commands;
+      assert (has (drain ~writer:query_write query_read) "A");
+      renew session;
+      assert (has (drain ~writer:query_write query_read) "A"))
+
+(* A validity check assumes the negated goal under a fresh tag instead of in a scope of
+   its own, and reads the answer as before. *)
+let test_tagged_check () =
+  let query_read, query_write = Unix.pipe ~cloexec:true () in
+  let response_read, response_write = Unix.pipe ~cloexec:true () in
+  let session =
+    of_owned_descriptors ~response_timeout:(Some 1.) ~input:response_read
+      ~output:query_write ()
+  in
+  Stdlib.Fun.protect
+    ~finally:(fun () ->
+      stop session;
+      best_effort (fun () -> Unix.close response_write);
+      best_effort (fun () -> Unix.close query_read))
+    (fun () ->
+      write_all response_write "unsat\n" 0;
+      let height = stack_height session in
+      assert (
+        match check_valid session (Ast.Expr.mk_bool true) with
+        | Valid -> true
+        | Invalid | Inconclusive | Timeout -> false);
+      let sent = drain ~writer:query_write query_read in
+      assert (String.is_substring sent ~substring:"(check-sat-assuming (");
+      assert (not (String.is_substring sent ~substring:"(push"));
+      assert (stack_height session = height))
+
 let rec ignore_stdin () =
   ignore (Unix.select [] [] [] 60.);
   ignore_stdin ()
@@ -166,5 +271,8 @@ let () =
     test_forced_stop_and_reap ();
     test_original_error_survives_broken_pipe ();
     test_scope_cleanup_failure ~body_fails:true;
-    test_scope_cleanup_failure ~body_fails:false
+    test_scope_cleanup_failure ~body_fails:false;
+    test_pruned_renew ();
+    test_branch_commands ();
+    test_tagged_check ()
   end

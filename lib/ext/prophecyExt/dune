@@ -1,2 +1,2 @@
 (cram
- (deps %{project_root}/bin/raven.exe prophecyLib.rav))
+ (deps %{bin:raven} prophecyLib.rav))

@@ -80,6 +80,7 @@ const SIDEBAR_LABELS: Record<string, string> = {
   'sec:triggers-revisited': 'Triggers, revisited',
   'sec:inline': 'Inline predicates and functions',
   'sec:assert-with': 'assert ... with',
+  'sec:cut': 'Cutting a long proof',
 
   'sec:ra-definition': 'The definition',
   'sec:ra-interface': 'The interface a custom RA implements',
@@ -102,6 +103,8 @@ const SIDEBAR_LABELS: Record<string, string> = {
   'sec:module-type-arguments': 'Types as interface arguments',
   'sec:module-sealed-views': 'Sealing modules and individual instances',
   'sec:module-checked-views': 'Checked module views',
+  'sec:module-namespace-contracts': 'Invariant masks across modules',
+  'sec:invariant-regions': 'Invariant regions',
   'sec:overload-resolution': 'Choosing a definition',
   'sec:overload-imports': 'Imports and shadowing',
   'sec:overload-symbols': 'Symbolic infix functions',

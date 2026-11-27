@@ -4,12 +4,13 @@ open Util
 
 let rec rewrite_stmt_error_msg call_id (stmt : Stmt.t) : Stmt.t Rewriter.t =
   match stmt.stmt_desc with
-  | Basic (Spec (((Assert | Exhale) as kind), spec)) ->
+  | Basic (Spec (((Assert | Exhale | Cut) as kind), spec)) ->
       let error =
         ( Error.Verification Error.Assertion,
           Expr.to_loc spec.spec_form,
           match kind with
           | Assert -> "This assertion may be violated"
+          | Cut -> "The cut's assertion may not hold"
           | _ -> "This assertion may not hold: insufficient permissions" )
       in
       let spec_error = spec.spec_error @ [ Stmt.mk_const_spec_error error ] in
@@ -72,8 +73,8 @@ let rewrite_callable_error_msg (call : Callable.t) : Callable.t Rewriter.t =
   in
   Callable.{ call_decl; call_def }
 
-(* Eliminate extension binders before substituting the caller's arguments. *)
-let rec normalize_inline_pred_body (expr : expr) =
+(* Eliminate extension binders before substitution and free-variable analysis. *)
+let rec normalize_expr_binders (expr : expr) =
   let open Rewriter.Syntax in
   let* normalized =
     match expr with
@@ -83,17 +84,16 @@ let rec normalize_inline_pred_body (expr : expr) =
     | _ -> Rewriter.return None
   in
   match normalized with
-  | Some expr -> normalize_inline_pred_body expr
+  | Some expr -> normalize_expr_binders expr
   | None ->
       begin match expr with
       | App (constr, args, attr) ->
-          let+ args = Rewriter.List.map args ~f:normalize_inline_pred_body in
+          let+ args = Rewriter.List.map args ~f:normalize_expr_binders in
           Expr.App (constr, args, attr)
       | Binder (binder, vars, triggers, body, attr) ->
-          let+ body = normalize_inline_pred_body body
+          let+ body = normalize_expr_binders body
           and+ triggers =
-            Rewriter.List.map triggers
-              ~f:(Rewriter.List.map ~f:normalize_inline_pred_body)
+            Rewriter.List.map triggers ~f:(Rewriter.List.map ~f:normalize_expr_binders)
           in
           Expr.Binder (binder, vars, triggers, body, attr)
       end
@@ -162,10 +162,10 @@ let rec rewrite_inline_preds_expr seen (expr : expr) : expr Rewriter.t =
                   ~data:arg_expr)
           in
 
-          let* body = normalize_inline_pred_body body in
+          let* body = normalize_expr_binders body in
           let new_body =
             Expr.mk_binder ~loc ~typ:(Expr.to_type expr) Exists new_dropped_args
-              (Expr.alpha_renaming body new_renaming_map)
+              (Expr.freshen_bound_vars (Expr.alpha_renaming body new_renaming_map))
           in
           rewrite_inline_preds_expr (Set.add seen qual_ident) new_body
       | _ -> Rewriter.Expr.descend expr ~f:(rewrite_inline_preds_expr seen)
@@ -505,12 +505,12 @@ let rec rewrite_loops (enclosing : Callable.call_decl) (stmt : Stmt.t) : Stmt.t 
       let* ext_hooks = Rewriter.current_ext_hooks in
 
       (* A loop may open whatever its enclosing callable's [opens] clause allows. *)
-      let loop_opens =
-        Option.map enclosing.call_decl_opens ~f:(fun clause ->
+      let loop_bound =
+        Option.map enclosing.call_decl_bound ~f:(fun clause ->
             {
               clause with
-              opens_entries =
-                List.map clause.opens_entries ~f:(fun (head, args) ->
+              bound_entries =
+                List.map clause.bound_entries ~f:(fun (head, args) ->
                     ( head,
                       List.map args ~f:(fun arg ->
                           Expr.alpha_renaming arg loop_arg_renaming_map) ));
@@ -565,7 +565,8 @@ let rec rewrite_loops (enclosing : Callable.call_decl) (stmt : Stmt.t) : Stmt.t 
           ~kind:(if is_ghost_scope then Lemma else Proc)
           ~name:loop_proc_name ~loc:stmt.stmt_loc ~formals:loop_arg_var_decls
           ~returns:loop_ret_var_decls ~locals:loop_local_var_decls ~precond:loop_precond
-          ~postcond:loop_postcond ~contract_ext:loop_contract_ext ?opens:loop_opens ()
+          ~postcond:loop_postcond ~contract_ext:loop_contract_ext ?bound:loop_bound
+          ~is_loop:true ()
       in
 
       let* loop_body =
@@ -1138,7 +1139,7 @@ let rec rewrite_add_func_contract_lemmas (sm : scc_map) (m : Module.t) :
               Callable.mk_call_decl ~kind:Lemma ~name:lemma_ident
                 ~loc:call_decl.call_decl_loc ~formals:call_decl.call_decl_formals
                 ~postcond:lemma_postconds ~status:call_decl.call_decl_status ~is_auto:true
-                ~needs_mask:[] ~grants_mask:[] ()
+                ()
             in
 
             (* A free func's contract is trusted, so its lemma is an axiom. *)
@@ -1175,6 +1176,8 @@ let rec elaborate_phase_1 (m : Module.t) : (Module.t * scc_map) Rewriter.t =
       m1 "Elaboration.elaborate_phase_1: Starting rewrite_callable_error_msg on module %a"
         Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_callables ~f:rewrite_callable_error_msg m in
+
+  let* m = Rewriter.Module.rewrite_expressions ~f:normalize_expr_binders m in
 
   Logs.debug (fun m1 ->
       m1 "Elaboration.elaborate_phase_1: Starting rewrite_compr_expr on module %a"
@@ -1251,7 +1254,18 @@ let elaborate_phase_2 (m : Module.t) : Module.t Rewriter.t =
   let* collected = NamespaceClosure.collect m in
   let* draft = NamespaceClosure.close collected in
   let* m = NamespaceClosure.freeze draft collected.program in
-  NamespaceRealization.validate ~draft m
+  let* m, obligations = NamespaceRealization.validate ~draft m in
+  if List.is_empty obligations then Rewriter.return m
+  else
+    let* () = Rewriter.enter_module m in
+    let* lemmas =
+      Rewriter.List.map obligations ~f:NamespaceRealization.obligation_lemma
+    in
+    let* _ =
+      Rewriter.introduce_typecheck_symbols ~loc:m.mod_decl.mod_decl_loc
+        ~f:Typing.check_symbol lemmas
+    in
+    Rewriter.exit_module m
 
 let rewrites_type_ext (m : Module.t) : Module.t Rewriter.t =
   Logs.debug (fun m1 ->

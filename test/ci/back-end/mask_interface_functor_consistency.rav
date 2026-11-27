@@ -1,4 +1,4 @@
-// Regression test: since `call_decl_needs_mask` is derived purely from
+// Regression test: since the required mask is derived purely from
 // `requires`, an interface's
 // abstract declaration and a functor's concrete instantiation of it are
 // guaranteed the same mask by construction whenever the mask-relevant

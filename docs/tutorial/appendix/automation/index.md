@@ -302,6 +302,36 @@ construct exists. `test/arrays/array_utils.rav` (cited in the comments of `autom
 it in the same way: lemmas proved by induction establish facts about one map at a time, and
 `assert ... with` turns them into the quantified `auto` lemmas the rest of the file relies on.
 
+## Cutting a long proof {#sec:cut}
+
+Everything a procedure's proof establishes stays available to the solver until the procedure
+ends: each later check carries every earlier heap version and assumption. In a long procedure,
+that context can dominate the solver's work even when the rest of the proof needs only a little
+of it. The statement `cut P` summarizes the proof so far by an assertion `P`:
+
+```raven
+proc demoCut(c: Ref, d: Ref)
+  requires own(c.count, 1) && own(d.count, 2)
+{
+  c.count := 2;
+  var before := 3;
+  cut own(c.count, 2);
+  assert before == 3;
+  c.count := before;
+}
+```
+
+Raven checks that `P` holds, exactly like `exhale P`. Then it forgets what it knows, keeping only
+the values of variables, and continues from `P`, like `inhale P`. Here, the rest of the procedure
+still knows that `before` is `3`, and it can write `c.count` because the cut restates its
+ownership. It no longer holds `d.count`: a write to it after the cut fails, even though the
+procedure owns it. A cut never makes a proof unsound, since `P` is checked, but it can make one
+fail, when `P` omits something the rest needs.
+
+A cut inside one arm of a conditional affects only that arm. The other arm, and the code after
+the conditional, keep everything known before it. A cut cannot be made while an invariant or an
+atomic update is open: closing them restores a state from before the cut.
+
 ## Debugging Corner: "my proof just hangs"
 
 This is the one failure mode with no diagnostic to read at all. The status bar spins, or the

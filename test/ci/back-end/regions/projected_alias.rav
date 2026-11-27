@@ -1,0 +1,17 @@
+inv root(x: Int) { child(x, 0) }
+inv child(x: Int, k: Int) within root(x) { true }
+inv middle(k: Int, o: Int) within root(o) { leaf(0, k, o) }
+inv leaf(s: Int, k: Int, o: Int) within middle(k, o) { true }
+lemma root_step(x: Int)
+  requires root(x)
+  ensures root(x)
+  opens root(x)
+{ unfold root(x); fold root(x); }
+lemma bad(x: Int, y: Int)
+  requires leaf(0, 3, x) && root(y)
+  opens root(x), root(y)
+{
+  unfold leaf(0, 3, x);
+  root_step(y);
+  fold leaf(0, 3, x);
+}

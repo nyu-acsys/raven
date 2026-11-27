@@ -1,0 +1,18 @@
+interface Family {
+  inv root(x: Int) { true }
+  lemma create(x: Int)
+    ensures root(x)
+    opens {}
+}
+module Actual: Family {
+  inv child(x: Int) within root(x) { true }
+  lemma create(x: Int) { fold root(x); }
+}
+module Public :> Family = Actual
+lemma use(x: Int)
+  opens {}
+{
+  Public.create(x);
+  unfold Public.root(x);
+  fold Public.root(x);
+}

@@ -1,0 +1,60 @@
+field value: Int
+
+inv fixed(x: Ref, expected: Int) {
+  own(x.value, expected, 1.0)
+}
+
+inv marker(x: Ref) { true }
+inv singleton() { true }
+
+proc retain(x: Ref)
+  requires fixed(x, 7)
+  ensures fixed(x, 7) && fixed(x, 7)
+{
+  exhale fixed(x, 7);
+  assert true;
+  exhale fixed(x, 7);
+}
+
+proc initialized(x: Ref)
+  requires own(x.value, 7, 1.0)
+  ensures fixed(x, 7)
+{
+  fold fixed(x, 7);
+  retain(x);
+  unfold fixed(x, 7);
+  var observed := x.value;
+  assert observed == 7;
+  fold fixed(x, 7);
+  unfold fixed(x, 7);
+  observed := x.value;
+  assert observed == 7;
+  fold fixed(x, 7);
+}
+
+proc empty_key()
+  ensures singleton() && singleton()
+{
+  fold singleton();
+  exhale singleton();
+  exhale singleton();
+}
+
+lemma iterated(nodes: Set[Ref])
+  requires forall x: Ref :: x in nodes ==> marker(x)
+  ensures forall x: Ref :: x in nodes ==> marker(x)
+{
+  exhale forall x: Ref :: x in nodes ==> marker(x);
+  assert true;
+  exhale forall x: Ref :: x in nodes ==> marker(x);
+}
+
+// A fused inhale/exhale must retain the newly introduced persistent fact.
+proc fused_introduction(x: Ref)
+  ensures marker(x)
+{
+  inhale marker(x);
+  exhale marker(x);
+  assert true;
+  exhale marker(x);
+}

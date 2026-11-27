@@ -32,3 +32,9 @@ let au_heap_name2 (callable_name : qual_ident) =
   let callable_name_str = QualIdent.to_string callable_name in
   let callable_name_str = ProgUtils.serialize callable_name_str in
   Ident.make Loc.dummy (callable_name_str ^ "$AU_Heap2") 0
+
+(** Whether [name] is a heap's, rather than a snapshot's or another variable's. *)
+let is_heap (name : Ident.t) =
+  Base.List.exists [ "$Heap"; "$Heap2"; "$AU_Heap"; "$AU_Heap2" ] ~f:(fun suffix ->
+      Base.String.is_suffix name.ident_name ~suffix)
+  && not (Base.String.is_prefix name.ident_name ~prefix:"$abort_frame")

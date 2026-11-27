@@ -1,0 +1,129 @@
+proc operation(input: Int, implicit ghost witness: Int) returns (result: Int)
+  atomic requires witness == input
+  atomic ensures result == witness
+{
+  ghost var token := bindAU();
+  ghost var opened: Int := openAU(token, input);
+  commitAU(token, input, opened);
+  return input;
+}
+
+lemma alias(token: AtomicToken<operation>) returns (copy: AtomicToken<operation>)
+  ensures copy == token
+{
+  copy := token;
+}
+
+lemma equality_from_contract(token: AtomicToken<operation>)
+  requires au<operation>(token, 7)
+  ensures auCommit<operation>(token, 7, 7)
+{
+  ghost var copy := alias(token);
+  ghost var witness: Int := openAU(token, 7);
+  commitAU(copy, 7, witness);
+}
+
+lemma frozen_values(token: AtomicToken<operation>, other: AtomicToken<operation>)
+  requires au<operation>(token, 7)
+  ensures auCommit<operation>(token, 7, 7)
+{
+  ghost var original := token;
+  ghost var current := token;
+  ghost var argument := 7;
+  ghost var witness: Int := openAU(current, argument);
+  current := other;
+  argument := 8;
+  witness := 9;
+  commitAU(original, 7, 7);
+}
+
+lemma frozen_abort(token: AtomicToken<operation>, other: AtomicToken<operation>)
+  requires au<operation>(token, 7)
+  ensures au<operation>(token, 7)
+{
+  ghost var original := token;
+  ghost var current := token;
+  ghost var argument := 7;
+  ghost var witness: Int := openAU(current, argument);
+  current := other;
+  argument := 8;
+  witness := 9;
+  abortAU(original, 7);
+}
+
+lemma branch_values(choice: Bool, left: AtomicToken<operation>, right: AtomicToken<operation>)
+  requires choice ? au<operation>(left, 7) : au<operation>(right, 8)
+  ensures choice ? auCommit<operation>(left, 7, 7) : auCommit<operation>(right, 8, 8)
+{
+  ghost var token: AtomicToken<operation>;
+  ghost var input: Int;
+  if (choice) {
+    ghost var first: Int := openAU(left, 7);
+    token := left;
+    input := 7;
+  } else {
+    ghost var second: Int := openAU(right, 8);
+    token := right;
+    input := 8;
+  }
+  commitAU(token, input, input);
+}
+
+lemma opening_across_block(choice: Bool, token: AtomicToken<operation>)
+  requires au<operation>(token, 7)
+  ensures auCommit<operation>(token, 7, 7)
+{
+  if (choice) {
+    ghost var first: Int := openAU(token, 7);
+  } else {
+    ghost var second: Int := openAU(token, 7);
+  }
+  atomic { assert true; }
+  commitAU(token, 7, 7);
+}
+
+proc tick()
+  atomic requires true
+  atomic ensures true
+{
+  ghost var token := bindAU();
+  openAU(token);
+  commitAU(token, ());
+}
+
+lemma touch() { }
+
+proc frozen_retry(input: Int, implicit ghost witness: Int) returns (result: Int)
+  atomic requires witness == input
+  atomic ensures result == witness
+{
+  ghost var token := bindAU();
+  ghost var argument := input;
+  ghost var opened: Int := openAU(token, argument);
+  argument := input + 1;
+  opened := input + 2;
+  touch();
+  tick();
+  commitAU(token, input, input);
+  return input;
+}
+
+proc successor(input: Int, implicit ghost witness: Int) returns (result: Int)
+  atomic requires witness == input + 1
+  atomic ensures result == witness
+{
+  ghost var token := bindAU();
+  ghost var opened: Int := openAU(token, input);
+  commitAU(token, input, opened);
+  return input + 1;
+}
+
+lemma overlapping_input_output(token: AtomicToken<successor>)
+  requires au<successor>(token, 7)
+  ensures auCommit<successor>(token, 7, 8)
+{
+  ghost var argument := 7;
+  argument := openAU(token, argument);
+  assert argument == 8;
+  commitAU(token, 7, argument);
+}

@@ -1,0 +1,75 @@
+field value: Int
+
+// Clients see only `shared`; an implementation may hide invariants inside it.
+interface Resource {
+  inv shared(x: Ref)
+  lemma touch(x: Ref) requires shared(x) ensures shared(x)
+}
+
+module Actual : Resource {
+  inv shared(x: Ref) { cell(x) }
+  inv cell(x: Ref) within shared(x) { exists v: Int :: own(x.value, v) }
+
+  // The mask `shared(x)`, from the precondition, covers `cell(x)`.
+  lemma touch(x: Ref) {
+    unfold shared(x);
+    unfold cell(x);
+    fold cell(x);
+    fold shared(x);
+  }
+}
+
+module Public :> Resource = Actual
+
+lemma client(x: Ref)
+  requires Public.shared(x)
+  ensures Public.shared(x)
+{
+  Public.touch(x);
+}
+
+// A family promised by an interface: every `leaf(x, k)` lies within `root(x)`.
+interface Family {
+  inv root(x: Int)
+  inv leaf(x: Int, k: Int) within root(x)
+}
+
+module Tree : Family {
+  inv root(x: Int) { branch(x) }
+  inv branch(x: Int) within root(x) { true }
+  inv leaf(x: Int, k: Int) within branch(x) { true }
+}
+
+lemma visit(x: Int, k: Int)
+  requires Tree.leaf(x, k)
+  ensures Tree.leaf(x, k)
+  opens Tree.root(x)
+{
+  unfold Tree.leaf(x, k);
+  fold Tree.leaf(x, k);
+}
+
+// Holding an opaque context exposes nothing: its predicate depends on no invariant.
+interface Context {
+  pred context(self: Ref) depends {}
+}
+
+module Contexts : Context {
+  field level: Int
+  pred context(self: Ref) { own(self.level, 0) }
+}
+
+module Hidden :> Context = Contexts
+
+inv counter(x: Ref) { exists v: Int :: own(x.value, v) }
+
+proc fresh(self: Ref)
+  requires Hidden.context(self)
+  ensures Hidden.context(self)
+  opens {}
+{
+  var x: Ref := new(value: 0);
+  fold counter(x);
+  unfold counter(x);
+  fold counter(x);
+}

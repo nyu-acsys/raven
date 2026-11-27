@@ -132,3 +132,17 @@ inline func union(s: Set[Int], t: Set[Int]) returns (r: Set[Int]) {
 lemma unionAssoc(a: Set[Int], b: Set[Int], c: Set[Int])
   ensures union(union(a, b), c) == union(a, union(b, c))
 {}
+
+// --- Cuts ---------------------------------------------------------------------
+//
+// After the cut, only `own(c.count, 2)` and the values of variables are known:
+// `d.count`'s ownership is left behind.
+proc demoCut(c: Ref, d: Ref)
+  requires own(c.count, 1) && own(d.count, 2)
+{
+  c.count := 2;
+  var before := 3;
+  cut own(c.count, 2);
+  assert before == 3;
+  c.count := before;
+}
