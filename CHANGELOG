@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 - Calls infer an implicit ghost argument from the one held predicate instance that fits it.
 
+### Fixed
+
+- Inline predicates that a module argument defines expand in the contracts of the module's instances.
+
 ## [1.7.0] - 2026-11-26
 
 ### Added

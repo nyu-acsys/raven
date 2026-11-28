@@ -265,6 +265,12 @@ let rec top_existentials (expr : Expr.t) : (Ident.t * Type.t) list =
 
 let assigned_vars = ImplicitArguments.assigned_vars
 
+(** [expr] with the inline predicates that a module argument defines expanded: a contract
+    or body reified for an instance names them only once the instance's arguments replace
+    the parameters, after elaboration expanded the rest. *)
+let expand_inline_predicates expr =
+  Elaboration.rewrite_inline_preds_expr (Set.empty (module QualIdent)) expr
+
 (** [stmt] with each [cut P] expanded into the exhale of [P], the cut itself, which
     retires what is known, and the inhale of [P]. *)
 let rec rewrite_cut_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
@@ -420,9 +426,10 @@ and rewrite_use (unfolded : unfolded list) (stmt : Stmt.t) (use_desc : Stmt.use_
               Map.add_exn map ~key:(QualIdent.from_ident var_decl.var_name) ~data:arg_expr)
         in
 
-        let new_body =
-          Expr.alpha_renaming body new_renaming_map |> Fn.flip Expr.set_loc loc
+        let* new_body =
+          expand_inline_predicates (Expr.alpha_renaming body new_renaming_map)
         in
+        let new_body = Expr.set_loc new_body loc in
 
         let existential_var_idens_set = Expr.existential_vars new_body in
 
@@ -835,13 +842,17 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
             | (_ :: _ as err) :: _ -> err
             | _ -> []
           in
+          let renamed specs =
+            Rewriter.List.map specs ~f:(fun (spec : Stmt.spec) ->
+                expand_inline_predicates
+                  (Expr.alpha_renaming spec.spec_form new_renaming_map))
+          in
+          let* preconditions = renamed call_decl.call_decl_precond in
+          let* postconditions = renamed call_decl.call_decl_postcond in
           let spec_form =
             Stmt.mk_spec
               ~cmnt:("Bind stmt for Call: " ^ Stmt.to_string stmt)
-              ~spec_error
-              (Expr.mk_and
-                 (List.map call_decl.call_decl_precond ~f:(fun spec ->
-                      Expr.alpha_renaming spec.spec_form new_renaming_map)))
+              ~spec_error (Expr.mk_and preconditions)
           in
 
           let bind_stmt =
@@ -864,7 +875,7 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
                 Stmt.mk_exhale_expr ~loc:stmt.stmt_loc ?name:spec.spec_name
                   ~cmnt:("Exhale stmt for Call: " ^ Stmt.to_string stmt)
                   ~spec_error:spec.spec_error ~spec_source:(callee_qual_ident, i)
-                  (Expr.alpha_renaming spec.spec_form new_renaming_map))
+                  (List.nth_exn preconditions i))
           in
 
           (* One inhale per postcond clause (rather than a single inhale of their
@@ -877,7 +888,7 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
                 Stmt.mk_inhale_expr ~loc:stmt.stmt_loc
                   ~cmnt:("Inhale stmt for Call: " ^ Stmt.to_string stmt)
                   ~spec_source:(callee_qual_ident, num_precond + j)
-                  (Expr.alpha_renaming spec.spec_form new_renaming_map))
+                  (List.nth_exn postconditions j))
           in
 
           let reassign_lhs_stmt =

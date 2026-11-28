@@ -1,0 +1,37 @@
+// An instance's contract with an expanded inline predicate is checked as written.
+interface Spec {
+  rep type E
+  pred p(e: E, n: Int)
+}
+
+module Use[S: Spec] {
+  proc need(e: S.E, n: Int)
+    requires S.p(e, n)
+    ensures S.p(e, n)
+  { }
+
+  pred wrapped(e: S.E, n: Int) { S.p(e, n) }
+}
+
+field value: Int
+
+module Concrete : Spec {
+  rep type E = Ref
+  inline pred p(e: E, n: Int) { own(e.value, n, 1.0) }
+}
+
+module UseConcrete = Use[Concrete]
+
+proc client(x: Ref)
+  requires own(x.value, 3, 1.0)
+  ensures own(x.value, 4, 1.0)
+{
+  UseConcrete.need(x, 3);
+}
+
+proc folded(x: Ref)
+  requires own(x.value, 3, 1.0)
+  ensures UseConcrete.wrapped(x, 3)
+{
+  fold UseConcrete.wrapped(x, 3);
+}
