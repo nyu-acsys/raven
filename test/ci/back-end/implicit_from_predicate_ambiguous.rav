@@ -1,0 +1,17 @@
+// Two held instances that fit leave an implicit argument to witness computation.
+interface Callback {
+  rep type Env
+  pred step(e: Env, n: Int)
+
+  proc call(e: Env, implicit ghost n: Int)
+    requires step(e, n)
+    ensures step(e, n + 1)
+}
+
+module Twice[C: Callback] {
+  proc either(e: C.Env)
+    requires C.step(e, 1) && C.step(e, 2)
+  {
+    C.call(e);
+  }
+}

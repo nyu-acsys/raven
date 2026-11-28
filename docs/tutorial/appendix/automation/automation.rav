@@ -59,6 +59,31 @@ proc demoImplicitGhostParam()
   fold sized(c)
 }
 
+// An implicit argument can also come from a predicate instance the caller
+// holds: `counted`'s `n` is an ordinary parameter, so the state has no
+// value to read it off.
+pred counted(c: Ref, n: Int) {
+  own(c.count, n, 1.0)
+}
+
+proc bump(c: Ref, implicit ghost n: Int)
+  requires counted(c, n)
+  ensures counted(c, n + 1)
+{
+  unfold counted(c, n)
+  var x := c.count
+  c.count := x + 1
+  fold counted(c, n + 1)
+}
+
+proc bumpTwice(c: Ref, implicit ghost n: Int)
+  requires counted(c, n)
+  ensures counted(c, n + 2)
+{
+  bump(c) // n, from the precondition's counted(c, n)
+  bump(c) // n + 1, from the first call's postcondition
+}
+
 // --- Triggers: more than one term, more than one set ------------------------
 //
 // A trigger can list more than one term, separated by commas: `{low(x),

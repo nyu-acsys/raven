@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- Calls infer an implicit ghost argument from the one held predicate instance that fits it.
+
 ## [1.7.0] - 2026-11-26
 
 ### Added

@@ -263,19 +263,7 @@ let rec top_existentials (expr : Expr.t) : (Ident.t * Type.t) list =
   | App (Impl, [ _; b ], _) -> top_existentials b
   | _ -> []
 
-(** The variables [stmt] assigns, if it is a basic statement. *)
-let assigned_vars (stmt : Stmt.t) : Ident.t list =
-  let idents = List.map ~f:QualIdent.unqualify in
-  match stmt.stmt_desc with
-  | Basic (Assign { assign_lhs; _ }) -> idents assign_lhs
-  | Basic (Bind { bind_lhs; _ }) -> idents bind_lhs
-  | Basic (Havoc { havoc_var; _ }) -> idents [ havoc_var ]
-  | Basic (Call { call_lhs; _ }) -> idents call_lhs
-  | Basic (New { new_lhs; _ }) -> idents [ new_lhs ]
-  | Basic (FieldRead { field_read_lhs; _ }) -> idents [ field_read_lhs ]
-  | Basic (AUAction { auaction_kind = OpenAU { lhs; _ } }) ->
-      List.concat_map lhs ~f:(fun e -> Set.to_list (Expr.local_vars e))
-  | _ -> []
+let assigned_vars = ImplicitArguments.assigned_vars
 
 (** [stmt] with each [cut P] expanded into the exhale of [P], the cut itself, which
     retires what is known, and the inhale of [P]. *)
@@ -1861,6 +1849,7 @@ let lower (m : Module.t) : (Module.t * CallGraph.Graph.t) Rewriter.t =
   Logs.debug (fun m1 ->
       m1 "Lowering.lower: Starting rewrite_fold_unfold_stmts on module %a" Ident.pr
         m.mod_decl.mod_decl_name);
+  let* m = Rewriter.Module.rewrite_callables ~f:ImplicitArguments.rewrite_callable m in
   let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_cut_stmts m in
   let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_fold_unfold_stmts m in
 

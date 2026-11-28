@@ -52,6 +52,30 @@ Calling `nonNegCount(c)` right after `unfold sized(c)` recovers `n` from the `ow
 unfold just produced. There is no search and no uniqueness proof. Raven simply reads off a value
 that is already visible.
 
+An implicit argument can also come from a predicate instance the caller holds. In
+[`automation.rav`](./automation.rav), `n` is an ordinary parameter of `counted`, so the state has
+no value for it to read off:
+
+```raven
+proc bump(c: Ref, implicit ghost n: Int)
+  requires counted(c, n)
+  ensures counted(c, n + 1)
+
+proc bumpTwice(c: Ref, implicit ghost n: Int)
+  requires counted(c, n)
+  ensures counted(c, n + 2)
+{
+  bump(c) // n, from the precondition's counted(c, n)
+  bump(c) // n + 1, from the first call's postcondition
+}
+```
+
+Raven tracks the predicate instances held along each path: those that the preconditions,
+inhales, folds, and the postconditions of calls give, until a call, exhale or unfold uses them
+up or a variable they mention changes. If exactly one held instance of `counted` agrees with the
+call's other arguments, its argument is the call's. This is the call with that argument written
+out, so it is checked like any other; with two such instances, write the argument yourself.
+
 ## Witness computation {#sec:witness-computation}
 
 When you `fold` a predicate or invariant whose body existentially quantifies over some variables

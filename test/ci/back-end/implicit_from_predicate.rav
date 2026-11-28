@@ -1,0 +1,56 @@
+// Implicit arguments of calls are taken from the one held predicate instance that fits.
+interface Callback {
+  rep type Env
+  pred step(e: Env, n: Int)
+
+  proc call(e: Env, implicit ghost n: Int)
+    requires step(e, n)
+    ensures step(e, n + 1)
+}
+
+module Twice[C: Callback] {
+  // n from the precondition, then n + 1 from the first call's postcondition.
+  proc twice(e: C.Env, implicit ghost n: Int)
+    requires C.step(e, n)
+    ensures C.step(e, n + 2)
+  {
+    C.call(e);
+    C.call(e);
+  }
+
+  // The instance held after both branches of a conditional.
+  proc branch(e: C.Env, b: Bool, implicit ghost n: Int)
+    requires C.step(e, n)
+    ensures C.step(e, n + 1)
+  {
+    if (b) {
+      C.call(e);
+    } else {
+      C.call(e);
+    }
+  }
+}
+
+field value: Int
+
+pred counter(x: Ref, v: Int) { own(x.value, v, 1.0) }
+
+proc bump(x: Ref, implicit ghost v: Int)
+  requires counter(x, v)
+  ensures counter(x, v + 1)
+{
+  unfold counter(x, v);
+  var w: Int := x.value;
+  x.value := w + 1;
+  fold counter(x, v + 1);
+}
+
+// A fold holds the instance it folds.
+proc client(x: Ref)
+  requires own(x.value, 5, 1.0)
+  ensures counter(x, 7)
+{
+  fold counter(x, 5);
+  bump(x);
+  bump(x);
+}
