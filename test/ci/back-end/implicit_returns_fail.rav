@@ -1,0 +1,13 @@
+// Only implicit returns may be left out of a call.
+proc pair(value: Int)
+  returns (result: Int, ghost copy: Int)
+  ensures result == value && copy == value
+{
+  copy := value;
+  result := value;
+}
+
+proc client(v: Int) returns (r: Int)
+{
+  r := pair(v);
+}

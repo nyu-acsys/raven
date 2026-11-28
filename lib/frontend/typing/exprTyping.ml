@@ -1171,11 +1171,16 @@ and check_returns loc ~is_ghost_scope ~is_call callable_decl returns_list =
           callable_decl.call_decl_name printers.pr_expr_list returns_list)
   in
 
-  (* Check if too few returns given. *)
+  (* Check if too few returns given: only trailing implicit ones may be left out, for the
+     call to bind from its postcondition. *)
   let _ =
     let num_found = List.length returns_list in
     let num_expected = List.length callable_returns in
-    if not (num_found = num_expected) then
+    let omitted = List.drop callable_returns num_found in
+    if
+      num_found > num_expected
+      || not (List.for_all omitted ~f:(fun var_decl -> var_decl.Type.var_implicit))
+    then
       return_count_error loc callable_decl.call_decl_name ~expected:num_expected
         ~found:num_found
   in

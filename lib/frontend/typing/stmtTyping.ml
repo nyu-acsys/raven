@@ -527,6 +527,22 @@ let rec check_basic call_decl (basic_stmt : Stmt.basic_stmt_desc) (stmt_loc : Lo
         (ext_hooks.type_check_basic_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl
            (ext_stmt_functs ~is_ghost_scope disam_tbl))
 
+(** Whether [expr] calls a procedure or lemma. *)
+and is_procedure_call (expr : expr) : bool t =
+  let open Rewriter.Syntax in
+  match expr with
+  | App (Var name, _, _) ->
+      let+ found = Rewriter.resolve_and_find_opt name in
+      begin match found with
+      | Some (_, symbol) ->
+          begin match Rewriter.Symbol.orig_symbol symbol with
+          | CallDef { call_decl = { call_decl_kind = Proc | Lemma; _ }; _ } -> true
+          | _ -> false
+          end
+      | None -> false
+      end
+  | _ -> Rewriter.return false
+
 (** A declaration of a local variable. *)
 and check_var_def (var_def : Stmt.var_def) (call_decl : Callable.call_decl)
     (stmt_loc : location) (disam_tbl : DisambiguationTbl.t)
@@ -568,12 +584,18 @@ and check_var_def (var_def : Stmt.var_def) (call_decl : Callable.call_decl)
             | _ -> Type.meet var_decl.var_type Type.any
             end
         | Some expr ->
-            let+ expr =
-              disambiguate_and_check_expr expr
-                (var_decl.var_type |> Type.set_ghost var_ghost)
-                disam_tbl ~allow_proc_call:true
-            in
-            Expr.to_type expr
+            let* procedure_call = is_procedure_call expr in
+            (* A typed variable initialized by a call is checked as the call's target,
+               which may leave out the callee's trailing implicit returns. *)
+            if procedure_call && not (Type.equal var_decl.var_type Type.any) then
+              Rewriter.return var_decl.var_type
+            else
+              let+ expr =
+                disambiguate_and_check_expr expr
+                  (var_decl.var_type |> Type.set_ghost var_ghost)
+                  disam_tbl ~allow_proc_call:true
+              in
+              Expr.to_type expr
       in
       let var_type =
         if Type.equal var_decl.var_type Type.any then var_type else var_decl.var_type
@@ -1146,7 +1168,8 @@ let coerce_outputs ~loc basic_stmt =
         let* callable = Rewriter.find_and_reify_callable call.call_name in
         let+ outputs =
           destinations ~is_init:call.call_is_init call.call_lhs
-            callable.call_decl.call_decl_returns
+            (* Implicit trailing returns left out are bound by the call. *)
+            (List.take callable.call_decl.call_decl_returns (List.length call.call_lhs))
         in
         ( Stmt.Call { call with call_lhs = List.map outputs ~f:fst },
           List.filter_map outputs ~f:snd )

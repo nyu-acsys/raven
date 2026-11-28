@@ -1,0 +1,34 @@
+// A call may leave out a callee's trailing implicit returns, which its postcondition binds.
+proc identity(value: Int)
+  returns (result: Int, implicit ghost copy: Int)
+  ensures result == value && copy == value
+{
+  copy := value;
+  result := value;
+}
+
+proc assigned(v: Int) returns (r: Int)
+  ensures r == v
+{
+  var t : Int;
+  t := identity(v);
+  r := t;
+}
+
+proc initialized(v: Int) returns (r: Int)
+  ensures r == v
+{
+  var t : Int := identity(v);
+  r := t;
+}
+
+// They may also be bound.
+proc bound(v: Int) returns (r: Int)
+  ensures r == v
+{
+  var t : Int;
+  ghost var c : Int;
+  t, c := identity(v);
+  assert c == v;
+  r := t;
+}
