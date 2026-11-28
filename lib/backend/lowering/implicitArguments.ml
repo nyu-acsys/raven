@@ -43,17 +43,21 @@ let rec conjuncts (expr : Expr.t) =
   | App (And, args, _) -> List.concat_map args ~f:conjuncts
   | _ -> [ expr ]
 
-(** The predicate or invariant that [expr] is an instance of, resolved, with its
-    arguments. *)
-let atom (expr : Expr.t) : (string * Expr.t list) option Rewriter.t =
+(** The predicate or invariant that [expr] is an instance of, resolved, with its arguments
+    and the number of its explicit parameters, which the implicit ones follow. *)
+let atom (expr : Expr.t) : (string * Expr.t list * int) option Rewriter.t =
   let open Rewriter.Syntax in
   match expr with
   | App (Var name, (_ :: _ as args), _) ->
       let+ found = Rewriter.resolve_and_find_opt name in
       Option.bind found ~f:(fun (resolved, symbol) ->
           match Rewriter.Symbol.orig_symbol symbol with
-          | CallDef { call_decl = { call_decl_kind = Pred | Invariant; _ }; _ } ->
-              Some (QualIdent.to_string resolved, args)
+          | CallDef
+              {
+                call_decl = { call_decl_kind = Pred | Invariant; call_decl_formals; _ };
+                _;
+              } ->
+              Some (QualIdent.to_string resolved, args, List.length call_decl_formals)
           | _ -> None)
   | _ -> Rewriter.return None
 
@@ -66,7 +70,7 @@ let instances renaming (specs : Stmt.spec list) =
            conjuncts (Expr.alpha_renaming spec.Stmt.spec_form renaming)))
       ~f:atom
   in
-  List.filter_map atoms ~f:(Option.map ~f:(fun (pred, args) -> make_held pred args))
+  List.filter_map atoms ~f:(Option.map ~f:(fun (pred, args, _) -> make_held pred args))
 
 let gain gained held =
   gained @ List.filter held ~f:(fun h -> not (List.exists gained ~f:(same h)))
@@ -89,54 +93,62 @@ let variable_of (vd : Type.var_decl) (expr : Expr.t) =
   | _ -> false
 
 (** The argument for the omitted implicit parameter [v], given [renaming] of the callee's
-    supplied parameters, if one held instance determines it. *)
+    supplied parameters, if the held instances determine it where witness computation
+    cannot: [v] is, in the precondition, only an explicit argument of predicates, each of
+    whose instances held agree with the atom on the other arguments, and all of them give
+    the same value. *)
 let candidate held renaming ~omitted (precond : Stmt.spec list) (v : Type.var_decl) =
   let open Rewriter.Syntax in
-  let mentions_omitted arg =
-    List.exists omitted ~f:(fun (o : Type.var_decl) ->
-        Set.mem (Expr.local_vars arg) o.var_name)
-  in
+  let mentions arg (o : Type.var_decl) = Set.mem (Expr.local_vars arg) o.var_name in
   let forms =
     List.concat_map precond ~f:(fun spec ->
         conjuncts (Expr.alpha_renaming spec.Stmt.spec_form renaming))
+    |> List.filter ~f:(fun form -> mentions form v)
   in
-  (* A parameter the state may determine, through own, is left to witness computation. *)
-  let owned =
-    List.exists forms ~f:(fun form ->
-        match form with
-        | App (Own, args, _) ->
-            List.exists args ~f:(fun arg -> Set.mem (Expr.local_vars arg) v.var_name)
-        | _ -> false)
+  let+ atoms = Rewriter.List.map forms ~f:atom in
+  (* The values that the held instances give for [v] through one atom, if it is one. *)
+  let values = function
+    | None -> None
+    | Some (pred, args, explicit) -> (
+        match
+          List.filter_mapi args ~f:(fun i arg -> Option.some_if (mentions arg v) i)
+        with
+        | [ position ]
+          when position < explicit && variable_of v (List.nth_exn args position) ->
+            let others = List.filteri args ~f:(fun i _ -> i <> position) in
+            if List.exists others ~f:(fun arg -> List.exists omitted ~f:(mentions arg))
+            then None
+            else
+              let spellings = List.map others ~f:Expr.to_string in
+              Some
+                (List.filter_map held ~f:(fun h ->
+                     let held_others =
+                       List.filteri h.spellings ~f:(fun i _ -> i <> position)
+                     in
+                     if
+                       String.equal h.pred pred
+                       && List.length h.args = List.length args
+                       && List.equal String.equal held_others spellings
+                     then Some (List.nth_exn h.args position)
+                     else None))
+        | _ -> None)
   in
-  if owned then Rewriter.return None
-  else
-    let+ atoms = Rewriter.List.map forms ~f:atom in
-    let candidates =
-      List.concat_map (List.filter_opt atoms) ~f:(fun (pred, args) ->
-          match List.findi args ~f:(fun _ arg -> variable_of v arg) with
-          | None -> []
-          | Some (position, _) ->
-              let others = List.filteri args ~f:(fun i _ -> i <> position) in
-              if List.exists others ~f:mentions_omitted then []
-              else
-                let spellings = List.map others ~f:Expr.to_string in
-                List.filter_map held ~f:(fun h ->
-                    let held_others =
-                      List.filteri h.spellings ~f:(fun i _ -> i <> position)
-                    in
-                    if
-                      String.equal h.pred pred
-                      && List.length h.args = List.length args
-                      && List.equal String.equal held_others spellings
-                    then Some (List.nth_exn h.args position)
-                    else None))
-    in
-    match
-      List.dedup_and_sort candidates ~compare:(fun a b ->
-          String.compare (Expr.to_string a) (Expr.to_string b))
-    with
-    | [ argument ] -> Some argument
-    | _ -> None
+  match Option.all (List.map atoms ~f:values) with
+  | None | Some [] -> None
+  | Some (first :: rest) ->
+      let spelled values = List.map values ~f:Expr.to_string in
+      let agreed =
+        List.filter first ~f:(fun value ->
+            List.for_all rest ~f:(fun values ->
+                List.mem (spelled values) (Expr.to_string value) ~equal:String.equal))
+      in
+      begin match
+        List.dedup_and_sort agreed ~compare:(fun a b ->
+            String.compare (Expr.to_string a) (Expr.to_string b))
+      with
+      | [ argument ] -> Some argument
+      | _ -> None
+      end
 
 (** [call_desc] with the omitted implicit arguments that [held] determines, and the
     instances held after the call. *)
@@ -256,7 +268,7 @@ let rec track (held : held list) (stmt : Stmt.t) : (Stmt.t * held list) Rewriter
       let* atom =
         atom (Expr.mk_app ~typ:Type.perm (Var use_desc.use_name) use_desc.use_args)
       in
-      let instance = Option.map atom ~f:(fun (pred, args) -> make_held pred args) in
+      let instance = Option.map atom ~f:(fun (pred, args, _) -> make_held pred args) in
       let held =
         match (use_desc.use_kind, instance) with
         | Fold, Some instance -> gain [ instance ] held

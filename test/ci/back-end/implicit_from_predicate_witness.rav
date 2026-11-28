@@ -1,0 +1,25 @@
+// An implicit argument that witness computation finds, here from the implicit parameter
+// of lock, is not taken from a held instance of another predicate that also mentions it.
+field value: Int
+
+pred lock(m: Ref; r: Int) { own(m.value, r, 1.0) }
+
+pred res(x: Int) { true }
+
+pred outer(m: Ref) { lock(m, 5) && res(5) }
+
+proc use(m: Ref, implicit ghost r: Int)
+  requires lock(m, r) && res(r)
+  ensures lock(m, r)
+{
+  unfold res(r);
+}
+
+proc client(m: Ref)
+  requires outer(m)
+  ensures lock(m, 5)
+{
+  unfold outer(m);
+  fold res(3);
+  use(m);
+}
